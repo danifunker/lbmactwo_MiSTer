@@ -7,10 +7,10 @@ This is an initial build, I doubt any of it works yet!
 ## Usage
 
 * Copy the [*.rbf](https://github.com/MiSTer-devel/MacPlus_MiSTer/tree/master/releases) onto the root of SD card NOT AVAILBLE YET. Need to build from scratch now
-* Copy boot0.rom & boot1.rom boot0.rom = Mac II ROM (recommended `1987-12 - 9779D2C4 - MacII (800k v2).ROM`, boot1.rom = `Apple_341-0660_High_Resolution_Display_Card_630-4230.bin` OR `342-0008-a.bin` -- I am still figuring this out) to the lbatwomac folder
-* Copy disk images in dsk format (e.g. Disk605.dsk) to lbatwomac folder
+* Copy boot0.rom & boot1.rom boot0.rom = Mac II ROM (recommended `1987-12 - 9779D2C4 - MacII (800k v2).ROM`, boot1.rom = `Apple_341-0660_High_Resolution_Display_Card_630-4230.bin` OR `342-0008-a.bin` -- I am still figuring this out) to the lbmactwo folder
+* Copy disk images in dsk format (e.g. Disk605.dsk) to lbmactwo folder
 
-After a few seconds, the floppy disk icon should appear. Open the on-screen display using the F12 key and select the a disk image. The upload of the disk image will take a few seconds. If a bootable system is found on disk, a smiling Mac icon will appear. lbamactwo will then begin booting into the desktop.
+After a few seconds, the floppy disk icon should appear. Open the on-screen display using the F12 key and select the a disk image. The upload of the disk image will take a few seconds. If a bootable system is found on disk, a smiling Mac icon will appear. lbmactwo will then begin booting into the desktop.
 
 ## Floppy disk support
 
@@ -30,7 +30,7 @@ Official system disk images are available from an archived Apple support page [h
 
 The lbmactwo core supports SCSI hard drive images up to 2GB (HFS) in size, with a .vhd extension. The core currently implements only a subset of the SCSI commands. This is sufficient to read and write the disk, to boot from it, and to format it using the setup tools that come with System 6.0.8.
 
-The harddisk image to be used can be selected from the "Mount *.vhd" entry in the on-screen-display. Copy the boot.vhd to lbamactwo folder and it will be automatically mounted at start. The format of the disk image is the same as the one used by the SCSI2SD project, documented [here](http://www.codesrc.com/mediawiki/index.php?title=HFSFromScratch).
+The harddisk image to be used can be selected from the "Mount *.vhd" entry in the on-screen-display. Copy the boot.vhd to lbmactwo folder and it will be automatically mounted at start. The format of the disk image is the same as the one used by the SCSI2SD project, documented [here](http://www.codesrc.com/mediawiki/index.php?title=HFSFromScratch).
 
 Unlike the floppy, the SCSI disk is writable and data can be written to the disk from within the core.
 
