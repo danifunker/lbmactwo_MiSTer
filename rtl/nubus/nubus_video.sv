@@ -126,9 +126,8 @@ module nubus_video (
         end else begin
             vbl_pulse <= 0;
             if (h_cnt == H_TOTAL - 1) begin
-            vbl_disable <= 1;
-        end else begin
-            if (vbl_pulse && !vbl_disableL - 1) begin
+                h_cnt <= 11'd0;
+                if (v_cnt == V_TOTAL - 1) begin
                     v_cnt <= 11'd0;
                 end else begin
                     v_cnt <= v_cnt + 11'd1;
@@ -146,14 +145,15 @@ module nubus_video (
             irq_active <= 0;
             nmrq_n <= 1;
         end else begin
-            if (vbl_pulse && irq_en)
+            if (vbl_pulse && !vbl_disable)
                 irq_active <= 1;
             if (irq_clear)
                 irq_active <= 0;
             nmrq_n <= ~irq_active;
         end
     end
- using MAME's stride-based approach
+
+    // VRAM Address Calculation using MAME's stride-based approach
     // Address = (base_offset * 4) + (v_cnt * stride * 4) + h_byte_offset
     // Where stride is in 32-bit words, so multiply by 4 to get byte offset
     
@@ -167,8 +167,7 @@ module nubus_video (
                                              {9'd0, h_cnt[10:1]};     // 8bpp: h/2 words
     
     wire [17:0] fetch_addr;
-    assign fetch_addr = vram_base_offset[16:0] + v_offset + h_byte_offset :
-                                          (v_times_320 + h_offset_3);
+    assign fetch_addr = vram_base_offset[16:0] + v_offset + h_byte_offset;
 
     // Unified state machine
     reg [15:0] vram_cache;
@@ -188,10 +187,8 @@ module nubus_video (
     // ROM Download
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && (ioctl_index == 8'd1)) begin
-           8:0] cpu_vram_addr = addr[19:1];  // 32-bit word address (offset in VRAM)
-                rom[{ioctl_addr[13:0], 1'b0}] <= ioctl_data[7:0];
-                rom[{ioctl_addr[13:0], 1'b1}] <= ioctl_data[15:8];
-            end
+            rom[{ioctl_addr[13:0], 1'b0}] <= ioctl_data[7:0];
+            rom[{ioctl_addr[13:0], 1'b1}] <= ioctl_data[15:8];
         end
     end
     
@@ -209,13 +206,26 @@ module nubus_video (
             last_fetch_addr <= 18'h3FFFF;
             ack_n <= 1;
             data_out <= 16'd0;
-            reg_control <= 0;
-            reg_pixel_mask <= 8'hFF;
-            reg_clut_addr_wr <= 0;
-            reg_clut_addr_rd <= 0;
-            clut_seq_cnt <= 0;
+            ramdac_addr <= 0;
+            ramdac_color_index <= 0;
+            // Initialize MAME-compatible registers
+            for (i = 0; i < 16; i = i + 1)
+                registers[i] <= 32'd0;
         end else begin
             case (state)
+                S_VIDEO_FETCH: begin
+                    state <= S_VIDEO_WAIT;
+                end
+                
+                S_VIDEO_WAIT: begin
+                    if (vram_ready) begin
+                        vram_cache <= ~vram_din;  // Invert data from VRAM like MAME
+                        vram_cache_valid <= 1;
+                        vram_rd <= 0;
+                        state <= S_IDLE;
+                    end
+                end
+                
                 S_IDLE: begin
                     vram_rd <= 0;
                     vram_wr <= 0;
@@ -223,21 +233,7 @@ module nubus_video (
                     // Priority: CPU accesses, then video fetch
                     if (select && ack_n) begin
                         if (!rw_n && addr[23:19] == 5'b00000) begin
-             amdac_addr <= 0;
-            ramdac_color_index <= 0;
-            // Initialize MAME-compatible registers
-            for (i = 0; i < 16; i = i + 1)
-                registers[i] <= 32'd    state <= S_CPU_WRITE;
-                            end else begin
-                                ack_n <= 0;
-                            end
-                        end else if (rw_n && addr[23:19] == 5'b00000) begin
-                            // CPU VRAM read
-                            if (cpu_vram_addr < 153600) begin
-                                vram_addr <= VRAM_BASE + {7'd0, cpu_vram_addr};
-                                state <= S_CPU_READ;
-                            end else begin
-                                data_out <= 1 (with data inversion like MAME)
+                            // CPU VRAM write (with data inversion like MAME)
                             if (cpu_vram_addr < VRAM_SIZE) begin
                                 vram_addr <= VRAM_BASE + {6'd0, cpu_vram_addr};
                                 vram_dout <= ~data_in;  // Invert data like MAME
@@ -272,7 +268,7 @@ module nubus_video (
                             // Register read - rarely used, return inverted 0
                             data_out <= 16'hFFFF;
                             ack_n <= 0;
-                        end else if (!rw_n && addr[23:19] == 5'b00010) begin
+                        end else if (!rw_n && addr[23:16] == 8'h09) begin
                             // RAMDAC write (0x090000 - 0x09FFFF) - Bt453 RAMDAC
                             // MAME: offset & 1 == 0 -> address_w, offset & 1 == 1 -> palette_w
                             if (addr[1]) begin
@@ -292,18 +288,19 @@ module nubus_video (
                                 ramdac_color_index <= 0;
                             end
                             ack_n <= 0;
-                        end else if (rw_n && addr[23:19] == 5'b00010) begin
+                        end else if (rw_n && addr[23:16] == 8'h09) begin
                             // RAMDAC/VBlank read (0x090000 - 0x09FFFF)
                             if (addr[15:2] == 14'h0004) begin  // Offset 0x10/4 in MAME
                                 // Return VBlank status and monitor ID
                                 // Bit 16: VBlank, Bits 17-20: monitor ID (inverted)
-                                data_out <= (v_cnt >= V_RES) ? 16'h0001 : 16'h0000;  // VBlank in bit 0 of word
-                                // Monitor ID 1 (0x1 << 1 = 0x2) for 640x480 13" RGB
+                                // MAME: (m_screen->vblank() << 16) | (1<<17)
+                                // On 16-bit bus, bit 16 of 32-bit becomes bit 0 of high word
+                                data_out <= (v_cnt >= V_RES) ? 16'h0003 : 16'h0002;  // VBlank in bit 0, monitor ID 1 in bit 1
                             end else begin
                                 data_out <= 16'hFFFF;
                             end
                             ack_n <= 0;
-                        end else if (!rw_n && addr[23:19] == 5'b00101) begin
+                        end else if (!rw_n && addr[23:16] == 8'h0A) begin
                             // VBL control (0x0A0000 - 0x0AFFFF)
                             if (addr[2]) begin
                                 vbl_disable <= 1;  // Offset with bit 2 set disables VBL
@@ -317,7 +314,7 @@ module nubus_video (
                             if (addr[14:0] < 15'd16384) begin
                                 data_out[15:8] <= rom[{addr[14:1], 1'b0}];
                                 data_out[7:0] <= rom[{addr[14:1], 1'b1}];
-                            end else b~vram_din;  // Invert data from VRAM like MAME
+                            end else begin
                                 data_out <= 16'd0;
                             end
                             ack_n <= 0;
@@ -329,10 +326,10 @@ module nubus_video (
                         ack_n <= 1;
                     end else if (video_en && fetch_addr != last_fetch_addr && fetch_addr < VRAM_SIZE) begin
                         // Video fetch when CPU not accessing and video enabled
-                        vram_addr <= VRAM_BASE + {6
+                        vram_addr <= VRAM_BASE + {6'd0, fetch_addr};
                         last_fetch_addr <= fetch_addr;
-                        vram_rd <= 0~vram_din;  // Invert data from VRAM like MAME
-                        state <= S_IDLE;
+                        vram_rd <= 1;
+                        state <= S_VIDEO_FETCH;
                     end
                 end
                 
@@ -356,7 +353,7 @@ module nubus_video (
                 
                 S_CPU_READ_WAIT: begin
                     if (vram_ready) begin
-                        data_out <= vram_din;
+                        data_out <= ~vram_din;  // Invert data from VRAM like MAME
                         vram_rd <= 0;
                         ack_n <= 0;
                         state <= S_IDLE;
@@ -382,10 +379,10 @@ module nubus_video (
     reg [7:0] pixel_idx;
     always @(*) begin
         case (mode)
-    // Output pixels (no mask for now, MAME doesn't use pixel mask on output)
-    assign vga_r = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][23:16];
-    assign vga_g = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][15:8];
-    assign vga_b = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel
+            2'b00: begin
+                case (h_cnt_d)
+                    3'd0: pixel_idx = {7'b0, vram_byte[7]};
+                    3'd1: pixel_idx = {7'b0, vram_byte[6]};
                     3'd2: pixel_idx = {7'b0, vram_byte[5]};
                     3'd3: pixel_idx = {7'b0, vram_byte[4]};
                     3'd4: pixel_idx = {7'b0, vram_byte[3]};
@@ -407,9 +404,9 @@ module nubus_video (
         endcase
     end
 
-    wire [7:0] masked_idx = pixel_idx & reg_pixel_mask;
-    assign vga_r = (vga_blank || !vram_cache_valid) ? 8'h00 : clut[masked_idx][23:16];
-    assign vga_g = (vga_blank || !vram_cache_valid) ? 8'h00 : clut[masked_idx][15:8];
-    assign vga_b = (vga_blank || !vram_cache_valid) ? 8'h00 : clut[masked_idx][7:0];
+    // Output pixels (no mask for now, MAME doesn't use pixel mask on output)
+    assign vga_r = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][23:16];
+    assign vga_g = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][15:8];
+    assign vga_b = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][7:0];
 
 endmodule
