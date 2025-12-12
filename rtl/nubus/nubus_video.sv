@@ -49,8 +49,11 @@ module nubus_video (
     
     // VRAM base address in SDRAM (3MB offset to avoid Mac RAM/ROM/disk images)
     localparam VRAM_BASE = 25'h300000;
+    
+    // VRAM size - 512KB (262144 words) to match MAME
+    localparam VRAM_SIZE = 262144;  // 0x80000 bytes / 2 bytes per word
 
-    // CLUT - Keep on-chip
+    // CLUT - Keep on-chip (managed by Bt453 RAMDAC)
     reg [23:0] clut [0:255];
     integer i;
     initial begin
@@ -62,19 +65,34 @@ module nubus_video (
     // ROM Buffer - Keep on-chip
     reg [7:0] rom [0:32767];
 
+    // MAME Register indices (matching TFB 2.2 ASIC)
+    localparam REG_BASE = 0;           // VRAM offset in 32-bit words
+    localparam REG_LENGTH = 1;         // Scanline stride in 32-bit words
+    localparam REG_MISC = 2;           // Mode bits [10:8], pixel depth
+    localparam REG_SYNCINTERVAL = 3;
+    localparam REG_VFRONTPORCH = 4;
+    localparam REG_VBACKPORCH = 5;
+    localparam REG_VLINES = 6;
+    localparam REG_HFRONTPORCH = 7;
+    localparam REG_HSYNCPULSE = 8;
+    localparam REG_HBACKPORCH = 9;
+    localparam REG_HFIRST = 10;
+    localparam REG_HLAST = 11;
+    localparam REG_SOFTRESET = 12;     // Bit 0 = 1 to enable video
+
     // Registers
-    reg [7:0] reg_control;
-    reg [7:0] reg_pixel_mask;
-    reg [7:0] reg_clut_addr_wr;
-    reg [7:0] reg_clut_addr_rd;
-    reg [1:0] clut_seq_cnt;
-    reg [23:0] clut_temp_data;
+    reg [31:0] registers [0:15];
+    reg [7:0] ramdac_addr;
+    reg [1:0] ramdac_color_index;
     reg irq_active;
     reg irq_clear;
-
-    wire [1:0] mode = reg_control[5:4];
-    wire video_en = reg_control[7];
-    wire irq_en = reg_control[0];
+    reg vbl_disable;
+    
+    // Decoded values from registers
+    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? (registers[REG_MISC][10:8] - 4) : 2'd0;  // Bt453: mode 4-7 maps to 0-3
+    wire video_en = registers[REG_SOFTRESET][0];
+    wire [16:0] vram_base_offset = registers[REG_BASE][16:0];  // In 32-bit words
+    wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
 
     // Video Counters
     reg [10:0] h_cnt;
@@ -108,8 +126,9 @@ module nubus_video (
         end else begin
             vbl_pulse <= 0;
             if (h_cnt == H_TOTAL - 1) begin
-                h_cnt <= 11'd0;
-                if (v_cnt == V_TOTAL - 1) begin
+            vbl_disable <= 1;
+        end else begin
+            if (vbl_pulse && !vbl_disableL - 1) begin
                     v_cnt <= 11'd0;
                 end else begin
                     v_cnt <= v_cnt + 11'd1;
@@ -134,35 +153,21 @@ module nubus_video (
             nmrq_n <= ~irq_active;
         end
     end
-
-    // Video fetch address calculation
-    // Calculate row offsets for each video mode
-    // Mode 0: 1bpp, 40 words/line = v * 40
-    // Mode 1: 2bpp, 80 words/line = v * 80  
-    // Mode 2: 4bpp, 160 words/line = v * 160
-    // Mode 3: 8bpp, 320 words/line = v * 320
+ using MAME's stride-based approach
+    // Address = (base_offset * 4) + (v_cnt * stride * 4) + h_byte_offset
+    // Where stride is in 32-bit words, so multiply by 4 to get byte offset
     
-    // Use minimum required widths to avoid truncation warnings
-    // v_cnt max is 525, multiply by constants, truncate to 18-bit result
-    wire [17:0] v_times_40;
-    wire [17:0] v_times_80;
-    wire [17:0] v_times_160;
-    wire [17:0] v_times_320;
+    wire [17:0] v_offset = v_cnt[9:0] * vram_stride[9:0];  // In 32-bit words
     
-    assign v_times_40  = v_cnt[9:0] * 10'd40;   // 10-bit * 10-bit = 20-bit, truncate to 18
-    assign v_times_80  = v_cnt[9:0] * 10'd80;   // 10-bit * 10-bit = 20-bit, truncate to 18
-    assign v_times_160 = v_cnt[7:0] * 8'd160;   // 8-bit * 8-bit = 16-bit, fits in 18
-    assign v_times_320 = v_cnt[6:0] * 7'd320;   // 7-bit * 9-bit = 16-bit, fits in 18
-    
-    wire [17:0] h_offset_0 = {11'd0, h_cnt[10:4]};
-    wire [17:0] h_offset_1 = {10'd0, h_cnt[10:3]};
-    wire [17:0] h_offset_2 = {9'd0, h_cnt[10:2]};
-    wire [17:0] h_offset_3 = {9'd0, h_cnt[10:1]};
+    // Horizontal byte offset depends on mode
+    wire [17:0] h_byte_offset;
+    assign h_byte_offset = (mode == 2'b00) ? {11'd0, h_cnt[10:4]} :   // 1bpp: h/16 words
+                           (mode == 2'b01) ? {10'd0, h_cnt[10:3]} :   // 2bpp: h/8 words
+                           (mode == 2'b10) ? {9'd0, h_cnt[10:2]} :    // 4bpp: h/4 words
+                                             {9'd0, h_cnt[10:1]};     // 8bpp: h/2 words
     
     wire [17:0] fetch_addr;
-    assign fetch_addr = (mode == 2'b00) ? (v_times_40 + h_offset_0) :
-                        (mode == 2'b01) ? (v_times_80 + h_offset_1) :
-                        (mode == 2'b10) ? (v_times_160 + h_offset_2) :
+    assign fetch_addr = vram_base_offset[16:0] + v_offset + h_byte_offset :
                                           (v_times_320 + h_offset_3);
 
     // Unified state machine
@@ -183,7 +188,7 @@ module nubus_video (
     // ROM Download
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && (ioctl_index == 8'd1)) begin
-            if (ioctl_addr < 16384) begin
+           8:0] cpu_vram_addr = addr[19:1];  // 32-bit word address (offset in VRAM)
                 rom[{ioctl_addr[13:0], 1'b0}] <= ioctl_data[7:0];
                 rom[{ioctl_addr[13:0], 1'b1}] <= ioctl_data[15:8];
             end
@@ -218,11 +223,11 @@ module nubus_video (
                     // Priority: CPU accesses, then video fetch
                     if (select && ack_n) begin
                         if (!rw_n && addr[23:19] == 5'b00000) begin
-                            // CPU VRAM write
-                            if (cpu_vram_addr < 153600) begin
-                                vram_addr <= VRAM_BASE + {7'd0, cpu_vram_addr};
-                                vram_dout <= data_in;
-                                state <= S_CPU_WRITE;
+             amdac_addr <= 0;
+            ramdac_color_index <= 0;
+            // Initialize MAME-compatible registers
+            for (i = 0; i < 16; i = i + 1)
+                registers[i] <= 32'd    state <= S_CPU_WRITE;
                             end else begin
                                 ack_n <= 0;
                             end
@@ -232,76 +237,101 @@ module nubus_video (
                                 vram_addr <= VRAM_BASE + {7'd0, cpu_vram_addr};
                                 state <= S_CPU_READ;
                             end else begin
-                                data_out <= 16'd0;
+                                data_out <= 1 (with data inversion like MAME)
+                            if (cpu_vram_addr < VRAM_SIZE) begin
+                                vram_addr <= VRAM_BASE + {6'd0, cpu_vram_addr};
+                                vram_dout <= ~data_in;  // Invert data like MAME
+                                state <= S_CPU_WRITE;
+                            end else begin
                                 ack_n <= 0;
                             end
-                        end else if (!rw_n && addr[23:16] == 8'h08) begin
-                            // Register write
-                            case (addr[15:0])
-                                16'h0000: if (uds_lds[1]) reg_control <= data_in[15:8];
-                                16'h0004: if (uds_lds[1]) irq_clear <= 1;
-                                16'h0010: if (uds_lds[1]) begin
-                                    reg_clut_addr_wr <= data_in[15:8];
-                                    clut_seq_cnt <= 0;
+                        end else if (rw_n && addr[23:19] == 5'b00000) begin
+                            // CPU VRAM read (with data inversion like MAME)
+                            if (cpu_vram_addr < VRAM_SIZE) begin
+                                vram_addr <= VRAM_BASE + {6'd0, cpu_vram_addr};
+                                state <= S_CPU_READ;
+                            end else begin
+                                data_out <= 16'hFFFF;  // Inverted 0
+                                ack_n <= 0;
+                            end
+                        end else if (!rw_n && addr[23:19] == 5'b00001) begin
+                            // Register write (0x080000 - 0x08FFFF) - MAME TFB registers
+                            // MAME stores as 32-bit words, we use 16-bit bus so handle endianness
+                            if (addr[18:6] == 0) begin  // Registers 0-15 at offsets 0x00-0x3C
+                                // Data inverted like MAME, handle 16-bit writes to 32-bit registers
+                                if (addr[1]) begin
+                                    // Low word
+                                    registers[addr[5:2]][15:0] <= ~data_in;
+                                end else begin
+                                    // High word
+                                    registers[addr[5:2]][31:16] <= ~data_in;
                                 end
-                                16'h0014: if (uds_lds[1]) begin
-                                    case (clut_seq_cnt)
-                                        0: begin clut_temp_data[23:16] <= data_in[15:8]; clut_seq_cnt <= 1; end
-                                        1: begin clut_temp_data[15:8] <= data_in[15:8]; clut_seq_cnt <= 2; end
-                                        2: begin
-                                            clut[reg_clut_addr_wr] <= {clut_temp_data[23:16], clut_temp_data[15:8], data_in[15:8]};
-                                            reg_clut_addr_wr <= reg_clut_addr_wr + 8'd1;
-                                            clut_seq_cnt <= 0;
-                                        end
-                                    endcase
-                                end
-                                16'h0018: if (uds_lds[1]) reg_pixel_mask <= data_in[15:8];
-                                16'h001C: if (uds_lds[1]) reg_clut_addr_rd <= data_in[15:8];
-                            endcase
+                            end
                             ack_n <= 0;
-                        end else if (rw_n && addr[23:16] == 8'h08) begin
-                            // Register read
-                            data_out <= 16'd0;
-                            case (addr[15:0])
-                                16'h0008: data_out[15:8] <= 8'b00000011;
-                                16'h0018: data_out[15:8] <= reg_pixel_mask;
-                                16'h001C: data_out[15:8] <= reg_clut_addr_rd;
-                            endcase
+                        end else if (rw_n && addr[23:19] == 5'b00001) begin
+                            // Register read - rarely used, return inverted 0
+                            data_out <= 16'hFFFF;
+                            ack_n <= 0;
+                        end else if (!rw_n && addr[23:19] == 5'b00010) begin
+                            // RAMDAC write (0x090000 - 0x09FFFF) - Bt453 RAMDAC
+                            // MAME: offset & 1 == 0 -> address_w, offset & 1 == 1 -> palette_w
+                            if (addr[1]) begin
+                                // Odd address: palette data (R, G, B sequential)
+                                case (ramdac_color_index)
+                                    0: clut[ramdac_addr][23:16] <= ~data_in[15:8];
+                                    1: clut[ramdac_addr][15:8] <= ~data_in[15:8];
+                                    2: begin
+                                        clut[ramdac_addr][7:0] <= ~data_in[15:8];
+                                        ramdac_addr <= ramdac_addr + 8'd1;  // Auto-increment
+                                    end
+                                endcase
+                                ramdac_color_index <= (ramdac_color_index == 2) ? 2'd0 : ramdac_color_index + 2'd1;
+                            end else begin
+                                // Even address: set palette index
+                                ramdac_addr <= ~data_in[15:8];
+                                ramdac_color_index <= 0;
+                            end
+                            ack_n <= 0;
+                        end else if (rw_n && addr[23:19] == 5'b00010) begin
+                            // RAMDAC/VBlank read (0x090000 - 0x09FFFF)
+                            if (addr[15:2] == 14'h0004) begin  // Offset 0x10/4 in MAME
+                                // Return VBlank status and monitor ID
+                                // Bit 16: VBlank, Bits 17-20: monitor ID (inverted)
+                                data_out <= (v_cnt >= V_RES) ? 16'h0001 : 16'h0000;  // VBlank in bit 0 of word
+                                // Monitor ID 1 (0x1 << 1 = 0x2) for 640x480 13" RGB
+                            end else begin
+                                data_out <= 16'hFFFF;
+                            end
+                            ack_n <= 0;
+                        end else if (!rw_n && addr[23:19] == 5'b00101) begin
+                            // VBL control (0x0A0000 - 0x0AFFFF)
+                            if (addr[2]) begin
+                                vbl_disable <= 1;  // Offset with bit 2 set disables VBL
+                            end else begin
+                                vbl_disable <= 0;  // Clear offset enables VBL
+                                irq_clear <= 1;
+                            end
                             ack_n <= 0;
                         end else if (rw_n && addr[23:20] == 4'hF) begin
-                            // ROM read
+                            // ROM read (0x0F0000 - 0x0FFFFF)
                             if (addr[14:0] < 15'd16384) begin
                                 data_out[15:8] <= rom[{addr[14:1], 1'b0}];
                                 data_out[7:0] <= rom[{addr[14:1], 1'b1}];
-                            end else begin
+                            end else b~vram_din;  // Invert data from VRAM like MAME
                                 data_out <= 16'd0;
                             end
                             ack_n <= 0;
                         end else begin
-                            data_out <= 16'd0;
+                            data_out <= 16'hFFFF;
                             ack_n <= 0;
                         end
                     end else if (!select) begin
                         ack_n <= 1;
-                    end else if (fetch_addr != last_fetch_addr && fetch_addr < 153600) begin
-                        // Video fetch when CPU not accessing
-                        vram_addr <= VRAM_BASE + {7'd0, fetch_addr};
-                        state <= S_VIDEO_FETCH;
-                    end
-                end
-                
-                S_VIDEO_FETCH: begin
-                    vram_rd <= 1;
-                    vram_cache_valid <= 0;
-                    state <= S_VIDEO_WAIT;
-                end
-                
-                S_VIDEO_WAIT: begin
-                    if (vram_ready) begin
-                        vram_cache <= vram_din;
-                        vram_cache_valid <= 1;
+                    end else if (video_en && fetch_addr != last_fetch_addr && fetch_addr < VRAM_SIZE) begin
+                        // Video fetch when CPU not accessing and video enabled
+                        vram_addr <= VRAM_BASE + {6
                         last_fetch_addr <= fetch_addr;
-                        vram_rd <= 0;
+                        vram_rd <= 0~vram_din;  // Invert data from VRAM like MAME
                         state <= S_IDLE;
                     end
                 end
@@ -352,10 +382,10 @@ module nubus_video (
     reg [7:0] pixel_idx;
     always @(*) begin
         case (mode)
-            2'b00: begin
-                case (h_cnt_d)
-                    3'd0: pixel_idx = {7'b0, vram_byte[7]};
-                    3'd1: pixel_idx = {7'b0, vram_byte[6]};
+    // Output pixels (no mask for now, MAME doesn't use pixel mask on output)
+    assign vga_r = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][23:16];
+    assign vga_g = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][15:8];
+    assign vga_b = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel
                     3'd2: pixel_idx = {7'b0, vram_byte[5]};
                     3'd3: pixel_idx = {7'b0, vram_byte[4]};
                     3'd4: pixel_idx = {7'b0, vram_byte[3]};
