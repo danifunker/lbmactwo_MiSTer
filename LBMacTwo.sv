@@ -180,9 +180,15 @@ assign USER_OUT = '1;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
+// LED Debug Indicators:
+// LED_USER (Orange) = Disk activity (original)
+// LED_DISK[1] (Purple/Magenta) = Video card active
+// LED_DISK[0] (Red) = unused
+// LED_POWER[1] (Blue) = NuBus access
+// LED_POWER[0] (Green) = RAM/ROM access
 assign LED_USER  = dio_download || (disk_act ^ |diskMotor);
-assign LED_DISK  = 0;
-assign LED_POWER = 0;
+assign LED_DISK  = {|video_act_ctr, 1'b0};
+assign LED_POWER = {|nubus_act_ctr, |mem_act_ctr};
 assign BUTTONS   = 0;
 assign VGA_SCALER= 0;
 assign VGA_DISABLE = 0;
@@ -450,6 +456,23 @@ end
 
 assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 : ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 assign      _cpuDTACK = selectNuBus ? nubusAck : (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+
+// Debug LED tracking
+reg [23:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
+wire nubus_access = selectNuBus && !_cpuAS;
+wire mem_access = (selectRAM || selectROM) && !_cpuAS;
+wire video_active = !nubus_blank;
+
+always @(posedge clk_sys) begin
+	if (nubus_access) nubus_act_ctr <= 24'hFFFFFF;
+	else if (nubus_act_ctr != 0) nubus_act_ctr <= nubus_act_ctr - 1'd1;
+	
+	if (mem_access) mem_act_ctr <= 24'hFFFFFF;
+	else if (mem_act_ctr != 0) mem_act_ctr <= mem_act_ctr - 1'd1;
+	
+	if (video_active) video_act_ctr <= 24'hFFFFFF;
+	else if (video_act_ctr != 0) video_act_ctr <= video_act_ctr - 1'd1;
+end
 
 wire        cpu_en_p      = status_turbo ? clk16_en_p : clk8_en_p;
 wire        cpu_en_n      = status_turbo ? clk16_en_n : clk8_en_n;

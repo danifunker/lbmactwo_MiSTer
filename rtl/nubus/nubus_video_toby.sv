@@ -56,6 +56,14 @@ module nubus_video_toby (
     // Force synthesis to M10K blocks to avoid using logic registers
     (* ramstyle = "M10K" *) reg [15:0] vram [0:VRAM_SIZE-1];
     
+    // Initialize VRAM with test pattern (checkerboard)
+    integer i;
+    initial begin
+        for (i = 0; i < VRAM_SIZE; i = i + 1) begin
+            vram[i] = (i[4] ^ i[2]) ? 16'hAAAA : 16'h5555;
+        end
+    end
+    
     // Video enabled flag
     reg video_en;
     
@@ -151,7 +159,7 @@ module nubus_video_toby (
         vram_a_dout <= vram[vram_a_addr];
         
         // Port B - CPU read/write
-        if (vram_b_we && vram_b_addr < VRAM_SIZE) begin
+        if (vram_b_we) begin
             vram[vram_b_addr] <= vram_b_din;
         end
         vram_b_dout <= vram[vram_b_addr];
