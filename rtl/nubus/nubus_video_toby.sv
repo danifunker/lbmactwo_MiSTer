@@ -135,27 +135,53 @@ module nubus_video_toby (
     wire [14:0] video_byte_addr = (v_cnt[9:0] * 10'd80) + {5'd0, h_cnt[9:3]};
     wire [13:0] video_word_addr = video_byte_addr[14:1];
     
+    // Dual-port VRAM
+    // Port A - Video read (read-only)
+    // Port B - CPU read/write
+    reg [13:0] vram_a_addr;
+    reg [15:0] vram_a_dout;
+    reg [13:0] vram_b_addr;
+    reg [15:0] vram_b_din;
+    reg [15:0] vram_b_dout;
+    reg vram_b_we;
+    
+    always @(posedge clk) begin
+        // Port A - Video read
+        vram_a_addr <= video_word_addr;
+        vram_a_dout <= vram[vram_a_addr];
+        
+        // Port B - CPU read/write
+        if (vram_b_we && vram_b_addr < VRAM_SIZE) begin
+            vram[vram_b_addr] <= vram_b_din;
+        end
+        vram_b_dout <= vram[vram_b_addr];
+    end
+    
     // Pixel shift register
     reg [15:0] pixel_shift;
     reg [3:0] pixel_count;
     reg [13:0] last_video_addr;
+    reg load_pixel_data;
     
-    // Video memory read
+    // Video memory read control
     always @(posedge clk) begin
         if (reset) begin
             pixel_shift <= 16'h0000;
             pixel_count <= 4'd0;
             last_video_addr <= 14'h0000;
+            load_pixel_data <= 1'b0;
         end else if (clk_video_en) begin
+            load_pixel_data <= 1'b0;
+            
             if (vga_blank_reg) begin
                 pixel_shift <= 16'h0000;
                 pixel_count <= 4'd0;
             end else begin
                 // Load new data every 8 pixels (when we've shifted out a byte)
                 if (pixel_count == 4'd0 || pixel_count == 4'd8) begin
-                    if (video_word_addr != last_video_addr || pixel_count == 4'd0) begin
-                        pixel_shift <= vram[video_word_addr];
-                        last_video_addr <= video_word_addr;
+                    if (vram_a_addr != last_video_addr || pixel_count == 4'd0) begin
+                        pixel_shift <= vram_a_dout;
+                        last_video_addr <= vram_a_addr;
                     end
                     pixel_count <= (pixel_count == 4'd0) ? 4'd1 : 4'd9;
                 end else begin
@@ -192,7 +218,12 @@ module nubus_video_toby (
             data_out <= 16'd0;
             vbl_disable <= 1'b1;
             irq_active <= 1'b0;
+            vram_b_addr <= 14'd0;
+            vram_b_din <= 16'd0;
+            vram_b_we <= 1'b0;
         end else begin
+            vram_b_we <= 1'b0;  // Default: no write
+            
             // VBL interrupt generation
             if (vbl_trigger && !vbl_disable) begin
                 irq_active <= 1'b1;
@@ -201,6 +232,10 @@ module nubus_video_toby (
             // Decrement delay counter
             if (ack_delay > 3'd0) begin
                 ack_delay <= ack_delay - 3'd1;
+                // For VRAM reads, latch data when delay is 2
+                if (ack_delay == 3'd2 && addr[23:19] == 5'b00000 && rw_n) begin
+                    data_out <= vram_b_dout;
+                end
             end
             
             // Assert ack when counter reaches 0
@@ -212,20 +247,15 @@ module nubus_video_toby (
             if (select && ack_n && ack_delay == 3'd0) begin
                 if (addr[23:19] == 5'b00000) begin
                     // VRAM access (0x000000 - 0x07FFFF)
+                    vram_b_addr <= cpu_vram_addr;
                     if (!rw_n) begin
                         // Write
-                        if (cpu_vram_addr < VRAM_SIZE) begin
-                            vram[cpu_vram_addr] <= data_in;
-                        end
+                        vram_b_din <= data_in;
+                        vram_b_we <= 1'b1;
                         ack_delay <= 3'd2;
                     end else begin
-                        // Read
-                        if (cpu_vram_addr < VRAM_SIZE) begin
-                            data_out <= vram[cpu_vram_addr];
-                        end else begin
-                            data_out <= 16'h0000;
-                        end
-                        ack_delay <= 3'd2;
+                        // Read - data will be ready after 1 cycle
+                        ack_delay <= 3'd3;  // Extra cycle for synchronous read
                     end
                 end else if (!rw_n && addr[23:16] == 8'h0A) begin
                     // VBL control (0x0A0000 - 0x0AFFFF)
