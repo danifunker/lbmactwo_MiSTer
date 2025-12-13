@@ -50,19 +50,11 @@ module nubus_video_toby (
     localparam VRAM_SIZE = (1 << VRAM_ADDR_BITS);
     
     // ROM Buffer - 4KB (2K words)
-    (* ramstyle = "M10K" *) reg [7:0] rom [0:4095];
+    reg [7:0] rom [0:4095];
     
     // VRAM - On-chip Block RAM (dual-port for CPU write + video read)
     // Force synthesis to M10K blocks to avoid using logic registers
     (* ramstyle = "M10K" *) reg [15:0] vram [0:VRAM_SIZE-1];
-    
-    // Initialize VRAM with test pattern (checkerboard)
-    integer i;
-    initial begin
-        for (i = 0; i < VRAM_SIZE; i = i + 1) begin
-            vram[i] = (i[4] ^ i[2]) ? 16'hAAAA : 16'h5555;
-        end
-    end
     
     // Video enabled flag
     reg video_en;
@@ -153,13 +145,31 @@ module nubus_video_toby (
     reg [15:0] vram_b_dout;
     reg vram_b_we;
     
+    // Test pattern generator - creates white border on reset
+    reg [13:0] test_init_addr;
+    reg test_init_active;
+    
+    always @(posedge clk) begin
+        if (reset) begin
+            test_init_addr <= 14'd0;
+            test_init_active <= 1'b1;
+        end else if (test_init_active && test_init_addr < 14'd160) begin
+            // Write test pattern for first 2 lines (80 words each = 160 total)
+            // First line: all 1s (white), second line: all 1s (white)
+            vram[test_init_addr] <= 16'hFFFF;
+            test_init_addr <= test_init_addr + 14'd1;
+        end else begin
+            test_init_active <= 1'b0;
+        end
+    end
+    
     always @(posedge clk) begin
         // Port A - Video read
         vram_a_addr <= video_word_addr;
         vram_a_dout <= vram[vram_a_addr];
         
-        // Port B - CPU read/write
-        if (vram_b_we) begin
+        // Port B - CPU read/write (only when test pattern is done)
+        if (vram_b_we && !test_init_active) begin
             vram[vram_b_addr] <= vram_b_din;
         end
         vram_b_dout <= vram[vram_b_addr];
@@ -169,7 +179,6 @@ module nubus_video_toby (
     reg [15:0] pixel_shift;
     reg [3:0] pixel_count;
     reg [13:0] last_video_addr;
-    reg load_pixel_data;
     
     // Video memory read control
     always @(posedge clk) begin
@@ -177,9 +186,7 @@ module nubus_video_toby (
             pixel_shift <= 16'h0000;
             pixel_count <= 4'd0;
             last_video_addr <= 14'h0000;
-            load_pixel_data <= 1'b0;
         end else if (clk_video_en) begin
-            load_pixel_data <= 1'b0;
             
             if (vga_blank_reg) begin
                 pixel_shift <= 16'h0000;
