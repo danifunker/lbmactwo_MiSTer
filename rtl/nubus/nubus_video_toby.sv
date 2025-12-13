@@ -119,26 +119,10 @@ module nubus_video_toby (
     assign vga_blank = vga_blank_reg;
     assign vga_clk = clk;
 
-    // VBL Interrupt (simplified - just pulse at start of vblank)
-    reg vbl_pulse;
+    // VBL Interrupt signals
     reg vbl_disable;
     reg irq_active;
-    
-    always @(posedge clk) begin
-        if (reset) begin
-            vbl_pulse <= 1'b0;
-            vbl_disable <= 1'b1;
-            irq_active <= 1'b0;
-        end else begin
-            vbl_pulse <= 1'b0;
-            if (clk_video_en && v_cnt == V_RES && h_cnt == 0) begin
-                vbl_pulse <= 1'b1;
-                if (!vbl_disable) begin
-                    irq_active <= 1'b1;
-                end
-            end
-        end
-    end
+    wire vbl_trigger = clk_video_en && (v_cnt == V_RES) && (h_cnt == 0);
     
     assign nmrq_n = ~irq_active;
 
@@ -149,7 +133,6 @@ module nubus_video_toby (
     
     wire [14:0] video_byte_addr = (v_cnt[9:0] * 10'd80) + {5'd0, h_cnt[9:3]};
     wire [13:0] video_word_addr = video_byte_addr[14:1];
-    wire video_byte_sel = video_byte_addr[0];
     
     // Pixel shift register
     reg [15:0] pixel_shift;
@@ -207,7 +190,13 @@ module nubus_video_toby (
             ack_delay <= 3'd0;
             data_out <= 16'd0;
             vbl_disable <= 1'b1;
+            irq_active <= 1'b0;
         end else begin
+            // VBL interrupt generation
+            if (vbl_trigger && !vbl_disable) begin
+                irq_active <= 1'b1;
+            end
+            
             // Decrement delay counter
             if (ack_delay > 3'd0) begin
                 ack_delay <= ack_delay - 3'd1;
