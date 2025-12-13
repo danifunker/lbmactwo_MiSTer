@@ -50,10 +50,11 @@ module nubus_video_toby (
     localparam VRAM_SIZE = (1 << VRAM_ADDR_BITS);
     
     // ROM Buffer - 4KB (2K words)
-    reg [7:0] rom [0:4095];
+    (* ramstyle = "M10K" *) reg [7:0] rom [0:4095];
     
     // VRAM - On-chip Block RAM (dual-port for CPU write + video read)
-    reg [15:0] vram [0:VRAM_SIZE-1];
+    // Force synthesis to M10K blocks to avoid using logic registers
+    (* ramstyle = "M10K" *) reg [15:0] vram [0:VRAM_SIZE-1];
     
     // Video enabled flag
     reg video_en;
