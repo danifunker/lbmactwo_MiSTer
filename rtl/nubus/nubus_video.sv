@@ -88,6 +88,9 @@ module nubus_video (
     reg irq_clear;
     reg vbl_disable;
     
+    // NuBus timing - need delay for CPU to see valid data
+    reg [2:0] ack_delay;
+    
     // Decoded values from registers
     wire [2:0] mode_raw = registers[REG_MISC][10:8];
     wire [1:0] mode = (mode_raw >= 3'd4) ? mode_raw[1:0] : 2'd0;  // Bt453: mode 4-7 maps to 0-3 (take lower 2 bits)
@@ -232,10 +235,18 @@ module nubus_video (
             ramdac_addr <= 0;
             ramdac_color_index <= 0;
             vbl_disable <= 1;
+            ack_delay <= 0;
             // Initialize MAME-compatible registers
             for (i = 0; i < 16; i = i + 1)
                 registers[i] <= 32'd0;
         end else begin
+            // Decrement ack delay counter
+            if (ack_delay > 0) begin
+                ack_delay <= ack_delay - 3'd1;
+                if (ack_delay == 3'd1)
+                    ack_n <= 0;
+            end
+            
             case (state)
                 S_VIDEO_FETCH: begin
                     state <= S_VIDEO_WAIT;
@@ -287,11 +298,11 @@ module nubus_video (
                                     registers[addr[5:2]][31:16] <= ~data_in;
                                 end
                             end
-                            ack_n <= 0;
+                            ack_delay <= 3'd2;  // 2 cycle delay for register access
                         end else if (rw_n && addr[23:19] == 5'b00001) begin
                             // Register read - rarely used, return inverted 0
                             data_out <= 16'hFFFF;
-                            ack_n <= 0;
+                            ack_delay <= 3'd2;  // 2 cycle delay
                         end else if (!rw_n && addr[23:16] == 8'h09) begin
                             // RAMDAC write (0x090000 - 0x09FFFF) - Bt453 RAMDAC
                             // MAME: offset & 1 == 0 -> address_w, offset & 1 == 1 -> palette_w
@@ -311,7 +322,7 @@ module nubus_video (
                                 ramdac_addr <= ~data_in[15:8];
                                 ramdac_color_index <= 0;
                             end
-                            ack_n <= 0;
+                            ack_delay <= 3'd2;  // 2 cycle delay
                         end else if (rw_n && addr[23:16] == 8'h09) begin
                             // RAMDAC/VBlank read (0x090000 - 0x09FFFF)
                             if (addr[15:2] == 14'h0004) begin  // Offset 0x10/4 in MAME
@@ -323,7 +334,7 @@ module nubus_video (
                             end else begin
                                 data_out <= 16'hFFFF;
                             end
-                            ack_n <= 0;
+                            ack_delay <= 3'd2;  // 2 cycle delay
                         end else if (!rw_n && addr[23:16] == 8'h0A) begin
                             // VBL control (0x0A0000 - 0x0AFFFF)
                             if (addr[2]) begin
@@ -332,7 +343,7 @@ module nubus_video (
                                 vbl_disable <= 0;  // Clear offset enables VBL
                                 irq_clear <= 1;
                             end
-                            ack_n <= 0;
+                            ack_delay <= 3'd2;  // 2 cycle delay
                         end else if (rw_n && addr[23:20] == 4'hF) begin
                             // ROM read (0x0F0000 - 0x0FFFFF)
                             if (addr[14:0] < 15'd16384) begin
@@ -341,10 +352,10 @@ module nubus_video (
                             end else begin
                                 data_out <= 16'd0;
                             end
-                            ack_n <= 0;
+                            ack_delay <= 3'd3;  // 3 cycle delay for ROM
                         end else begin
                             data_out <= 16'hFFFF;
-                            ack_n <= 0;
+                            ack_delay <= 3'd2;  // 2 cycle delay
                         end
                     end else if (!select) begin
                         ack_n <= 1;
