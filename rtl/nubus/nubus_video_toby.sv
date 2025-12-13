@@ -145,31 +145,13 @@ module nubus_video_toby (
     reg [15:0] vram_b_dout;
     reg vram_b_we;
     
-    // Test pattern generator - creates white border on reset
-    reg [13:0] test_init_addr;
-    reg test_init_active;
-    
-    always @(posedge clk) begin
-        if (reset) begin
-            test_init_addr <= 14'd0;
-            test_init_active <= 1'b1;
-        end else if (test_init_active && test_init_addr < 14'd160) begin
-            // Write test pattern for first 2 lines (80 words each = 160 total)
-            // First line: all 1s (white), second line: all 1s (white)
-            vram[test_init_addr] <= 16'hFFFF;
-            test_init_addr <= test_init_addr + 14'd1;
-        end else begin
-            test_init_active <= 1'b0;
-        end
-    end
-    
     always @(posedge clk) begin
         // Port A - Video read
         vram_a_addr <= video_word_addr;
         vram_a_dout <= vram[vram_a_addr];
         
-        // Port B - CPU read/write (only when test pattern is done)
-        if (vram_b_we && !test_init_active) begin
+        // Port B - CPU read/write
+        if (vram_b_we) begin
             vram[vram_b_addr] <= vram_b_din;
         end
         vram_b_dout <= vram[vram_b_addr];
@@ -210,9 +192,15 @@ module nubus_video_toby (
     // Output pixel - white (1) or black (0)
     wire pixel_out = pixel_shift[15];
     
-    assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
-    assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
-    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
+    // Test pattern: white border (top 2 lines, bottom 2 lines, left/right 8 pixels)
+    wire test_pattern = (v_cnt < 11'd2) || (v_cnt >= 11'd478) || 
+                       (h_cnt < 11'd8) || (h_cnt >= 11'd632);
+    
+    wire video_pixel = test_pattern | pixel_out;
+    
+    assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
+    assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
+    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
 
     // ROM Download
     always @(posedge clk) begin
