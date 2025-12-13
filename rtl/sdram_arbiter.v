@@ -65,17 +65,56 @@ module sdram_arbiter (
     //
     // Handshake: Video asserts rd/wr -> arbiter grants -> after 6 cycles
     // arbiter asserts vram_ready -> video latches data and drops rd/wr
-    reg [5:0] vram_op_d;
+    
+    // State machine for tracking video operations
+    reg [2:0] vram_state;
+    reg [2:0] vram_wait_cnt;
+    reg vram_ready_latch;
+    
+    localparam VRAM_IDLE = 3'd0;
+    localparam VRAM_WAIT = 3'd1;
+    localparam VRAM_READY = 3'd2;
+    
     always @(posedge clk) begin
         if (reset) begin
-            vram_op_d <= 6'b000000;
+            vram_state <= VRAM_IDLE;
+            vram_wait_cnt <= 3'd0;
+            vram_ready_latch <= 1'b0;
         end else begin
-            vram_op_d <= {vram_op_d[4:0], grant_video};
+            case (vram_state)
+                VRAM_IDLE: begin
+                    vram_ready_latch <= 1'b0;
+                    if (grant_video) begin
+                        // Video request granted, start counting
+                        vram_state <= VRAM_WAIT;
+                        vram_wait_cnt <= 3'd6;  // 6 cycles for SDRAM read/write
+                    end
+                end
+                
+                VRAM_WAIT: begin
+                    if (vram_wait_cnt > 3'd0) begin
+                        vram_wait_cnt <= vram_wait_cnt - 3'd1;
+                    end else begin
+                        // Data ready - latch the ready signal
+                        vram_ready_latch <= 1'b1;
+                        vram_state <= VRAM_READY;
+                    end
+                end
+                
+                VRAM_READY: begin
+                    // Hold ready high until video drops its request
+                    if (!vram_rd && !vram_wr) begin
+                        vram_ready_latch <= 1'b0;
+                        vram_state <= VRAM_IDLE;
+                    end
+                end
+                
+                default: vram_state <= VRAM_IDLE;
+            endcase
         end
     end
     
-    // Ready pulses high on 6th cycle when operation completes
-    // Use edge detection: ready when we've been granted for 6 cycles
-    assign vram_ready = vram_op_d[5] & grant_video;
+    // Ready signal is latched, independent of grant_video
+    assign vram_ready = vram_ready_latch;
 
 endmodule
