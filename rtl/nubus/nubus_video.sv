@@ -89,7 +89,7 @@ module nubus_video (
     reg vbl_disable;
     
     // Decoded values from registers
-    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? (registers[REG_MISC][10:8] - 4) : 2'd0;  // Bt453: mode 4-7 maps to 0-3
+    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? (registers[REG_MISC][10:8] - 3'd4) : 2'd0;  // Bt453: mode 4-7 maps to 0-3
     wire video_en = registers[REG_SOFTRESET][0];
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];  // In 32-bit words
     wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
@@ -157,7 +157,7 @@ module nubus_video (
     // Address = (base_offset * 4) + (v_cnt * stride * 4) + h_byte_offset
     // Where stride is in 32-bit words, so multiply by 4 to get byte offset
     
-    wire [17:0] v_offset = v_cnt[9:0] * vram_stride[9:0];  // In 32-bit words
+    wire [19:0] v_offset = v_cnt[9:0] * vram_stride[9:0];  // In 32-bit words (10bit * 10bit = 20bit)
     
     // Horizontal byte offset depends on mode
     wire [17:0] h_byte_offset;
