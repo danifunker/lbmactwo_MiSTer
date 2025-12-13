@@ -206,7 +206,8 @@ video_freak video_freak
 
 `include "build_id.v"
 localparam CONF_STR = {
-	"LBMACTWO;;",
+	"P,lbamactwo;",
+	"P1,Hardware;",
 	"-;",
 	"F1,DSK,Mount Pri Floppy;",
 	"F2,DSK,Mount Sec Floppy;",
@@ -214,15 +215,15 @@ localparam CONF_STR = {
 	"SC0,IMGVHD,Mount SCSI-6;",
 	"SC1,IMGVHD,Mount SCSI-5;",
 	"-;",
+	"P1;",
+	"P1O5,CPU Speed,8MHz,16MHz;",
+	"P1O4,RAM,1MB,4MB;",
+	"P1-;",
+	"P1R0,Reset & Apply Settings;",
+	"-;",
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"O5,Speed,16MHz;",
-	"O4,Memory,1MB,4MB;",
-	"-;",
-	//"OA,Serial,Off,On;",
-	//"-;",
-	"R0,Reset & Apply CPU+Memory;",
 	"v,0;", // [optional] config version 0-99.
 	        // If CONF_STR options are changed in incompatible way, then change version number too,
 			// so all options will get default values on first start.
