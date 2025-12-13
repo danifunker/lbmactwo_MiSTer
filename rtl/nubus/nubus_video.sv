@@ -89,7 +89,7 @@ module nubus_video (
     reg vbl_disable;
     
     // Decoded values from registers
-    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? (registers[REG_MISC][10:8] - 3'd4) : 2'd0;  // Bt453: mode 4-7 maps to 0-3
+    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? ((registers[REG_MISC][10:8] - 3'd4) & 2'b11) : 2'd0;  // Bt453: mode 4-7 maps to 0-3
     wire video_en = registers[REG_SOFTRESET][0];
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];  // In 32-bit words
     wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
@@ -160,14 +160,16 @@ module nubus_video (
     wire [19:0] v_offset = v_cnt[9:0] * vram_stride[9:0];  // In 32-bit words (10bit * 10bit = 20bit)
     
     // Horizontal byte offset depends on mode
-    wire [17:0] h_byte_offset;
-    assign h_byte_offset = (mode == 2'b00) ? {11'd0, h_cnt[10:4]} :   // 1bpp: h/16 words
-                           (mode == 2'b01) ? {10'd0, h_cnt[10:3]} :   // 2bpp: h/8 words
-                           (mode == 2'b10) ? {9'd0, h_cnt[10:2]} :    // 4bpp: h/4 words
-                                             {9'd0, h_cnt[10:1]};     // 8bpp: h/2 words
+    wire [19:0] h_byte_offset;
+    assign h_byte_offset = (mode == 2'b00) ? {13'd0, h_cnt[10:4]} :   // 1bpp: h/16 words
+                           (mode == 2'b01) ? {12'd0, h_cnt[10:3]} :   // 2bpp: h/8 words
+                           (mode == 2'b10) ? {11'd0, h_cnt[10:2]} :   // 4bpp: h/4 words
+                                             {10'd0, h_cnt[10:1]};    // 8bpp: h/2 words
     
+    wire [20:0] fetch_addr_full;
     wire [17:0] fetch_addr;
-    assign fetch_addr = vram_base_offset[16:0] + v_offset + h_byte_offset;
+    assign fetch_addr_full = {3'd0, vram_base_offset[16:0]} + v_offset + h_byte_offset;
+    assign fetch_addr = fetch_addr_full[17:0];  // Truncate to 18 bits for 512KB VRAM addressing
 
     // Unified state machine
     reg [15:0] vram_cache;
