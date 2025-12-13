@@ -95,6 +95,26 @@ module nubus_video (
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];  // In 32-bit words
     wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
 
+    // Clock enable generation: 25.175MHz from 32.5MHz
+    // Using accumulator: when acc >= 32500, generate enable and subtract
+    reg [15:0] clk_video_acc;
+    reg clk_video_en;
+    
+    always @(posedge clk) begin
+        if (reset) begin
+            clk_video_acc <= 16'd0;
+            clk_video_en <= 0;
+        end else begin
+            if (clk_video_acc >= 16'd32500) begin
+                clk_video_acc <= clk_video_acc - 16'd32500 + 16'd25175;
+                clk_video_en <= 1;
+            end else begin
+                clk_video_acc <= clk_video_acc + 16'd25175;
+                clk_video_en <= 0;
+            end
+        end
+    end
+
     // Video Counters
     reg [10:0] h_cnt;
     reg [10:0] v_cnt;
@@ -105,7 +125,7 @@ module nubus_video (
             vga_hs_reg <= 1;
             vga_vs_reg <= 1;
             vga_blank_reg <= 1;
-        end else begin
+        end else if (clk_video_en) begin
             vga_hs_reg <= ~(h_cnt >= H_SYNC_START && h_cnt < H_SYNC_END);
             vga_vs_reg <= ~(v_cnt >= V_SYNC_START && v_cnt < V_SYNC_END);
             vga_blank_reg <= (h_cnt >= H_RES) || (v_cnt >= V_RES) || !video_en;
@@ -124,7 +144,7 @@ module nubus_video (
             h_cnt <= 11'd0;
             v_cnt <= 11'd0;
             vbl_pulse <= 0;
-        end else begin
+        end else if (clk_video_en) begin
             vbl_pulse <= 0;
             if (h_cnt == H_TOTAL - 1) begin
                 h_cnt <= 11'd0;
@@ -372,10 +392,12 @@ module nubus_video (
     reg byte_sel_d;
     
     always @(posedge clk) begin
-        h_cnt_d <= h_cnt[2:0];
-        byte_sel_d <= (mode == 2'b00) ? h_cnt[3] : 
-                      (mode == 2'b01) ? h_cnt[2] :
-                      (mode == 2'b10) ? h_cnt[1] : h_cnt[0];
+        if (clk_video_en) begin
+            h_cnt_d <= h_cnt[2:0];
+            byte_sel_d <= (mode == 2'b00) ? h_cnt[3] : 
+                          (mode == 2'b01) ? h_cnt[2] :
+                          (mode == 2'b10) ? h_cnt[1] : h_cnt[0];
+        end
     end
     
     wire [7:0] vram_byte = byte_sel_d ? vram_cache[7:0] : vram_cache[15:8];
