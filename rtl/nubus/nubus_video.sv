@@ -89,7 +89,8 @@ module nubus_video (
     reg vbl_disable;
     
     // Decoded values from registers
-    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? registers[REG_MISC][9:8] : 2'd0;  // Bt453: mode 4-7 maps to 0-3 (take lower 2 bits)
+    wire [2:0] mode_raw = registers[REG_MISC][10:8];
+    wire [1:0] mode = (mode_raw >= 3'd4) ? mode_raw[1:0] : 2'd0;  // Bt453: mode 4-7 maps to 0-3 (take lower 2 bits)
     wire video_en = registers[REG_SOFTRESET][0];
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];  // In 32-bit words
     wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
