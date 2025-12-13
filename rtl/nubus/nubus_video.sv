@@ -124,7 +124,6 @@ module nubus_video (
             h_cnt <= 11'd0;
             v_cnt <= 11'd0;
             vbl_pulse <= 0;
-            vbl_disable <= 1;
         end else begin
             vbl_pulse <= 0;
             if (h_cnt == H_TOTAL - 1) begin
@@ -212,6 +211,7 @@ module nubus_video (
             data_out <= 16'd0;
             ramdac_addr <= 0;
             ramdac_color_index <= 0;
+            vbl_disable <= 1;
             // Initialize MAME-compatible registers
             for (i = 0; i < 16; i = i + 1)
                 registers[i] <= 32'd0;
