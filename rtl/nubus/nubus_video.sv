@@ -99,17 +99,19 @@ module nubus_video (
     wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
 
     // Clock enable generation: 25.175MHz from 32.5MHz
-    // Using accumulator: when acc >= 32500, generate enable and subtract
+    // Ratio: 32500000/25175000 = 1.2910847... 
+    // Use accumulator: increment by 25175, enable when >= 32500
     reg [15:0] clk_video_acc;
     reg clk_video_en;
     
     always @(posedge clk) begin
         if (reset) begin
             clk_video_acc <= 16'd0;
-            clk_video_en <= 0;
+            clk_video_en <= 1'b0;
         end else begin
-            if (clk_video_acc >= 16'd32500) begin
-                clk_video_acc <= clk_video_acc - 16'd32500 + 16'd25175;
+            // Accumulate and generate enable
+            if (clk_video_acc + 16'd25175 >= 16'd32500) begin
+                clk_video_acc <= clk_video_acc + 16'd25175 - 16'd32500;
                 clk_video_en <= 1;
             end else begin
                 clk_video_acc <= clk_video_acc + 16'd25175;
@@ -184,11 +186,13 @@ module nubus_video (
     wire [19:0] v_offset = v_cnt[9:0] * vram_stride[9:0];  // In 32-bit words (10bit * 10bit = 20bit)
     
     // Horizontal byte offset depends on mode
+    // IMPORTANT: Add prefetch - calculate address 8-16 pixels ahead
+    wire [10:0] h_cnt_prefetch = h_cnt + 11'd16;
     wire [19:0] h_byte_offset;
-    assign h_byte_offset = (mode == 2'b00) ? {13'd0, h_cnt[10:4]} :   // 1bpp: h/16 words
-                           (mode == 2'b01) ? {12'd0, h_cnt[10:3]} :   // 2bpp: h/8 words
-                           (mode == 2'b10) ? {11'd0, h_cnt[10:2]} :   // 4bpp: h/4 words
-                                             {10'd0, h_cnt[10:1]};    // 8bpp: h/2 words
+    assign h_byte_offset = (mode == 2'b00) ? {13'd0, h_cnt_prefetch[10:4]} :   // 1bpp: h/16 words
+                           (mode == 2'b01) ? {12'd0, h_cnt_prefetch[10:3]} :   // 2bpp: h/8 words
+                           (mode == 2'b10) ? {11'd0, h_cnt_prefetch[10:2]} :   // 4bpp: h/4 words
+                                             {10'd0, h_cnt_prefetch[10:1]};    // 8bpp: h/2 words
     
     wire [20:0] fetch_addr_full;
     wire [17:0] fetch_addr;
@@ -201,6 +205,13 @@ module nubus_video (
     reg [3:0] state;
     reg [17:0] last_fetch_addr;
     wire [17:0] cpu_vram_addr = addr[18:1];
+    
+    initial begin
+        vram_cache = 16'h0000;
+        vram_cache_valid = 1'b0;
+        state = S_IDLE;
+        last_fetch_addr = 18'h00000;
+    end
     
     localparam S_IDLE = 0;
     localparam S_VIDEO_FETCH = 1;
@@ -365,10 +376,12 @@ module nubus_video (
                         // CPU has deasserted select after seeing ack - end transaction
                         ack_n <= 1;
                         ack_delay <= 3'd0;
-                    end else if (video_en && fetch_addr != last_fetch_addr && fetch_addr < VRAM_SIZE) begin
-                        // Video fetch when CPU not accessing and video enabled
+                    end else if (video_en && !vga_blank_reg && fetch_addr != last_fetch_addr && fetch_addr < VRAM_SIZE) begin
+                        // Video fetch aggressively during active display when CPU not accessing
+                        // Don't wait for clk_video_en - fetch as fast as possible to keep cache fresh
                         vram_addr <= VRAM_BASE + {6'd0, fetch_addr};
                         last_fetch_addr <= fetch_addr;
+                        vram_cache_valid <= 0;  // Invalidate cache when starting new fetch
                         vram_rd <= 1;
                         state <= S_VIDEO_FETCH;
                     end
@@ -404,9 +417,11 @@ module nubus_video (
         end
     end
 
-    // Pixel output
+    // Pixel output - simplified pipeline with minimal delay
+    // We prefetch VRAM data 16 pixels ahead, so by the time we need it, it should be ready
     reg [2:0] h_cnt_d;
     reg byte_sel_d;
+    reg vga_blank_d;
     
     always @(posedge clk) begin
         if (clk_video_en) begin
@@ -414,6 +429,7 @@ module nubus_video (
             byte_sel_d <= (mode == 2'b00) ? h_cnt[3] : 
                           (mode == 2'b01) ? h_cnt[2] :
                           (mode == 2'b10) ? h_cnt[1] : h_cnt[0];
+            vga_blank_d <= vga_blank_reg;
         end
     end
     
@@ -448,9 +464,11 @@ module nubus_video (
         endcase
     end
 
-    // Output pixels (no mask for now, MAME doesn't use pixel mask on output)
-    assign vga_r = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][23:16];
-    assign vga_g = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][15:8];
-    assign vga_b = (vga_blank || !vram_cache_valid || !video_en) ? 8'h00 : clut[pixel_idx][7:0];
+    // Output pixels - use delayed blank for better synchronization
+    // During blanking or when video disabled or cache invalid, output black
+    wire pixel_valid = video_en && !vga_blank_d && vram_cache_valid;
+    assign vga_r = pixel_valid ? clut[pixel_idx][23:16] : 8'h00;
+    assign vga_g = pixel_valid ? clut[pixel_idx][15:8] : 8'h00;
+    assign vga_b = pixel_valid ? clut[pixel_idx][7:0] : 8'h00;
 
 endmodule
