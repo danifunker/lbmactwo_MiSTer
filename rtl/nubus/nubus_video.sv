@@ -89,7 +89,7 @@ module nubus_video (
     reg vbl_disable;
     
     // Decoded values from registers
-    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? ((registers[REG_MISC][10:8] - 3'd4) & 2'b11) : 2'd0;  // Bt453: mode 4-7 maps to 0-3
+    wire [1:0] mode = (registers[REG_MISC][10:8] >= 4) ? registers[REG_MISC][9:8] : 2'd0;  // Bt453: mode 4-7 maps to 0-3 (take lower 2 bits)
     wire video_en = registers[REG_SOFTRESET][0];
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];  // In 32-bit words
     wire [9:0] vram_stride = registers[REG_LENGTH][9:0];       // In 32-bit words
@@ -123,6 +123,7 @@ module nubus_video (
             h_cnt <= 11'd0;
             v_cnt <= 11'd0;
             vbl_pulse <= 0;
+            vbl_disable <= 1;
         end else begin
             vbl_pulse <= 0;
             if (h_cnt == H_TOTAL - 1) begin
@@ -380,6 +381,7 @@ module nubus_video (
     
     reg [7:0] pixel_idx;
     always @(*) begin
+        pixel_idx = 8'h00;  // Default to prevent latches
         case (mode)
             2'b00: begin
                 case (h_cnt_d)
