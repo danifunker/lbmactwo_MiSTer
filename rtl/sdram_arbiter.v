@@ -57,24 +57,25 @@ module sdram_arbiter (
     assign vram_din = sdram_dout;
     
     // Generate ready signal for video card
-    // SDRAM operations complete in ~4 clk_sys cycles (one clk_8 cycle)
+    // SDRAM operations complete in ~5-6 clk_sys cycles (one clk_8 cycle + margin)
     // The SDRAM controller cycles through 8 states at 64MHz (clk_mem)
-    // synchronized to 8MHz (clk_8). Since clk_sys is ~32MHz (4x clk_8),
-    // each SDRAM operation takes approximately 4 clk_sys cycles.
+    // synchronized to 8MHz (clk_8). One clk_8 cycle = 4 clk_sys cycles (125ns).
+    // SDRAM data ready at STATE_READ (t=5), which is ~100ns into the cycle.
+    // Add margin: wait 6 clk_sys cycles = 185ns to ensure data is stable.
     //
-    // Handshake: Video asserts rd/wr -> arbiter grants -> after 4 cycles
+    // Handshake: Video asserts rd/wr -> arbiter grants -> after 6 cycles
     // arbiter asserts vram_ready -> video latches data and drops rd/wr
-    reg [3:0] vram_op_d;
+    reg [5:0] vram_op_d;
     always @(posedge clk) begin
         if (reset) begin
-            vram_op_d <= 4'b0000;
+            vram_op_d <= 6'b000000;
         end else begin
-            vram_op_d <= {vram_op_d[2:0], grant_video};
+            vram_op_d <= {vram_op_d[4:0], grant_video};
         end
     end
     
-    // Ready pulses high on 4th cycle when operation completes
-    // Use edge detection: ready when we've been granted for 4 cycles
-    assign vram_ready = vram_op_d[3] & grant_video;
+    // Ready pulses high on 6th cycle when operation completes
+    // Use edge detection: ready when we've been granted for 6 cycles
+    assign vram_ready = vram_op_d[5] & grant_video;
 
 endmodule
