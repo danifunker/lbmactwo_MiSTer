@@ -206,9 +206,9 @@ video_freak video_freak
 
 `include "build_id.v"
 localparam CONF_STR = {
-	"P,lbamactwo;",
-	"P1,Hardware;",
+	"lbamactwo;;",
 	"-;",
+	"P1,Hardware;",
 	"F1,DSK,Mount Pri Floppy;",
 	"F2,DSK,Mount Sec Floppy;",
 	"-;",
