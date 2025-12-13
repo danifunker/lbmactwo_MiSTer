@@ -570,7 +570,7 @@ addrController_top ac0
 wire [1:0] diskEject;
 wire [1:0] diskMotor, diskAct;
 
-nubus_video nubus_card (
+nubus_video_toby nubus_card (
 	.clk(clk_sys),
 	.reset(!_cpuReset),
 	.addr(cpuAddr),
@@ -589,13 +589,7 @@ nubus_video nubus_card (
 	.vga_clk(), // unused for now
 	.nmrq_n(nubus_irq_n),
 	
-	// VRAM interface through arbiter
-	.vram_addr(arb_vram_addr),
-	.vram_dout(arb_vram_dout),
-	.vram_din(arb_vram_din),
-	.vram_rd(arb_vram_rd),
-	.vram_wr(arb_vram_wr),
-	.vram_ready(arb_vram_ready),
+	// Toby card uses on-chip VRAM, no external interface needed
 
 	.ioctl_wr(ioctl_write),
 	.ioctl_addr({4'd0, dio_a}),
