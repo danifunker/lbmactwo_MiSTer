@@ -232,14 +232,15 @@ wire status_turbo = status[5];
 
 ////////////////////   CLOCKS   ///////////////////
 
-wire clk_sys, clk_mem;
+wire clk_sys, clk_mem, clk_mem_ps;
 wire pll_locked;
 
 pll pll
 (
 	.refclk(CLK_50M),
-	.outclk_0(clk_mem),
-	.outclk_1(clk_sys),
+	.outclk_0(clk_mem),      // 65MHz, 0° - SDRAM controller
+	.outclk_1(clk_sys),      // 32.5MHz, 180° - System
+	.outclk_2(clk_mem_ps),   // 65MHz, -90° - SDRAM chip clock
 	.locked(pll_locked)
 );
 
@@ -832,6 +833,7 @@ sdram sdram
 	// system interface
 	.init           ( !pll_locked              ),
 	.clk_64         ( clk_mem                  ),
+	.clk_64_ps      ( clk_mem_ps               ),  // Phase-shifted clock for SDRAM chip
 	.clk_8          ( clk8                     ),
 
 	.sd_clk         ( SDRAM_CLK                ),
