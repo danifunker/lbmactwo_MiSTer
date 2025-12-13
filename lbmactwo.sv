@@ -206,7 +206,7 @@ video_freak video_freak
 
 `include "build_id.v"
 localparam CONF_STR = {
-	"LBMACTWO;UART115200;",
+	"LBMACTWO;;",
 	"-;",
 	"F1,DSK,Mount Pri Floppy;",
 	"F2,DSK,Mount Sec Floppy;",
@@ -217,8 +217,8 @@ localparam CONF_STR = {
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"O5,Speed,8MHz,16MHz;",
-	"ODE,CPU,68000,68010,68020;",
+	"O5,Speed,16MHz;",
+	"ODE,CPU,68020;",
 	"O4,Memory,1MB,4MB;",
 	"-;",
 	//"OA,Serial,Off,On;",
@@ -346,14 +346,13 @@ wire nubus_irq_n;
 wire [7:0] nubus_r, nubus_g, nubus_b;
 wire nubus_hs, nubus_vs, nubus_blank;
 
-wire video_from_nubus = 1'b1; // Mac II always uses NuBus video
-
-assign VGA_R  = video_from_nubus ? nubus_r : {8{pixelOut}};
-assign VGA_G  = video_from_nubus ? nubus_g : {8{pixelOut}};
-assign VGA_B  = video_from_nubus ? nubus_b : {8{pixelOut}};
-assign VGA_DE = video_from_nubus ? !nubus_blank : (_vblank & _hblank);
-assign VGA_VS = video_from_nubus ? nubus_vs : vsync;
-assign VGA_HS = video_from_nubus ? nubus_hs : hsync;
+// Mac II has NO built-in video - only NuBus video cards
+assign VGA_R  = nubus_r;
+assign VGA_G  = nubus_g;
+assign VGA_B  = nubus_b;
+assign VGA_DE = !nubus_blank;
+assign VGA_VS = nubus_vs;
+assign VGA_HS = nubus_hs;
 assign VGA_F1 = 0;
 assign VGA_SL = 0;
 
@@ -383,29 +382,11 @@ wire [1:0] configRAMSize = status_mem?2'b11:2'b10; // 1MB/4MB
 wire selectNuBus;
 
 //
-// Serial Ports
-//
-wire serialOut;
-wire serialIn;
-wire serialCTS;
-wire serialRTS;
-
-/*
-assign serialIn = ~status[10] ? 0 : UART_RXD;
-assign UART_TXD = serialOut;
-assign serialCTS = UART_CTS;
-assign UART_RTS = serialRTS;
-assign UART_DTR = UART_DSR;
-*/
-
-//assign serialIn = ~status[10] ? 0 : UART_RXD;
-assign serialIn =  UART_RXD;
-assign UART_TXD = serialOut;
-//assign UART_RTS = UART_CTS;
-assign UART_RTS = serialRTS ;
-assign UART_DTR = UART_DSR;
-
-//assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+// Mac II uses SCC for serial communication, not UARTs
+// Tie off UART pins to avoid floating signals
+assign UART_TXD = 1'b1;  // Idle high
+assign UART_RTS = 1'b1;  // Not ready
+assign UART_DTR = 1'b0;  // Not asserted
 /*
 	input         UART_CTS,
 	output        UART_RTS,
@@ -441,7 +422,6 @@ wire [15:0] memoryDataOut;
 wire memoryLatch;
 
 // peripherals
-wire vid_alt, loadPixels, pixelOut, _hblank, _vblank, hsync, vsync;
 wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectRAM, selectROM, selectSEOverlay;
 wire [15:0] dataControllerDataOut;
 
@@ -712,21 +692,21 @@ dataController_top #(SCSI_DEVS) dc0
 	.ps2_key(ps2_key),
 	.capslock(capslock),
 	.ps2_mouse(ps2_mouse),
-	// serial uart
-	.serialIn(serialIn),
-	.serialOut(serialOut),
-	.serialCTS(serialCTS),
-	.serialRTS(serialRTS),
+	// Mac II uses SCC, not UARTs - leave unconnected
+	.serialIn(1'b1),
+	.serialOut(),
+	.serialCTS(1'b0),
+	.serialRTS(),
 
 	// rtc unix ticks
 	.timestamp(TIMESTAMP),
 
-	// video
-	._hblank(_hblank),
-	._vblank(_vblank),
-	.pixelOut(pixelOut),
-	.loadPixels(loadPixels),
-	.vid_alt(vid_alt),
+	// Mac II has no built-in video
+	._hblank(),
+	._vblank(),
+	.pixelOut(),
+	.loadPixels(),
+	.vid_alt(),
 
 	.memoryOverlayOn(memoryOverlayOn),
 
