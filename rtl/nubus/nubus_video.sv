@@ -240,11 +240,14 @@ module nubus_video (
             for (i = 0; i < 16; i = i + 1)
                 registers[i] <= 32'd0;
         end else begin
-            // Decrement ack delay counter
-            if (ack_delay > 0) begin
+            // Decrement ack delay counter - handle separately from state machine
+            if (ack_delay > 3'd0) begin
                 ack_delay <= ack_delay - 3'd1;
-                if (ack_delay == 3'd1)
-                    ack_n <= 0;
+            end
+            
+            // Assert ack_n low when counter reaches 0 (not 1, to give proper timing)
+            if (ack_delay == 3'd1) begin
+                ack_n <= 0;
             end
             
             case (state)
@@ -266,7 +269,8 @@ module nubus_video (
                     vram_wr <= 0;
                     
                     // Priority: CPU accesses, then video fetch
-                    if (select && ack_n) begin
+                    // Only start new transaction if ack_n is high AND no delay in progress
+                    if (select && ack_n && ack_delay == 3'd0) begin
                         if (!rw_n && addr[23:19] == 5'b00000) begin
                             // CPU VRAM write (with data inversion like MAME)
                             if (cpu_vram_addr < VRAM_SIZE) begin
@@ -274,7 +278,7 @@ module nubus_video (
                                 vram_dout <= ~data_in;  // Invert data like MAME
                                 state <= S_CPU_WRITE;
                             end else begin
-                                ack_n <= 0;
+                                ack_delay <= 3'd2;  // Out of range, immediate ack with delay
                             end
                         end else if (rw_n && addr[23:19] == 5'b00000) begin
                             // CPU VRAM read (with data inversion like MAME)
@@ -283,7 +287,7 @@ module nubus_video (
                                 state <= S_CPU_READ;
                             end else begin
                                 data_out <= 16'hFFFF;  // Inverted 0
-                                ack_n <= 0;
+                                ack_delay <= 3'd2;  // Out of range, immediate ack with delay
                             end
                         end else if (!rw_n && addr[23:19] == 5'b00001) begin
                             // Register write (0x080000 - 0x08FFFF) - MAME TFB registers
@@ -357,8 +361,10 @@ module nubus_video (
                             data_out <= 16'hFFFF;
                             ack_delay <= 3'd2;  // 2 cycle delay
                         end
-                    end else if (!select) begin
+                    end else if (!select && !ack_n) begin
+                        // CPU has deasserted select after seeing ack - end transaction
                         ack_n <= 1;
+                        ack_delay <= 3'd0;
                     end else if (video_en && fetch_addr != last_fetch_addr && fetch_addr < VRAM_SIZE) begin
                         // Video fetch when CPU not accessing and video enabled
                         vram_addr <= VRAM_BASE + {6'd0, fetch_addr};
@@ -376,7 +382,7 @@ module nubus_video (
                 S_CPU_WRITE_WAIT: begin
                     if (vram_ready) begin
                         vram_wr <= 0;
-                        ack_n <= 0;
+                        ack_delay <= 3'd2;  // Start delay counter
                         state <= S_IDLE;
                     end
                 end
@@ -390,7 +396,7 @@ module nubus_video (
                     if (vram_ready) begin
                         data_out <= ~vram_din;  // Invert data from VRAM like MAME
                         vram_rd <= 0;
-                        ack_n <= 0;
+                        ack_delay <= 3'd2;  // Start delay counter
                         state <= S_IDLE;
                     end
                 end
