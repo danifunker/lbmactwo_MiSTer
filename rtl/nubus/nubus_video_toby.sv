@@ -43,6 +43,13 @@ module nubus_video_toby (
     localparam V_SYNC_START = 480 + 10;
     localparam V_SYNC_END = 480 + 10 + 2;
     
+    // NuBus Slot Configuration
+    // This card occupies Slot E (Super Slot Space: $FE00_0000 - $FEFF_FFFF)
+    localparam SLOT_ID = 4'hE;
+    
+    // Slot address check - only respond to our assigned slot
+    wire in_our_slot = (addr[31:28] == 4'hF) && (addr[27:24] == SLOT_ID);
+    
     // VRAM size - 512KB (256K words) on-chip
     // For 640x480 monochrome: 640*480/8 = 38,400 bytes = 19,200 words
     // We'll allocate 32K words (64KB) which is plenty
@@ -192,15 +199,59 @@ module nubus_video_toby (
     // Output pixel - white (1) or black (0)
     wire pixel_out = pixel_shift[15];
     
-    // Test pattern: white border (top 2 lines, bottom 2 lines, left/right 8 pixels)
-    wire test_pattern = (v_cnt < 11'd2) || (v_cnt >= 11'd478) || 
-                       (h_cnt < 11'd8) || (h_cnt >= 11'd632);
+    // Debug: capture CPU address on any access
+    reg [31:0] last_cpu_addr;
+    reg last_select;
+    reg last_rw;
     
-    wire video_pixel = test_pattern | pixel_out;
+    always @(posedge clk) begin
+        if (select && ack_n) begin
+            last_cpu_addr <= addr;
+            last_select <= 1'b1;
+            last_rw <= rw_n;
+        end
+    end
     
-    assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
+    // Debug display: Show CPU address bits as pixels
+    // Line 2-3: Address bits 31-16 (2 rows of 16 bits each, scaled 2x)
+    // Line 4-5: Address bits 15-0
+    // Line 6: Status (select=bit0, rw=bit1, ack=bit2)
+    wire [5:0] debug_bit_x = h_cnt[6:1];  // Which bit (0-63, but we use 0-31)
+    wire debug_area = (v_cnt >= 11'd2) && (v_cnt < 11'd7) && (h_cnt < 11'd128);
+    wire debug_pixel;
+    
+    always @(*) begin
+        if (v_cnt == 11'd2 || v_cnt == 11'd3) begin
+            // Address bits 31-16
+            debug_pixel = last_cpu_addr[31 - debug_bit_x[4:0]];
+        end else if (v_cnt == 11'd4 || v_cnt == 11'd5) begin
+            // Address bits 15-0
+            debug_pixel = last_cpu_addr[15 - debug_bit_x[4:0]];
+        end else if (v_cnt == 11'd6) begin
+            // Status indicators
+            if (h_cnt < 11'd16) debug_pixel = last_select;      // Green for select
+            else if (h_cnt < 11'd32) debug_pixel = last_rw;    // Read=1, Write=0
+            else if (h_cnt < 11'd48) debug_pixel = ack_n;      // ack status
+            else debug_pixel = 1'b0;
+        end else begin
+            debug_pixel = 1'b0;
+        end
+    end
+    
+    // Test pattern: white border + debug display
+    wire border = (v_cnt < 11'd2) || (v_cnt >= 11'd478) || 
+                  (h_cnt < 11'd8) || (h_cnt >= 11'd632);
+    
+    wire video_pixel = border | (debug_area & debug_pixel) | pixel_out;
+    
+    // Color coding: border=white, debug=green, content=white
+    assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : 
+                   (debug_area & debug_pixel) ? 8'h00 : 
+                   (video_pixel ? 8'hFF : 8'h00);
     assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
-    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
+    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : 
+                   (debug_area & debug_pixel) ? 8'h00 : 
+                   (video_pixel ? 8'hFF : 8'h00);
 
     // ROM Download - boot1.rom is index 1
     always @(posedge clk) begin
@@ -246,8 +297,8 @@ module nubus_video_toby (
                 ack_n <= 1'b0;
             end
             
-            // CPU access
-            if (select && ack_n && ack_delay == 3'd0) begin
+            // CPU access - only respond if accessed in our slot
+            if (select && ack_n && ack_delay == 3'd0 && in_our_slot) begin
                 if (addr[23:19] == 5'b00000) begin
                     // VRAM access (0x000000 - 0x07FFFF)
                     vram_b_addr <= cpu_vram_addr;
