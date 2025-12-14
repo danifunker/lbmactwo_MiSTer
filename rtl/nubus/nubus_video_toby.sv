@@ -297,8 +297,8 @@ module nubus_video_toby (
     
     // Debug display removed - using overlay for status messages
     
-    // Base video output (before overlay) - just framebuffer content
-    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
+    // Base video output (before overlay) - RED screen for debugging
+    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : 8'hFF;  // Always red when video enabled
     wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
     wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
     
