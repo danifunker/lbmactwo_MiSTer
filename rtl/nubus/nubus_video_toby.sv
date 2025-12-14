@@ -214,6 +214,14 @@ module nubus_video_toby (
     localparam STATUS_ACCESSED = 2'd1;
     localparam STATUS_WORKING = 2'd2;
     
+    // ROM loaded indicator
+    reg rom_loaded;
+    
+    // CPU activity detection (any bus cycle, not just NuBus)
+    reg [31:0] last_addr_seen;
+    reg cpu_active;
+    reg [23:0] cpu_activity_timer;
+    
     // Status message system
     reg [7:0] status_msg [0:39];  // 40 character status line
     reg [5:0] status_len;
@@ -226,6 +234,10 @@ module nubus_video_toby (
             last_in_slot <= 1'b0;
             access_count <= 8'd0;
             card_status <= STATUS_INIT;
+            rom_loaded <= 1'b0;
+            cpu_active <= 1'b0;
+            last_addr_seen <= 32'h0;
+            cpu_activity_timer <= 24'd0;
             status_len <= 6'd16;
             // Default message: "TOBY CARD READY"
             status_msg[0] <= 8'd20; status_msg[1] <= 8'd15; status_msg[2] <= 8'd2;  status_msg[3] <= 8'd25;
@@ -239,10 +251,66 @@ module nubus_video_toby (
             status_msg[28] <= 8'd26; status_msg[29] <= 8'd26; status_msg[30] <= 8'd26; status_msg[31] <= 8'd26;
             status_msg[32] <= 8'd26; status_msg[33] <= 8'd26; status_msg[34] <= 8'd26; status_msg[35] <= 8'd26;
             status_msg[36] <= 8'd26; status_msg[37] <= 8'd26; status_msg[38] <= 8'd26; status_msg[39] <= 8'd26;
-        end else if (select && ack_n) begin
-            // First access attempt - turn pink
+        end else begin
+            // Detect any CPU activity (address bus changes)
+            if (addr != last_addr_seen) begin
+                last_addr_seen <= addr;
+                cpu_active <= 1'b1;
+                cpu_activity_timer <= 24'hFFFFFF;  // Reset activity timer
+            end else if (cpu_activity_timer > 24'd0) begin
+                cpu_activity_timer <= cpu_activity_timer - 24'd1;
+            end
+            
+            // Update status message based on CPU activity
+            if (!cpu_active && rom_loaded) begin
+                // ROM loaded but no CPU activity
+                status_len <= 6'd23;
+                // "ROM OK: WAITING FOR CPU"
+                status_msg[0] <= 8'd18; status_msg[1] <= 8'd14; status_msg[2] <= 8'd13; status_msg[3] <= 8'd0;
+                status_msg[4] <= 8'd14; status_msg[5] <= 8'd10; status_msg[6] <= 8'd28; status_msg[7] <= 8'd0;
+                status_msg[8] <= 8'd22; status_msg[9] <= 8'd1; status_msg[10] <= 8'd8; status_msg[11] <= 8'd19;
+                status_msg[12] <= 8'd8; status_msg[13] <= 8'd13; status_msg[14] <= 8'd6; status_msg[15] <= 8'd0;
+                status_msg[16] <= 8'd5; status_msg[17] <= 8'd14; status_msg[18] <= 8'd18; status_msg[19] <= 8'd0;
+                status_msg[20] <= 8'd2; status_msg[21] <= 8'd15; status_msg[22] <= 8'd20;
+            end else if (!rom_loaded) begin
+                // No ROM loaded yet
+                status_len <= 6'd18;
+                // "WAITING FOR ROM..."
+                status_msg[0] <= 8'd22; status_msg[1] <= 8'd1; status_msg[2] <= 8'd8; status_msg[3] <= 8'd19;
+                status_msg[4] <= 8'd8; status_msg[5] <= 8'd13; status_msg[6] <= 8'd6; status_msg[7] <= 8'd0;
+                status_msg[8] <= 8'd5; status_msg[9] <= 8'd14; status_msg[10] <= 8'd18; status_msg[11] <= 8'd0;
+                status_msg[12] <= 8'd18; status_msg[13] <= 8'd14; status_msg[14] <= 8'd13; status_msg[15] <= 8'd26;
+                status_msg[16] <= 8'd26; status_msg[17] <= 8'd26;
+            end
+        end
+        
+        if (select && ack_n) begin
+            // Any NuBus select detected - turn pink to show activity
             if (card_status == STATUS_INIT) begin
                 card_status <= STATUS_ACCESSED;
+            end
+            
+            // Update status message to show NuBus activity and ROM status
+            if (card_status == STATUS_ACCESSED && access_count == 8'd0) begin
+                if (rom_loaded) begin
+                    status_len <= 6'd22;
+                    // "NUBUS SCAN: ROM READY"
+                    status_msg[0] <= 8'd13; status_msg[1] <= 8'd20; status_msg[2] <= 8'd1; status_msg[3] <= 8'd20;
+                    status_msg[4] <= 8'd18; status_msg[5] <= 8'd0; status_msg[6] <= 8'd18; status_msg[7] <= 8'd2;
+                    status_msg[8] <= 8'd1; status_msg[9] <= 8'd13; status_msg[10] <= 8'd28; status_msg[11] <= 8'd0;
+                    status_msg[12] <= 8'd18; status_msg[13] <= 8'd14; status_msg[14] <= 8'd13; status_msg[15] <= 8'd0;
+                    status_msg[16] <= 8'd18; status_msg[17] <= 8'd4; status_msg[18] <= 8'd1; status_msg[19] <= 8'd3;
+                    status_msg[20] <= 8'd24; status_msg[21] <= 8'd0;
+                end else begin
+                    status_len <= 6'd21;
+                    // "NUBUS SCAN: NO ROM!!!"
+                    status_msg[0] <= 8'd13; status_msg[1] <= 8'd20; status_msg[2] <= 8'd1; status_msg[3] <= 8'd20;
+                    status_msg[4] <= 8'd18; status_msg[5] <= 8'd0; status_msg[6] <= 8'd18; status_msg[7] <= 8'd2;
+                    status_msg[8] <= 8'd1; status_msg[9] <= 8'd13; status_msg[10] <= 8'd28; status_msg[11] <= 8'd0;
+                    status_msg[12] <= 8'd13; status_msg[13] <= 8'd14; status_msg[14] <= 8'd0; status_msg[15] <= 8'd18;
+                    status_msg[16] <= 8'd14; status_msg[17] <= 8'd13; status_msg[18] <= 8'd27; status_msg[19] <= 8'd27;
+                    status_msg[20] <= 8'd27;
+                end
             end
             
             // Only respond to our slot
@@ -361,9 +429,12 @@ module nubus_video_toby (
 
     // ROM Download - boot1.rom is index 1
     always @(posedge clk) begin
-        if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
+        if (reset) begin
+            rom_loaded <= 1'b0;
+        end else if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
             rom[{ioctl_addr[11:0], 1'b0}] <= ioctl_data[7:0];
             rom[{ioctl_addr[11:0], 1'b1}] <= ioctl_data[15:8];
+            rom_loaded <= 1'b1;  // Mark ROM as loaded
         end
     end
     
