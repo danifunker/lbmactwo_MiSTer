@@ -125,9 +125,8 @@ module nubus_video_toby (
         end
     end
 
-    assign vga_hs = vga_hs_reg;
-    assign vga_vs = vga_vs_reg;
-    assign vga_blank = vga_blank_reg;
+    // vga_hs, vga_vs, vga_blank now driven by ovo module
+    // vga_clk still directly assigned
     assign vga_clk = clk;
 
     // VBL Interrupt signals
