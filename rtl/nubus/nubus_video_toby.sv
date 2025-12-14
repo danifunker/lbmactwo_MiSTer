@@ -225,29 +225,65 @@ module nubus_video_toby (
             status_msg[4] <= 8'd0;  status_msg[5] <= 8'd3;  status_msg[6] <= 8'd1;  status_msg[7] <= 8'd18;
             status_msg[8] <= 8'd4;  status_msg[9] <= 8'd0;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd5;
             status_msg[12] <= 8'd1; status_msg[13] <= 8'd4; status_msg[14] <= 8'd25; status_msg[15] <= 8'd0;
-        end else if (select && ack_n) begin
+        end else if (select && ack_n && in_our_slot) begin
             last_cpu_addr <= addr;
             last_select <= 1'b1;
             last_rw <= rw_n;
             last_in_slot <= in_our_slot;
             access_count <= access_count + 8'd1;
             
-            // Update status on first access
-            if (access_count == 8'd0) begin
-                status_len <= 6'd16;
-                // "ROM ACCESS: OK!"
-                status_msg[0] <= 8'd18; status_msg[1] <= 8'd15; status_msg[2] <= 8'd13; status_msg[3] <= 8'd0;
-                status_msg[4] <= 8'd1;  status_msg[5] <= 8'd3;  status_msg[6] <= 8'd3;  status_msg[7] <= 8'd5;
-                status_msg[8] <= 8'd19; status_msg[9] <= 8'd19; status_msg[10] <= 8'd26; status_msg[11] <= 8'd0;
-                status_msg[12] <= 8'd15; status_msg[13] <= 8'd11; status_msg[14] <= 8'd27; status_msg[15] <= 8'd0;
-            end else if (access_count == 8'd10) begin
-                status_len <= 6'd17;
-                // "VRAM INITIALIZED"
-                status_msg[0] <= 8'd22; status_msg[1] <= 8'd18; status_msg[2] <= 8'd1;  status_msg[3] <= 8'd13;
-                status_msg[4] <= 8'd0;  status_msg[5] <= 8'd9;  status_msg[6] <= 8'd14; status_msg[7] <= 8'd9;
-                status_msg[8] <= 8'd20; status_msg[9] <= 8'd9;  status_msg[10] <= 8'd1; status_msg[11] <= 8'd12;
-                status_msg[12] <= 8'd9; status_msg[13] <= 8'd26; status_msg[14] <= 8'd5; status_msg[15] <= 8'd4;
-                status_msg[16] <= 8'd0;
+            // Update status based on what's being accessed
+            if (addr[23:20] == 4'hF) begin
+                // ROM read (0x0F0000 - 0x0FFFFF)
+                if (rw_n) begin
+                    status_len <= 6'd18;
+                    // "ROM READ: FE0Fxxxx"
+                    status_msg[0] <= 8'd18; status_msg[1] <= 8'd15; status_msg[2] <= 8'd13; status_msg[3] <= 8'd0;
+                    status_msg[4] <= 8'd18; status_msg[5] <= 8'd4;  status_msg[6] <= 8'd1;  status_msg[7] <= 8'd3;
+                    status_msg[8] <= 8'd28; status_msg[9] <= 8'd0;  status_msg[10] <= 8'd5; status_msg[11] <= 8'd4;
+                    status_msg[12] <= 8'd26; status_msg[13] <= 8'd15 + (addr[19:16]); // Hex digit
+                    status_msg[14] <= 8'd23; status_msg[15] <= 8'd23; status_msg[16] <= 8'd23; status_msg[17] <= 8'd23;
+                end
+            end else if (addr[23:19] == 5'b00000) begin
+                // VRAM access (0x000000 - 0x07FFFF)
+                if (!rw_n) begin
+                    status_len <= 6'd11;
+                    // "VRAM WRITE"
+                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd18; status_msg[2] <= 8'd1;  status_msg[3] <= 8'd13;
+                    status_msg[4] <= 8'd0;  status_msg[5] <= 8'd22; status_msg[6] <= 8'd18; status_msg[7] <= 8'd8;
+                    status_msg[8] <= 8'd20; status_msg[9] <= 8'd4;  status_msg[10] <= 8'd0;
+                end else begin
+                    status_len <= 6'd10;
+                    // "VRAM READ"
+                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd18; status_msg[2] <= 8'd1;  status_msg[3] <= 8'd13;
+                    status_msg[4] <= 8'd0;  status_msg[5] <= 8'd18; status_msg[6] <= 8'd4;  status_msg[7] <= 8'd1;
+                    status_msg[8] <= 8'd3;  status_msg[9] <= 8'd0;
+                end
+            end else if (addr[23:16] == 8'h0A) begin
+                // VBL control (0x0A0000 - 0x0AFFFF)
+                if (addr[2]) begin
+                    status_len <= 6'd15;
+                    // "VBL IRQ DISABLE"
+                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd1;  status_msg[2] <= 8'd11; status_msg[3] <= 8'd0;
+                    status_msg[4] <= 8'd8;  status_msg[5] <= 8'd18; status_msg[6] <= 8'd16; status_msg[7] <= 8'd0;
+                    status_msg[8] <= 8'd3;  status_msg[9] <= 8'd8;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd1;
+                    status_msg[12] <= 8'd1; status_msg[13] <= 8'd11; status_msg[14] <= 8'd4;
+                end else begin
+                    status_len <= 6'd14;
+                    // "VBL IRQ ENABLE"
+                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd1;  status_msg[2] <= 8'd11; status_msg[3] <= 8'd0;
+                    status_msg[4] <= 8'd8;  status_msg[5] <= 8'd18; status_msg[6] <= 8'd16; status_msg[7] <= 8'd0;
+                    status_msg[8] <= 8'd4;  status_msg[9] <= 8'd13; status_msg[10] <= 8'd1; status_msg[11] <= 8'd1;
+                    status_msg[12] <= 8'd11; status_msg[13] <= 8'd4;
+                end
+            end else if (addr[23:16] == 8'h0D) begin
+                // VBL status read (0x0D0000 - 0x0DFFFF)
+                status_len <= 6'd14;
+                // "VBL STATUS CHK"
+                status_msg[0] <= 8'd22; status_msg[1] <= 8'd1;  status_msg[2] <= 8'd11; status_msg[3] <= 8'd0;
+                status_msg[4] <= 8'd18; status_msg[5] <= 8'd19; status_msg[6] <= 8'd1;  status_msg[7] <= 8'd19;
+                status_msg[8] <= 8'd20; status_msg[9] <= 8'd18; status_msg[10] <= 8'd0; status_msg[11] <= 8'd2;
+                status_msg[12] <= 8'd7; status_msg[13] <= 8'd10;
             end
         end
     end
@@ -279,26 +315,16 @@ module nubus_video_toby (
         end
     end
     
-    // Test pattern: white border + debug display
-    wire border = (v_cnt < 11'd2) || (v_cnt >= 11'd478) || 
-                  (h_cnt < 11'd8) || (h_cnt >= 11'd632);
+    // Base video output (before overlay) - just framebuffer content
+    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
+    wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
+    wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
     
-    wire video_pixel = border | (debug_area & debug_pixel) | pixel_out;
-    
-    // Base video output (before overlay)
-    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : 
-                        (debug_area & debug_pixel) ? 8'h00 : 
-                        (video_pixel ? 8'hFF : 8'h00);
-    wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
-    wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : 
-                        (debug_area & debug_pixel) ? 8'hFF : 
-                        (video_pixel ? 8'hFF : 8'h00);
-    
-    // Text overlay module (yellow text at bottom of screen)
+    // Text overlay module (green text at bottom of screen)
     ovo #(
         .COLS(40),
         .LINES(1),
-        .RGB(24'hFFFF00)  // Yellow
+        .RGB(24'h00FF00)  // Green
     ) text_overlay (
         .i_r(base_r),
         .i_g(base_g),
