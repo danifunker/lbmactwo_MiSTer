@@ -20,5 +20,6 @@ set_global_assignment -name VERILOG_FILE rtl/videoTimer.v
 set_global_assignment -name VERILOG_FILE rtl/videoShifter.v
 set_global_assignment -name VERILOG_FILE rtl/rtc.v 
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_toby.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/ovo.sv
 #set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_highres.sv
 set_global_assignment -name SYSTEMVERILOG_FILE LBMacTwo.sv

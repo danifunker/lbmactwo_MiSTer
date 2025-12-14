@@ -30,7 +30,10 @@ module nubus_video_toby (
     input [24:0] ioctl_addr,
     input [15:0] ioctl_data,
     input        ioctl_download,
-    input [7:0]  ioctl_index
+    input [7:0]  ioctl_index,
+    
+    // Overlay control
+    input        overlay_en
 );
 
     // Video Parameters - 640x480 @ 60Hz
@@ -250,56 +253,6 @@ module nubus_video_toby (
         end
     end
     
-    // Simple 8x8 Font ROM (A-Z, 0-9, space, punctuation)
-    function [7:0] get_font_row;
-        input [7:0] char_code;
-        input [2:0] row;
-        begin
-            case (char_code)
-                8'd0:  get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11000011 : (row == 3'd4) ? 8'b11111111 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b11000011 : 8'b00000000; // A
-                8'd1:  get_font_row = (row == 3'd1) ? 8'b11111110 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11111110 : (row == 3'd4) ? 8'b11111110 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b11111110 : 8'b00000000; // B
-                8'd2:  get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b11000000 : (row == 3'd3) ? 8'b11000000 : (row == 3'd4) ? 8'b11000000 : (row == 3'd5) ? 8'b11000000 : (row == 3'd6) ? 8'b01111110 : 8'b00000000; // C
-                8'd3:  get_font_row = (row == 3'd1) ? 8'b11111100 : (row == 3'd2) ? 8'b11000110 : (row == 3'd3) ? 8'b11000011 : (row == 3'd4) ? 8'b11000011 : (row == 3'd5) ? 8'b11000110 : (row == 3'd6) ? 8'b11111100 : 8'b00000000; // D
-                8'd4:  get_font_row = (row == 3'd1) ? 8'b11111111 : (row == 3'd2) ? 8'b11000000 : (row == 3'd3) ? 8'b11111100 : (row == 3'd4) ? 8'b11111100 : (row == 3'd5) ? 8'b11000000 : (row == 3'd6) ? 8'b11111111 : 8'b00000000; // E
-                8'd5:  get_font_row = (row == 3'd1) ? 8'b11111111 : (row == 3'd2) ? 8'b11000000 : (row == 3'd3) ? 8'b11111100 : (row == 3'd4) ? 8'b11111100 : (row == 3'd5) ? 8'b11000000 : (row == 3'd6) ? 8'b11000000 : 8'b00000000; // F
-                8'd6:  get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b11000000 : (row == 3'd3) ? 8'b11001111 : (row == 3'd4) ? 8'b11000011 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b01111110 : 8'b00000000; // G
-                8'd7:  get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11111111 : (row == 3'd4) ? 8'b11111111 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b11000011 : 8'b00000000; // H
-                8'd8:  get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b00011000 : (row == 3'd3) ? 8'b00011000 : (row == 3'd4) ? 8'b00011000 : (row == 3'd5) ? 8'b00011000 : (row == 3'd6) ? 8'b01111110 : 8'b00000000; // I
-                8'd9:  get_font_row = (row == 3'd1) ? 8'b00011111 : (row == 3'd2) ? 8'b00000110 : (row == 3'd3) ? 8'b00000110 : (row == 3'd4) ? 8'b11000110 : (row == 3'd5) ? 8'b11000110 : (row == 3'd6) ? 8'b01111100 : 8'b00000000; // J
-                8'd10: get_font_row = (row == 3'd1) ? 8'b11000110 : (row == 3'd2) ? 8'b11001100 : (row == 3'd3) ? 8'b11111000 : (row == 3'd4) ? 8'b11111000 : (row == 3'd5) ? 8'b11001100 : (row == 3'd6) ? 8'b11000110 : 8'b00000000; // K
-                8'd11: get_font_row = (row == 3'd1) ? 8'b11000000 : (row == 3'd2) ? 8'b11000000 : (row == 3'd3) ? 8'b11000000 : (row == 3'd4) ? 8'b11000000 : (row == 3'd5) ? 8'b11000000 : (row == 3'd6) ? 8'b11111111 : 8'b00000000; // L
-                8'd12: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b11100111 : (row == 3'd3) ? 8'b11111111 : (row == 3'd4) ? 8'b11011011 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b11000011 : 8'b00000000; // M
-                8'd13: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b11100011 : (row == 3'd3) ? 8'b11110011 : (row == 3'd4) ? 8'b11011011 : (row == 3'd5) ? 8'b11001111 : (row == 3'd6) ? 8'b11000111 : 8'b00000000; // N
-                8'd14: get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11000011 : (row == 3'd4) ? 8'b11000011 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b01111110 : 8'b00000000; // O
-                8'd15: get_font_row = (row == 3'd1) ? 8'b11111110 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11111110 : (row == 3'd4) ? 8'b11111110 : (row == 3'd5) ? 8'b11000000 : (row == 3'd6) ? 8'b11000000 : 8'b00000000; // P
-                8'd16: get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11000011 : (row == 3'd4) ? 8'b11011011 : (row == 3'd5) ? 8'b11001111 : (row == 3'd6) ? 8'b01111111 : 8'b00000000; // Q
-                8'd17: get_font_row = (row == 3'd1) ? 8'b11111110 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11111110 : (row == 3'd4) ? 8'b11111000 : (row == 3'd5) ? 8'b11001100 : (row == 3'd6) ? 8'b11000110 : 8'b00000000; // R
-                8'd18: get_font_row = (row == 3'd1) ? 8'b01111110 : (row == 3'd2) ? 8'b11000000 : (row == 3'd3) ? 8'b01111110 : (row == 3'd4) ? 8'b01111110 : (row == 3'd5) ? 8'b00000011 : (row == 3'd6) ? 8'b01111110 : 8'b00000000; // S
-                8'd19: get_font_row = (row == 3'd1) ? 8'b11111111 : (row == 3'd2) ? 8'b00011000 : (row == 3'd3) ? 8'b00011000 : (row == 3'd4) ? 8'b00011000 : (row == 3'd5) ? 8'b00011000 : (row == 3'd6) ? 8'b00011000 : 8'b00000000; // T
-                8'd20: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11000011 : (row == 3'd4) ? 8'b11000011 : (row == 3'd5) ? 8'b11000011 : (row == 3'd6) ? 8'b01111110 : 8'b00000000; // U
-                8'd21: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11000011 : (row == 3'd4) ? 8'b01100110 : (row == 3'd5) ? 8'b00111100 : (row == 3'd6) ? 8'b00011000 : 8'b00000000; // V
-                8'd22: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b11000011 : (row == 3'd3) ? 8'b11011011 : (row == 3'd4) ? 8'b11111111 : (row == 3'd5) ? 8'b11100111 : (row == 3'd6) ? 8'b11000011 : 8'b00000000; // W
-                8'd23: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b01100110 : (row == 3'd3) ? 8'b00111100 : (row == 3'd4) ? 8'b00111100 : (row == 3'd5) ? 8'b01100110 : (row == 3'd6) ? 8'b11000011 : 8'b00000000; // X
-                8'd24: get_font_row = (row == 3'd1) ? 8'b11000011 : (row == 3'd2) ? 8'b01100110 : (row == 3'd3) ? 8'b00111100 : (row == 3'd4) ? 8'b00011000 : (row == 3'd5) ? 8'b00011000 : (row == 3'd6) ? 8'b00011000 : 8'b00000000; // Y
-                8'd25: get_font_row = (row == 3'd1) ? 8'b11111111 : (row == 3'd2) ? 8'b00000110 : (row == 3'd3) ? 8'b00001100 : (row == 3'd4) ? 8'b00011000 : (row == 3'd5) ? 8'b00110000 : (row == 3'd6) ? 8'b11111111 : 8'b00000000; // Z
-                8'd26: get_font_row = 8'b00000000; // Space
-                8'd27: get_font_row = (row == 3'd6) ? 8'b00011000 : (row == 3'd5) ? 8'b00011000 : (row == 3'd3) ? 8'b00011000 : (row == 3'd2) ? 8'b00011000 : (row == 3'd1) ? 8'b00011000 : 8'b00000000; // !
-                8'd28: get_font_row = (row == 3'd1) ? 8'b00011000 : (row == 3'd2) ? 8'b00011000 : (row == 3'd3) ? 8'b00011000 : (row == 3'd4) ? 8'b00011000 : (row == 3'd6) ? 8'b00011000 : 8'b00000000; // :
-                default: get_font_row = 8'b00000000;
-            endcase
-        end
-    endfunction
-    
-    // Text overlay rendering
-    wire [5:0] text_char_x = h_cnt[8:3];  // Which character (0-79)
-    wire [2:0] text_char_px = h_cnt[2:0]; // Which pixel within character (0-7)
-    wire [2:0] text_row = v_cnt[2:0];     // Which row within character (0-7)
-    wire text_area = (v_cnt >= 11'd464) && (v_cnt < 11'd472) && (h_cnt < 11'd320); // Bottom line, 40 chars
-    
-    wire [7:0] current_char = (text_char_x < status_len) ? status_msg[text_char_x] : 8'd26;
-    wire [7:0] font_row_data = get_font_row(current_char, text_row);
-    wire text_pixel = font_row_data[7 - text_char_px];
-    
     // Debug display: Show CPU address bits as pixels (4 pixels per bit for visibility)
     // Line 2-5: Address bits 31-24 (4 rows x 8 bits)
     // Line 6-9: Address bits 23-16
@@ -327,23 +280,46 @@ module nubus_video_toby (
         end
     end
     
-    // Test pattern: white border + debug display + text overlay
+    // Test pattern: white border + debug display
     wire border = (v_cnt < 11'd2) || (v_cnt >= 11'd478) || 
                   (h_cnt < 11'd8) || (h_cnt >= 11'd632);
     
-    wire video_pixel = border | (debug_area & debug_pixel) | (text_area & text_pixel) | pixel_out;
+    wire video_pixel = border | (debug_area & debug_pixel) | pixel_out;
     
-    // Color coding: border=white, debug=cyan, text=yellow, content=white
-    assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : 
-                   (debug_area & debug_pixel) ? 8'h00 :
-                   (text_area & text_pixel) ? 8'hFF :
-                   (video_pixel ? 8'hFF : 8'h00);
-    assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : 
-                   (text_area & text_pixel) ? 8'hFF :
-                   (video_pixel ? 8'hFF : 8'h00);
-    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : 
-                   (debug_area & debug_pixel) ? 8'hFF :
-                   (video_pixel ? 8'hFF : 8'h00);
+    // Base video output (before overlay)
+    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : 
+                        (debug_area & debug_pixel) ? 8'h00 : 
+                        (video_pixel ? 8'hFF : 8'h00);
+    wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
+    wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : 
+                        (debug_area & debug_pixel) ? 8'hFF : 
+                        (video_pixel ? 8'hFF : 8'h00);
+    
+    // Text overlay module (yellow text at bottom of screen)
+    ovo #(
+        .COLS(40),
+        .LINES(1),
+        .RGB(24'hFFFF00)  // Yellow
+    ) text_overlay (
+        .i_r(base_r),
+        .i_g(base_g),
+        .i_b(base_b),
+        .i_hs(vga_hs_reg),
+        .i_vs(vga_vs_reg),
+        .i_de(!vga_blank_reg),
+        .i_clk(clk),
+        .o_r(vga_r),
+        .o_g(vga_g),
+        .o_b(vga_b),
+        .o_hs(vga_hs),
+        .o_vs(vga_vs),
+        .o_de(vga_blank),
+        .ena(overlay_en),
+        .text_in(status_msg),
+        .text_len(status_len)
+    );
+    
+    assign vga_clk = clk;
 
     // ROM Download - boot1.rom is index 1
     always @(posedge clk) begin

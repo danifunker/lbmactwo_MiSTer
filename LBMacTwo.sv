@@ -226,6 +226,8 @@ localparam CONF_STR = {
 	"O5,Speed,8MHz,16MHz;",
 	"O4,Memory,1MB,4MB;",
 	"-;",
+	"O6,Debug Overlay,Off,On;",
+	"-;",
 	"R0,Reset & Apply CPU+Memory;",
 	"-;",
 	"v,0;", // [optional] config version 0-99.
@@ -235,6 +237,7 @@ localparam CONF_STR = {
 };
 
 wire status_turbo = status[5];
+wire status_overlay_en = status[6];
 
 ////////////////////   CLOCKS   ///////////////////
 
@@ -632,6 +635,8 @@ nubus_video_toby nubus_card (
 	.nmrq_n(nubus_irq_n),
 	
 	// Toby card uses on-chip VRAM, no external interface needed
+	// Overlay control
+	.overlay_en(status_overlay_en),
 
 	.ioctl_wr(ioctl_write),
 	.ioctl_addr({4'd0, dio_a}),
