@@ -295,9 +295,9 @@ module nubus_video_toby (
             // Decrement delay counter
             if (ack_delay > 3'd0) begin
                 ack_delay <= ack_delay - 3'd1;
-                // For VRAM reads, latch data when delay is 2
+                // For VRAM reads, latch data when delay is 2 - invert like MAME
                 if (ack_delay == 3'd2 && addr[23:19] == 5'b00000 && rw_n) begin
-                    data_out <= vram_b_dout;
+                    data_out <= ~vram_b_dout;
                 end
             end
             
@@ -312,8 +312,8 @@ module nubus_video_toby (
                     // VRAM access (0x000000 - 0x07FFFF)
                     vram_b_addr <= cpu_vram_addr;
                     if (!rw_n) begin
-                        // Write
-                        vram_b_din <= data_in;
+                        // Write - invert data like MAME does
+                        vram_b_din <= ~data_in;
                         vram_b_we <= 1'b1;
                         ack_delay <= 3'd2;
                     end else begin
@@ -329,17 +329,18 @@ module nubus_video_toby (
                         irq_active <= 1'b0;
                     end
                     ack_delay <= 3'd2;
-                end else if (rw_n && addr[23:16] == 8'h09) begin
-                    // VBL status read (0x090000 - 0x09FFFF)
-                    data_out <= (v_cnt >= V_RES) ? 16'h0001 : 16'h0000;
+                end else if (rw_n && addr[23:16] == 8'h0D) begin
+                    // VBL status read (0x0D0000 - 0x0DFFFF) - matches MAME
+                    // MAME returns 0 during vblank, 0xff when not
+                    data_out <= (v_cnt >= V_RES) ? 16'h0000 : 16'hFFFF;
                     ack_delay <= 3'd2;
                 end else if (rw_n && addr[23:20] == 4'hF) begin
-                    // ROM read (0x0F0000 - 0x0FFFFF)
+                    // ROM read (0x0F0000 - 0x0FFFFF) - invert data like MAME
                     if (addr[11:0] < 12'd2048) begin
-                        data_out[15:8] <= rom[{addr[11:1], 1'b0}];
-                        data_out[7:0] <= rom[{addr[11:1], 1'b1}];
+                        data_out[15:8] <= ~rom[{addr[11:1], 1'b0}];
+                        data_out[7:0] <= ~rom[{addr[11:1], 1'b1}];
                     end else begin
-                        data_out <= 16'd0;
+                        data_out <= 16'h0000;  // Inverted 0xFFFF
                     end
                     ack_delay <= 3'd3;
                 end else begin

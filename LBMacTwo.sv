@@ -253,12 +253,31 @@ pll pll
 reg       status_mem;
 reg [1:0] status_mod;
 reg       n_reset = 0;
+reg       osd_reset_req = 0;
+reg [23:0] osd_reset_timer = 0;
+
+// Capture OSD reset request (status[0] is edge-triggered)
+always @(posedge clk_sys) begin
+	reg old_status0;
+	old_status0 <= status[0];
+	
+	// Detect rising edge of reset button
+	if (status[0] && !old_status0) begin
+		osd_reset_req <= 1'b1;
+		osd_reset_timer <= 24'hFFFFFF;  // Hold reset for ~0.5 seconds
+	end else if (osd_reset_timer != 0) begin
+		osd_reset_timer <= osd_reset_timer - 1'd1;
+	end else begin
+		osd_reset_req <= 1'b0;
+	end
+end
+
 always @(posedge clk_sys) begin
 	reg [15:0] rst_cnt;
 
 	if (clk8_en_p) begin
 		// various sources can reset the mac
-		if(~pll_locked || status[0] || buttons[1] || RESET || ~_cpuReset_o) begin
+		if(~pll_locked || osd_reset_req || buttons[1] || RESET || ~_cpuReset_o) begin
 			rst_cnt <= '1;
 			n_reset <= 0;
 		end
