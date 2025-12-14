@@ -93,7 +93,10 @@ module ovo #(
     wire text_pixel = font_row[7 - char_px];
 
     // Text area detection (bottom of screen, adjustable via LINES parameter)
-    wire in_text_area = (hcpt < COLS * 8) && (vcpt < LINES * 8);
+    // Position at scanlines 472-479 (last 8 lines of 480 visible)
+    localparam V_RES = 480;  // Assume 480p video
+    wire in_text_area = (hcpt < COLS * 8) && (vcpt >= (V_RES - LINES * 8)) && (vcpt < V_RES);
+    wire [2:0] text_row_offset = vcpt[2:0];  // Row within text area
 
     always @(posedge i_clk) begin
         // Propagate VGA signals (2-cycle delay)

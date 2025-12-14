@@ -303,6 +303,7 @@ module nubus_video_toby (
     wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
     
     // Text overlay module (green text at bottom of screen)
+    wire overlay_de;
     ovo #(
         .COLS(40),
         .LINES(1),
@@ -320,11 +321,13 @@ module nubus_video_toby (
         .o_b(vga_b),
         .o_hs(vga_hs),
         .o_vs(vga_vs),
-        .o_de(vga_blank),
+        .o_de(overlay_de),
         .ena(overlay_en),
         .text_in(status_msg),
         .text_len(status_len)
     );
+    
+    assign vga_blank = !overlay_de;  // Invert: blank is active LOW
     
     assign vga_clk = clk;
 
