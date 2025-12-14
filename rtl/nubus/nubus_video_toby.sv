@@ -202,9 +202,9 @@ module nubus_video_toby (
     assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
     assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
 
-    // ROM Download
+    // ROM Download - boot1.rom is index 1
     always @(posedge clk) begin
-        if (ioctl_wr && ioctl_download && ioctl_index == 8'd2) begin
+        if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
             rom[{ioctl_addr[11:0], 1'b0}] <= ioctl_data[7:0];
             rom[{ioctl_addr[11:0], 1'b1}] <= ioctl_data[15:8];
         end
