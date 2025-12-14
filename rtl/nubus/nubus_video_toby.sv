@@ -225,6 +225,13 @@ module nubus_video_toby (
             status_msg[4] <= 8'd0;  status_msg[5] <= 8'd3;  status_msg[6] <= 8'd1;  status_msg[7] <= 8'd18;
             status_msg[8] <= 8'd4;  status_msg[9] <= 8'd0;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd5;
             status_msg[12] <= 8'd1; status_msg[13] <= 8'd4; status_msg[14] <= 8'd25; status_msg[15] <= 8'd0;
+            // Initialize rest to spaces
+            status_msg[16] <= 8'd26; status_msg[17] <= 8'd26; status_msg[18] <= 8'd26; status_msg[19] <= 8'd26;
+            status_msg[20] <= 8'd26; status_msg[21] <= 8'd26; status_msg[22] <= 8'd26; status_msg[23] <= 8'd26;
+            status_msg[24] <= 8'd26; status_msg[25] <= 8'd26; status_msg[26] <= 8'd26; status_msg[27] <= 8'd26;
+            status_msg[28] <= 8'd26; status_msg[29] <= 8'd26; status_msg[30] <= 8'd26; status_msg[31] <= 8'd26;
+            status_msg[32] <= 8'd26; status_msg[33] <= 8'd26; status_msg[34] <= 8'd26; status_msg[35] <= 8'd26;
+            status_msg[36] <= 8'd26; status_msg[37] <= 8'd26; status_msg[38] <= 8'd26; status_msg[39] <= 8'd26;
         end else if (select && ack_n && in_our_slot) begin
             last_cpu_addr <= addr;
             last_select <= 1'b1;
@@ -288,32 +295,7 @@ module nubus_video_toby (
         end
     end
     
-    // Debug display: Show CPU address bits as pixels (4 pixels per bit for visibility)
-    // Line 2-5: Address bits 31-24 (4 rows x 8 bits)
-    // Line 6-9: Address bits 23-16
-    // Line 10: Access count, slot match, R/W status
-    wire [4:0] debug_bit_x = h_cnt[6:2];  // Which bit (0-31)
-    wire debug_area = (v_cnt >= 11'd2) && (v_cnt < 11'd11) && (h_cnt < 11'd128);
-    reg debug_pixel;
-    
-    always @(*) begin
-        if (v_cnt >= 11'd2 && v_cnt < 11'd6) begin
-            // Address bits 31-24 (top nibble, scaled 4x)
-            debug_pixel = last_cpu_addr[31 - debug_bit_x[2:0]];
-        end else if (v_cnt >= 11'd6 && v_cnt < 11'd10) begin
-            // Address bits 23-16 (second nibble, scaled 4x)
-            debug_pixel = last_cpu_addr[23 - debug_bit_x[2:0]];
-        end else if (v_cnt == 11'd10) begin
-            // Status row
-            if (h_cnt < 11'd32) debug_pixel = access_count[h_cnt[4:0]];  // Access counter
-            else if (h_cnt < 11'd48) debug_pixel = last_in_slot;         // In our slot?
-            else if (h_cnt < 11'd64) debug_pixel = last_rw;              // Read/Write
-            else if (h_cnt < 11'd80) debug_pixel = last_select;          // Select active
-            else debug_pixel = 1'b0;
-        end else begin
-            debug_pixel = 1'b0;
-        end
-    end
+    // Debug display removed - using overlay for status messages
     
     // Base video output (before overlay) - just framebuffer content
     wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);

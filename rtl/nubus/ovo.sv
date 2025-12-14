@@ -77,7 +77,6 @@ module ovo #(
 
     // Counters
     reg [11:0] hcpt, vcpt;
-    reg [11:0] hcpt2;
     reg de_seen;
 
     // Latched text input
@@ -85,9 +84,10 @@ module ovo #(
     reg [5:0] len_latched;
 
     // Font rendering
-    wire [5:0] char_x = hcpt[11:3];  // Which character (0-39)
-    wire [2:0] char_px = hcpt[2:0];  // Which pixel within character
-    wire [2:0] char_row = vcpt[2:0]; // Which row within character
+    wire [8:0] char_x_full = hcpt[11:3];  // Which character (full width)
+    wire [5:0] char_x = char_x_full[5:0]; // Truncated to 6 bits (0-63)
+    wire [2:0] char_px = hcpt[2:0];       // Which pixel within character
+    wire [2:0] char_row = vcpt[2:0];      // Which row within character
     wire [7:0] current_char = (char_x < len_latched) ? text_latched[char_x] : 8'd26;
     wire [7:0] font_row = get_font_row(current_char, char_row);
     wire text_pixel = font_row[7 - char_px];
@@ -136,7 +136,6 @@ module ovo #(
             de_seen <= 1'b1;
         end
 
-        hcpt2 <= hcpt;
 
         // Insert overlay
         if (ena && in_text_area && text_pixel) begin
