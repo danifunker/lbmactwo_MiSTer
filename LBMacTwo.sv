@@ -457,20 +457,20 @@ end
 assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 : ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 assign      _cpuDTACK = selectNuBus ? nubusAck : (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
-// Debug LED tracking
-reg [23:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
+// Debug LED tracking - extended duration for visibility
+reg [27:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
 wire nubus_access = selectNuBus && !_cpuAS;
 wire mem_access = (selectRAM || selectROM) && !_cpuAS;
 wire video_active = !nubus_blank;
 
 always @(posedge clk_sys) begin
-	if (nubus_access) nubus_act_ctr <= 24'hFFFFFF;
+	if (nubus_access) nubus_act_ctr <= 28'hFFFFFFF;  // ~8 seconds at 32.5MHz
 	else if (nubus_act_ctr != 0) nubus_act_ctr <= nubus_act_ctr - 1'd1;
 	
-	if (mem_access) mem_act_ctr <= 24'hFFFFFF;
+	if (mem_access) mem_act_ctr <= 28'hFFFFFFF;
 	else if (mem_act_ctr != 0) mem_act_ctr <= mem_act_ctr - 1'd1;
 	
-	if (video_active) video_act_ctr <= 24'hFFFFFF;
+	if (video_active) video_act_ctr <= 28'hFFFFFFF;
 	else if (video_act_ctr != 0) video_act_ctr <= video_act_ctr - 1'd1;
 end
 

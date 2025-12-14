@@ -199,39 +199,50 @@ module nubus_video_toby (
     // Output pixel - white (1) or black (0)
     wire pixel_out = pixel_shift[15];
     
-    // Debug: capture CPU address on any access
+    // Debug: capture CPU address and slot info on any access
     reg [31:0] last_cpu_addr;
     reg last_select;
     reg last_rw;
+    reg last_in_slot;
+    reg [7:0] access_count;
     
     always @(posedge clk) begin
-        if (select && ack_n) begin
+        if (reset) begin
+            last_cpu_addr <= 32'h0;
+            last_select <= 1'b0;
+            last_rw <= 1'b1;
+            last_in_slot <= 1'b0;
+            access_count <= 8'd0;
+        end else if (select && ack_n) begin
             last_cpu_addr <= addr;
             last_select <= 1'b1;
             last_rw <= rw_n;
+            last_in_slot <= in_our_slot;
+            access_count <= access_count + 8'd1;
         end
     end
     
-    // Debug display: Show CPU address bits as pixels
-    // Line 2-3: Address bits 31-16 (2 rows of 16 bits each, scaled 2x)
-    // Line 4-5: Address bits 15-0
-    // Line 6: Status (select=bit0, rw=bit1, ack=bit2)
-    wire [5:0] debug_bit_x = h_cnt[6:1];  // Which bit (0-63, but we use 0-31)
-    wire debug_area = (v_cnt >= 11'd2) && (v_cnt < 11'd7) && (h_cnt < 11'd128);
-    wire debug_pixel;
+    // Debug display: Show CPU address bits as pixels (4 pixels per bit for visibility)
+    // Line 2-5: Address bits 31-24 (4 rows x 8 bits)
+    // Line 6-9: Address bits 23-16
+    // Line 10: Access count, slot match, R/W status
+    wire [4:0] debug_bit_x = h_cnt[6:2];  // Which bit (0-31)
+    wire debug_area = (v_cnt >= 11'd2) && (v_cnt < 11'd11) && (h_cnt < 11'd128);
+    reg debug_pixel;
     
     always @(*) begin
-        if (v_cnt == 11'd2 || v_cnt == 11'd3) begin
-            // Address bits 31-16
-            debug_pixel = last_cpu_addr[31 - debug_bit_x[4:0]];
-        end else if (v_cnt == 11'd4 || v_cnt == 11'd5) begin
-            // Address bits 15-0
-            debug_pixel = last_cpu_addr[15 - debug_bit_x[4:0]];
-        end else if (v_cnt == 11'd6) begin
-            // Status indicators
-            if (h_cnt < 11'd16) debug_pixel = last_select;      // Green for select
-            else if (h_cnt < 11'd32) debug_pixel = last_rw;    // Read=1, Write=0
-            else if (h_cnt < 11'd48) debug_pixel = ack_n;      // ack status
+        if (v_cnt >= 11'd2 && v_cnt < 11'd6) begin
+            // Address bits 31-24 (top nibble, scaled 4x)
+            debug_pixel = last_cpu_addr[31 - debug_bit_x[2:0]];
+        end else if (v_cnt >= 11'd6 && v_cnt < 11'd10) begin
+            // Address bits 23-16 (second nibble, scaled 4x)
+            debug_pixel = last_cpu_addr[23 - debug_bit_x[2:0]];
+        end else if (v_cnt == 11'd10) begin
+            // Status row
+            if (h_cnt < 11'd32) debug_pixel = access_count[h_cnt[4:0]];  // Access counter
+            else if (h_cnt < 11'd48) debug_pixel = last_in_slot;         // In our slot?
+            else if (h_cnt < 11'd64) debug_pixel = last_rw;              // Read/Write
+            else if (h_cnt < 11'd80) debug_pixel = last_select;          // Select active
             else debug_pixel = 1'b0;
         end else begin
             debug_pixel = 1'b0;
@@ -244,14 +255,12 @@ module nubus_video_toby (
     
     wire video_pixel = border | (debug_area & debug_pixel) | pixel_out;
     
-    // Color coding: border=white, debug=green, content=white
+    // Color coding: border=white, debug=cyan (blue+green), content=white
     assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : 
                    (debug_area & debug_pixel) ? 8'h00 : 
                    (video_pixel ? 8'hFF : 8'h00);
     assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
-    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : 
-                   (debug_area & debug_pixel) ? 8'h00 : 
-                   (video_pixel ? 8'hFF : 8'h00);
+    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : (video_pixel ? 8'hFF : 8'h00);
 
     // ROM Download - boot1.rom is index 1
     always @(posedge clk) begin
