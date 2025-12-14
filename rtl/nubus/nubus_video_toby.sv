@@ -501,8 +501,9 @@ module nubus_video_toby (
                     // MAME returns 0 during vblank, 0xff when not
                     data_out <= (v_cnt >= V_RES) ? 16'h0000 : 16'hFFFF;
                     ack_delay <= 3'd2;
-                end else if (rw_n && addr[23:20] == 4'hF) begin
-                    // ROM read (0x0F0000 - 0x0FFFFF) - invert data like MAME
+                end else if (rw_n && addr[23:16] == 8'h01) begin
+                    // ROM read (0x010000 - 0x01FFFF) - Standard NuBus sRsrcDir location
+                    // Apple declaration ROM format: starts at slot base + $01_0000
                     if (addr[11:0] < 12'd2048) begin
                         data_out[15:8] <= ~rom[{addr[11:1], 1'b0}];
                         data_out[7:0] <= ~rom[{addr[11:1], 1'b1}];
