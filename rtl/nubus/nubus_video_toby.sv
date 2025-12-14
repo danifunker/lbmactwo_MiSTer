@@ -208,6 +208,12 @@ module nubus_video_toby (
     reg last_in_slot;
     reg [7:0] access_count;
     
+    // Visual status indicators
+    reg [1:0] card_status;  // 0=init (red), 1=accessed (pink), 2=working (blue)
+    localparam STATUS_INIT = 2'd0;
+    localparam STATUS_ACCESSED = 2'd1;
+    localparam STATUS_WORKING = 2'd2;
+    
     // Status message system
     reg [7:0] status_msg [0:39];  // 40 character status line
     reg [5:0] status_len;
@@ -219,6 +225,7 @@ module nubus_video_toby (
             last_rw <= 1'b1;
             last_in_slot <= 1'b0;
             access_count <= 8'd0;
+            card_status <= STATUS_INIT;
             status_len <= 6'd16;
             // Default message: "TOBY CARD READY"
             status_msg[0] <= 8'd20; status_msg[1] <= 8'd15; status_msg[2] <= 8'd2;  status_msg[3] <= 8'd25;
@@ -232,12 +239,24 @@ module nubus_video_toby (
             status_msg[28] <= 8'd26; status_msg[29] <= 8'd26; status_msg[30] <= 8'd26; status_msg[31] <= 8'd26;
             status_msg[32] <= 8'd26; status_msg[33] <= 8'd26; status_msg[34] <= 8'd26; status_msg[35] <= 8'd26;
             status_msg[36] <= 8'd26; status_msg[37] <= 8'd26; status_msg[38] <= 8'd26; status_msg[39] <= 8'd26;
-        end else if (select && ack_n && in_our_slot) begin
-            last_cpu_addr <= addr;
-            last_select <= 1'b1;
-            last_rw <= rw_n;
-            last_in_slot <= in_our_slot;
-            access_count <= access_count + 8'd1;
+        end else if (select && ack_n) begin
+            // First access attempt - turn pink
+            if (card_status == STATUS_INIT) begin
+                card_status <= STATUS_ACCESSED;
+            end
+            
+            // Only respond to our slot
+            if (in_our_slot) begin
+                last_cpu_addr <= addr;
+                last_select <= 1'b1;
+                last_rw <= rw_n;
+                last_in_slot <= in_our_slot;
+                access_count <= access_count + 8'd1;
+                
+                // Successful access to our slot - turn blue
+                if (card_status == STATUS_ACCESSED) begin
+                    card_status <= STATUS_WORKING;
+                end
             
             // Update status based on what's being accessed
             if (addr[23:20] == 4'hF) begin
@@ -292,15 +311,24 @@ module nubus_video_toby (
                 status_msg[8] <= 8'd20; status_msg[9] <= 8'd18; status_msg[10] <= 8'd0; status_msg[11] <= 8'd2;
                 status_msg[12] <= 8'd7; status_msg[13] <= 8'd10;
             end
+            end  // End of in_our_slot condition
         end
     end
     
     // Debug display removed - using overlay for status messages
     
-    // Base video output (before overlay) - RED screen for debugging
-    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : 8'hFF;  // Always red when video enabled
-    wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
-    wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : 8'h00);
+    // Base video output with status-based background color
+    // Red = init, Pink = NuBus accessed, Blue = working
+    wire [7:0] status_r = (card_status == STATUS_INIT) ? 8'hFF : 
+                          (card_status == STATUS_ACCESSED) ? 8'hFF : 8'h00;
+    wire [7:0] status_g = (card_status == STATUS_INIT) ? 8'h00 : 
+                          (card_status == STATUS_ACCESSED) ? 8'h80 : 8'h00;
+    wire [7:0] status_b = (card_status == STATUS_INIT) ? 8'h00 : 
+                          (card_status == STATUS_ACCESSED) ? 8'h80 : 8'hFF;
+    
+    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : status_r);
+    wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : status_g);
+    wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : status_b);
     
     // Text overlay module (green text at bottom of screen)
     wire overlay_de;
@@ -313,7 +341,7 @@ module nubus_video_toby (
         .i_g(base_g),
         .i_b(base_b),
         .i_hs(vga_hs_reg),
-        .i_vs(vga_vs_reg),
+        .i_vs(~vga_vs_reg),  // Invert: ovo expects active-high vsync
         .i_de(!vga_blank_reg),
         .i_clk(clk),
         .o_r(vga_r),
