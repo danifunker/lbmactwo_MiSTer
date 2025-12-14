@@ -237,12 +237,20 @@ module nubus_video_toby (
             cpu_active <= 1'b0;
             last_addr_seen <= 32'h0;
             cpu_activity_timer <= 24'd0;
-            status_len <= 6'd16;
-            // Default message: "TOBY CARD READY"
-            status_msg[0] <= 8'd20; status_msg[1] <= 8'd15; status_msg[2] <= 8'd2;  status_msg[3] <= 8'd25;
-            status_msg[4] <= 8'd0;  status_msg[5] <= 8'd3;  status_msg[6] <= 8'd1;  status_msg[7] <= 8'd18;
-            status_msg[8] <= 8'd4;  status_msg[9] <= 8'd0;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd5;
-            status_msg[12] <= 8'd1; status_msg[13] <= 8'd4; status_msg[14] <= 8'd25; status_msg[15] <= 8'd0;
+            status_len <= 6'd31;
+            // Default message: "OVERLAY TEST - WAITING FOR ROM"
+            // O V E R L A Y   T E S T
+            status_msg[0] <= 8'd14; status_msg[1] <= 8'd21; status_msg[2] <= 8'd4;  status_msg[3] <= 8'd17;
+            status_msg[4] <= 8'd11; status_msg[5] <= 8'd0;  status_msg[6] <= 8'd24; status_msg[7] <= 8'd0;
+            status_msg[8] <= 8'd19; status_msg[9] <= 8'd4;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd19;
+            // space - space W A I T I N G
+            status_msg[12] <= 8'd0; status_msg[13] <= 8'd0; status_msg[14] <= 8'd22; status_msg[15] <= 8'd0;
+            status_msg[16] <= 8'd8; status_msg[17] <= 8'd19; status_msg[18] <= 8'd8;  status_msg[19] <= 8'd13;
+            status_msg[20] <= 8'd6; status_msg[21] <= 8'd0;
+            // F O R   R O M
+            status_msg[22] <= 8'd5; status_msg[23] <= 8'd14; status_msg[24] <= 8'd17; status_msg[25] <= 8'd0;
+            status_msg[26] <= 8'd17; status_msg[27] <= 8'd14; status_msg[28] <= 8'd12; status_msg[29] <= 8'd26;
+            status_msg[30] <= 8'd26;
             // Initialize rest to spaces
             status_msg[16] <= 8'd26; status_msg[17] <= 8'd26; status_msg[18] <= 8'd26; status_msg[19] <= 8'd26;
             status_msg[20] <= 8'd26; status_msg[21] <= 8'd26; status_msg[22] <= 8'd26; status_msg[23] <= 8'd26;
@@ -260,8 +268,17 @@ module nubus_video_toby (
                 cpu_activity_timer <= cpu_activity_timer - 24'd1;
             end
             
-            // Update status message based on CPU activity
-            if (!cpu_active && rom_loaded) begin
+            // Update status message based on state - ALWAYS update to ensure visibility
+            if (!rom_loaded) begin
+                // No ROM loaded yet - this is the most important status
+                status_len <= 6'd18;
+                // "WAITING FOR ROM..."
+                status_msg[0] <= 8'd22; status_msg[1] <= 8'd1; status_msg[2] <= 8'd8; status_msg[3] <= 8'd19;
+                status_msg[4] <= 8'd8; status_msg[5] <= 8'd13; status_msg[6] <= 8'd6; status_msg[7] <= 8'd0;
+                status_msg[8] <= 8'd5; status_msg[9] <= 8'd14; status_msg[10] <= 8'd18; status_msg[11] <= 8'd0;
+                status_msg[12] <= 8'd18; status_msg[13] <= 8'd14; status_msg[14] <= 8'd13; status_msg[15] <= 8'd26;
+                status_msg[16] <= 8'd26; status_msg[17] <= 8'd26;
+            end else if (!cpu_active) begin
                 // ROM loaded but no CPU activity
                 status_len <= 6'd23;
                 // "ROM OK: WAITING FOR CPU"
@@ -271,15 +288,6 @@ module nubus_video_toby (
                 status_msg[12] <= 8'd8; status_msg[13] <= 8'd13; status_msg[14] <= 8'd6; status_msg[15] <= 8'd0;
                 status_msg[16] <= 8'd5; status_msg[17] <= 8'd14; status_msg[18] <= 8'd18; status_msg[19] <= 8'd0;
                 status_msg[20] <= 8'd2; status_msg[21] <= 8'd15; status_msg[22] <= 8'd20;
-            end else if (!rom_loaded) begin
-                // No ROM loaded yet
-                status_len <= 6'd18;
-                // "WAITING FOR ROM..."
-                status_msg[0] <= 8'd22; status_msg[1] <= 8'd1; status_msg[2] <= 8'd8; status_msg[3] <= 8'd19;
-                status_msg[4] <= 8'd8; status_msg[5] <= 8'd13; status_msg[6] <= 8'd6; status_msg[7] <= 8'd0;
-                status_msg[8] <= 8'd5; status_msg[9] <= 8'd14; status_msg[10] <= 8'd18; status_msg[11] <= 8'd0;
-                status_msg[12] <= 8'd18; status_msg[13] <= 8'd14; status_msg[14] <= 8'd13; status_msg[15] <= 8'd26;
-                status_msg[16] <= 8'd26; status_msg[17] <= 8'd26;
             end
         end
         
@@ -417,7 +425,7 @@ module nubus_video_toby (
         .o_hs(vga_hs),
         .o_vs(vga_vs),
         .o_de(overlay_de),
-        .ena(overlay_en),
+        .ena(1'b1),  // FORCED ON for debugging - always show overlay
         .text_in(status_msg),
         .text_len(status_len)
     );
