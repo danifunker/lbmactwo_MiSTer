@@ -234,7 +234,6 @@ module nubus_video_toby (
             last_in_slot <= 1'b0;
             access_count <= 8'd0;
             card_status <= STATUS_INIT;
-            rom_loaded <= 1'b0;
             cpu_active <= 1'b0;
             last_addr_seen <= 32'h0;
             cpu_activity_timer <= 24'd0;
