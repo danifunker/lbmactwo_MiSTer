@@ -2,7 +2,9 @@
  68000 compatible bus-wrapper for TG68K
  */
 
-module tg68k (
+module tg68k #(
+    parameter FPU_Enable = 1
+) (
 	input clk,
 	input reset,
 	input phi1,
@@ -203,7 +205,7 @@ always @(posedge clk) begin
 	end
 end
 
-TG68KdotC_Kernel #(2,2,2,2,2,2,2,1) tg68k (
+TG68KdotC_Kernel #(2,2,2,2,2,2,2,1, FPU_Enable) tg68k (
 	.clk            ( clk           ),
 	.nReset         ( ~reset        ),
 	.clkena_in      ( tg68_clkena   ),
