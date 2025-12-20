@@ -201,7 +201,7 @@ TG68K #(
 	.BitField(2),
 	.BarrelShifter(0),
 	.MUL_Hardware(1),
-	.FPU_Enable(1) // This parameter is passed to the VHDL wrapper
+	.FPU_Enable(FPU_Enable) // This parameter is passed to the VHDL wrapper
 ) tg68k_wrapper (
 	.clk            ( clk           ),
 	.nReset         ( ~reset        ),
