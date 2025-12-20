@@ -35,7 +35,7 @@ module tg68k #(
 	input berr,
 	input [15:0] din,
 	output [15:0] dout,
-	output reg [31:0] addr
+	output reg [31:0] addr,
 
     // FPU Coprocessor Interface Register (CIR) ports
     output [4:0] cir_address,
