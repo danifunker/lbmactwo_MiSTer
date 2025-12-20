@@ -36,6 +36,14 @@ module tg68k #(
 	input [15:0] din,
 	output [15:0] dout,
 	output reg [31:0] addr
+
+    // FPU Coprocessor Interface Register (CIR) ports
+    output [4:0] cir_address,
+    output cir_read,
+    output cir_write,
+    input [31:0] cir_data_in,
+    output [31:0] cir_data_out,
+    input cir_data_valid	
 );
 
 wire  [1:0] tg68_busstate;
