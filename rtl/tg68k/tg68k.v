@@ -43,7 +43,13 @@ module tg68k #(
     output cir_write,
     input [31:0] cir_data_in,
     output [31:0] cir_data_out,
-    input cir_data_valid	
+    input  cir_data_valid,
+
+    // NEW: Instruction Snooping ports for FPU
+    output [15:0] instruction_opcode,
+    output [15:0] instruction_ext_word,
+    output        instruction_valid,
+    output [2:0]  cpu_privilege_level
 );
 
 wire  [1:0] tg68_busstate;
@@ -251,7 +257,13 @@ TG68KdotC_Kernel #(
     .cir_write      ( cir_write     ),
     .cir_data_in    ( cir_data_in   ),
     .cir_data_out   ( cir_data_out  ),
-    .cir_data_valid ( cir_data_valid)
+    .cir_data_valid ( cir_data_valid),
+
+    // NEW: Instruction Snooping connections for FPU
+    .fpu_opcode       ( instruction_opcode   ),
+    .fpu_extword      ( instruction_ext_word ),
+    .fpu_op_valid     ( instruction_valid    ),
+    .fpu_privilege    ( cpu_privilege_level  )
 );
 
 endmodule
