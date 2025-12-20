@@ -528,6 +528,13 @@ wire [15:0] tg68_dout;
 wire [31:0] tg68_a;
 wire        tg68_reset_n;
 
+// FPU signals
+wire [4:0]  cir_address;
+wire        cir_read;
+wire        cir_write;
+wire [31:0] cir_data_in;
+wire [31:0] cir_data_out;
+wire        cir_data_valid;
 
 tg68k tg68k_inst (
 	.clk        ( clk_sys      ),
@@ -559,8 +566,31 @@ tg68k tg68k_inst (
 	.berr       ( 1'b0 ),
 	.din        ( dataControllerDataOut ),
 	.dout       ( tg68_dout ),
-	.addr       ( tg68_a )
+	.addr       ( tg68_a ),
+
+	// FPU Interface
+	.cir_address    ( cir_address   ),
+	.cir_read       ( cir_read      ),
+	.cir_write      ( cir_write     ),
+	.cir_data_in    ( cir_data_in   ),
+	.cir_data_out   ( cir_data_out  ),
+	.cir_data_valid ( cir_data_valid)
 );
+
+// Actual FPU Instantiation
+// Ensure your FPU file (e.g., fpu.v or wf68k88.v) module name matches 'fpu'
+fpu fpu_inst (
+    .clk            ( clk_sys        ),
+    .reset          ( !_cpuReset     ),
+    .address        ( cir_address    ),
+    .din            ( cir_data_out   ), // Data from CPU to FPU
+    .dout           ( cir_data_in    ), // Data from FPU to CPU
+    .read           ( cir_read       ),
+    .write          ( cir_write      ),
+    .size           ( 2'b10          ), // Usually 32-bit (2'b10) for CIR
+    .dtack          ( cir_data_valid )
+);
+
 
 addrController_top ac0
 (

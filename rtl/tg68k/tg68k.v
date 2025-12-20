@@ -243,7 +243,15 @@ TG68KdotC_Kernel #(
 	.nWr            ( tg68_rw       ),
 	.busstate       ( tg68_busstate ), // 00-> fetch code 10->read data 11->write data 01->no memaccess
 	.nResetOut      ( reset_n       ),
-	.FC             ( fc            )
+	.FC             ( fc            ),
+
+    // FPU Interface connections
+    .cir_address    ( cir_address   ),
+    .cir_read       ( cir_read      ),
+    .cir_write      ( cir_write     ),
+    .cir_data_in    ( cir_data_in   ),
+    .cir_data_out   ( cir_data_out  ),
+    .cir_data_valid ( cir_data_valid)
 );
 
 endmodule
