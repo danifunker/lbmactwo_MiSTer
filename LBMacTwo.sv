@@ -528,7 +528,9 @@ wire [15:0] tg68_dout;
 wire [31:0] tg68_a;
 wire        tg68_reset_n;
 
-tg68k tg68k_inst (
+tg68k #( 
+	.FPU_Enable(1)
+	) tg68k_inst (
 	.clk        ( clk_sys      ),
 	.reset      ( !_cpuReset ),
 	.phi1       ( cpu_en_p  ),
