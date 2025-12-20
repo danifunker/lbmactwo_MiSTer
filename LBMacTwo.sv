@@ -531,8 +531,7 @@ wire        tg68_reset_n;
 tg68k #(
     .CPU("11"),          // 68020+ mode (instead of 2'b10)
     .FPU_Enable(1)       // Enable FPU
-)
-tg68k tg68k (
+) tg68k (
 	.clk        ( clk_sys      ),
 	.reset      ( !_cpuReset ),
 	.phi1       ( cpu_en_p  ),
