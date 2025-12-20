@@ -528,18 +528,6 @@ wire [15:0] tg68_dout;
 wire [31:0] tg68_a;
 wire        tg68_reset_n;
 
-// FPU signals
-wire [4:0]  cir_address;
-wire        cir_read;
-wire        cir_write;
-wire [31:0] cir_data_in;
-wire [31:0] cir_data_out;
-wire        cir_data_valid;
-wire [15:0] fpu_opcode;
-wire [15:0] fpu_extword;
-wire        fpu_op_valid;
-wire [2:0]  cpu_privilege;
-
 tg68k tg68k_inst (
 	.clk        ( clk_sys      ),
 	.reset      ( !_cpuReset ),
@@ -570,67 +558,8 @@ tg68k tg68k_inst (
 	.berr       ( 1'b0 ),
 	.din        ( dataControllerDataOut ),
 	.dout       ( tg68_dout ),
-	.addr       ( tg68_a ),
-
-	// FPU Interface
-	.cir_address    ( cir_address   ),
-	.cir_read       ( cir_read      ),
-	.cir_write      ( cir_write     ),
-	.cir_data_in    ( cir_data_in   ),
-	.cir_data_out   ( cir_data_out  ),
-	.cir_data_valid ( cir_data_valid),
-	.instruction_opcode   ( fpu_opcode    ),
-    .instruction_ext_word ( fpu_extword   ),
-    .instruction_valid    ( fpu_op_valid  ),
-    .cpu_privilege_level  ( cpu_privilege )
+	.addr       ( tg68_a )
 );
-
-// -----------------------------------------------------------------------
-    // 2. FPU Instantiation (TG68K_FPU) fully connected
-    // -----------------------------------------------------------------------
-    TG68K_FPU fpu_inst (
-        .clk                    ( clk_sys           ),
-        .nReset                 ( _cpuReset         ), // Active low reset
-        .clkena                 ( 1'b1              ), // Always run
-
-        // CPU Interface (Snooping)
-        .opcode                 ( fpu_opcode        ), // FROM tg68k
-        .extension_word         ( fpu_extword       ), // FROM tg68k
-        .fpu_enable             ( 1'b1              ),
-        
-        // Supervisor mode: Bit 2 of privilege level is usually supervisor bit (User=0, Super=1)
-        // Check TG68K docs, but usually FC2 (bit 2 of fc) or similar indicates supervisor.
-        // Assuming cpu_privilege[2] = 1 means Supervisor.
-        .supervisor_mode        ( cpu_privilege[2]  ), 
-
-        // Memory Interface (Data from CPU to FPU)
-        // The FPU snoops data on the data bus during FMOVEM/FSAVE
-        .cpu_data_in            ( {tg68_dout, tg68_dout} ), // Simplified: Mirror 16-bit data to 32-bit
-        .cpu_address_in         ( tg68_a            ),
-        
-        // These outputs are unconnected as they are internal FPU state or debug
-        .fpu_data_out           (                   ), 
-
-        // FSAVE/FRESTORE/FMOVEM (Tied to 0 for now as simple snooping might not cover complex bus mastering)
-        // For full support, the TG68K core needs to drive these request lines explicitly.
-        .fsave_data_request     ( 1'b0              ),
-        .fsave_data_index       ( 0                 ),
-        .frestore_data_write    ( 1'b0              ),
-        .frestore_data_in       ( 32'd0             ),
-        .fmovem_data_request    ( 1'b0              ),
-        .fmovem_reg_index       ( 0                 ),
-        .fmovem_data_write      ( 1'b0              ),
-        .fmovem_data_in         ( 80'd0             ),
-
-        // Coprocessor Interface Registers (CIR)
-        .cir_address            ( cir_address       ),
-        .cir_write              ( cir_write         ),
-        .cir_read               ( cir_read          ),
-        .cir_data_in            ( {cir_data_out[7:0], cir_data_out[15:8]} ), // Swapped for endianness if needed
-        .cir_data_out           ( cir_data_in       ),
-        .cir_data_valid         ( cir_data_valid    )
-    );
-
 
 addrController_top ac0
 (

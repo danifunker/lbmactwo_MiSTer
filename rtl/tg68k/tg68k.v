@@ -1,10 +1,10 @@
 /*
- 68000 compatible bus-wrapper for TG68K with FPU support
- Combined from MiSTer tg68k.v wrapper and TG68K.vhd FPU parameters
+ 68000 compatible bus-wrapper for TG68K
+ Switches instantiation to the TG68K.vhd wrapper to include FPU support internally.
  */
 
 module tg68k #(
-	parameter FPU_Enable = 1  // 0 = no FPU, 1 = FPU enabled
+	parameter FPU_Enable = 1  // 1 = Enable FPU inside the VHDL wrapper
 ) (
 	input clk,
 	input reset,
@@ -35,21 +35,7 @@ module tg68k #(
 	input berr,
 	input [15:0] din,
 	output [15:0] dout,
-	output reg [31:0] addr,
-
-    // FPU Coprocessor Interface Register (CIR) ports
-    output [4:0] cir_address,
-    output cir_read,
-    output cir_write,
-    input [31:0] cir_data_in,
-    output [31:0] cir_data_out,
-    input  cir_data_valid,
-
-    // NEW: Instruction Snooping ports for FPU
-    output [15:0] instruction_opcode,
-    output [15:0] instruction_ext_word,
-    output        instruction_valid,
-    output [2:0]  cpu_privilege_level
+	output reg [31:0] addr
 );
 
 wire  [1:0] tg68_busstate;
@@ -61,9 +47,7 @@ wire        tg68_uds_n;
 wire        tg68_lds_n;
 wire        tg68_rw;
 
-// The tg68k core doesn't reliably support mixed usage of autovector and non-autovector
-// interrupts, so the TG68K kernel switched to non-autovector interrupts, and the 
-// auto-vectors are provided here.
+// Interrupt autovector logic
 wire auto_iack = fc == 3'b111 && !vpa_n;
 wire [7:0] auto_vector = {4'h1, 1'b1, addr[3:1]};
 assign tg68_din = auto_iack ? {auto_vector, auto_vector} : din;
@@ -91,7 +75,6 @@ always @(posedge clk) begin
 		addr <= tg68_addr;
 
 		if (phi1) begin
-
 			if (s_state != 4) s_state <= s_state + 1'd1;
 			if (busreq_ack || bus_granted) s_state <= s_state;
 			if (tg68_busstate == 2'b01) s_state <= 0;
@@ -116,14 +99,12 @@ always @(posedge clk) begin
 			endcase
 
 		end else if (phi2) begin
-
 			if (s_state != 4 || tg68_busstate == 2'b01 || !dtack_n || xVma || berr)
 				s_state <= s_state + 1'd1;
 			if ((busreq_ack || bus_granted) && !busrel_ack) s_state <= s_state;
 			if (tg68_busstate == 2'b01) s_state <= 0;
 
 			case (s_state)
-
 				6: begin
 					tg68_din_r <= tg68_din;
 					uds_n_r <= 1;
@@ -132,24 +113,19 @@ always @(posedge clk) begin
 				end
 				default :;
 			endcase
-
 		end
 	end
 end
 
-// from FX68K
-// E clock and counter, VMA
+// E clock and VMA generation
 reg [3:0] eCntr;
 reg rVma;
 reg Vpai;
 assign vma_n = rVma;
-
-// Internal stop just one cycle before E falling edge
 wire xVma = ~rVma & (eCntr == 8) & en_E;
 
 assign E_PosClkEn = (phi2 & (eCntr == 5) & en_E);
 assign E_NegClkEn = (phi2 & (eCntr == 9) & en_E);
-
 reg en_E;
 
 always @( posedge clk) begin
@@ -165,15 +141,11 @@ always @( posedge clk) begin
 		end
 
 		if (phi2 & en_E) begin
-			if (eCntr == 9)
-				E <= 1'b0;
-			else if (eCntr == 5)
-				E <= 1'b1;
+			if (eCntr == 9) E <= 1'b0;
+			else if (eCntr == 5) E <= 1'b1;
 
-			if (eCntr == 9)
-				eCntr <= 0;
-			else
-				eCntr <= eCntr + 1'b1;
+			if (eCntr == 9) eCntr <= 0;
+			else eCntr <= eCntr + 1'b1;
 		end
 
 		if (phi2 & s_state != 0 & ~Vpai & (eCntr == 3) & en_E)
@@ -186,12 +158,8 @@ end
 // Bus arbitration
 reg bg_n_r;
 assign bg_n = bg_n_r;
-
-// process the bus request at the start of any bus cycle
-// (start at only instruction fetch doesn't work well with ACSI DMA)
-wire busreq_ack = !br_n /*&& tg68_busstate == 0*/ && s_state == 0;
+wire busreq_ack = !br_n && s_state == 0;
 wire busrel_ack = bus_acked && !bgack;
-
 reg bgack, bus_granted, bus_acked, bus_acked_d;
 
 always @(posedge clk) begin
@@ -220,19 +188,21 @@ always @(posedge clk) begin
 	end
 end
 
-// TG68KdotC_Kernel instantiation with FPU parameter
-// Parameters match the VHDL version from TG68K.vhd
-TG68KdotC_Kernel #(
-	.SR_Read(2),              // 0=>user, 1=>privileged, 2=>switchable with CPU(0)
-	.VBR_Stackframe(2),       // 0=>no, 1=>yes/extended, 2=>switchable with CPU(0)
-	.extAddr_Mode(2),         // 0=>no, 1=>yes, 2=>switchable with CPU(1)
-	.MUL_Mode(2),             // 0=>16Bit, 1=>32Bit, 2=>switchable with CPU(1), 3=>no MUL
-	.DIV_Mode(2),             // 0=>16Bit, 1=>32Bit, 2=>switchable with CPU(1), 3=>no DIV
-	.BitField(2),             // 0=>no, 1=>yes, 2=>switchable with CPU(1)
-	.BarrelShifter(0),        // 0=>no, 1=>yes, 2=>switchable with CPU(1)
-	.MUL_Hardware(1),         // 0=>no, 1=>yes
-	.FPU_Enable(FPU_Enable)   // 0=>no FPU, 1=>FPU enabled - PASSED FROM MODULE PARAMETER
-) tg68k_kernel (
+// -------------------------------------------------------------------------
+// CRITICAL CHANGE: Instantiating TG68K (Wrapper) instead of TG68KdotC_Kernel
+// This wrapper contains the Kernel AND the FPU wired together internally.
+// -------------------------------------------------------------------------
+TG68K #(
+	.SR_Read(2),
+	.VBR_Stackframe(2),
+	.extAddr_Mode(2),
+	.MUL_Mode(2),
+	.DIV_Mode(2),
+	.BitField(2),
+	.BarrelShifter(0),
+	.MUL_Hardware(1),
+	.FPU_Enable(1) // This parameter is passed to the VHDL wrapper
+) tg68k_wrapper (
 	.clk            ( clk           ),
 	.nReset         ( ~reset        ),
 	.clkena_in      ( tg68_clkena   ),
@@ -241,29 +211,15 @@ TG68KdotC_Kernel #(
 	.IPL_autovector ( 1'b0          ),
 	.berr           ( berr          ),
 	.clr_berr       ( /*tg68_clr_berr*/ ),
-	.CPU            ( cpu           ), // 00->68000  01->68010  11->68020
+	.CPU            ( cpu           ),
 	.addr_out       ( tg68_addr     ),
 	.data_write     ( dout          ),
 	.nUDS           ( tg68_uds_n    ),
 	.nLDS           ( tg68_lds_n    ),
 	.nWr            ( tg68_rw       ),
-	.busstate       ( tg68_busstate ), // 00-> fetch code 10->read data 11->write data 01->no memaccess
+	.busstate       ( tg68_busstate ),
 	.nResetOut      ( reset_n       ),
-	.FC             ( fc            ),
-
-    // FPU Interface connections
-    .cir_address    ( cir_address   ),
-    .cir_read       ( cir_read      ),
-    .cir_write      ( cir_write     ),
-    .cir_data_in    ( cir_data_in   ),
-    .cir_data_out   ( cir_data_out  ),
-    .cir_data_valid ( cir_data_valid),
-
-    // NEW: Instruction Snooping connections for FPU
-    .fpu_opcode       ( instruction_opcode   ),
-    .fpu_extword      ( instruction_ext_word ),
-    .fpu_op_valid     ( instruction_valid    ),
-    .fpu_privilege    ( cpu_privilege_level  )
+	.FC             ( fc            )
 );
 
 endmodule
