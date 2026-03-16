@@ -12,8 +12,8 @@ module addrController_top(
 	input [1:0] configROMSize,  // 0 = 64K ROM, 1 = 128K ROM, 2 = 256K ROM
 	input [1:0] configRAMSize,	// 0 = 128K, 1 = 512K, 2 = 1MB, 3 = 4MB RAM
 
-	// 68000 CPU memory interface:
-	input [23:0] cpuAddr,
+	// CPU memory interface (supports 32-bit addressing for 68020/68030):
+	input [31:0] cpuAddr,
 	input _cpuUDS,
 	input _cpuLDS,
 	input _cpuRW,	

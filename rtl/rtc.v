@@ -20,7 +20,7 @@ reg         cmd_mode;
 reg         receiving;
 reg  [31:0] secs;
 reg  [31:0] secs2;
-reg   [7:0] ram[20];
+reg   [7:0] ram[32];
 reg  [24:0] clocktoseconds;
 
 initial begin
@@ -44,6 +44,19 @@ initial begin
 	ram[5'h11] = 8'h88;
 	ram[5'h12] = 8'h00;
 	ram[5'h13] = 8'h6C;
+	// Initialize unused entries to 0 (addresses 0x14-0x1F not used by Mac RTC)
+	ram[5'h14] = 8'h00;
+	ram[5'h15] = 8'h00;
+	ram[5'h16] = 8'h00;
+	ram[5'h17] = 8'h00;
+	ram[5'h18] = 8'h00;
+	ram[5'h19] = 8'h00;
+	ram[5'h1A] = 8'h00;
+	ram[5'h1B] = 8'h00;
+	ram[5'h1C] = 8'h00;
+	ram[5'h1D] = 8'h00;
+	ram[5'h1E] = 8'h00;
+	ram[5'h1F] = 8'h00;
 end
 
 initial secs = 0;

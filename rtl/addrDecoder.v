@@ -137,13 +137,33 @@ module addrDecoder(
 			end
 			// Super Slot Space: $F900_0000 - $FEFF_FFFF
 			// Each slot gets $0100_0000 bytes (slots 9-E)
-			else if (address[31:28] == 4'hF && 
-			         address[27:24] >= 4'h9 && 
+			else if (address[31:28] == 4'hF &&
+			         address[27:24] >= 4'h9 &&
 			         address[27:24] <= 4'hE) begin
 				selectNuBus = !_cpuAS;
 			end
-			// Mac II ROM may be at $4080_0000 in some configurations
-			// For now, we'll handle ROM in 24-bit space only
+			// Mac IIx 32-bit ROM space: $4000_0000 - $40FF_FFFF (with mirroring)
+			// Mac IIx uses 256KB ROM, mirrored throughout $40xx_xxxx range
+			else if (address[31:24] == 8'h40) begin
+				selectROM = !_cpuAS;
+			end
+			// Mac IIx 32-bit I/O space: $5000_0000 - $500F_FFFF
+			// VIA1: $5000_0000, VIA2: $5000_2000, SCC: $5000_4000
+			// SCSI: $5001_0000, IWM: $5001_6000
+			else if (address[31:20] == 12'h500) begin
+				if (address[19:13] == 7'b0000_000)       // $5000_0000 - $5000_1FFF: VIA1
+					selectVIA = !_cpuAS;
+				else if (address[19:13] == 7'b0000_001)  // $5000_2000 - $5000_3FFF: VIA2
+					selectVIA = !_cpuAS;
+				else if (address[19:13] == 7'b0000_010)  // $5000_4000 - $5000_5FFF: SCC
+					selectSCC = !_cpuAS;
+				else if (address[19:14] == 6'b0001_00)   // $5001_0000 - $5001_3FFF: SCSI
+					selectSCSI = !_cpuAS;
+				else if (address[19:13] == 7'b0001_011)  // $5001_6000 - $5001_7FFF: IWM/SWIM
+					selectIWM = !_cpuAS;
+				else if (address[19:13] == 7'b0100_000)  // $5004_0000 - $5004_1FFF: VIA1 alt
+					selectVIA = !_cpuAS;
+			end
 		end
 
 		// ========================================================================
@@ -157,11 +177,23 @@ module addrDecoder(
 						selectRAM = !_cpuAS;
 					else begin
 						// Overlay mode: ROM appears at bottom of memory
+						// Mac II: 256K ROM at $00_0000 - $03_FFFF when overlay is on
+						// Mac Plus/SE: 128K ROM can extend to $0F_FFFF with mirroring
 						if (address[23:20] == 4'b0000) begin
-							// Mac Plus: repeated images of overlay ROM only extend to $0F_FFFF
-							// Mac 512K: more repeated ROM images at $02_0000-$02_FFFF
-							// Mac SE:   overlay ROM at $00_0000 - $0F_FFFF
-							selectROM = !_cpuAS;
+							// Check ROM size: if 256K (configROMSize[1]==1), only map first 256K
+							if (configROMSize[1]) begin
+								// 256K ROM: only $00_0000 - $03_FFFF
+								if (address[19:18] == 2'b00)  // address < $040000
+									selectROM = !_cpuAS;
+								else
+									selectRAM = !_cpuAS;  // Above ROM = RAM
+							end else begin
+								// 128K or smaller ROM: original behavior (repeats to $0F_FFFF)
+								selectROM = !_cpuAS;
+							end
+						end else begin
+							// Above $0F_FFFF = RAM even in overlay mode
+							selectRAM = !_cpuAS;
 						end
 					end
 				end
@@ -206,13 +238,31 @@ module addrDecoder(
 					selectIWM = !_cpuAS;
 				end
 				
-				4'b1110: begin // $E0_0000 - $EF_FFFF (VIA)
+				4'b1110: begin // $E0_0000 - $EF_FFFF (VIA - Mac Plus/SE)
 					// Note: In Mac II mode, avoid conflict with NuBus slot $E at $E000_0000
 					// But we're in 24-bit space ($00Exxxxx), so this is safe
 					if (address[19]) // $E8_0000 - $EF_FFFF
 						selectVIA = !_cpuAS;
 				end
-				
+
+				4'b1111: begin // $F0_0000 - $FF_FFFF (Mac IIx I/O mirror of $5000_0000)
+					// This is the 24-bit mirror of the 32-bit I/O space at $5000_0000
+					// VIA1: $F0_0000, VIA2: $F0_2000, SCC: $F0_4000
+					// SCSI: $F1_0000, IWM: $F1_6000
+					if (address[19:13] == 7'b0000_000)       // $F0_0000 - $F0_1FFF: VIA1
+						selectVIA = !_cpuAS;
+					else if (address[19:13] == 7'b0000_001)  // $F0_2000 - $F0_3FFF: VIA2
+						selectVIA = !_cpuAS;
+					else if (address[19:13] == 7'b0000_010)  // $F0_4000 - $F0_5FFF: SCC
+						selectSCC = !_cpuAS;
+					else if (address[19:14] == 6'b0001_00)   // $F1_0000 - $F1_3FFF: SCSI
+						selectSCSI = !_cpuAS;
+					else if (address[19:13] == 7'b0001_011)  // $F1_6000 - $F1_7FFF: IWM/SWIM
+						selectIWM = !_cpuAS;
+					else if (address[19:13] == 7'b0100_000)  // $F4_0000 - $F4_1FFF: VIA1 alt
+						selectVIA = !_cpuAS;
+				end
+
 				default:
 					; // select nothing
 			endcase

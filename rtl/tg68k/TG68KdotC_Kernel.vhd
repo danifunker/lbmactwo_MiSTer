@@ -356,7 +356,22 @@ architecture logic of TG68KdotC_Kernel is
 	signal CACR					: std_logic_vector(3 downto 0);
 	signal DFC					: std_logic_vector(2 downto 0);
 	signal SFC					: std_logic_vector(2 downto 0);
-	
+
+	signal cp_fc_override	: std_logic;
+	signal cp_cir_reg			: std_logic_vector(4 downto 0);
+	signal cp_xfer_cnt		: std_logic_vector(2 downto 0);
+	signal set_cpaddr			: std_logic;
+	signal moves_fc_en		: std_logic;
+	signal moves_fc_val		: std_logic_vector(2 downto 0);
+	signal cp_ea_addr			: std_logic_vector(31 downto 0);
+	signal cp_save_fmt		: std_logic_vector(15 downto 0);
+	signal cp_frame_cnt		: std_logic_vector(6 downto 0);
+	signal set_cp_memaddr	: std_logic;
+	signal cp_an_writeback	: std_logic;
+	signal cp_branch_target	: std_logic_vector(31 downto 0);
+	signal cp_do_branch		: std_logic;
+	signal cp_cond_true		: std_logic;
+	signal cp_fscc_writeback	: std_logic;
 
 	signal set					: bit_vector(lastOpcBit downto 0);
 	signal set_exec			: bit_vector(lastOpcBit downto 0);
@@ -546,7 +561,7 @@ PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, data_write_mux, me
 			END IF;
 		END IF;
 		IF exec(mem_byte)='1' THEN	--movep
-			data_write(7 downto 0) <= data_write_tmp(15 downto 8);
+			data_write <= data_write_tmp(15 downto 8) & data_write_tmp(15 downto 8);
 		END IF;
 	END PROCESS;
 	
@@ -566,7 +581,13 @@ PROCESS (clk, regfile, RDindex_A, RDindex_B, exec)
 				IF Wwrena='1' THEN
 					regfile(RDindex_A) <= regin;
 				END IF;
-				
+				IF cp_an_writeback='1' THEN
+					regfile(conv_integer('1' & exe_opcode(2 downto 0))) <= cp_ea_addr;
+				END IF;
+				IF cp_fscc_writeback='1' THEN
+					regfile(conv_integer('0' & exe_opcode(2 downto 0)))(7 downto 0) <= (others => cp_cond_true);
+				END IF;
+
 				IF exec(to_USP)='1' THEN
 					USP <= reg_QA;
 				END IF;	
@@ -747,7 +768,108 @@ PROCESS (clk)
 				use_direct_data <= '0';
 				Z_error <= '0';
 				writePCnext <= '0';
+				cp_fc_override <= '0';
+				cp_xfer_cnt <= "000";
+				cp_ea_addr <= (others => '0');
+				cp_save_fmt <= (others => '0');
+				cp_frame_cnt <= (others => '0');
+				cp_branch_target <= (others => '0');
+				cp_cond_true <= '0';
+				moves_fc_en <= '0';
+				moves_fc_val <= "000";
 			ELSIF clkena_lw='1' THEN
+				-- Coprocessor FC override management
+				IF next_micro_state = cp_write_cmd OR next_micro_state = cp_write_opw
+				   OR next_micro_state = cp_read_resp
+				   OR next_micro_state = cp_xfer_to OR next_micro_state = cp_xfer_from
+				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_rd_cir
+				   OR next_micro_state = cp_restore_wr_fmt OR next_micro_state = cp_restore_wr_data
+				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp THEN
+					cp_fc_override <= '1';
+				ELSE
+					cp_fc_override <= '0';
+				END IF;
+				-- cpSAVE/cpRESTORE EA address management
+				IF micro_state = cp_write_opw AND (exe_opcode(8 downto 6) = "100" OR exe_opcode(8 downto 6) = "101") THEN
+					-- Capture An value at start (cpSAVE/cpRESTORE only)
+					cp_ea_addr <= reg_QA;
+				ELSIF micro_state = cp_save_idle THEN
+					-- cpSAVE: predecrement by 2 before each memory write
+					cp_ea_addr <= cp_ea_addr - 2;
+				ELSIF micro_state = cp_restore_rd_mem THEN
+					-- cpRESTORE: postincrement by 2 after each memory read
+					cp_ea_addr <= cp_ea_addr + 2;
+				END IF;
+				-- FScc memory: capture EA from addr when ea_only resolves
+				IF exec(get_ea_now)='1' AND ea_only='1' THEN
+					cp_ea_addr <= addr;
+				END IF;
+				-- FBcc branch target computation (save before CIR accesses corrupt tmp_TG68_PC)
+				IF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "010" THEN
+					-- FBcc.W: target = PC + sign_extend(16-bit displacement)
+					cp_branch_target <= tmp_TG68_PC +
+						(sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+						 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+						 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+						 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC);
+				ELSIF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "011" THEN
+					-- FBcc.L: target = PC + 32-bit displacement
+					cp_branch_target <= tmp_TG68_PC + last_data_read;
+				ELSIF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "001" AND exe_opcode(5 downto 3) = "001" THEN
+					-- FDBcc: target = (PC + 2) + sign_extend(16-bit displacement)
+					-- tmp_TG68_PC is at condition word; displacement is 2 bytes later
+					cp_branch_target <= (tmp_TG68_PC + 2) +
+						(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15 downto 0));
+				END IF;
+				-- FScc/FTRAPcc: latch condition result from FPU response
+				IF micro_state = cp_cond_eval THEN
+					cp_cond_true <= last_data_read(0);
+				END IF;
+				-- cpSAVE format word capture
+				IF micro_state = cp_save_rd_fmt THEN
+					cp_save_fmt <= last_data_read(15 downto 0);
+				END IF;
+				-- cpSAVE/cpRESTORE frame word counter
+				IF micro_state = cp_save_decode THEN
+					IF cp_save_fmt(15 downto 8) = X"18" THEN
+						cp_frame_cnt <= "0001100"; -- 12 words (24 bytes)
+					ELSIF cp_save_fmt(15 downto 8) = X"B4" THEN
+						cp_frame_cnt <= "1011010"; -- 90 words (180 bytes)
+					ELSE
+						cp_frame_cnt <= "0000000"; -- Null: 0 data words
+					END IF;
+				ELSIF micro_state = cp_restore_decode THEN
+					IF last_data_read(15 downto 8) = X"18" THEN
+						cp_frame_cnt <= "0001100"; -- 12 words
+					ELSIF last_data_read(15 downto 8) = X"B4" THEN
+						cp_frame_cnt <= "1011010"; -- 90 words
+					ELSE
+						cp_frame_cnt <= "0000000"; -- Null
+					END IF;
+				ELSIF (micro_state = cp_save_wr_mem OR micro_state = cp_restore_wr_data) AND cp_frame_cnt /= "0000000" THEN
+					cp_frame_cnt <= cp_frame_cnt - 1;
+				END IF;
+				-- Coprocessor transfer count management
+				IF micro_state = cp_idle_resp THEN
+					cp_xfer_cnt <= last_data_read(12 downto 10);
+				ELSIF (micro_state = cp_xfer_to OR micro_state = cp_xfer_from) AND cp_xfer_cnt /= "000" THEN
+					cp_xfer_cnt <= cp_xfer_cnt - 1;
+				END IF;
+				-- MOVES FC override management
+				IF endOPC='1' THEN
+					moves_fc_en <= '0';
+				ELSIF decodeOPC='1' AND opcode(15 downto 12)="0000" AND opcode(11 downto 9)="111" AND SVmode='1' THEN
+					moves_fc_en <= '1';
+					IF sndOPC(11)='0' THEN
+						moves_fc_val <= SFC;
+					ELSE
+						moves_fc_val <= DFC;
+					END IF;
+				END IF;
 				useStackframe2<='0';
 				direct_data <= '0';
 				IF exec(hold_OP2)='1' THEN
@@ -812,9 +934,39 @@ PROCESS (clk)
 ------------------------------------
 --				ELSIF micro_state=trap0 THEN	
 --					data_write_tmp(15 downto 0) <= trap_vector(15 downto 0);
-				ELSIF exec(hold_dwr)='1' THEN	
+				ELSIF exec(opcCPopw)='1' THEN
+					data_write_tmp(15 downto 0) <= opcode(15 downto 0);
+				ELSIF exec(opcCPcmd)='1' THEN
+					data_write_tmp(15 downto 0) <= sndOPC;
+				ELSIF micro_state = cp_save_idle THEN
+					-- Forward CIR read data or format word for memory write
+					IF cp_frame_cnt = "0000000" THEN
+						-- All data words written; load format word for final write
+						data_write_tmp(15 downto 0) <= cp_save_fmt;
+					ELSE
+						data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
+					END IF;
+				ELSIF micro_state = cp_restore_idle THEN
+					-- Forward memory read data for CIR write
+					data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
+				ELSIF micro_state = cp_save_decode THEN
+					-- Load format word for null frame write
+					data_write_tmp(15 downto 0) <= cp_save_fmt;
+				ELSIF micro_state = cp_cond_write THEN
+					-- Condition code for Condition CIR
+					IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
+						-- FBcc: condition from opcode[5:0]
+						data_write_tmp(15 downto 0) <= "0000000000" & exe_opcode(5 downto 0);
+					ELSE
+						-- FScc/FDBcc/FTRAPcc: condition from sndOPC[5:0]
+						data_write_tmp(15 downto 0) <= "0000000000" & sndOPC(5 downto 0);
+					END IF;
+				ELSIF micro_state = cp_cond_eval THEN
+					-- FScc: prepare result byte ($FF or $00) for memory write-back
+					data_write_tmp(7 downto 0) <= (others => last_data_read(0));
+				ELSIF exec(hold_dwr)='1' THEN
 					data_write_tmp <= data_write_tmp;
-				ELSIF exec(exg)='1' THEN	
+				ELSIF exec(exg)='1' THEN
 					data_write_tmp <= OP1out;
 				ELSIF exec(get_ea_now)='1' AND ea_only='1' THEN		-- ist for pea
 					data_write_tmp <= addr;
@@ -960,9 +1112,13 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 				ELSIF exec(dispouter)='1' THEN
 					memaddr_delta_rega <= ea_data;
 					memaddr_delta_regb <= memaddr_a;
+				ELSIF set_cp_memaddr='1' THEN
+					memaddr_delta_rega <= cp_ea_addr;
+				ELSIF set_cpaddr='1' THEN
+					memaddr_delta_rega <= X"0002" & opcode(11 downto 9) & "0000000" & cp_cir_reg & '0';
 				ELSIF set_vectoraddr='1' THEN
 					memaddr_delta_rega <= trap_vector_vbr;
-				ELSE 
+				ELSE
 					memaddr_delta_rega <= memaddr_a;
 					IF interrupt='0' AND Suppress_Base='0' THEN
 --					IF interrupt='0' AND Suppress_Base='0' AND setstate(1)='1' THEN
@@ -994,7 +1150,8 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 -- PC Calc + fetch opcode
 -----------------------------------------------------------------------------
 PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data, next_micro_state, stop, make_trace, make_berr, IPL_nr, FlagsSR, set_rot_cnt, opcode, writePCbig, set_exec, exec,
-        PC_dataa, PC_datab, setnextpass, last_data_read, TG68_PC_brw, TG68_PC_word, Z_error, trap_trap, trap_trapv, interrupt, tmp_TG68_PC, TG68_PC, use_VBR_Stackframe, writePCnext)
+        PC_dataa, PC_datab, setnextpass, last_data_read, TG68_PC_brw, TG68_PC_word, Z_error, trap_trap, trap_trapv, interrupt, tmp_TG68_PC, TG68_PC, use_VBR_Stackframe, writePCnext,
+        cp_do_branch, cp_branch_target)
 	BEGIN
 	
 		PC_dataa <= TG68_PC;
@@ -1088,9 +1245,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						TG68_PC <= data_read;
 					ELSIF exec(ea_to_pc)='1' THEN
 						TG68_PC <= addr;
-					ELSIF (state ="00" OR TG68_PC_brw = '1') AND stop='0'  THEN				
+					ELSIF cp_do_branch = '1' THEN
+						TG68_PC <= cp_branch_target;
+					ELSIF (state ="00" OR TG68_PC_brw = '1') AND stop='0'  THEN
 						TG68_PC <= TG68_PC_add;
-					END IF;	
+					END IF;
 				END IF;	
 				IF clkena_lw='1' THEN
 					interrupt <= setinterrupt;
@@ -1156,7 +1315,13 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					FC(0) <= setstate(1) AND (NOT PCbase OR setstate(0));
 					IF interrupt='1' THEN
 						FC(1 downto 0) <= "11";
-					END IF;	
+					END IF;
+					IF cp_fc_override='1' THEN
+						FC(1 downto 0) <= "11";
+					END IF;
+					IF moves_fc_en='1' AND PCbase='0' AND setstate(1)='1' THEN
+						FC(1 downto 0) <= moves_fc_val(1 downto 0);
+					END IF;
 					
 					IF state="11" THEN
 						exec_write_back <= '0';
@@ -1406,7 +1571,13 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 				END IF;
 				IF interrupt='1' THEN
 					FC(2) <= '1';
-				END IF;	
+				END IF;
+				IF cp_fc_override='1' THEN
+					FC(2) <= '1';
+				END IF;
+				IF moves_fc_en='1' AND PCbase='0' AND setstate(1)='1' THEN
+					FC(2) <= moves_fc_val(2);
+				END IF;
 				IF cpu(1)='0' THEN
 					FlagsSR(4) <= '0';
 					FlagsSR(6) <= '0';
@@ -1469,6 +1640,12 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		trap_trapv <= '0';
 		trapmake <='0';
 		set_vectoraddr <='0';
+		set_cpaddr <= '0';
+		set_cp_memaddr <= '0';
+		cp_cir_reg <= "00000";
+		cp_an_writeback <= '0';
+		cp_do_branch <= '0';
+		cp_fscc_writeback <= '0';
 		writeSR <= '0';
 		set_stop <= '0';
 --		illegal_write_mode <= '0';
@@ -1763,9 +1940,20 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				ELSIF opcode(11 downto 9)="111" THEN		--MOVES not in 68000
 					IF cpu(0)='1' AND opcode(7 downto 6)/="11" AND opcode(5 downto 4)/="00" AND (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") THEN
 						IF SVmode='1' THEN
-							--TODO: implement MOVES
-							trap_illegal <= '1';
-							trapmake <= '1';
+							-- MOVES ea,Rn or MOVES Rn,ea
+							ea_build_now <= '1';
+							datatype <= opcode(7 downto 6);
+							set_exec(Regwrena) <= '1';
+							IF sndOPC(11)='0' THEN
+								-- ea -> Rn (read from EA with FC=SFC)
+								source_lowbits <= '1';
+								dest_2ndHbits <= '1';
+							ELSE
+								-- Rn -> ea (write to EA with FC=DFC)
+								write_back <= '1';
+								source_2ndHbits <= '1';
+								set_exec(ea_data_OP1) <= '1';
+							END IF;
 						ELSE
 							trap_priv <= '1';
 							trapmake <= '1';
@@ -2089,9 +2277,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 									ea_build_now <= '1';
 									write_back <='1';
 									set_exec(opcAND) <= '1';
-								IF cpu(0)='1' AND state="10" AND addrvalue='0' THEN
-									skipFetch <= '1';
-								END IF;
+									IF cpu(0)='1' AND state="10" AND addrvalue='0' THEN
+										skipFetch <= '1';
+									END IF;
 									IF setexecOPC='1' THEN
 										set(OP1out_zero) <= '1';
 									END IF;
@@ -3099,76 +3287,96 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					END IF;
 				END IF;
 --				
----- 1111 ----------------------------------------------------------------------------		
+---- 1111 ----------------------------------------------------------------------------
 			WHEN "1111" =>
-				IF cpu(1)='1' AND opcode(8 downto 6)="100" THEN --cpSAVE
-					IF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="011" AND
-					   (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") THEN --ea illegal modes
-						IF opcode(11 downto 9)/="000" THEN
-							IF SVmode='1' THEN
-								IF opcode(5)='0' AND opcode(5 downto 4)/="01" THEN
-									--never reached according to cputest?!
-									--cpSAVE not implemented
-									trap_illegal <= '1';
-									trapmake <= '1';
-								ELSE
-									trap_1111 <= '1';
-									trapmake <= '1';
-								END IF;
-							ELSE
-								trap_priv <= '1';
-								trapmake <= '1';
-							END IF;
+				IF cpu(1)='1' AND opcode(11 downto 9)/="000" THEN
+					-- Valid coprocessor ID (non-zero)
+					datatype <= "01"; -- word for CIR access
+					IF opcode(8 downto 6)="000" THEN
+						-- cpGEN: general coprocessor instruction
+						set(opcCPopw) <= '1';
+						next_micro_state <= cp_write_opw;
+					ELSIF opcode(8 downto 6)="100" THEN
+						-- cpSAVE: save coprocessor state
+						IF SVmode='1' THEN
+							set(opcCPopw) <= '1';
+							next_micro_state <= cp_write_opw;
+							-- EA is -(An), source_areg selects the An
+							source_lowbits <= '1';
 						ELSE
-							IF SVmode='1' THEN
-								trap_1111 <= '1';
-								trapmake <= '1';
-							ELSE
-								trap_priv <= '1';
-								trapmake <= '1';
-							END IF;
-						END IF;
-					ELSE
-						trap_1111 <= '1';
-						trapmake <= '1';
-					END IF;
-				ELSIF cpu(1)='1' AND opcode(8 downto 6)="101" THEN --cpRESTORE
-					IF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="100" AND
-					   (opcode(5 downto 3)/="111" OR (opcode(2 downto 1)/="11" AND
-					   opcode(2 downto 0)/="101")) THEN --ea illegal modes
-						IF opcode(5 downto 1)/="11110" THEN
-							IF opcode(11 downto 9)="001" OR opcode(11 downto 9)="010" THEN
-								IF SVmode='1' THEN
-									IF opcode(5 downto 3)="101" THEN
-										--cpRESTORE not implemented
-										trap_illegal <= '1';
-										trapmake <= '1';
-									ELSE
-										trap_1111 <= '1';
-										trapmake <= '1';
-									END IF;
-								ELSE
-									trap_priv <= '1';
-									trapmake <= '1';
-								END IF;
-							ELSE
-								IF SVmode='1' THEN
-									trap_1111 <= '1';
-									trapmake <= '1';
-								ELSE
-									trap_priv <= '1';
-									trapmake <= '1';
-								END IF;
-							END IF;
-						ELSE
-							trap_1111 <= '1';
+							trap_priv <= '1';
 							trapmake <= '1';
 						END IF;
+					ELSIF opcode(8 downto 6)="101" THEN
+						-- cpRESTORE: restore coprocessor state
+						IF SVmode='1' THEN
+							set(opcCPopw) <= '1';
+							next_micro_state <= cp_write_opw;
+							-- EA is (An)+, source_areg selects the An
+							source_lowbits <= '1';
+						ELSE
+							trap_priv <= '1';
+							trapmake <= '1';
+						END IF;
+					ELSIF opcode(8 downto 6)="001" THEN
+						-- FScc / FDBcc / FTRAPcc
+						IF opcode(5 downto 3)="001" THEN
+							-- FDBcc: fetch displacement word, then CIR dialog
+							set(opcCPopw) <= '1';
+							next_micro_state <= cp_fdbcc_disp;
+						ELSIF opcode(5 downto 3)="111" AND opcode(2)='1' THEN
+							-- FTRAPcc
+							set(opcCPopw) <= '1';
+							IF opcode(2 downto 0)="010" THEN
+								-- .W operand: skip one word before CIR dialog
+								next_micro_state <= cp_cond_skip;
+							ELSIF opcode(2 downto 0)="011" THEN
+								-- .L operand: skip two words before CIR dialog
+								set(longaktion) <= '1';
+								next_micro_state <= cp_cond_skip;
+							ELSIF opcode(2 downto 0)="100" THEN
+								-- No operand
+								next_micro_state <= cp_write_opw;
+							ELSE
+								trap_illegal <= '1';
+								trapmake <= '1';
+							END IF;
+						ELSIF opcode(5 downto 3)="000" THEN
+							-- FScc data register
+							set(opcCPopw) <= '1';
+							next_micro_state <= cp_write_opw;
+						ELSIF (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") THEN
+							-- FScc memory modes: compute EA, then CIR dialog
+							datatype <= "00"; -- byte
+							ea_only <= '1';
+							ea_build_now <= '1';
+							IF set(get_ea_now)='1' THEN
+								setstate <= "01"; -- prevent bus read, just compute address
+							END IF;
+							IF nextpass='1' AND micro_state=idle THEN
+								-- EA resolved, start CIR dialog
+								set(opcCPopw) <= '1';
+								next_micro_state <= cp_write_opw;
+							END IF;
+						ELSE
+							trap_illegal <= '1';
+							trapmake <= '1';
+						END IF;
+					ELSIF opcode(8 downto 6)="010" THEN
+						-- FBcc.W (16-bit displacement in extension word)
+						set(opcCPopw) <= '1';
+						next_micro_state <= cp_write_opw;
+					ELSIF opcode(8 downto 6)="011" THEN
+						-- FBcc.L (32-bit displacement in extension words)
+						set(opcCPopw) <= '1';
+						set(longaktion) <= '1';
+						next_micro_state <= cp_write_opw;
 					ELSE
 						trap_1111 <= '1';
 						trapmake <= '1';
 					END IF;
 				ELSE
+					-- cpID=000 or not 68020 mode
 					trap_1111 <= '1';
 					trapmake <= '1';
 				END IF;
@@ -3447,7 +3655,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					IF exe_condition='1' THEN
 						TG68_PC_brw <= '1';	--pc+0000
 						next_micro_state <= nop;
-						skipFetch <= '1';	
+						if long_start='0' then
+							skipFetch <= '1'; -- AMR/GS - can't skip fetch for bra.l
+						end if;
 					END IF;
 					
 				WHEN bsr1 =>		--bsr short
@@ -3457,8 +3667,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN bsr2 =>		--bsr
 					IF long_start='0' THEN	
 						TG68_PC_brw <= '1';	
+						skipFetch <= '1';	-- AMR - can't skip fetch for bsr.l
 					END IF;
-					skipFetch <= '1';	
 					set(longaktion) <= '1';
 					writePC <= '1';
 					setstate <= "11";
@@ -3994,7 +4204,289 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					
 				WHEN bf1 =>
 					setstate <="10";
-	
+
+				WHEN cp_write_opw =>
+					-- Write opcode word to OpWord CIR (shared entry point for all F-line)
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00100"; -- OpWord CIR (register 4)
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					-- Route based on instruction type
+					IF exe_opcode(8 downto 6)="000" THEN
+						-- cpGEN: next write command word
+						set(opcCPcmd) <= '1';
+						next_micro_state <= cp_write_cmd;
+					ELSIF exe_opcode(8 downto 6)="100" THEN
+						-- cpSAVE: read format from Save CIR
+						next_micro_state <= cp_save_rd_fmt;
+					ELSIF exe_opcode(8 downto 6)="101" THEN
+						-- cpRESTORE: read first word from memory at (An)
+						next_micro_state <= cp_restore_rd_mem;
+					ELSIF exe_opcode(8 downto 6)="001" OR exe_opcode(8 downto 6)="010" OR exe_opcode(8 downto 6)="011" THEN
+						-- FBcc/FScc/FDBcc/FTRAPcc: write condition to Condition CIR
+						next_micro_state <= cp_cond_write;
+					ELSE
+						next_micro_state <= cp_write_cmd;
+					END IF;
+
+				WHEN cp_write_cmd =>
+					-- Write command word to Command CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00101"; -- Command CIR (register 5)
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					next_micro_state <= cp_read_resp;
+
+				WHEN cp_read_resp =>
+					-- Read Response CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00000"; -- Response CIR (register 0)
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					next_micro_state <= cp_idle_resp;
+
+				WHEN cp_idle_resp =>
+					-- Decode response from last_data_read
+					setstate <= "01";      -- idle (no bus access)
+					CASE last_data_read(15 downto 13) IS
+						WHEN "000" =>      -- Busy: re-read
+							next_micro_state <= cp_read_resp;
+						WHEN "001" =>      -- Null: done
+							NULL;          -- next_micro_state defaults to idle
+						WHEN "011" =>      -- Transfer to coprocessor
+							next_micro_state <= cp_xfer_to;
+						WHEN "100" =>      -- Transfer from coprocessor
+							next_micro_state <= cp_xfer_from;
+						WHEN OTHERS =>     -- Exceptions, supervisor check, etc.
+							trap_1111 <= '1';
+							trapmake <= '1';
+					END CASE;
+
+				WHEN cp_xfer_to =>
+					-- Write operand data to Operand CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					IF cp_xfer_cnt = "000" THEN
+						next_micro_state <= cp_read_resp;
+					ELSE
+						next_micro_state <= cp_xfer_to;
+					END IF;
+
+				WHEN cp_xfer_from =>
+					-- Read operand data from Operand CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					IF cp_xfer_cnt = "000" THEN
+						next_micro_state <= cp_read_resp;
+					ELSE
+						next_micro_state <= cp_xfer_from;
+					END IF;
+
+				-- cpSAVE states: read format from FPU, write frame to memory -(An)
+				WHEN cp_save_rd_fmt =>
+					-- Read Save CIR to get format word
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00010"; -- Save CIR (register 2)
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					next_micro_state <= cp_save_decode;
+
+				WHEN cp_save_decode =>
+					-- Decode format word (now in cp_save_fmt via registered process)
+					-- cp_frame_cnt loaded in registered process
+					setstate <= "01";      -- idle
+					IF cp_save_fmt(15 downto 8) = X"00" THEN
+						-- Null frame: go to idle to decrement EA, then write format
+						next_micro_state <= cp_save_idle;
+					ELSE
+						-- Non-null: read data words from CIR, write high-to-low
+						next_micro_state <= cp_save_rd_cir;
+					END IF;
+
+				WHEN cp_save_wr_mem =>
+					-- Write word to memory at cp_ea_addr
+					-- data_write_tmp must already contain the word
+					set_cp_memaddr <= '1';
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					IF cp_frame_cnt = "0000001" THEN
+						-- Last data word: next write the format word
+						next_micro_state <= cp_save_idle; -- reuse idle to load format
+					ELSIF cp_frame_cnt = "0000000" THEN
+						-- Format word just written (or null frame)
+						cp_an_writeback <= '1';
+						-- done - return to idle
+					ELSE
+						-- More data words to read from CIR
+						next_micro_state <= cp_save_rd_cir;
+					END IF;
+
+				WHEN cp_save_rd_cir =>
+					-- Read next data word from Operand CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					next_micro_state <= cp_save_idle;
+
+				WHEN cp_save_idle =>
+					-- Idle: forward last_data_read to data_write_tmp
+					setstate <= "01";      -- idle
+					next_micro_state <= cp_save_wr_mem;
+
+				-- cpRESTORE states: read frame from memory (An)+, write to FPU
+				WHEN cp_restore_rd_mem =>
+					-- Read word from memory at cp_ea_addr
+					set_cp_memaddr <= '1';
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					next_micro_state <= cp_restore_idle;
+
+				WHEN cp_restore_idle =>
+					-- Idle: data is now in last_data_read, forwarded to data_write_tmp
+					setstate <= "01";      -- idle
+					IF cp_frame_cnt = "0000000" THEN
+						-- Haven't decoded format yet: this is the format word
+						next_micro_state <= cp_restore_wr_fmt;
+					ELSE
+						-- Frame decoded: this is a data word
+						next_micro_state <= cp_restore_wr_data;
+					END IF;
+
+				WHEN cp_restore_wr_fmt =>
+					-- Write format word to Restore CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00011"; -- Restore CIR (register 3)
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					next_micro_state <= cp_restore_decode;
+
+				WHEN cp_restore_decode =>
+					-- Decode format: cp_frame_cnt loaded in registered process
+					-- last_data_read still has the format word
+					setstate <= "01";      -- idle
+					IF last_data_read(15 downto 8) = X"00" THEN
+						-- Null frame: done, writeback An
+						cp_an_writeback <= '1';
+					ELSE
+						-- Non-null frame: read data words from memory
+						next_micro_state <= cp_restore_rd_mem;
+					END IF;
+
+				WHEN cp_restore_wr_data =>
+					-- Write data word to Operand CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					IF cp_frame_cnt = "0000001" THEN
+						-- Last data word: writeback An and done
+						cp_an_writeback <= '1';
+						next_micro_state <= cp_read_resp;
+					ELSE
+						-- More data words to read from memory
+						next_micro_state <= cp_restore_rd_mem;
+					END IF;
+
+				-- FBcc conditional states: OpWord already written by cp_write_opw
+				WHEN cp_cond_write =>
+					-- Write condition code to Condition CIR ($0E)
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00111"; -- Condition CIR (register 7)
+					setstate <= "11";      -- bus write
+					datatype <= "01";      -- word
+					next_micro_state <= cp_cond_resp;
+
+				WHEN cp_cond_resp =>
+					-- Read Response CIR
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00000"; -- Response CIR (register 0)
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					next_micro_state <= cp_cond_eval;
+
+				WHEN cp_cond_eval =>
+					-- Decode response and act on condition result
+					setstate <= "01";      -- idle
+					CASE last_data_read(15 downto 13) IS
+						WHEN "000" =>      -- Busy: re-read
+							next_micro_state <= cp_cond_resp;
+						WHEN "001" =>      -- Null: condition result in bit 0
+							IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
+								-- FBcc: branch if condition true
+								IF last_data_read(0) = '1' THEN
+									cp_do_branch <= '1';
+								END IF;
+							ELSIF exe_opcode(8 downto 6) = "001" THEN
+								IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
+									-- FTRAPcc: trap if condition true
+									IF last_data_read(0) = '1' THEN
+										trap_trapv <= '1';
+										trapmake <= '1';
+									END IF;
+								ELSIF exe_opcode(5 downto 3) = "001" THEN
+									-- FDBcc: if condition false, decrement Dn and maybe branch
+									IF last_data_read(0) = '0' THEN
+										data_is_source <= '1';
+										set(OP2out_one) <= '1';
+										next_micro_state <= cp_fdbcc_dec;
+									END IF;
+									-- Condition true: done (no decrement, no branch)
+								ELSIF exe_opcode(5 downto 3) = "000" THEN
+									-- FScc data register
+									next_micro_state <= cp_fscc_wr;
+								ELSE
+									-- FScc memory: write result byte to EA
+									next_micro_state <= cp_fscc_wr_mem;
+								END IF;
+							END IF;
+						WHEN OTHERS =>
+							-- Exception response
+							trap_1111 <= '1';
+							trapmake <= '1';
+					END CASE;
+
+				WHEN cp_cond_skip =>
+					-- Skip operand word(s) for FTRAPcc before CIR dialog
+					-- State defaults to "00" -- PC fetch advances past operand
+					next_micro_state <= cp_write_opw;
+
+				WHEN cp_fscc_wr =>
+					-- Write FScc result byte ($FF or $00) to data register
+					-- cp_cond_true was latched from response bit 0
+					setstate <= "01";      -- idle
+					cp_fscc_writeback <= '1';
+
+				WHEN cp_fscc_wr_mem =>
+					-- Write FScc result byte ($FF or $00) to memory EA
+					-- data_write_tmp(7:0) was set in cp_cond_eval
+					set_cp_memaddr <= '1';  -- use cp_ea_addr for address
+					setstate <= "11";       -- bus write
+					datatype <= "00";       -- byte
+
+				WHEN cp_fdbcc_disp =>
+					-- PC fetch: read displacement word (state defaults to "00")
+					-- On next cycle, last_data_read has the displacement
+					next_micro_state <= cp_write_opw;
+
+				WHEN cp_fdbcc_dec =>
+					-- FDBcc: condition was false, decrement Dn.W
+					-- exec(OP2out_one) adds $FFFF = subtract 1
+					-- c_out(1) = carry from word addition: '1' means Dn was not 0 (not expired)
+					data_is_source <= '1';  -- route Dn register for writeback
+					Regwrena_now <= '1';    -- write decremented value to Dn
+					IF c_out(1)='1' THEN
+						-- Not expired: branch to target
+						cp_do_branch <= '1';
+						skipFetch <= '1';
+						next_micro_state <= nop;
+					END IF;
+					-- c_out(1)='0': Dn wrapped to $FFFF (-1), fall through (done)
+
 				WHEN OTHERS => NULL;
 			END CASE;
 	END PROCESS;

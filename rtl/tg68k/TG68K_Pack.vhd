@@ -32,7 +32,12 @@ package TG68K_Pack is
 						  rte4, rte5, rtd1, rtd2, trap00, trap0, trap1, trap2, trap3, cas1, cas2, cas21, cas22, cas23, cas24,
 						  cas25, cas26, cas27, cas28, chk20, chk21, chk22, chk23, chk24,
 						  trap4, trap5, trap6, movec1, movep1, movep2, movep3, movep4, movep5, rota1, bf1, 
-						  mul1, mul2, mul_end1,  mul_end2, div1, div2, div3, div4, div_end1, div_end2);
+						  mul1, mul2, mul_end1,  mul_end2, div1, div2, div3, div4, div_end1, div_end2,
+						  cp_write_cmd, cp_write_opw, cp_read_resp, cp_idle_resp, cp_xfer_to, cp_xfer_from,
+					  cp_save_rd_fmt, cp_save_decode, cp_save_wr_mem, cp_save_rd_cir, cp_save_idle,
+					  cp_restore_rd_mem, cp_restore_idle, cp_restore_wr_fmt, cp_restore_decode, cp_restore_wr_data,
+				  cp_cond_write, cp_cond_resp, cp_cond_eval, cp_cond_skip, cp_fscc_wr,
+				  cp_fscc_wr_mem, cp_fdbcc_disp, cp_fdbcc_dec);
 	
 	constant opcMOVE				: integer := 0; --
 	constant opcMOVEQ				: integer := 1; --
@@ -123,8 +128,10 @@ package TG68K_Pack is
 	constant alu_setFlags		: integer := 86; --
 	constant opcCHK2				: integer := 87; --
 	constant opcEXTB				: integer := 88; --
+	constant opcCPcmd				: integer := 89; --
+	constant opcCPopw				: integer := 90; --
 
-	constant lastOpcBit			: integer := 88;
+	constant lastOpcBit			: integer := 90;
 
 	component TG68K_ALU
 	generic(

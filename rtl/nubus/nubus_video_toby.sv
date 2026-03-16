@@ -31,7 +31,7 @@ module nubus_video_toby (
     input [15:0] ioctl_data,
     input        ioctl_download,
     input [7:0]  ioctl_index,
-    
+
     // Overlay control
     input        overlay_en
 );
@@ -45,30 +45,35 @@ module nubus_video_toby (
     localparam V_TOTAL = 525;
     localparam V_SYNC_START = 480 + 10;
     localparam V_SYNC_END = 480 + 10 + 2;
-    
+
     // NuBus Slot Configuration
     // This card occupies Slot E (Super Slot Space: $FE00_0000 - $FEFF_FFFF)
     localparam SLOT_ID = 4'hE;
-    
+
     // Slot address check - only respond to our assigned slot
     wire in_our_slot = (addr[31:28] == 4'hF) && (addr[27:24] == SLOT_ID);
-    
+
     // VRAM size - 512KB (256K words) on-chip
     // For 640x480 monochrome: 640*480/8 = 38,400 bytes = 19,200 words
     // We'll allocate 32K words (64KB) which is plenty
     localparam VRAM_ADDR_BITS = 15;  // 32K words = 64KB
     localparam VRAM_SIZE = (1 << VRAM_ADDR_BITS);
-    
-    // ROM Buffer - 4KB (2K words)
-    reg [7:0] rom [0:4095];
-    
+
+    // ROM Buffer - 4KB (2K x 16-bit words), stored in block RAM
+    (* ramstyle = "M10K" *) reg [15:0] rom [0:2047];
+
+    // Synchronous ROM read port
+    reg [15:0] rom_rdata;
+    always @(posedge clk) begin
+        rom_rdata <= rom[addr[11:1]];
+    end
+
     // VRAM - On-chip Block RAM (dual-port for CPU write + video read)
-    // Force synthesis to M10K blocks to avoid using logic registers
     (* ramstyle = "M10K" *) reg [15:0] vram [0:VRAM_SIZE-1];
-    
+
     // Video enabled flag
     reg video_en;
-    
+
     initial begin
         video_en = 1'b1;  // Always enabled for simple card
     end
@@ -76,7 +81,7 @@ module nubus_video_toby (
     // Clock enable generation: 25.175MHz from 32.5MHz
     reg [15:0] clk_video_acc;
     reg clk_video_en;
-    
+
     always @(posedge clk) begin
         if (reset) begin
             clk_video_acc <= 16'd0;
@@ -117,7 +122,7 @@ module nubus_video_toby (
             end else begin
                 h_cnt <= h_cnt + 11'd1;
             end
-            
+
             // Sync signals
             vga_hs_reg <= ~(h_cnt >= H_SYNC_START && h_cnt < H_SYNC_END);
             vga_vs_reg <= ~(v_cnt >= V_SYNC_START && v_cnt < V_SYNC_END);
@@ -125,25 +130,27 @@ module nubus_video_toby (
         end
     end
 
-    // vga_hs, vga_vs, vga_blank now driven by ovo module
-    // vga_clk still directly assigned
+    // VGA output - directly driven (no overlay pipeline)
     assign vga_clk = clk;
+    assign vga_hs = vga_hs_reg;
+    assign vga_vs = vga_vs_reg;
+    assign vga_blank = ~vga_blank_reg;  // Active-low blanking
 
     // VBL Interrupt signals
     reg vbl_disable;
     reg irq_active;
     wire vbl_trigger = clk_video_en && (v_cnt == V_RES) && (h_cnt == 0);
-    
+
     assign nmrq_n = ~irq_active;
 
     // VRAM Address Calculation
     // Simple linear framebuffer: byte_offset = (y * 80) + (x / 8)
     // Where 80 = 640 / 8 bytes per line
     // Convert to word address: word_addr = byte_offset / 2
-    
+
     wire [14:0] video_byte_addr = (v_cnt[9:0] * 10'd80) + {5'd0, h_cnt[9:3]};
     wire [13:0] video_word_addr = video_byte_addr[14:1];
-    
+
     // Dual-port VRAM
     // Port A - Video read (read-only)
     // Port B - CPU read/write
@@ -153,24 +160,24 @@ module nubus_video_toby (
     reg [15:0] vram_b_din;
     reg [15:0] vram_b_dout;
     reg vram_b_we;
-    
+
     always @(posedge clk) begin
         // Port A - Video read
         vram_a_addr <= video_word_addr;
         vram_a_dout <= vram[vram_a_addr];
-        
+
         // Port B - CPU read/write
         if (vram_b_we) begin
             vram[vram_b_addr] <= vram_b_din;
         end
         vram_b_dout <= vram[vram_b_addr];
     end
-    
+
     // Pixel shift register
     reg [15:0] pixel_shift;
     reg [3:0] pixel_count;
     reg [13:0] last_video_addr;
-    
+
     // Video memory read control
     always @(posedge clk) begin
         if (reset) begin
@@ -178,7 +185,7 @@ module nubus_video_toby (
             pixel_count <= 4'd0;
             last_video_addr <= 14'h0000;
         end else if (clk_video_en) begin
-            
+
             if (vga_blank_reg) begin
                 pixel_shift <= 16'h0000;
                 pixel_count <= 4'd0;
@@ -197,258 +204,27 @@ module nubus_video_toby (
             end
         end
     end
-    
+
     // Output pixel - white (1) or black (0)
     wire pixel_out = pixel_shift[15];
-    
-    // Debug: capture CPU address and slot info on any access
-    reg [31:0] last_cpu_addr;
-    reg last_select;
-    reg last_rw;
-    reg last_in_slot;
-    reg [7:0] access_count;
-    
-    // Visual status indicators
-    reg [1:0] card_status;  // 0=init (red), 1=accessed (pink), 2=working (blue)
-    localparam STATUS_INIT = 2'd0;
-    localparam STATUS_ACCESSED = 2'd1;
-    localparam STATUS_WORKING = 2'd2;
-    
-    // ROM loaded indicator
-    reg rom_loaded;
-    
-    // CPU activity detection (any bus cycle, not just NuBus)
-    reg [31:0] last_addr_seen;
-    reg cpu_active;
-    reg [23:0] cpu_activity_timer;
-    
-    // Status message system
-    reg [7:0] status_msg [0:39];  // 40 character status line
-    reg [5:0] status_len;
-    
-    always @(posedge clk) begin
-        if (reset) begin
-            last_cpu_addr <= 32'h0;
-            last_select <= 1'b0;
-            last_rw <= 1'b1;
-            last_in_slot <= 1'b0;
-            access_count <= 8'd0;
-            card_status <= STATUS_INIT;
-            cpu_active <= 1'b0;
-            last_addr_seen <= 32'h0;
-            cpu_activity_timer <= 24'd0;
-            status_len <= 6'd31;
-            // Default message: "OVERLAY TEST - WAITING FOR ROM"
-            // O V E R L A Y   T E S T
-            status_msg[0] <= 8'd14; status_msg[1] <= 8'd21; status_msg[2] <= 8'd4;  status_msg[3] <= 8'd17;
-            status_msg[4] <= 8'd11; status_msg[5] <= 8'd0;  status_msg[6] <= 8'd24; status_msg[7] <= 8'd0;
-            status_msg[8] <= 8'd19; status_msg[9] <= 8'd4;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd19;
-            // space - space W A I T I N G
-            status_msg[12] <= 8'd0; status_msg[13] <= 8'd0; status_msg[14] <= 8'd22; status_msg[15] <= 8'd0;
-            status_msg[16] <= 8'd8; status_msg[17] <= 8'd19; status_msg[18] <= 8'd8;  status_msg[19] <= 8'd13;
-            status_msg[20] <= 8'd6; status_msg[21] <= 8'd0;
-            // F O R   R O M
-            status_msg[22] <= 8'd5; status_msg[23] <= 8'd14; status_msg[24] <= 8'd17; status_msg[25] <= 8'd0;
-            status_msg[26] <= 8'd17; status_msg[27] <= 8'd14; status_msg[28] <= 8'd12; status_msg[29] <= 8'd26;
-            status_msg[30] <= 8'd26;
-            // Initialize rest to spaces
-            status_msg[16] <= 8'd26; status_msg[17] <= 8'd26; status_msg[18] <= 8'd26; status_msg[19] <= 8'd26;
-            status_msg[20] <= 8'd26; status_msg[21] <= 8'd26; status_msg[22] <= 8'd26; status_msg[23] <= 8'd26;
-            status_msg[24] <= 8'd26; status_msg[25] <= 8'd26; status_msg[26] <= 8'd26; status_msg[27] <= 8'd26;
-            status_msg[28] <= 8'd26; status_msg[29] <= 8'd26; status_msg[30] <= 8'd26; status_msg[31] <= 8'd26;
-            status_msg[32] <= 8'd26; status_msg[33] <= 8'd26; status_msg[34] <= 8'd26; status_msg[35] <= 8'd26;
-            status_msg[36] <= 8'd26; status_msg[37] <= 8'd26; status_msg[38] <= 8'd26; status_msg[39] <= 8'd26;
-        end else begin
-            // Detect any CPU activity (address bus changes)
-            if (addr != last_addr_seen) begin
-                last_addr_seen <= addr;
-                cpu_active <= 1'b1;
-                cpu_activity_timer <= 24'hFFFFFF;  // Reset activity timer
-            end else if (cpu_activity_timer > 24'd0) begin
-                cpu_activity_timer <= cpu_activity_timer - 24'd1;
-            end
-            
-            // Update status message based on state - ALWAYS update to ensure visibility
-            if (!rom_loaded) begin
-                // No ROM loaded yet - this is the most important status
-                status_len <= 6'd18;
-                // "WAITING FOR ROM..."
-                status_msg[0] <= 8'd22; status_msg[1] <= 8'd1; status_msg[2] <= 8'd8; status_msg[3] <= 8'd19;
-                status_msg[4] <= 8'd8; status_msg[5] <= 8'd13; status_msg[6] <= 8'd6; status_msg[7] <= 8'd0;
-                status_msg[8] <= 8'd5; status_msg[9] <= 8'd14; status_msg[10] <= 8'd18; status_msg[11] <= 8'd0;
-                status_msg[12] <= 8'd18; status_msg[13] <= 8'd14; status_msg[14] <= 8'd13; status_msg[15] <= 8'd26;
-                status_msg[16] <= 8'd26; status_msg[17] <= 8'd26;
-            end else if (!cpu_active) begin
-                // ROM loaded but no CPU activity
-                status_len <= 6'd23;
-                // "ROM OK: WAITING FOR CPU"
-                status_msg[0] <= 8'd18; status_msg[1] <= 8'd14; status_msg[2] <= 8'd13; status_msg[3] <= 8'd0;
-                status_msg[4] <= 8'd14; status_msg[5] <= 8'd10; status_msg[6] <= 8'd28; status_msg[7] <= 8'd0;
-                status_msg[8] <= 8'd22; status_msg[9] <= 8'd1; status_msg[10] <= 8'd8; status_msg[11] <= 8'd19;
-                status_msg[12] <= 8'd8; status_msg[13] <= 8'd13; status_msg[14] <= 8'd6; status_msg[15] <= 8'd0;
-                status_msg[16] <= 8'd5; status_msg[17] <= 8'd14; status_msg[18] <= 8'd18; status_msg[19] <= 8'd0;
-                status_msg[20] <= 8'd2; status_msg[21] <= 8'd15; status_msg[22] <= 8'd20;
-            end
-        end
-        
-        if (select && ack_n) begin
-            // Any NuBus select detected - turn pink to show activity
-            if (card_status == STATUS_INIT) begin
-                card_status <= STATUS_ACCESSED;
-            end
-            
-            // Update status message to show NuBus activity and ROM status
-            if (card_status == STATUS_ACCESSED && access_count == 8'd0) begin
-                if (rom_loaded) begin
-                    status_len <= 6'd22;
-                    // "NUBUS SCAN: ROM READY"
-                    status_msg[0] <= 8'd13; status_msg[1] <= 8'd20; status_msg[2] <= 8'd1; status_msg[3] <= 8'd20;
-                    status_msg[4] <= 8'd18; status_msg[5] <= 8'd0; status_msg[6] <= 8'd18; status_msg[7] <= 8'd2;
-                    status_msg[8] <= 8'd1; status_msg[9] <= 8'd13; status_msg[10] <= 8'd28; status_msg[11] <= 8'd0;
-                    status_msg[12] <= 8'd18; status_msg[13] <= 8'd14; status_msg[14] <= 8'd13; status_msg[15] <= 8'd0;
-                    status_msg[16] <= 8'd18; status_msg[17] <= 8'd4; status_msg[18] <= 8'd1; status_msg[19] <= 8'd3;
-                    status_msg[20] <= 8'd24; status_msg[21] <= 8'd0;
-                end else begin
-                    status_len <= 6'd21;
-                    // "NUBUS SCAN: NO ROM!!!"
-                    status_msg[0] <= 8'd13; status_msg[1] <= 8'd20; status_msg[2] <= 8'd1; status_msg[3] <= 8'd20;
-                    status_msg[4] <= 8'd18; status_msg[5] <= 8'd0; status_msg[6] <= 8'd18; status_msg[7] <= 8'd2;
-                    status_msg[8] <= 8'd1; status_msg[9] <= 8'd13; status_msg[10] <= 8'd28; status_msg[11] <= 8'd0;
-                    status_msg[12] <= 8'd13; status_msg[13] <= 8'd14; status_msg[14] <= 8'd0; status_msg[15] <= 8'd18;
-                    status_msg[16] <= 8'd14; status_msg[17] <= 8'd13; status_msg[18] <= 8'd27; status_msg[19] <= 8'd27;
-                    status_msg[20] <= 8'd27;
-                end
-            end
-            
-            // Only respond to our slot
-            if (in_our_slot) begin
-                last_cpu_addr <= addr;
-                last_select <= 1'b1;
-                last_rw <= rw_n;
-                last_in_slot <= in_our_slot;
-                access_count <= access_count + 8'd1;
-                
-                // Successful access to our slot - turn blue
-                if (card_status == STATUS_ACCESSED) begin
-                    card_status <= STATUS_WORKING;
-                end
-            
-            // Update status based on what's being accessed
-            if (addr[23:20] == 4'hF) begin
-                // ROM read (0x0F0000 - 0x0FFFFF)
-                if (rw_n) begin
-                    status_len <= 6'd18;
-                    // "ROM READ: FE0Fxxxx"
-                    status_msg[0] <= 8'd18; status_msg[1] <= 8'd15; status_msg[2] <= 8'd13; status_msg[3] <= 8'd0;
-                    status_msg[4] <= 8'd18; status_msg[5] <= 8'd4;  status_msg[6] <= 8'd1;  status_msg[7] <= 8'd3;
-                    status_msg[8] <= 8'd28; status_msg[9] <= 8'd0;  status_msg[10] <= 8'd5; status_msg[11] <= 8'd4;
-                    status_msg[12] <= 8'd26; status_msg[13] <= 8'd15 + (addr[19:16]); // Hex digit
-                    status_msg[14] <= 8'd23; status_msg[15] <= 8'd23; status_msg[16] <= 8'd23; status_msg[17] <= 8'd23;
-                end
-            end else if (addr[23:19] == 5'b00000) begin
-                // VRAM access (0x000000 - 0x07FFFF)
-                if (!rw_n) begin
-                    status_len <= 6'd11;
-                    // "VRAM WRITE"
-                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd18; status_msg[2] <= 8'd1;  status_msg[3] <= 8'd13;
-                    status_msg[4] <= 8'd0;  status_msg[5] <= 8'd22; status_msg[6] <= 8'd18; status_msg[7] <= 8'd8;
-                    status_msg[8] <= 8'd20; status_msg[9] <= 8'd4;  status_msg[10] <= 8'd0;
-                end else begin
-                    status_len <= 6'd10;
-                    // "VRAM READ"
-                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd18; status_msg[2] <= 8'd1;  status_msg[3] <= 8'd13;
-                    status_msg[4] <= 8'd0;  status_msg[5] <= 8'd18; status_msg[6] <= 8'd4;  status_msg[7] <= 8'd1;
-                    status_msg[8] <= 8'd3;  status_msg[9] <= 8'd0;
-                end
-            end else if (addr[23:16] == 8'h0A) begin
-                // VBL control (0x0A0000 - 0x0AFFFF)
-                if (addr[2]) begin
-                    status_len <= 6'd15;
-                    // "VBL IRQ DISABLE"
-                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd1;  status_msg[2] <= 8'd11; status_msg[3] <= 8'd0;
-                    status_msg[4] <= 8'd8;  status_msg[5] <= 8'd18; status_msg[6] <= 8'd16; status_msg[7] <= 8'd0;
-                    status_msg[8] <= 8'd3;  status_msg[9] <= 8'd8;  status_msg[10] <= 8'd18; status_msg[11] <= 8'd1;
-                    status_msg[12] <= 8'd1; status_msg[13] <= 8'd11; status_msg[14] <= 8'd4;
-                end else begin
-                    status_len <= 6'd14;
-                    // "VBL IRQ ENABLE"
-                    status_msg[0] <= 8'd22; status_msg[1] <= 8'd1;  status_msg[2] <= 8'd11; status_msg[3] <= 8'd0;
-                    status_msg[4] <= 8'd8;  status_msg[5] <= 8'd18; status_msg[6] <= 8'd16; status_msg[7] <= 8'd0;
-                    status_msg[8] <= 8'd4;  status_msg[9] <= 8'd13; status_msg[10] <= 8'd1; status_msg[11] <= 8'd1;
-                    status_msg[12] <= 8'd11; status_msg[13] <= 8'd4;
-                end
-            end else if (addr[23:16] == 8'h0D) begin
-                // VBL status read (0x0D0000 - 0x0DFFFF)
-                status_len <= 6'd14;
-                // "VBL STATUS CHK"
-                status_msg[0] <= 8'd22; status_msg[1] <= 8'd1;  status_msg[2] <= 8'd11; status_msg[3] <= 8'd0;
-                status_msg[4] <= 8'd18; status_msg[5] <= 8'd19; status_msg[6] <= 8'd1;  status_msg[7] <= 8'd19;
-                status_msg[8] <= 8'd20; status_msg[9] <= 8'd18; status_msg[10] <= 8'd0; status_msg[11] <= 8'd2;
-                status_msg[12] <= 8'd7; status_msg[13] <= 8'd10;
-            end
-            end  // End of in_our_slot condition
-        end
-    end
-    
-    // Debug display removed - using overlay for status messages
-    
-    // Base video output with status-based background color
-    // Red = init, Pink = NuBus accessed, Blue = working
-    wire [7:0] status_r = (card_status == STATUS_INIT) ? 8'hFF : 
-                          (card_status == STATUS_ACCESSED) ? 8'hFF : 8'h00;
-    wire [7:0] status_g = (card_status == STATUS_INIT) ? 8'h00 : 
-                          (card_status == STATUS_ACCESSED) ? 8'h80 : 8'h00;
-    wire [7:0] status_b = (card_status == STATUS_INIT) ? 8'h00 : 
-                          (card_status == STATUS_ACCESSED) ? 8'h80 : 8'hFF;
-    
-    wire [7:0] base_r = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : status_r);
-    wire [7:0] base_g = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : status_g);
-    wire [7:0] base_b = (vga_blank_reg || !video_en) ? 8'h00 : (pixel_out ? 8'hFF : status_b);
-    
-    // Text overlay module (green text at bottom of screen)
-    wire overlay_de;
-    ovo #(
-        .COLS(40),
-        .LINES(1),
-        .RGB(24'h00FF00)  // Green
-    ) text_overlay (
-        .i_r(base_r),
-        .i_g(base_g),
-        .i_b(base_b),
-        .i_hs(vga_hs_reg),
-        .i_vs(~vga_vs_reg),  // Invert: ovo expects active-high vsync
-        .i_de(!vga_blank_reg),
-        .i_clk(clk),
-        .o_r(vga_r),
-        .o_g(vga_g),
-        .o_b(vga_b),
-        .o_hs(vga_hs),
-        .o_vs(vga_vs),
-        .o_de(overlay_de),
-        .ena(1'b1),  // FORCED ON for debugging - always show overlay
-        .text_in(status_msg),
-        .text_len(status_len)
-    );
-    
-    assign vga_blank = !overlay_de;  // Invert: blank is active LOW
-    
-    assign vga_clk = clk;
+
+    // Video output - monochrome
+    assign vga_r = (vga_blank_reg || !video_en) ? 8'h00 : {8{pixel_out}};
+    assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : {8{pixel_out}};
+    assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : {8{pixel_out}};
 
     // ROM Download - boot1.rom is index 1
+    // Store as 16-bit words with byte swap to match NuBus read byte order
     always @(posedge clk) begin
-        if (reset) begin
-            rom_loaded <= 1'b0;
-        end else if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
-            rom[{ioctl_addr[11:0], 1'b0}] <= ioctl_data[7:0];
-            rom[{ioctl_addr[11:0], 1'b1}] <= ioctl_data[15:8];
-            rom_loaded <= 1'b1;  // Mark ROM as loaded
+        if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
+            rom[ioctl_addr[10:0]] <= {ioctl_data[7:0], ioctl_data[15:8]};
         end
     end
-    
+
     // CPU Access State Machine
     reg [2:0] ack_delay;
     wire [13:0] cpu_vram_addr = addr[14:1];
-    
+
     always @(posedge clk) begin
         if (reset) begin
             ack_n <= 1'b1;
@@ -461,26 +237,32 @@ module nubus_video_toby (
             vram_b_we <= 1'b0;
         end else begin
             vram_b_we <= 1'b0;  // Default: no write
-            
+
             // VBL interrupt generation
             if (vbl_trigger && !vbl_disable) begin
                 irq_active <= 1'b1;
             end
-            
+
             // Decrement delay counter
             if (ack_delay > 3'd0) begin
                 ack_delay <= ack_delay - 3'd1;
-                // For VRAM reads, latch data when delay is 2 - invert like MAME
-                if (ack_delay == 3'd2 && addr[23:19] == 5'b00000 && rw_n) begin
-                    data_out <= ~vram_b_dout;
+                // Latch read data when delay reaches 2 (synchronous reads need 1 cycle)
+                if (ack_delay == 3'd2 && rw_n) begin
+                    if (addr[23:19] == 5'b00000) begin
+                        // VRAM read - invert like MAME
+                        data_out <= ~vram_b_dout;
+                    end else if (addr[23:16] == 8'h01 && addr[11:0] < 12'd2048) begin
+                        // ROM read - invert, data from synchronous ROM port
+                        data_out <= ~rom_rdata;
+                    end
                 end
             end
-            
+
             // Assert ack when counter reaches 0
             if (ack_delay == 3'd1) begin
                 ack_n <= 1'b0;
             end
-            
+
             // CPU access - only respond if accessed in our slot
             if (select && ack_n && ack_delay == 3'd0 && in_our_slot) begin
                 if (addr[23:19] == 5'b00000) begin
@@ -510,13 +292,10 @@ module nubus_video_toby (
                     data_out <= (v_cnt >= V_RES) ? 16'h0000 : 16'hFFFF;
                     ack_delay <= 3'd2;
                 end else if (rw_n && addr[23:16] == 8'h01) begin
-                    // ROM read (0x010000 - 0x01FFFF) - Standard NuBus sRsrcDir location
-                    // Apple declaration ROM format: starts at slot base + $01_0000
-                    if (addr[11:0] < 12'd2048) begin
-                        data_out[15:8] <= ~rom[{addr[11:1], 1'b0}];
-                        data_out[7:0] <= ~rom[{addr[11:1], 1'b1}];
-                    end else begin
-                        data_out <= 16'h0000;  // Inverted 0xFFFF
+                    // ROM read (0x010000 - 0x01FFFF)
+                    // Synchronous ROM - data latched at ack_delay==2
+                    if (addr[11:0] >= 12'd2048) begin
+                        data_out <= 16'h0000;  // Beyond ROM - inverted 0xFFFF
                     end
                     ack_delay <= 3'd3;
                 end else begin

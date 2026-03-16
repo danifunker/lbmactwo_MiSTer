@@ -1,0 +1,20 @@
+# MC68881 FPU QIP file (VHDL-93 sources from 68881-fpga)
+# Source: https://github.com/mattuna15/68881-fpga
+#
+# mc68881_fpu_lite wrapper sets fpu_lite_g => true for MC68040 hardware
+# subset (11 ALU ops). Saves ~45% LUTs and ~50% DSPs vs full MC68881.
+# Wrapper avoids Quartus mixed-language boolean generic issues.
+#
+# VHDL compilation order: package first, then units, then top, then wrapper.
+
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_pkg.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_fp80_mul_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_fp80_addsub_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_divrem_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_modrem_post_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_packed_decimal_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_sgl_ops_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_trig_unit.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_alu.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_top.vhd ]
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_fpu_lite.vhd ]
