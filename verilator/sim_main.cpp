@@ -574,6 +574,11 @@ int main(int argc, char** argv, char** env) {
 	bus.QueueDownload(rom_file, 0, 1);  // index 0 for ROM
 	fprintf(stderr, "Machine type: Mac II, loading ROM: %s\n", rom_file);
 
+	// Auto-load NuBus Toby video card declaration ROM
+	const char* nubus_rom_file = "../releases/boot1.rom";  // Toby 342-0008-a
+	bus.QueueDownload(nubus_rom_file, 1, 1);  // index 1 for NuBus ROM
+	fprintf(stderr, "Loading NuBus video ROM: %s\n", nubus_rom_file);
+
 	// Initial eval() to establish clock state for Verilator
 	// This is needed for correct rising edge detection on the first cycle
 	VERTOPINTERN->clk_sys = 0;

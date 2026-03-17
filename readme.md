@@ -6,8 +6,10 @@ This is an initial build, I doubt any of it works yet!
 
 ## Usage
 
-* Copy the [*.rbf](https://github.com/MiSTer-devel/MacPlus_MiSTer/tree/master/releases) onto the root of SD card NOT AVAILBLE YET. Need to build from scratch now
-* Copy boot0.rom & boot1.rom boot0.rom = Mac II ROM (recommended `1987-12 - 9779D2C4 - MacII (800k v2).ROM`, boot1.rom = `Apple_341-0660_High_Resolution_Display_Card_630-4230.bin` OR `342-0008-a.bin` -- I am still figuring this out) to the lbmactwo folder
+* Copy the *.rbf onto the root of the SD card (build from source with Quartus)
+* Copy ROM files to the `lbmactwo` folder on the SD card:
+  * `boot0.rom` — Mac II system ROM (256K). Use `1987-12 - 9779D2C4 - MacII (800k v2).ROM`
+  * `boot1.rom` — NuBus Toby video card declaration ROM. Use `342-0008-a.bin` (this must match the Toby card hardware implemented in the core)
 * Copy disk images in dsk format (e.g. Disk605.dsk) to lbmactwo folder
 
 After a few seconds, the floppy disk icon should appear. Open the on-screen display using the F12 key and select the a disk image. The upload of the disk image will take a few seconds. If a bootable system is found on disk, a smiling Mac icon will appear. lbmactwo will then begin booting into the desktop.
