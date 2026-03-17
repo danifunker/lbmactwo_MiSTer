@@ -147,21 +147,22 @@ module addrDecoder(
 			else if (address[31:24] == 8'h40) begin
 				selectROM = !_cpuAS;
 			end
-			// Mac IIx 32-bit I/O space: $5000_0000 - $500F_FFFF
-			// VIA1: $5000_0000, VIA2: $5000_2000, SCC: $5000_4000
-			// SCSI: $5001_0000, IWM: $5001_6000
-			else if (address[31:20] == 12'h500) begin
-				if (address[19:13] == 7'b0000_000)       // $5000_0000 - $5000_1FFF: VIA1
+			// Mac II 32-bit I/O space: base $5000_xxxx, mirrored at $00F0_0000 intervals
+			// MAME: "MMU remaps I/O without the F" — bits 23:20 are don't-care (mirror)
+			// So $5000_xxxx and $50F0_xxxx both map to the same devices
+			// VIA1: +$0000, VIA2: +$2000, SCC: +$4000, SCSI: +$10000, IWM: +$16000
+			else if (address[31:24] == 8'h50) begin
+				if (address[19:13] == 7'b0000_000)       // +$00_0000: VIA1
 					selectVIA = !_cpuAS;
-				else if (address[19:13] == 7'b0000_001)  // $5000_2000 - $5000_3FFF: VIA2
+				else if (address[19:13] == 7'b0000_001)  // +$00_2000: VIA2
 					selectVIA = !_cpuAS;
-				else if (address[19:13] == 7'b0000_010)  // $5000_4000 - $5000_5FFF: SCC
+				else if (address[19:13] == 7'b0000_010)  // +$00_4000: SCC
 					selectSCC = !_cpuAS;
-				else if (address[19:14] == 6'b0001_00)   // $5001_0000 - $5001_3FFF: SCSI
+				else if (address[19:14] == 6'b0001_00)   // +$01_0000: SCSI
 					selectSCSI = !_cpuAS;
-				else if (address[19:13] == 7'b0001_011)  // $5001_6000 - $5001_7FFF: IWM/SWIM
+				else if (address[19:13] == 7'b0001_011)  // +$01_6000: IWM/SWIM
 					selectIWM = !_cpuAS;
-				else if (address[19:13] == 7'b0100_000)  // $5004_0000 - $5004_1FFF: VIA1 alt
+				else if (address[19:13] == 7'b0100_000)  // +$04_0000: VIA1 alt
 					selectVIA = !_cpuAS;
 			end
 		end
