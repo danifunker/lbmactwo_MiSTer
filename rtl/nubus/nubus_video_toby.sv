@@ -33,7 +33,10 @@ module nubus_video_toby (
     input [7:0]  ioctl_index,
 
     // Overlay control
-    input        overlay_en
+    input        overlay_en,
+
+    // Pixel clock enable output (active one clk cycle per pixel)
+    output       ce_pixel
 );
 
     // Video Parameters - 640x480 @ 60Hz
@@ -134,7 +137,8 @@ module nubus_video_toby (
     assign vga_clk = clk;
     assign vga_hs = vga_hs_reg;
     assign vga_vs = vga_vs_reg;
-    assign vga_blank = ~vga_blank_reg;  // Active-low blanking
+    assign vga_blank = ~vga_blank_reg;  // Active-high: 1 = active display
+    assign ce_pixel = clk_video_en;
 
     // VBL Interrupt signals
     reg vbl_disable;

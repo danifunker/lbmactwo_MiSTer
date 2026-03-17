@@ -151,13 +151,14 @@ module emu
 
 	///////////////////////////////////////////////////
 
-	assign CE_PIXEL  = 1;
+	wire nubus_ce_pixel;
+	assign CE_PIXEL  = nubus_ce_pixel;
 
 	// Video Output - Mac II NuBus video system
 	assign VGA_R  = nubus_r;
 	assign VGA_G  = nubus_g;
 	assign VGA_B  = nubus_b;
-	wire VGA_DE = !nubus_blank;
+	wire VGA_DE = nubus_blank;
 	assign VGA_VS = nubus_vsync;
 	assign VGA_HS = nubus_hsync;
 	assign VGA_HB = nubus_blank;
@@ -404,6 +405,7 @@ module emu
 		.vga_vs(nubus_vsync),
 		.vga_blank(nubus_blank),
 		.vga_clk(),
+		.ce_pixel(nubus_ce_pixel),
 		.nmrq_n(nubus_irq_n),
 		
 		.overlay_en(1'b0),  // No overlay in simulation

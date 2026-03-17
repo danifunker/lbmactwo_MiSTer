@@ -363,7 +363,8 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(SCSI_DEVS), .WIDE(1)) hps_io
 );
 
 assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL  = 1;
+wire nubus_ce_pixel;
+assign CE_PIXEL  = nubus_ce_pixel;
 
 wire [15:0] nubusDataOut;
 wire nubusAck;
@@ -375,7 +376,7 @@ wire nubus_hs, nubus_vs, nubus_blank;
 assign VGA_R  = nubus_r;
 assign VGA_G  = nubus_g;
 assign VGA_B  = nubus_b;
-assign VGA_DE = !nubus_blank;
+assign VGA_DE = nubus_blank;
 assign VGA_VS = nubus_vs;
 assign VGA_HS = nubus_hs;
 assign VGA_F1 = 0;
@@ -676,6 +677,7 @@ nubus_video_toby nubus_card (
 	.vga_vs(nubus_vs),
 	.vga_blank(nubus_blank),
 	.vga_clk(), // unused for now
+	.ce_pixel(nubus_ce_pixel),
 	.nmrq_n(nubus_irq_n),
 	
 	// Toby card uses on-chip VRAM, no external interface needed
