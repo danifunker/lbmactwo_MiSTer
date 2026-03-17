@@ -239,7 +239,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign snd_vol = ~via_pa_oe[2:0] | via_pa_o[2:0];
 	assign snd_alt = machineType ? 1'b0 : ~(~via_pa_oe[3] | via_pa_o[3]);
 	assign driveSel = machineType ? ~via_pa_oe[4] | via_pa_o[4] : 1'b1;
-	assign memoryOverlayOn = machineType ? SEOverlay : ~via_pa_oe[4] | via_pa_o[4];
+	// Mac II uses VIA PA4 for overlay (same as Mac Plus, NOT Mac SE's SEOverlay)
+	assign memoryOverlayOn = ~via_pa_oe[4] | via_pa_o[4];
 	assign SEL = ~via_pa_oe[5] | via_pa_o[5];
 	assign vid_alt = ~via_pa_oe[6] | via_pa_o[6];
 

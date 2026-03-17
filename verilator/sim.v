@@ -387,8 +387,27 @@ module emu
 	wire [1:0] diskEject;
 	wire [1:0] diskMotor, diskAct;
 
-	// NuBus Video Card (Toby framebuffer)
-	nubus_video_toby nubus_card (
+	// NuBus Video Card — Mac II High-Resolution (TFB 2.2 + Bt453)
+	// Sim VRAM: simple synchronous RAM standing in for SDRAM
+	wire [24:0] sim_vram_addr;
+	wire [15:0] sim_vram_dout;
+	wire [15:0] sim_vram_din;
+	wire        sim_vram_rd;
+	wire        sim_vram_wr;
+	wire        sim_vram_ready;
+
+	sim_vram #(.ADDR_BITS(19)) sim_vram_inst (
+		.clk(clk_sys),
+		.reset(!_cpuReset),
+		.addr(sim_vram_addr[18:0]),
+		.din(sim_vram_dout),
+		.dout(sim_vram_din),
+		.rd(sim_vram_rd),
+		.wr(sim_vram_wr),
+		.ready(sim_vram_ready)
+	);
+
+	nubus_video_highres nubus_card (
 		.clk(clk_sys),
 		.reset(!_cpuReset),
 		.addr(cpuAddr),
@@ -407,9 +426,16 @@ module emu
 		.vga_clk(),
 		.ce_pixel(nubus_ce_pixel),
 		.nmrq_n(nubus_irq_n),
-		
-		.overlay_en(1'b0),  // No overlay in simulation
-		
+
+		.vram_addr(sim_vram_addr),
+		.vram_dout(sim_vram_dout),
+		.vram_din(sim_vram_din),
+		.vram_rd(sim_vram_rd),
+		.vram_wr(sim_vram_wr),
+		.vram_ready(sim_vram_ready),
+
+		.overlay_en(1'b0),
+
 		.ioctl_wr(ioctl_wr),
 		.ioctl_addr(ioctl_addr),
 		.ioctl_data(ioctl_dout),

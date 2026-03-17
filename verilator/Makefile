@@ -70,7 +70,8 @@ V_SRC = \
 	$(RTL)/dataController_top.sv \
 	$(RTL)/videoTimer.v \
 	$(RTL)/videoShifter.v \
-	$(RTL)/nubus/nubus_video_toby.sv \
+	sim_vram.v \
+	$(RTL)/nubus/nubus_video_highres.sv \
 	$(RTL)/via6522.sv \
 	$(RTL)/adb.sv \
 	$(RTL)/ps2_kbd.sv \
