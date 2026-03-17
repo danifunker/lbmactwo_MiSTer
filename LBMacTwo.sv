@@ -280,7 +280,9 @@ always @(posedge clk_sys) begin
 
 	if (clk8_en_p) begin
 		// various sources can reset the mac
-		if(~pll_locked || osd_reset_req || buttons[1] || RESET || ~_cpuReset_o) begin
+		// Note: ~_cpuReset_o must NOT be here - that's the CPU's RESET instruction
+		// output which resets peripherals only, not the CPU itself
+		if(~pll_locked || osd_reset_req || buttons[1] || RESET) begin
 			rst_cnt <= '1;
 			n_reset <= 0;
 		end

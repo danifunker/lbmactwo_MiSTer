@@ -127,7 +127,7 @@ module emu
 				$display("SIM: dio_download went LOW - ROM download complete");
 			end
 
-			if(~pll_locked || reset || dio_download || ~_cpuReset_o) begin
+			if(~pll_locked || reset || dio_download) begin
 				rst_cnt <= '1;
 				n_reset <= 0;
 			end
