@@ -147,11 +147,11 @@ module addrDecoder(
 			else if (address[31:24] == 8'h40) begin
 				selectROM = !_cpuAS;
 			end
-			// Mac II 32-bit I/O space: base $5000_xxxx, mirrored at $00F0_0000 intervals
-			// MAME: "MMU remaps I/O without the F" — bits 23:20 are don't-care (mirror)
-			// So $5000_xxxx and $50F0_xxxx both map to the same devices
+			// Mac II 32-bit I/O space: $50F0_xxxx only
+			// Real hardware confirms $5000_xxxx does NOT mirror — falls through to RAM
+			// Only $50Fx_xxxx decodes as I/O; $51E0_0000 bus errors (not periodic)
 			// VIA1: +$0000, VIA2: +$2000, SCC: +$4000, SCSI: +$10000, IWM: +$16000
-			else if (address[31:24] == 8'h50) begin
+			else if (address[31:20] == 12'h50F) begin
 				if (address[19:13] == 7'b0000_000)       // +$00_0000: VIA1
 					selectVIA = !_cpuAS;
 				else if (address[19:13] == 7'b0000_001)  // +$00_2000: VIA2

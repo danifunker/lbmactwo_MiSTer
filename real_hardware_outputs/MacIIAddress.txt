@@ -1,0 +1,58 @@
+ Displaying memory from 50f00000
+  50F00000  FFFF FFFF FFFF FFFF  FFFF FFFF FFFF FFFF  €€€€€€€€€€€€€€€€
+ Displaying memory from 50000000
+  50000000  4081 0000 4080 2A14  007E 93BA 0008 F838  @€€€@€*€€~€€€€€8
+ Displaying memory from 50f00000
+  50F00000  FFFF FFFF FFFF FFFF  FFFF FFFF FFFF FFFF  €€€€€€€€€€€€€€€€
+  50F00010  FFFF FFFF FFFF FFFF  FFFF FFFF FFFF FFFF  €€€€€€€€€€€€€€€€
+ Displaying memory from 50f00400
+  50F00400  B7B7 B7B7 B7B7 B7B7  B7B7 B7B7 B7B7 B7B7  €€€€€€€€€€€€€€€€
+  50F00410  B7B7 B7B7 B7B7 B7B7  B7B7 B7B7 B7B7 B7B7  €€€€€€€€€€€€€€€€
+ Displaying memory from 50f0200
+  050F0200  FFFC A029 206E FFFC  2650 598F 2F0C 4EBA  €€Ý) n€€&PY€/€N€
+ Displaying memory from 50002000
+  50002000  8000 215C 4000 0150  0000 1FB8 A082 7970  €€!\@€€P€€€€Ý€yp
+ Displaying memory from 50f02000
+  50F02000  8787 8787 8787 8787  8787 8787 8787 8787  €€€€€€€€€€€€€€€€
+ Displaying memory from 50f04000
+  50F04000  5C5C 5C5C 0000 0000  5C5C 5C5C 0000 0000  \\\\€€€€\\\\€€€€
+ Displaying memory from 50004000
+  50004000  303B 0206 4EFB 0002  0020 0018 0054 00C8  0;€€N€€€€ €€€T€€
+ Displaying memory from 50f10000
+  50F10000  0000 0000 0000 0000  0000 0000 0000 0000  €€€€€€€€€€€€€€€€
+ Displaying memory from 50010000
+  50010000  4EBA EA9E 2640 206E  000C 214B 001C 200B  N€€€&@ n€€!K€€ €
+ Displaying memory from 50f1400
+  050F1400  6710 4A2D F430 660A  7001 2F00 4EBA F89C  g€J-€0f€p€/€N€€€
+ Displaying memory from 50014000
+  50014000  0000 0000 0000 0000  4000 0074 0000 1E00  €€€€€€€€@€€t€€€€
+ Displaying memory from 50f14000
+  50F14000  0101 0101 0101 0101  0101 0101 0101 0101  €€€€€€€€€€€€€€€€
+ Displaying memory from 50f16000
+  50F16000  FFFF FFFF FFFF FFFF  FFFF FFFF FFFF FFFF  €€€€€€€€€€€€€€€€
+ Displaying memory from 50016000
+  50016000  0002 FB18 41ED 06AA  2B68 0002 FB14 4E5E  €€€€A€€€+h€€€€N^
+ Displaying memory from 40800000
+  40800000  9779 D2C4 4080 002A  0178 4EFA 0084 4EFA  €y€€@€€*€xN€€€N€
+ Displaying memory from 40800004
+  40800004  4080 002A 0178 4EFA  0084 4EFA 0080 0000  @€€*€xN€€€N€€€€€
+ Displaying memory from 00800000
+  00800000  9779 D2C4 4080 002A  0178 4EFA 0084 4EFA  €y€€@€€*€xN€€€N€
+ Displaying memory from 00000000
+  00000000  4081 0000 4080 2A14  007E 93BA 0008 F838  @€€€@€*€€~€€€€€8
+ Memory set starting at 00000100
+ Displaying memory from 00000100
+  00000100  1234 5678 0048 0080  0015 A0F4 007C F988  €4Vx€H€€€€Ý€€|€€
+ Displaying memory from FE010000
+  FE010000  4EBA EA9E 2640 206E  000C 214B 001C 200B  N€€€&@ n€€!K€€ €
+ Displaying memory from 50f00000
+  50F00000  FFFF FFFF FFFF FFFF  FFFF FFFF FFFF FFFF  €€€€€€€€€€€€€€€€
+ Displaying memory from 51e00000
+  
+  Unable to access that address
+ Displaying memory from 51e00000
+  
+  Unable to access that address
+ Displaying memory from 50f00000
+  50F00000  FFFF FFFF FFFF FFFF  FFFF FFFF FFFF FFFF  €€€€€€€€€€€€€€€€
+ Closing log
