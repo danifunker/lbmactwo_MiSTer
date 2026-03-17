@@ -685,8 +685,8 @@ nubus_video_toby nubus_card (
 	.overlay_en(status_overlay_en),
 
 	.ioctl_wr(ioctl_write),
-	.ioctl_addr({4'd0, dio_a}),
-	.ioctl_data(dio_data),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_data(ioctl_data),
 	.ioctl_download(dio_download),
 	.ioctl_index(dio_index)
 );

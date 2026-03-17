@@ -411,7 +411,7 @@ module emu
 		.overlay_en(1'b0),  // No overlay in simulation
 		
 		.ioctl_wr(ioctl_wr),
-		.ioctl_addr({4'd0, ioctl_addr[20:0]}),
+		.ioctl_addr(ioctl_addr),
 		.ioctl_data(ioctl_dout),
 		.ioctl_download(ioctl_download),
 		.ioctl_index(ioctl_index)

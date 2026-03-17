@@ -218,10 +218,11 @@ module nubus_video_toby (
     assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : {8{pixel_out}};
 
     // ROM Download - boot1.rom is index 1
-    // Store as 16-bit words with byte swap to match NuBus read byte order
+    // ioctl_addr is byte address from hps_io (increments by 2 per word with WIDE=1)
+    // Byte-swap to big-endian for NuBus (68k) byte order
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
-            rom[ioctl_addr[10:0]] <= {ioctl_data[7:0], ioctl_data[15:8]};
+            rom[ioctl_addr[11:1]] <= {ioctl_data[7:0], ioctl_data[15:8]};
         end
     end
 
