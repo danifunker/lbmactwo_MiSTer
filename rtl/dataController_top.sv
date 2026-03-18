@@ -8,6 +8,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// system control:
 	input machineType, // 0 - Mac Plus, 1 - Mac SE
+	input [2:0] macModel, // 0=Plus, 1=SE, 2=MacII, 3=MacII FDHD, 4=IIx, 5=IIcx, 6=SE/30
 	input _systemReset,
 
 	// 68000 CPU control:
@@ -261,7 +262,27 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign _viaIrq = ~viaIrq;
 
 	//port A
-	assign via_pa_i = {sccWReq, ~via_pa_oe[6:0] | via_pa_o[6:0]};
+	// VIA1 port A external input values (active when direction = input)
+	// Bits [2:0] = model sense, bit 6 = model6 sense
+	// Directly from Snow emulator via1_a_in() per model:
+	//   Mac Plus/SE:      0x7F (all pulled high)
+	//   Mac II:           0x01 (model=1, model6=0)
+	//   Mac II FDHD:      0x01 (model=1, model6=0, different ROM handles SWIM)
+	//   Mac IIx:          0x00 (model=0, model6=0)
+	//   Mac IIcx/SE30:    0x43 (model=3, model6=1)
+	reg [6:0] via_pa_ext;
+	always @(*) begin
+		case (macModel)
+			3'd0, 3'd1:  via_pa_ext = 7'h7F; // Mac Plus, SE: all pulled high
+			3'd2, 3'd3:  via_pa_ext = 7'h01; // Mac II, Mac II FDHD: model=1
+			3'd4:         via_pa_ext = 7'h00; // Mac IIx: model=0
+			3'd5, 3'd6:  via_pa_ext = 7'h43; // Mac IIcx, SE/30: model=3, model6=1
+			default:      via_pa_ext = 7'h7F;
+		endcase
+	end
+	// For output bits (oe=1): read back the output value
+	// For input bits (oe=0): read the external hardware value
+	assign via_pa_i = {sccWReq, (via_pa_oe[6:0] & via_pa_o[6:0]) | (~via_pa_oe[6:0] & via_pa_ext)};
 	assign snd_vol = ~via_pa_oe[2:0] | via_pa_o[2:0];
 	assign snd_alt = machineType ? 1'b0 : ~(~via_pa_oe[3] | via_pa_o[3]);
 	assign driveSel = machineType ? ~via_pa_oe[4] | via_pa_o[4] : 1'b1;

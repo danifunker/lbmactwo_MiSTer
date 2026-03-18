@@ -478,6 +478,7 @@ module emu
 		.E_rising(E_rising),
 		.E_falling(E_falling),
 		.machineType(1'b1),  // Mac II mode
+		.macModel(3'd2),     // Mac II (non-FDHD)
 		._systemReset(n_reset),
 		._cpuReset(_cpuReset),
 		._cpuIPL(_cpuIPL),
