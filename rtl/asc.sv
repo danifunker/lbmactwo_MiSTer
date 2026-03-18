@@ -2,6 +2,7 @@
 // Supports FIFO playback mode and 4-voice wavetable synthesis
 // Address space: 8KB ($50F14000-$50F15FFF)
 //
+// RAM uses block RAM (M10K) with time-multiplexed reads for wavetable.
 // Reference: Snow core/src/mac/asc.rs, MAME apple/asc.cpp
 
 module asc(
@@ -19,10 +20,42 @@ module asc(
 );
 
 	// =====================================================================
-	// Dual 1KB RAM banks (FIFO / wavetable data)
+	// Dual-port block RAM — inferred as M10K
+	// Port A: CPU read/write + FIFO read
+	// Port B: Wavetable channel reads (time-multiplexed)
 	// =====================================================================
-	reg [7:0] ram_a [0:1023];  // $000-$3FF
-	reg [7:0] ram_b [0:1023];  // $400-$7FF
+	reg [7:0] ram_a [0:1023];
+	reg [7:0] ram_b [0:1023];
+
+	// Port A: CPU / FIFO — registered read
+	reg [9:0]  ram_a_addr_a, ram_b_addr_a;
+	reg        ram_a_we, ram_b_we;
+	reg [7:0]  ram_a_wdata, ram_b_wdata;
+	reg [7:0]  ram_a_rdata_a, ram_b_rdata_a;
+
+	always @(posedge clk) begin
+		if (ram_a_we)
+			ram_a[ram_a_addr_a] <= ram_a_wdata;
+		ram_a_rdata_a <= ram_a[ram_a_addr_a];
+	end
+
+	always @(posedge clk) begin
+		if (ram_b_we)
+			ram_b[ram_b_addr_a] <= ram_b_wdata;
+		ram_b_rdata_a <= ram_b[ram_b_addr_a];
+	end
+
+	// Port B: Wavetable reads only — registered read
+	reg [9:0]  ram_a_addr_b, ram_b_addr_b;
+	reg [7:0]  ram_a_rdata_b, ram_b_rdata_b;
+
+	always @(posedge clk) begin
+		ram_a_rdata_b <= ram_a[ram_a_addr_b];
+	end
+
+	always @(posedge clk) begin
+		ram_b_rdata_b <= ram_b[ram_b_addr_b];
+	end
 
 	// =====================================================================
 	// Registers at offset $800+
@@ -98,21 +131,30 @@ module asc(
 	wire ch_is_freq = reg_off[2];
 	wire [1:0] ch_byte = reg_off[1:0];  // big-endian: 0=MSB, 3=LSB
 
-	// Register read mux
+	// CPU read uses registered RAM output (1-cycle latency)
+	// The CPU bus on Mac II is slow enough that this is fine
+	reg cpu_read_d;
+	reg [12:0] addr_d;
+	always @(posedge clk) begin
+		cpu_read_d <= cpu_read;
+		addr_d <= addr;
+	end
+
+	// Register read mux — uses delayed signals to match RAM read latency
 	always @(*) begin
 		data_out = 8'h00;
-		if (cpu_read) begin
-			if (addr[12:10] == 3'b000 && asc_mode == 8'h02) begin
-				// $000-$3FF: RAM bank A (wavetable mode only)
-				data_out = ram_a[addr[9:0]];
+		if (cpu_read_d) begin
+			if (addr_d[12:10] == 3'b000) begin
+				// $000-$3FF: RAM bank A
+				data_out = ram_a_rdata_a;
 			end
-			else if (addr[12:10] == 3'b001 && asc_mode == 8'h02) begin
-				// $400-$7FF: RAM bank B (wavetable mode only)
-				data_out = ram_b[addr[9:0]];
+			else if (addr_d[12:10] == 3'b001) begin
+				// $400-$7FF: RAM bank B
+				data_out = ram_b_rdata_a;
 			end
-			else if (addr[12:11] == 2'b01) begin
-				// $800-$FFF: registers
-				case (addr[5:0])
+			else if (addr_d[12:11] == 2'b01) begin
+				// $800-$FFF: registers (directly, no RAM latency)
+				case (addr_d[5:0])
 					6'h00: data_out = 8'h00;           // VERSION = 0x00 (original ASC)
 					6'h01: data_out = asc_mode;
 					6'h02: data_out = asc_control;
@@ -122,24 +164,121 @@ module asc(
 					6'h07: data_out = asc_clock_rate;
 					default: begin
 						// $810-$82F: channel phase/freq registers
-						if (addr[5:0] >= 6'h10 && addr[5:0] <= 6'h2F) begin
-							if (ch_is_freq)
-								case (ch_byte)
-									2'd0: data_out = freq[ch_num][31:24];
-									2'd1: data_out = freq[ch_num][23:16];
-									2'd2: data_out = freq[ch_num][15:8];
-									2'd3: data_out = freq[ch_num][7:0];
+						if (addr_d[5:0] >= 6'h10 && addr_d[5:0] <= 6'h2F) begin
+							// Use delayed decode signals
+							if (addr_d[2])
+								case (addr_d[1:0])
+									2'd0: data_out = freq[addr_d[4:3]][31:24];
+									2'd1: data_out = freq[addr_d[4:3]][23:16];
+									2'd2: data_out = freq[addr_d[4:3]][15:8];
+									2'd3: data_out = freq[addr_d[4:3]][7:0];
 								endcase
 							else
-								case (ch_byte)
-									2'd0: data_out = phase[ch_num][31:24];
-									2'd1: data_out = phase[ch_num][23:16];
-									2'd2: data_out = phase[ch_num][15:8];
-									2'd3: data_out = phase[ch_num][7:0];
+								case (addr_d[1:0])
+									2'd0: data_out = phase[addr_d[4:3]][31:24];
+									2'd1: data_out = phase[addr_d[4:3]][23:16];
+									2'd2: data_out = phase[addr_d[4:3]][15:8];
+									2'd3: data_out = phase[addr_d[4:3]][7:0];
 								endcase
 						end
 					end
 				endcase
+			end
+		end
+	end
+
+	// =====================================================================
+	// Wavetable time-multiplexed read state machine
+	// Reads 4 channels over 4 clock cycles using port B of each RAM.
+	// Ch0: ram_a[0..511], Ch1: ram_a[512..1023]
+	// Ch2: ram_b[0..511], Ch3: ram_b[512..1023]
+	// =====================================================================
+	reg [2:0] wt_state;  // 0=idle, 1-4=reading ch0-3, 5=done
+	reg [7:0] wt_sample [0:3];  // latched samples from each channel
+	reg wt_done;
+
+	// Wavetable index from upper bits of phase
+	wire [8:0] wt_idx0 = phase[0][23:15];
+	wire [8:0] wt_idx1 = phase[1][23:15];
+	wire [8:0] wt_idx2 = phase[2][23:15];
+	wire [8:0] wt_idx3 = phase[3][23:15];
+
+	always @(posedge clk) begin
+		if (reset) begin
+			wt_state <= 0;
+			wt_done <= 0;
+			wt_sample[0] <= 0;
+			wt_sample[1] <= 0;
+			wt_sample[2] <= 0;
+			wt_sample[3] <= 0;
+		end else begin
+			wt_done <= 0;
+
+			case (wt_state)
+				3'd0: begin
+					if (sample_tick && asc_mode == 8'h02) begin
+						// Start: set address for ch0 (ram_a low half)
+						ram_a_addr_b <= {1'b0, wt_idx0};
+						// Also set address for ch2 (ram_b low half) — read in parallel
+						ram_b_addr_b <= {1'b0, wt_idx2};
+						wt_state <= 3'd1;
+					end
+				end
+				3'd1: begin
+					// Wait for registered read of ch0/ch2
+					// Set address for ch1 (ram_a high half) and ch3 (ram_b high half)
+					ram_a_addr_b <= {1'b1, wt_idx1};
+					ram_b_addr_b <= {1'b1, wt_idx3};
+					wt_state <= 3'd2;
+				end
+				3'd2: begin
+					// Latch ch0 and ch2 from registered outputs
+					wt_sample[0] <= ram_a_rdata_b;
+					wt_sample[2] <= ram_b_rdata_b;
+					wt_state <= 3'd3;
+				end
+				3'd3: begin
+					// Latch ch1 and ch3 from registered outputs
+					wt_sample[1] <= ram_a_rdata_b;
+					wt_sample[3] <= ram_b_rdata_b;
+					wt_done <= 1;
+					wt_state <= 3'd0;
+				end
+				default: wt_state <= 3'd0;
+			endcase
+		end
+	end
+
+	// Wavetable mix — computed when wt_done fires
+	wire [9:0] wt_sum = wt_sample[0] + wt_sample[1] + wt_sample[2] + wt_sample[3];
+	wire [7:0] wt_avg = wt_sum[9:2];
+	wire signed [15:0] wt_mix = {wt_avg ^ 8'h80, 8'h00};
+
+	// =====================================================================
+	// RAM port A address/write mux — CPU and FIFO reads share this port
+	// =====================================================================
+	reg [9:0] fifo_rd_addr_a, fifo_rd_addr_b;
+
+	always @(*) begin
+		// Defaults: no write
+		ram_a_we = 0;
+		ram_b_we = 0;
+		ram_a_wdata = data_in;
+		ram_b_wdata = data_in;
+		ram_a_addr_a = addr[9:0];
+		ram_b_addr_a = addr[9:0];
+
+		if (asc_mode == 8'h01 && sample_tick) begin
+			// FIFO read — point port A at read pointer
+			ram_a_addr_a = fifo_a_rd_ptr;
+			ram_b_addr_a = fifo_b_rd_ptr;
+		end else if (cpu_access) begin
+			if (addr[12:10] == 3'b000) begin
+				ram_a_addr_a = (asc_mode == 8'h01) ? fifo_a_wr_ptr : addr[9:0];
+				ram_a_we = !rw;
+			end else if (addr[12:10] == 3'b001) begin
+				ram_b_addr_a = (asc_mode == 8'h01) ? fifo_b_wr_ptr : addr[9:0];
+				ram_b_we = !rw;
 			end
 		end
 	end
@@ -180,32 +319,20 @@ module asc(
 			end
 
 			// ----------------------------------------------------------
-			// CPU writes
+			// CPU writes (RAM writes handled by port A mux above)
 			// ----------------------------------------------------------
 			if (cpu_write) begin
-				if (addr[12:10] == 3'b000) begin
-					// $000-$3FF: RAM bank A / FIFO A write
-					if (asc_mode == 8'h01) begin
-						// FIFO mode: append to circular buffer
-						ram_a[fifo_a_wr_ptr] <= data_in;
-						fifo_a_wr_ptr <= fifo_a_wr_ptr + 1'd1;
-						if (fifo_a_count < 11'd1024)
-							fifo_a_count <= fifo_a_count + 1'd1;
-					end else begin
-						// Direct RAM write (wavetable loading or off)
-						ram_a[addr[9:0]] <= data_in;
-					end
+				if (addr[12:10] == 3'b000 && asc_mode == 8'h01) begin
+					// FIFO A write: update pointers
+					fifo_a_wr_ptr <= fifo_a_wr_ptr + 1'd1;
+					if (fifo_a_count < 11'd1024)
+						fifo_a_count <= fifo_a_count + 1'd1;
 				end
-				else if (addr[12:10] == 3'b001) begin
-					// $400-$7FF: RAM bank B / FIFO B write
-					if (asc_mode == 8'h01) begin
-						ram_b[fifo_b_wr_ptr] <= data_in;
-						fifo_b_wr_ptr <= fifo_b_wr_ptr + 1'd1;
-						if (fifo_b_count < 11'd1024)
-							fifo_b_count <= fifo_b_count + 1'd1;
-					end else begin
-						ram_b[addr[9:0]] <= data_in;
-					end
+				else if (addr[12:10] == 3'b001 && asc_mode == 8'h01) begin
+					// FIFO B write: update pointers
+					fifo_b_wr_ptr <= fifo_b_wr_ptr + 1'd1;
+					if (fifo_b_count < 11'd1024)
+						fifo_b_count <= fifo_b_count + 1'd1;
 				end
 				else if (addr[12:11] == 2'b01) begin
 					// $800+: registers
@@ -270,13 +397,13 @@ module asc(
 			if (asc_mode == 8'h01 && sample_tick) begin
 				// Drain FIFO A, hold last sample if empty
 				if (fifo_a_count > 0) begin
-					fifo_last_l <= ram_a[fifo_a_rd_ptr];
+					fifo_last_l <= ram_a_rdata_a;
 					fifo_a_rd_ptr <= fifo_a_rd_ptr + 1'd1;
 					fifo_a_count <= fifo_a_count - 1'd1;
 				end
 				// Drain FIFO B only in stereo mode
 				if (ctrl_stereo && fifo_b_count > 0) begin
-					fifo_last_r <= ram_b[fifo_b_rd_ptr];
+					fifo_last_r <= ram_b_rdata_a;
 					fifo_b_rd_ptr <= fifo_b_rd_ptr + 1'd1;
 					fifo_b_count <= fifo_b_count - 1'd1;
 				end
@@ -290,7 +417,8 @@ module asc(
 			end
 
 			// ----------------------------------------------------------
-			// Wavetable engine (mode == 2)
+			// Wavetable engine (mode == 2) — phase advance on sample tick
+			// Reads are handled by the wt_state machine above
 			// ----------------------------------------------------------
 			if (asc_mode == 8'h02 && sample_tick) begin
 				for (i = 0; i < 4; i = i + 1) begin
@@ -299,65 +427,38 @@ module asc(
 			end
 
 			// ----------------------------------------------------------
-			// Audio output generation (no volume scaling, raw samples)
+			// Audio output generation
 			// ----------------------------------------------------------
-			if (sample_tick) begin
-				if (asc_mode == 8'h01) begin
-					// FIFO mode: use current or last sample
-					// Convert unsigned 8-bit → signed 16-bit
-					if (fifo_a_count > 0)
-						audio_left <= {ram_a[fifo_a_rd_ptr] ^ 8'h80, 8'h00};
-					else
-						audio_left <= {fifo_last_l ^ 8'h80, 8'h00};
+			if (asc_mode == 8'h01 && sample_tick) begin
+				// FIFO mode: use registered RAM read data or last sample
+				if (fifo_a_count > 0)
+					audio_left <= {ram_a_rdata_a ^ 8'h80, 8'h00};
+				else
+					audio_left <= {fifo_last_l ^ 8'h80, 8'h00};
 
-					if (ctrl_stereo) begin
-						if (fifo_b_count > 0)
-							audio_right <= {ram_b[fifo_b_rd_ptr] ^ 8'h80, 8'h00};
-						else
-							audio_right <= {fifo_last_r ^ 8'h80, 8'h00};
-					end else begin
-						// Mono: duplicate left → right
-						if (fifo_a_count > 0)
-							audio_right <= {ram_a[fifo_a_rd_ptr] ^ 8'h80, 8'h00};
-						else
-							audio_right <= {fifo_last_l ^ 8'h80, 8'h00};
-					end
+				if (ctrl_stereo) begin
+					if (fifo_b_count > 0)
+						audio_right <= {ram_b_rdata_a ^ 8'h80, 8'h00};
+					else
+						audio_right <= {fifo_last_r ^ 8'h80, 8'h00};
+				end else begin
+					// Mono: duplicate left → right
+					if (fifo_a_count > 0)
+						audio_right <= {ram_a_rdata_a ^ 8'h80, 8'h00};
+					else
+						audio_right <= {fifo_last_l ^ 8'h80, 8'h00};
 				end
-				else if (asc_mode == 8'h02) begin
-					// Wavetable mode: mix all 4 channels, output to both L and R
-					audio_left  <= wt_mix;
-					audio_right <= wt_mix;
-				end
-				else begin
-					audio_left  <= 16'sh0000;
-					audio_right <= 16'sh0000;
-				end
+			end
+			else if (wt_done) begin
+				// Wavetable mode: output mixed result
+				audio_left  <= wt_mix;
+				audio_right <= wt_mix;
+			end
+			else if (asc_mode == 8'h00 && sample_tick) begin
+				audio_left  <= 16'sh0000;
+				audio_right <= 16'sh0000;
 			end
 		end
 	end
-
-	// =====================================================================
-	// Wavetable mixing (combinational)
-	// 32-bit phase, upper 9 bits after >>15 give 512-sample wavetable index
-	// All 4 channels summed and divided by 4, output to both L and R
-	// =====================================================================
-	wire [8:0] wt_idx0 = phase[0][23:15];
-	wire [8:0] wt_idx1 = phase[1][23:15];
-	wire [8:0] wt_idx2 = phase[2][23:15];
-	wire [8:0] wt_idx3 = phase[3][23:15];
-
-	// Ch 0: ram_a[0..511], Ch 1: ram_a[512..1023]
-	// Ch 2: ram_b[0..511], Ch 3: ram_b[512..1023]
-	wire [7:0] wt_sample0 = ram_a[{1'b0, wt_idx0}];
-	wire [7:0] wt_sample1 = ram_a[{1'b1, wt_idx1}];
-	wire [7:0] wt_sample2 = ram_b[{1'b0, wt_idx2}];
-	wire [7:0] wt_sample3 = ram_b[{1'b1, wt_idx3}];
-
-	// Sum all 4 unsigned samples, divide by 4 → unsigned 8-bit average
-	wire [9:0] wt_sum = wt_sample0 + wt_sample1 + wt_sample2 + wt_sample3;
-	wire [7:0] wt_avg = wt_sum[9:2];
-
-	// Convert unsigned 8-bit average → signed 16-bit
-	wire signed [15:0] wt_mix = {wt_avg ^ 8'h80, 8'h00};
 
 endmodule
