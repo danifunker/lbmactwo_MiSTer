@@ -244,8 +244,9 @@ module emu
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
 	reg [8:0] berr_counter;
 	reg berr_out;
+	wire nubus_acked = selectNuBus & ~nubusAck;  // NuBus card actually responding
 	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-	                | selectSCSI | selectIWM | selectASC | selectNuBus | selectSEOverlay;
+	                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay;
 	wire is_cpu_space = (cpuFC == 3'b111);
 
 	always @(posedge clk_sys) begin
