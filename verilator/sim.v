@@ -165,8 +165,9 @@ module emu
 	assign VGA_VB = nubus_blank;
 
 	wire [10:0] audio;
-	assign AUDIO_L = {audio[10:0], 5'b00000};
-	assign AUDIO_R = {audio[10:0], 5'b00000};
+	wire [15:0] asc_audio_l, asc_audio_r;
+	assign AUDIO_L = asc_audio_l;
+	assign AUDIO_R = asc_audio_r;
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
@@ -211,7 +212,7 @@ module emu
 	
 	// peripherals
 	wire vid_alt, loadPixels, pixelOut, _hblank, _vblank, hsync, vsync;
-	wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectRAM, selectROM, selectSEOverlay;
+	wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 	wire [15:0] dataControllerDataOut;
 
 	// audio
@@ -239,6 +240,30 @@ module emu
 
 	assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 : ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 	assign      _cpuDTACK = selectNuBus ? nubusAck : (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+
+	// Bus error timeout — undecoded addresses trigger bus error after ~8us
+	reg [8:0] berr_counter;
+	reg berr_out;
+	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
+	                | selectSCSI | selectIWM | selectASC | selectNuBus | selectSEOverlay;
+	wire is_cpu_space = (cpuFC == 3'b111);
+
+	always @(posedge clk_sys) begin
+		if (!_cpuReset) begin
+			berr_counter <= 0;
+			berr_out <= 0;
+		end else begin
+			berr_out <= 0;
+			if (_cpuAS)
+				berr_counter <= 0;
+			else if (is_cpu_space || any_select)
+				berr_counter <= 0;
+			else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz
+				begin berr_out <= 1; berr_counter <= 0; end
+			else
+				berr_counter <= berr_counter + 1'd1;
+		end
+	end
 	// Mac II: 8 MHz base, 16 MHz turbo (matching LBMacTwo.sv on main)
 	wire        cpu_en_p      = status_turbo ? clk16_en_p : clk8_en_p;
 	wire        cpu_en_n      = status_turbo ? clk16_en_n : clk8_en_n;
@@ -298,7 +323,7 @@ module emu
 		.bgack_n    ( 1'b1         ),
 
 		.ipl        ( _cpuIPL      ),
-		.berr       ( 1'b0         ),
+		.berr       ( berr_out     ),
 		.din        ( dataControllerDataOut ),
 		.dout       ( tg68_dout    ),
 		.addr       ( tg68_a       )
@@ -363,10 +388,12 @@ module emu
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),
+		.selectVIA2(selectVIA2),
 		.selectRAM(selectRAM),
 		.selectROM(selectROM),
 		.selectSEOverlay(selectSEOverlay),
 		.selectNuBus(selectNuBus),
+		.selectASC(selectASC),
 		.hsync(hsync),
 		.vsync(vsync),
 		._hblank(_hblank),
@@ -470,7 +497,10 @@ module emu
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),
+		.selectVIA2(selectVIA2),
 		.selectSEOverlay(selectSEOverlay),
+		.selectASC(selectASC),
+		.cpuAddrASC(cpuAddr[12:0]),
 		.cpuBusControl(cpuBusControl),
 		.videoBusControl(videoBusControl),
 		.memoryDataOut(memoryDataOut),
@@ -498,6 +528,8 @@ module emu
 		.audioOut(audio),
 		.snd_alt(snd_alt),
 		.loadSound(loadSound),
+		.ascAudioLeft(asc_audio_l),
+		.ascAudioRight(asc_audio_r),
 
 		.insertDisk({dsk_ext_ins, dsk_int_ins}),
 		.diskSides({dsk_ext_ds, dsk_int_ds}),

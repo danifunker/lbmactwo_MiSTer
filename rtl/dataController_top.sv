@@ -29,8 +29,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input selectSCC,
 	input selectIWM,
 	input selectVIA,
+	input selectVIA2,
 	input selectSEOverlay,
 	input selectNuBus,
+	input selectASC,
+	input [12:0] cpuAddrASC,
 	input [15:0] nubusDataIn,
 	input nubus_irq_n,
 	input _cpuVMA,
@@ -66,9 +69,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output vid_alt,
 
 	// audio
-	output [10:0] audioOut,  // 8 bit audio + 3 bit volume
+	output [10:0] audioOut,  // 8 bit audio + 3 bit volume (legacy Mac Plus)
 	output snd_alt,
 	input loadSound,
+	output [15:0] ascAudioLeft,
+	output [15:0] ascAudioRight,
 
 	// misc
 	output memoryOverlayOn,
@@ -142,17 +147,21 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// interconnects
 	wire SEL;
-	wire _viaIrq, _sccIrq, sccWReq;
+	wire _viaIrq, _via2Irq, _sccIrq, sccWReq;
 	wire [15:0] viaDataOut;
+	wire [15:0] via2DataOut;
 	wire [15:0] iwmDataOut;
 	wire [7:0] sccDataOut;
 	wire [7:0] scsiDataOut;
+	wire [7:0] ascDataOut;
+	wire asc_irq_n;
 	wire mouseX1, mouseX2, mouseY1, mouseY2, mouseButton;
 
-	// interrupt control
+	// interrupt control - Mac II priority: SCC(4) > VIA2(2) > VIA1(1)
 	assign _cpuIPL =
-		!_viaIrq?3'b110:
-		(!_sccIrq || !nubus_irq_n)?3'b101:
+		!_sccIrq  ? 3'b011 :  // SCC → IPL 4
+		!_via2Irq ? 3'b101 :  // VIA2 → IPL 2
+		!_viaIrq  ? 3'b110 :  // VIA1 → IPL 1
 		3'b111;
 
 
@@ -160,8 +169,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	always @(posedge clk32) if (cpuBusControl && memoryLatch) cpu_data <= memoryDataIn;
 
 	// CPU-side data output mux
-	assign cpuDataOut = selectIWM ? iwmDataOut :
+	assign cpuDataOut = selectASC ? { ascDataOut, 8'hEF } :
+							  selectIWM ? iwmDataOut :
 							  selectVIA ? viaDataOut :
+							  selectVIA2 ? via2DataOut :
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
 							  selectSCSI ? { scsiDataOut, 8'hEF } :
@@ -196,6 +207,21 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.sd_buff_wr(sd_buff_wr)
 	);
 
+	// ASC (Apple Sound Chip)
+	asc asc_inst(
+		.clk        (clk32),
+		.reset      (!_cpuReset),
+		.addr       (cpuAddrASC),
+		.data_in    (cpuDataIn[15:8]),
+		.data_out   (ascDataOut),
+		.cs         (selectASC),
+		.rw         (_cpuRW),
+		.ds         (!_cpuUDS),
+		.audio_left (ascAudioLeft),
+		.audio_right(ascAudioRight),
+		.irq_n      (asc_irq_n)
+	);
+
 	// count vblanks, and set 1 second interrupt after 60 vblanks
 	reg [5:0] vblankCount;
 	reg _lastVblank;
@@ -223,7 +249,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			SEOverlay <= 0;
 	end
 
-	// VIA
+	// VIA1
 	wire [2:0] snd_vol;
 	wire snd_ena;
 	wire driveSel; // internal drive select, 0 - upper, 1 - lower
@@ -247,6 +273,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	//port B
 	assign via_pb_i = {1'b1, {3{machineType}} | {_hblank, mouseY2, mouseX2}, machineType ? _ADBint : mouseButton, 2'b11, rtcdat_o};
 	assign snd_ena = ~via_pb_oe[7] | via_pb_o[7];
+
+	// VIA2 PB7 output chains to VIA1 CA1 (60.15 Hz timer → 1-second interrupt)
+	wire via2_pb7_to_via1_ca1;
+	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
 
 	assign viaDataOut[7:0] = 8'hEF;
 
@@ -274,7 +304,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.port_b_i   (via_pb_i),
 
 		//-- handshake pins
-		.ca1_i      (_vblank),
+		.ca1_i      (via1_ca1),
 		.ca2_i      (onesec),
 
 		.cb1_i      (kbdclk),
@@ -283,6 +313,65 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (cb2_t),
 
 		.irq        (viaIrq)
+	);
+
+	// VIA2 - NuBus interrupt routing, RAM sizing, timer chain
+	wire [7:0] via2_pa_i, via2_pa_o, via2_pa_oe;
+	wire [7:0] via2_pb_o, via2_pb_oe;
+	wire via2Irq;
+
+	assign _via2Irq = ~via2Irq;
+
+	// VIA2 Port A: {ram_size[1:0] (output loopback), nubus_irq_state[5:0]}
+	// PA[7:6] read back the output latch (RAM size config written by ROM)
+	// PA[5:0] are NuBus slot IRQ state (active-low, directly from video card slot E = bit 5)
+	assign via2_pa_i = {via2_pa_o[7:6], ~via2_pa_oe[5] | nubus_irq_n, 5'b11111};
+
+	// VIA2 Port B: hardwired Mac II value
+	// PB7 is output (timer chain to VIA1 CA1), PB[6:0] = 0x4F
+	wire [7:0] via2_pb_i = 8'hCF;
+
+	// VIA2 PB7 drives VIA1 CA1 for 60.15 Hz timer chain
+	assign via2_pb7_to_via1_ca1 = via2_pb_o[7];
+
+	// VIA2 CA1: NuBus IRQ aggregator (active-low when any slot asserts IRQ)
+	wire via2_ca1 = nubus_irq_n;  // directly from video card for now (Phase 1)
+
+	assign via2DataOut[7:0] = 8'hEF;
+
+	via6522 via2(
+		.clock      (clk32),
+		.rising     (E_rising),
+		.falling    (E_falling),
+		.reset      (!_cpuReset),
+
+		.addr       (cpuAddrRegHi),
+		.wen        (selectVIA2 && !_cpuVMA && !_cpuRW),
+		.ren        (selectVIA2 && !_cpuVMA &&  _cpuRW),
+		.data_in    (cpuDataIn[15:8]),
+		.data_out   (via2DataOut[15:8]),
+
+		.phi2_ref   (),
+
+		//-- pio --
+		.port_a_o   (via2_pa_o),
+		.port_a_t   (via2_pa_oe),
+		.port_a_i   (via2_pa_i),
+
+		.port_b_o   (via2_pb_o),
+		.port_b_t   (via2_pb_oe),
+		.port_b_i   (via2_pb_i),
+
+		//-- handshake pins
+		.ca1_i      (via2_ca1),
+		.ca2_i      (1'b1),      // CA2 not used
+
+		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)
+		.cb2_i      (1'b1),      // CB2 not used
+		.cb2_o      (),
+		.cb2_t      (),
+
+		.irq        (via2Irq)
 	);
 
 	wire _rtccs   = ~via_pb_oe[2] | via_pb_o[2];

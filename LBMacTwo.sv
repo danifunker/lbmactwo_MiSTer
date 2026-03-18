@@ -385,8 +385,9 @@ assign VGA_F1 = 0;
 assign VGA_SL = 0;
 
 wire [10:0] audio;
-assign AUDIO_L = {audio[10:0], 5'b00000};
-assign AUDIO_R = {audio[10:0], 5'b00000};
+wire [15:0] asc_audio_l, asc_audio_r;
+assign AUDIO_L = asc_audio_l;
+assign AUDIO_R = asc_audio_r;
 assign AUDIO_S = 1;
 assign AUDIO_MIX = 0;
 
@@ -449,7 +450,7 @@ wire [15:0] memoryDataOut;
 wire memoryLatch;
 
 // peripherals
-wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectRAM, selectROM, selectSEOverlay;
+wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 wire [15:0] dataControllerDataOut;
 
 // MC68881 FPU
@@ -553,6 +554,30 @@ wire [15:0] tg68_dout;
 wire [31:0] tg68_a;
 wire        tg68_reset_n;
 
+// Bus error timeout — undecoded addresses trigger bus error after ~8us
+reg [8:0] berr_counter;
+reg berr_out;
+wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
+                | selectSCSI | selectIWM | selectASC | selectNuBus | selectSEOverlay | selectFPU;
+wire is_cpu_space = (cpuFC == 3'b111);
+
+always @(posedge clk_sys) begin
+	if (!_cpuReset) begin
+		berr_counter <= 0;
+		berr_out <= 0;
+	end else begin
+		berr_out <= 0;
+		if (_cpuAS)
+			berr_counter <= 0;
+		else if (is_cpu_space || any_select)
+			berr_counter <= 0;
+		else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz
+			begin berr_out <= 1; berr_counter <= 0; end
+		else
+			berr_counter <= berr_counter + 1'd1;
+	end
+end
+
 tg68k tg68k_inst (
 	.clk        ( clk_sys      ),
 	.reset      ( !_cpuReset   ),
@@ -580,7 +605,7 @@ tg68k tg68k_inst (
 	.bgack_n    ( 1'b1         ),
 
 	.ipl        ( _cpuIPL      ),
-	.berr       ( 1'b0         ),
+	.berr       ( berr_out     ),
 	.din        ( selectFPU ? fpu_data_out[15:0] : dataControllerDataOut ),
 	.dout       ( tg68_dout    ),
 	.addr       ( tg68_a       )
@@ -638,10 +663,12 @@ addrController_top ac0
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),
+	.selectVIA2(selectVIA2),
 	.selectRAM(selectRAM),
 	.selectROM(selectROM),
 	.selectSEOverlay(selectSEOverlay),
 	.selectNuBus(selectNuBus),
+	.selectASC(selectASC),
 	.hsync(hsync),
 	.vsync(vsync),
 	._hblank(_hblank),
@@ -726,7 +753,10 @@ dataController_top #(SCSI_DEVS) dc0
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),
+	.selectVIA2(selectVIA2),
 	.selectSEOverlay(selectSEOverlay),
+	.selectASC(selectASC),
+	.cpuAddrASC(cpuAddr[12:0]),
 	.cpuBusControl(cpuBusControl),
 	.videoBusControl(videoBusControl),
 	.memoryDataOut(memoryDataOut),
@@ -758,6 +788,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.audioOut(audio),
 	.snd_alt(snd_alt),
 	.loadSound(loadSound),
+	.ascAudioLeft(asc_audio_l),
+	.ascAudioRight(asc_audio_r),
 
 	// floppy disk interface
 	.insertDisk({dsk_ext_ins, dsk_int_ins}),

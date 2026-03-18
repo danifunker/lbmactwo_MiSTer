@@ -106,8 +106,10 @@ module addrDecoder(
 	output reg selectSCC,
 	output reg selectIWM,
 	output reg selectVIA,
+	output reg selectVIA2,
 	output reg selectSEOverlay,
-	output reg selectNuBus
+	output reg selectNuBus,
+	output reg selectASC
 );
 
 	always @(*) begin
@@ -117,8 +119,10 @@ module addrDecoder(
 		selectSCC = 0;
 		selectIWM = 0;
 		selectVIA = 0;
+		selectVIA2 = 0;
 		selectSEOverlay = 0;
 		selectNuBus = 0;
+		selectASC = 0;
 
 		// ========================================================================
 		// 32-bit NuBus Addressing (Mac II mode)
@@ -155,11 +159,13 @@ module addrDecoder(
 				if (address[19:13] == 7'b0000_000)       // +$00_0000: VIA1
 					selectVIA = !_cpuAS;
 				else if (address[19:13] == 7'b0000_001)  // +$00_2000: VIA2
-					selectVIA = !_cpuAS;
+					selectVIA2 = !_cpuAS;
 				else if (address[19:13] == 7'b0000_010)  // +$00_4000: SCC
 					selectSCC = !_cpuAS;
 				else if (address[19:14] == 6'b0001_00)   // +$01_0000: SCSI
 					selectSCSI = !_cpuAS;
+				else if (address[19:13] == 7'b0001_010)  // +$01_4000: ASC
+					selectASC = !_cpuAS;
 				else if (address[19:13] == 7'b0001_011)  // +$01_6000: IWM/SWIM
 					selectIWM = !_cpuAS;
 				else if (address[19:13] == 7'b0100_000)  // +$04_0000: VIA1 alt
@@ -253,11 +259,13 @@ module addrDecoder(
 					if (address[19:13] == 7'b0000_000)       // $F0_0000 - $F0_1FFF: VIA1
 						selectVIA = !_cpuAS;
 					else if (address[19:13] == 7'b0000_001)  // $F0_2000 - $F0_3FFF: VIA2
-						selectVIA = !_cpuAS;
+						selectVIA2 = !_cpuAS;
 					else if (address[19:13] == 7'b0000_010)  // $F0_4000 - $F0_5FFF: SCC
 						selectSCC = !_cpuAS;
 					else if (address[19:14] == 6'b0001_00)   // $F1_0000 - $F1_3FFF: SCSI
 						selectSCSI = !_cpuAS;
+					else if (address[19:13] == 7'b0001_010)  // $F1_4000 - $F1_5FFF: ASC
+						selectASC = !_cpuAS;
 					else if (address[19:13] == 7'b0001_011)  // $F1_6000 - $F1_7FFF: IWM/SWIM
 						selectIWM = !_cpuAS;
 					else if (address[19:13] == 7'b0100_000)  // $F4_0000 - $F4_1FFF: VIA1 alt
