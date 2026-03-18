@@ -38,7 +38,8 @@ module iwm
 	input _reset,
 	input selectIWM,
 	input _cpuRW,
-	input _cpuLDS,	
+	input _cpuUDS,
+	input _cpuLDS,
 	input [15:0] dataIn,
 	input [3:0] cpuAddrRegHi,
 	input SEL, // from VIA
@@ -59,9 +60,11 @@ module iwm
 	input [7:0] dskReadData
 );
 
-	wire [7:0] dataInLo = dataIn[7:0];
+	// Mac II uses even addresses (UDS), Mac Plus/SE uses odd (LDS)
+	wire iwmAccess = !_cpuLDS | !_cpuUDS;
+	wire [7:0] dataInByte = !_cpuLDS ? dataIn[7:0] : dataIn[15:8];
 	reg [7:0] dataOutLo;
-	assign dataOut = { 8'hBE, dataOutLo };
+	assign dataOut = { dataOutLo, dataOutLo }; // replicate to both byte lanes
 	
 	// IWM state
 	reg ca0, ca1, ca2, lstrb, selectExternalDrive, q6, q7;
@@ -181,7 +184,7 @@ module iwm
 		q6Next <= q6;
 		q7Next <= q7;
 
-		if (selectIWM == 1'b1 && _cpuLDS == 1'b0) begin
+		if (selectIWM == 1'b1 && iwmAccess) begin
 			case (cpuAddrRegHi[3:1])
 				3'h0: // ca0
 					ca0Next <= cpuAddrRegHi[0];
@@ -256,14 +259,14 @@ module iwm
 			writeData <= 0;
 		end
 		else if(cen) begin
-			if (_cpuRW == 0 && selectIWM == 1'b1 && _cpuLDS == 1'b0) begin
+			if (_cpuRW == 0 && selectIWM == 1'b1 && iwmAccess) begin
 				// writing to any IWM address modifies state as selected by Q7 and Q6
 				case ({q7Next,q6Next})
 					2'b11: begin
 						if (diskEnableExt | diskEnableInt)
-							writeData <= dataInLo;
+							writeData <= dataInByte;
 						else
-							iwmMode <= dataInLo[4:0];
+							iwmMode <= dataInByte[4:0];
 					end
 				endcase
 			end
@@ -271,7 +274,7 @@ module iwm
 	end
 
 	// Manage incoming bytes from the disk drive
-	wire iwmRead = (_cpuRW == 1'b1 && selectIWM == 1'b1 && _cpuLDS == 1'b0);
+	wire iwmRead = (_cpuRW == 1'b1 && selectIWM == 1'b1 && iwmAccess);
 	reg [3:0] readLatchClearTimer; 
 	always @(posedge clk or negedge _reset) begin
 		if (_reset == 1'b0) begin	

@@ -532,6 +532,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		._reset(_cpuReset),
 		.selectIWM(selectIWM),
 		._cpuRW(_cpuRW),
+		._cpuUDS(_cpuUDS),
 		._cpuLDS(_cpuLDS),
 		.dataIn(cpuDataIn),
 		.cpuAddrRegHi(cpuAddrRegHi),
