@@ -70,9 +70,6 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output vid_alt,
 
 	// audio
-	output [10:0] audioOut,  // 8 bit audio + 3 bit volume (legacy Mac Plus)
-	output snd_alt,
-	input loadSound,
 	output [15:0] ascAudioLeft,
 	output [15:0] ascAudioRight,
 
@@ -101,30 +98,6 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] sd_buff_din[SCSI_DEVS],
 	input                   sd_buff_wr
 );
-
-	// add binary volume levels according to volume setting
-	assign audioOut =
-		(snd_vol[0]?audio_x1:11'd0) +
-		(snd_vol[1]?audio_x2:11'd0) +
-		(snd_vol[2]?audio_x4:11'd0);
-
-	// three binary volume levels *1, *2 and *4, sign expanded
-	wire [10:0] audio_x1 = { {3{audio_latch[7]}}, audio_latch };
-	wire [10:0] audio_x2 = { {2{audio_latch[7]}}, audio_latch, 1'b0 };
-	wire [10:0] audio_x4 = {    audio_latch[7]  , audio_latch, 2'b00};
-
-	reg loadSoundD;
-	always @(posedge clk32)
-		if (clk8_en_n) loadSoundD <= loadSound;
-
-	// read audio data and convert to signed for further volume adjustment
-	reg [7:0] audio_latch;
-	always @(posedge clk32) begin
-		if(clk8_en_p && loadSoundD) begin
-			if(snd_ena) audio_latch <= 8'h7f; // when disabled, drive output high
-			else  	 	audio_latch <= memoryDataIn[15:8] - 8'd128;
-		end
-	end
 
 	// CPU reset generation
 	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 800,000 clocks of clk8
@@ -251,8 +224,6 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	end
 
 	// VIA1
-	wire [2:0] snd_vol;
-	wire snd_ena;
 	wire driveSel; // internal drive select, 0 - upper, 1 - lower
 
 	wire [7:0] via_pa_i, via_pa_o, via_pa_oe;
@@ -283,8 +254,6 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// For output bits (oe=1): read back the output value
 	// For input bits (oe=0): read the external hardware value
 	assign via_pa_i = {sccWReq, (via_pa_oe[6:0] & via_pa_o[6:0]) | (~via_pa_oe[6:0] & via_pa_ext)};
-	assign snd_vol = ~via_pa_oe[2:0] | via_pa_o[2:0];
-	assign snd_alt = machineType ? 1'b0 : ~(~via_pa_oe[3] | via_pa_o[3]);
 	assign driveSel = machineType ? ~via_pa_oe[4] | via_pa_o[4] : 1'b1;
 	// Mac II uses VIA PA4 for overlay (same as Mac Plus, NOT Mac SE's SEOverlay)
 	assign memoryOverlayOn = ~via_pa_oe[4] | via_pa_o[4];
@@ -293,7 +262,6 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	//port B
 	assign via_pb_i = {1'b1, {3{machineType}} | {_hblank, mouseY2, mouseX2}, machineType ? _ADBint : mouseButton, 2'b11, rtcdat_o};
-	assign snd_ena = ~via_pb_oe[7] | via_pb_o[7];
 
 	// VIA2 PB7 output chains to VIA1 CA1 (60.15 Hz timer → 1-second interrupt)
 	wire via2_pb7_to_via1_ca1;

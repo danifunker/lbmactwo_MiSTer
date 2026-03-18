@@ -51,9 +51,6 @@ module addrController_top(
 	output loadPixels,
 	input  vid_alt,
 		
-	input  snd_alt,
-	output loadSound,
-		
 	// misc
 	input memoryOverlayOn,
 	
@@ -63,39 +60,6 @@ module addrController_top(
 	input [21:0] dskReadAddrExt,
 	output dskReadAckExt
 );
-
-	// -------------- audio engine (may be moved into seperate module) ---------------
-	assign loadSound = sndReadAck;
-
-	localparam SIZE = 20'd135408;  // 168*806 clk8 events per frame
-	localparam STEP = 20'd5920;    // one step every 16*370 clk8 events
-	
-	reg [21:0] audioAddr; 
-	reg [19:0] snd_div;
-	
-	reg sndReadAckD;
-	always @(posedge clk)
-		if (clk8_en_n) sndReadAckD <= sndReadAck;
-	
-	reg vblankD, vblankD2;
-	always @(posedge clk) begin
-		if(clk8_en_p && sndReadAckD) begin
-			vblankD <= _vblank;
-			vblankD2 <= vblankD;
-		
-			// falling adge of _vblank = begin of vblank phase
-			if(vblankD2 && !vblankD) begin
-				audioAddr <= snd_alt?22'h3FA100:22'h3FFD00;
-				snd_div <= 20'd0;
-			end else begin
-				if(snd_div >= SIZE-1) begin
-					snd_div <= snd_div - SIZE + STEP;
-					audioAddr <= audioAddr + 22'd2;
-				end else
-					snd_div <= snd_div + STEP;
-			end
-		end
-	end
 
 	assign dioBusControl = extraBusControl;
 
@@ -142,19 +106,18 @@ module addrController_top(
 
 	assign _romOE = ~(cpuBusControl && selectROM && _cpuRW);
 	
-	wire extraRamRead = sndReadAck;
-	assign _ramOE = ~((videoBusControl && videoControlActive) || (extraRamRead) ||
+	assign _ramOE = ~((videoBusControl && videoControlActive) ||
 						(cpuBusControl && selectRAM && _cpuRW));
 	assign _ramWE = ~(cpuBusControl && selectRAM && !_cpuRW);
 	
 	assign _memoryUDS = cpuBusControl ? _cpuUDS : 1'b0;
 	assign _memoryLDS = cpuBusControl ? _cpuLDS : 1'b0;
-	wire [21:0] addrMux = sndReadAck ? audioAddr : videoBusControl ? videoAddr : cpuAddr[21:0];
+	wire [21:0] addrMux = videoBusControl ? videoAddr : cpuAddr[21:0];
 	wire [21:0] macAddr;
 	assign macAddr[15:0] = addrMux[15:0];
 
-	// video and sound always addresses ram
-	wire ram_access = (cpuBusControl && selectRAM) || videoBusControl || sndReadAck;
+	// video always addresses ram
+	wire ram_access = (cpuBusControl && selectRAM) || videoBusControl;
 	wire rom_access = (cpuBusControl && selectROM);
 	
 	// simulate smaller RAM/ROM sizes
@@ -181,8 +144,6 @@ module addrController_top(
 	// floppy emulation gets extra slots 0 and 1
 	assign dskReadAckInt = (extraBusControl == 1'b1) && (extra_slot_count == 0);
 	assign dskReadAckExt = (extraBusControl == 1'b1) && (extra_slot_count == 1);
-	// audio gets extra slot 2
-	wire sndReadAck    = (extraBusControl == 1'b1) && (extra_slot_count == 2);
 
 	assign memoryAddr = 
 		dskReadAckInt ? dskReadAddrInt + 22'h100000:   // first dsk image at 1MB

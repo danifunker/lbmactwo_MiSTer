@@ -384,7 +384,6 @@ assign VGA_HS = nubus_hs;
 assign VGA_F1 = 0;
 assign VGA_SL = 0;
 
-wire [10:0] audio;
 wire [15:0] asc_audio_l, asc_audio_r;
 assign AUDIO_L = asc_audio_l;
 assign AUDIO_R = asc_audio_r;
@@ -472,9 +471,6 @@ wire [4:0] fpu_addr_remapped = (cpuAddr[5:1] == 5'd0) ? 5'd13 :
                                (cpuAddr[5:1] == 5'd3) ? 5'd28 :
                                cpuAddr[5:1];
 
-// audio
-wire snd_alt;
-wire loadSound;
 
 // video timing signals (Mac Plus legacy - still needed by addrController_top)
 wire hsync, vsync, _hblank, _vblank, loadPixels, vid_alt;
@@ -678,9 +674,6 @@ addrController_top ac0
 	.vid_alt(vid_alt),
 	.memoryOverlayOn(memoryOverlayOn),
 
-	.snd_alt(snd_alt),
-	.loadSound(loadSound),
-
 	.dskReadAddrInt(dskReadAddrInt),
 	.dskReadAckInt(dskReadAckInt),
 	.dskReadAddrExt(dskReadAddrExt),
@@ -787,9 +780,6 @@ dataController_top #(SCSI_DEVS) dc0
 
 	.memoryOverlayOn(memoryOverlayOn),
 
-	.audioOut(audio),
-	.snd_alt(snd_alt),
-	.loadSound(loadSound),
 	.ascAudioLeft(asc_audio_l),
 	.ascAudioRight(asc_audio_r),
 

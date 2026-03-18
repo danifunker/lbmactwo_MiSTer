@@ -164,7 +164,6 @@ module emu
 	assign VGA_HB = nubus_blank;
 	assign VGA_VB = nubus_blank;
 
-	wire [10:0] audio;
 	wire [15:0] asc_audio_l, asc_audio_r;
 	assign AUDIO_L = asc_audio_l;
 	assign AUDIO_R = asc_audio_r;
@@ -215,9 +214,6 @@ module emu
 	wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 	wire [15:0] dataControllerDataOut;
 
-	// audio
-	wire snd_alt;
-	wire loadSound;
 
 	// floppy disk image interface
 	wire dskReadAckInt;
@@ -403,9 +399,6 @@ module emu
 		.vid_alt(vid_alt),
 		.memoryOverlayOn(memoryOverlayOn),
 
-		.snd_alt(snd_alt),
-		.loadSound(loadSound),
-
 		.dskReadAddrInt(dskReadAddrInt),
 		.dskReadAckInt(dskReadAckInt),
 		.dskReadAddrExt(dskReadAddrExt),
@@ -527,9 +520,6 @@ module emu
 
 		.memoryOverlayOn(memoryOverlayOn),
 
-		.audioOut(audio),
-		.snd_alt(snd_alt),
-		.loadSound(loadSound),
 		.ascAudioLeft(asc_audio_l),
 		.ascAudioRight(asc_audio_r),
 
