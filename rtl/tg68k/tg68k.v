@@ -209,7 +209,7 @@ TG68KdotC_Kernel tg68k (
 	.clkena_in      ( tg68_clkena   ),
 	.data_in        ( tg68_din_r    ),
 	.IPL            ( ipl           ),
-	.IPL_autovector ( 1'b0          ),
+	.IPL_autovector ( 1'b1          ),
 	.berr           ( berr          ),
 	.clr_berr       ( /*tg68_clr_berr*/ ),
 	.CPU            ( cpu           ), // 00->68000  01->68010  11->68020(only some parts - yet)
