@@ -55,6 +55,10 @@ module emu
 	output [31:0] debug_pc,
 	output [15:0] debug_opcode,
 	output        debug_fetch_valid,
+	output  [2:0] debug_fc,           // Function code (2=supv program, 1=supv data, etc)
+	output        debug_write_valid,  // Write bus cycle completed
+	output [31:0] debug_write_addr,   // Write address
+	output [15:0] debug_write_data,   // Write data
 
 	// RAM debug outputs
 	output [24:0] debug_ram_addr,
@@ -341,23 +345,40 @@ module emu
 	reg [31:0] last_fetch_pc;
 	reg [15:0] last_fetch_opcode;
 	reg        fetch_valid;
+	reg  [2:0] last_fetch_fc;
 	reg        prev_as_n;
+
+	// Write capture for vector table watchpoint
+	reg        write_valid;
+	reg [31:0] write_addr;
+	reg [15:0] write_data;
 
 	always @(posedge clk_sys) begin
 		if (!n_reset) begin
 			fetch_valid <= 0;
+			write_valid <= 0;
 			prev_as_n <= 1;
 			last_fetch_pc <= 0;
 			last_fetch_opcode <= 0;
+			last_fetch_fc <= 0;
 		end else begin
 			fetch_valid <= 0;
+			write_valid <= 0;
 			prev_as_n <= tg68_as_n;
 
 			// Capture on AS rising edge (bus cycle complete)
-			if (!prev_as_n && tg68_as_n && tg68_rw) begin
-				last_fetch_pc <= tg68_a;
-				last_fetch_opcode <= dataControllerDataOut;
-				fetch_valid <= 1;
+			if (!prev_as_n && tg68_as_n) begin
+				if (tg68_rw) begin
+					last_fetch_pc <= tg68_a;
+					last_fetch_opcode <= dataControllerDataOut;
+					last_fetch_fc <= cpuFC;
+					fetch_valid <= 1;
+				end else begin
+					// Write cycle - capture for vector watchpoint
+					write_addr <= tg68_a;
+					write_data <= tg68_dout[15:0];
+					write_valid <= 1;
+				end
 			end
 		end
 	end
@@ -365,6 +386,10 @@ module emu
 	assign debug_pc = last_fetch_pc;
 	assign debug_opcode = last_fetch_opcode;
 	assign debug_fetch_valid = fetch_valid;
+	assign debug_fc = last_fetch_fc;
+	assign debug_write_valid = write_valid;
+	assign debug_write_addr = write_addr;
+	assign debug_write_data = write_data;
 
 	addrController_top ac0
 	(

@@ -216,11 +216,21 @@ int verilate() {
 			top->eval();
 			if (clk_sys.clk) { bus.AfterEval(); blockdevice.AfterEval(); }
 
+			// Vector table write watchpoint - log any write to $0-$3FF
+			if (VERTOPINTERN->debug_write_valid && !*bus.ioctl_download && cpu_trace_file) {
+				uint32_t waddr = VERTOPINTERN->debug_write_addr;
+				if (waddr < 0x400) {
+					uint16_t wdata = VERTOPINTERN->debug_write_data;
+					fprintf(cpu_trace_file, "** VECWR %08X <= %04X\n", waddr, wdata);
+				}
+			}
+
 			// CPU trace output - skip while ROM is downloading
 			if (cpu_trace_enable && VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				// Use the debug signals from sim.v that capture actual bus transactions
 				uint32_t pc = VERTOPINTERN->debug_pc;
 				uint16_t opcode = VERTOPINTERN->debug_opcode;
+				uint8_t fc = VERTOPINTERN->debug_fc;
 
 				// Debug: show first 20 fetches with detailed memory info
 				static int fetch_count = 0;
@@ -250,7 +260,8 @@ int verilate() {
 
 					// Also write to trace file if open
 					if (cpu_trace_file) {
-						fprintf(cpu_trace_file, "%08X: %04X  %s\n", pc, opcode, disasm);
+						const char* fc_name = (fc == 6) ? "SP" : (fc == 5) ? "SD" : (fc == 2) ? "UP" : (fc == 1) ? "UD" : "??";
+					fprintf(cpu_trace_file, "%s %08X: %04X  %s\n", fc_name, pc, opcode, disasm);
 						cpu_trace_count++;
 						if (cpu_trace_count >= cpu_trace_max) {
 							fprintf(stderr, "CPU trace limit reached (%d instructions)\n", cpu_trace_max);
