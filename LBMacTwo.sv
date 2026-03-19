@@ -586,7 +586,7 @@ tg68k tg68k_inst (
 	.reset      ( !_cpuReset   ),
 	.phi1       ( cpu_en_p     ),
 	.phi2       ( cpu_en_n     ),
-	.cpu        ( 2'b10        ), // 68020 mode
+	.cpu        ( 2'b11        ), // 68020 mode (cpu(0) must be 1 for VBR support)
 
 	.dtack_n    ( _cpuDTACK    ),
 	.rw_n       ( tg68_rw      ),
