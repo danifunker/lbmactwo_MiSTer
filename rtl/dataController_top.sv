@@ -527,9 +527,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cen(clk8_en_n),
 		.reset_hw(~_cpuReset),
 		.cs(selectSCC && (_cpuLDS == 1'b0 || _cpuUDS == 1'b0)),
-//		.cs(selectSCC && (_cpuLDS == 1'b0 || _cpuUDS == 1'b0) && cpuBusControl),
-//		.we(!_cpuRW),
-		.we(!_cpuLDS),
+		.we(!_cpuRW),  // Mac II: CPU R/W signal (Mac Plus used !_cpuLDS for odd-address writes)
 		.rs(cpuAddrRegLo), 
 		.wdata(cpuDataIn[15:8]),
 		.rdata(sccDataOut),

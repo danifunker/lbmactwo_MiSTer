@@ -234,8 +234,15 @@ module emu
 		end
 	end
 
-	assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 : ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
-	assign      _cpuDTACK = selectNuBus ? nubusAck : (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+	// VPA: assert for FC=7 (autovector), 24-bit VIA space, and 32-bit VIA/VIA2 accesses
+	wire viaAccess = selectVIA | selectVIA2;
+	assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 :
+	                      viaAccess ? ~!_cpuAS :
+	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
+	// DTACK: do not assert for VIA accesses (they use VPA/VMA synchronous handshake)
+	assign      _cpuDTACK = selectNuBus ? nubusAck :
+	                        viaAccess ? 1'b1 :
+	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
 	reg [8:0] berr_counter;

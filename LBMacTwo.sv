@@ -495,10 +495,16 @@ always @(posedge clk_sys) begin
 end
 
 // VPA: FC=7 cycles get autovector EXCEPT FPU coprocessor accesses (which use DTACK/DSACK)
-assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 : ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
+// Also assert VPA for 32-bit VIA/VIA2 accesses ($50F0xxxx) so VMA handshake occurs
+wire viaAccess = selectVIA | selectVIA2;
+assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
+                      viaAccess ? ~!_cpuAS :
+                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 // DTACK: FPU uses DSACK protocol (assert DTACK when either DSACK line goes low)
+// Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
+                        viaAccess ? 1'b1 :
                         (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
 // Debug LED tracking - extended duration for visibility
