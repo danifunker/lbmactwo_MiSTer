@@ -91,6 +91,16 @@ int periph_debug_count = 0;
 const int periph_debug_max = 5000;  // Stop after this many peripheral accesses
 bool periph_debug_prev_bus_control = false;  // For edge detection
 
+// VIA debug - captures at VMA-synchronized timing
+// ------------------------------------------------
+bool via_debug_enable = true;
+FILE* via_debug_file = nullptr;
+const char* via_debug_filename = "via_debug.log";
+int via_debug_count = 0;
+const int via_debug_max = 50000;
+bool via_debug_prev_rd = false;
+bool via_debug_prev_wr = false;
+
 // Screenshot functionality
 // ------------------------
 std::vector<int> screenshot_frames;
@@ -324,6 +334,47 @@ int verilate() {
 					}
 				}
 				periph_debug_prev_bus_control = bus_control;
+			}
+
+			// VIA debug - captures at VMA-synchronized timing (when VIA actually reads/writes)
+			if (via_debug_enable && !*bus.ioctl_download && via_debug_file) {
+				bool via_rd = VERTOPINTERN->debug_viaRd;
+				bool via_wr = VERTOPINTERN->debug_viaWr;
+
+				// Log on rising edge of VIA read or write enable
+				if ((via_rd && !via_debug_prev_rd) || (via_wr && !via_debug_prev_wr)) {
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;  // data from VIA to CPU
+					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;   // data from CPU to VIA
+					uint32_t pc = VERTOPINTERN->debug_pc;
+					bool rw = VERTOPINTERN->debug_cpuRW;
+					bool vma = !VERTOPINTERN->debug_cpuVMA;  // active low
+					bool via2 = VERTOPINTERN->debug_selectVIA2;
+					int reg_num = (addr >> 9) & 0xF;  // VIA register from A12-A9
+
+					const char* via_name = via2 ? "VIA2" : "VIA1";
+					const char* reg_names[] = {
+						"ORB", "ORA", "DDRB", "DDRA",
+						"T1CL", "T1CH", "T1LL", "T1LH",
+						"T2CL", "T2CH", "SR", "ACR",
+						"PCR", "IFR", "IER", "ORA-NH"
+					};
+
+					fprintf(via_debug_file, "%s %s reg=%d(%s) addr=%08X data_out=%04X data_in=%04X VMA=%d PC=%08X\n",
+						rw ? "RD" : "WR",
+						via_name,
+						reg_num, reg_names[reg_num & 0xF],
+						addr, data_out, data_in, vma, pc);
+					fflush(via_debug_file);
+					via_debug_count++;
+					if (via_debug_count >= via_debug_max) {
+						fprintf(stderr, "VIA debug limit reached (%d accesses)\n", via_debug_max);
+						fclose(via_debug_file);
+						via_debug_file = nullptr;
+					}
+				}
+				via_debug_prev_rd = via_rd;
+				via_debug_prev_wr = via_wr;
 			}
 		}
 
@@ -566,6 +617,17 @@ int main(int argc, char** argv, char** env) {
 		} else {
 			fprintf(stderr, "Failed to open peripheral debug file %s\n", periph_debug_filename);
 			periph_debug_enable = false;
+		}
+	}
+
+	// Open VIA debug file
+	if (via_debug_enable) {
+		via_debug_file = fopen(via_debug_filename, "w");
+		if (via_debug_file) {
+			fprintf(stderr, "VIA debug enabled, writing to %s\n", via_debug_filename);
+		} else {
+			fprintf(stderr, "Failed to open VIA debug file %s\n", via_debug_filename);
+			via_debug_enable = false;
 		}
 	}
 

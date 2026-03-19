@@ -78,6 +78,10 @@ module emu
 	output [15:0] debug_cpuDataOut,   // Data from peripherals to CPU
 	output        debug_cpuRW,        // 1=read, 0=write
 	output        debug_cpuBusControl,
+	output        debug_viaRd,        // VIA read enable (VMA-synchronized)
+	output        debug_viaWr,        // VIA write enable (VMA-synchronized)
+	output        debug_cpuVMA,       // VMA signal (active low)
+	output        debug_selectVIA2,
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
@@ -687,5 +691,9 @@ module emu
 	assign debug_cpuDataOut = dataControllerDataOut;  // Peripherals send this to CPU
 	assign debug_cpuRW = _cpuRW;  // 1=read, 0=write
 	assign debug_cpuBusControl = cpuBusControl;
+	assign debug_viaRd = selectVIA && !_cpuVMA && _cpuRW;
+	assign debug_viaWr = selectVIA && !_cpuVMA && !_cpuRW;
+	assign debug_cpuVMA = _cpuVMA;
+	assign debug_selectVIA2 = selectVIA2;
 
 endmodule
