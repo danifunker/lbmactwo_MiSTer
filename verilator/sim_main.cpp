@@ -168,8 +168,8 @@ double sc_time_stamp() {	// Called by $time in Verilog.
 	return main_time;
 }
 
-// 16 MHz system clock for Mac II
-int clk_sys_freq = 16000000;
+// 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
+int clk_sys_freq = 32500000;
 SimClock clk_sys(1);
 
 // Audio
@@ -404,16 +404,59 @@ int verilate() {
 
 		if (clk_sys.IsRising()) {
 			main_time++;
-			// Print progress every 10 million cycles (~300ms of simulated time at 32MHz)
+			// Print progress every 10 million cycles (~308ms of simulated time at 32.5MHz)
 			if ((main_time % 10000000) == 0) {
-				fprintf(stderr, "Cycle %llu: PC=%08X Op=%04X RW=%d overlay=%d selROM=%d selRAM=%d\n",
+				fprintf(stderr, "Cycle %llu: PC=%08X Op=%04X RW=%d overlay=%d selROM=%d selRAM=%d VBR=%08X\n",
 					(unsigned long long)main_time,
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_cpuRW,
 					VERTOPINTERN->debug_memoryOverlayOn,
 					VERTOPINTERN->debug_selectROM,
-					VERTOPINTERN->debug_selectRAM);
+					VERTOPINTERN->debug_selectRAM,
+					VERTOPINTERN->debug_vbr);
+			}
+			// Log BERR events
+			if (VERTOPINTERN->debug_berr) {
+				fprintf(stderr, "*** BERR at cycle %llu: PC=%08X addr=%08X FC=%d\n",
+					(unsigned long long)main_time,
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_cpuAddr,
+					VERTOPINTERN->debug_fc);
+			}
+			// Log ALL NuBus accesses after cycle 310M (post-RAM-test)
+			static bool nubus_log_prev = false;
+			if (main_time >= 310000000 && main_time < 350000000) {
+				bool nubus_now = VERTOPINTERN->debug_selectNuBus;
+				if (nubus_now && !nubus_log_prev) {
+					fprintf(stderr, "NUBUS_ACCESS cycle=%llu: PC=%08X addr=%08X RW=%d FC=%d\n",
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc);
+				}
+				nubus_log_prev = nubus_now;
+			}
+			// CPU trace window around crash point (344M)
+			// Log every bus cycle with PC, address, data, RW
+			if (main_time >= 344000000 && main_time < 344500000) {
+				static uint32_t last_trace_addr = 0;
+				uint32_t cur_addr = VERTOPINTERN->debug_cpuAddr;
+				if (cur_addr != last_trace_addr || VERTOPINTERN->debug_berr) {
+					fprintf(stderr, "TRACE %llu: PC=%08X addr=%08X RW=%d FC=%d AS=%d BERR=%d selRAM=%d selROM=%d selNuBus=%d\n",
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						cur_addr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc,
+						0, // AS not easily available
+						VERTOPINTERN->debug_berr ? 1 : 0,
+						VERTOPINTERN->debug_selectRAM ? 1 : 0,
+						VERTOPINTERN->debug_selectROM ? 1 : 0,
+						VERTOPINTERN->debug_selectNuBus ? 1 : 0);
+					last_trace_addr = cur_addr;
+				}
 			}
 			// Enable trace after 600M cycles to capture post-RAM-test activity
 			if (main_time == 600000000 && !cpu_trace_enable) {

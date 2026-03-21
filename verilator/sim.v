@@ -86,6 +86,8 @@ module emu
 	output        debug_viaWr,        // VIA write enable (VMA-synchronized)
 	output        debug_cpuVMA,       // VMA signal (active low)
 	output        debug_selectVIA2,
+	output        debug_berr,
+	output [31:0] debug_vbr,
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
@@ -97,12 +99,12 @@ module emu
 	// Configuration - directly from inputs (Mac II)
 	wire      status_mem = cfg_memSize;      // 0=1MB, 1=4MB
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
-	// Mac II: 16 MHz base, 32 MHz turbo
-	// turbo=0 gives 16 MHz, turbo=1 gives 32 MHz
-	wire      status_turbo = 1'b1;           // 32 MHz turbo for Mac II
+	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables
+	// status_turbo=1 selects clk16 enables (16 MHz CPU), =0 selects clk8 (8 MHz)
+	wire      status_turbo = 1'b1;           // 16 MHz CPU for Mac II
 	////////////////////   CLOCKS   ///////////////////
 
-	// Clock generation (clk_sys is 32MHz from testbench)
+	// Clock generation (clk_sys is 32.5 MHz from testbench, matching FPGA PLL)
 	wire clk_mem = clk_sys;  // Use same clock for memory
 	wire pll_locked = !reset;
 
@@ -163,14 +165,16 @@ module emu
 	assign CE_PIXEL  = nubus_ce_pixel;
 
 	// Video Output - Mac II NuBus video system
+	// nubus_blank is active-high DE (1 = visible pixels, 0 = blanked)
+	// VGA_HB/VGA_VB need active-high blanking (1 = blanked), so invert
 	assign VGA_R  = nubus_r;
 	assign VGA_G  = nubus_g;
 	assign VGA_B  = nubus_b;
 	wire VGA_DE = nubus_blank;
 	assign VGA_VS = nubus_vsync;
 	assign VGA_HS = nubus_hsync;
-	assign VGA_HB = nubus_blank;
-	assign VGA_VB = nubus_blank;
+	assign VGA_HB = ~nubus_blank;
+	assign VGA_VB = ~nubus_blank;
 
 	wire [15:0] asc_audio_l, asc_audio_r;
 	assign AUDIO_L = asc_audio_l;
@@ -265,18 +269,20 @@ module emu
 			berr_counter <= 0;
 			berr_out <= 0;
 		end else begin
-			berr_out <= 0;
-			if (_cpuAS)
+			if (_cpuAS) begin
 				berr_counter <= 0;
-			else if (is_cpu_space || any_select)
+				berr_out <= 0;
+			end else if (berr_out) begin
+				// Hold BERR until AS deasserts (CPU ends bus cycle)
+			end else if (is_cpu_space || any_select)
 				berr_counter <= 0;
-			else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz
+			else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz sys clock
 				begin berr_out <= 1; berr_counter <= 0; end
 			else
 				berr_counter <= berr_counter + 1'd1;
 		end
 	end
-	// Mac II: 8 MHz base, 16 MHz turbo (matching LBMacTwo.sv on main)
+	// Mac II: 16 MHz CPU (status_turbo=1 selects clk16 enables from 32.5 MHz sys clock)
 	wire        cpu_en_p      = status_turbo ? clk16_en_p : clk8_en_p;
 	wire        cpu_en_n      = status_turbo ? clk16_en_n : clk8_en_n;
 	assign      _cpuReset_o   = tg68_reset_n;
@@ -338,7 +344,8 @@ module emu
 		.berr       ( berr_out     ),
 		.din        ( dataControllerDataOut ),
 		.dout       ( tg68_dout    ),
-		.addr       ( tg68_a       )
+		.addr       ( tg68_a       ),
+		.VBR_out    ( debug_vbr    )
 	);
 	
 	// CPU debug - simplified without busstate
@@ -368,12 +375,13 @@ module emu
 
 			// Capture on AS rising edge (bus cycle complete)
 			if (!prev_as_n && tg68_as_n) begin
-				if (tg68_rw) begin
+				if (tg68_rw && (cpuFC == 3'b010 || cpuFC == 3'b110)) begin
+					// Only capture instruction fetches (FC=2 supv program, FC=6 user program)
 					last_fetch_pc <= tg68_a;
 					last_fetch_opcode <= dataControllerDataOut;
 					last_fetch_fc <= cpuFC;
 					fetch_valid <= 1;
-				end else begin
+				end else if (!tg68_rw) begin
 					// Write cycle - capture for vector watchpoint
 					write_addr <= tg68_a;
 					write_data <= tg68_dout[15:0];
@@ -390,6 +398,7 @@ module emu
 	assign debug_write_valid = write_valid;
 	assign debug_write_addr = write_addr;
 	assign debug_write_data = write_data;
+	assign debug_berr = berr_out;
 
 	addrController_top ac0
 	(
@@ -691,7 +700,8 @@ module emu
 		.ds             ( ram_ds      ),
 		.we             ( ram_we      ),
 		.oe             ( ram_oe      ),
-		.dout           ( ram_do_raw  )
+		.dout           ( ram_do_raw  ),
+		.debug_pc       ( last_fetch_pc )
 	);
 
 	// RAM debug outputs

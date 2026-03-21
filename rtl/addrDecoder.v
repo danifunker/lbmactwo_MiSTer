@@ -129,7 +129,12 @@ module addrDecoder(
 		// ========================================================================
 		// Check if we're in 32-bit address space (not 24-bit compatibility mode)
 		// 24-bit compatibility uses $00xxxxxx or $FFxxxxxx
-		if (address[31:24] != 8'h00 && address[31:24] != 8'hFF) begin
+		// Also treat $80xxxxxx as 24-bit: the Slot Manager flags sResource entry
+		// pointers with BSET #7 (byte 0), turning $0000xxxx into $8000xxxx.
+		// On real Mac II this bus-errors and the handler strips bit 31; since
+		// TG68K doesn't handle bus errors in 68020 mode, mirror $80→$00 instead.
+		if (address[31:24] != 8'h00 && address[31:24] != 8'hFF
+		    && address[31:24] != 8'h80) begin
 			// Standard NuBus Slot Space: $9000_0000 - $EEFF_FFFF
 			// Each slot gets $0F00_0000 bytes (slots 9-E)
 			if (address[31:28] >= 4'h9 && address[31:28] <= 4'hE) begin
@@ -176,8 +181,8 @@ module addrDecoder(
 		// ========================================================================
 		// 24-bit Address Space (Mac Plus/SE/Classic and Mac II compatibility)
 		// ========================================================================
-		// This handles $00xxxxxx space (and $FFxxxxxx which mirrors it)
-		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF) begin
+		// This handles $00xxxxxx space (and $FFxxxxxx/$80xxxxxx which mirror it)
+		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF || address[31:24] == 8'h80) begin
 			casez (address[23:20])
 				4'b00??: begin // $00_0000 - $3F_FFFF (4MB)
 					if (memoryOverlayOn == 0)

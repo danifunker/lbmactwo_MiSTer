@@ -16,7 +16,8 @@ module sim_ram
 	input [24:0]        addr,       // 25 bit word address
 	input [1:0]         ds,         // upper/lower data strobe
 	input               oe,         // cpu/chipset requests read
-	input               we          // cpu/chipset requests write
+	input               we,         // cpu/chipset requests write
+	input [31:0]        debug_pc    // CPU PC for watchpoint logging
 );
 
 // 8MB of RAM (4M words of 16 bits)
@@ -63,6 +64,27 @@ always @(posedge clk) begin
 		if (wr_count >= 20 && wr_count < 50 && addr[21] == 0)
 			$display("sim_ram WR[%0d]: addr=%h din=%h ds=%b (after ROM)",
 				wr_count, addr[21:0], din, ds);
+		// Watchpoint: low memory system globals used by Slot Manager
+		// $0A50 (SRsrcTblPtr) = CPU byte addr → word addr $0528
+		// $0B9A (flag) = word addr $05CD
+		// Bus error vector at $0008 = word addr $0004
+		if (addr[21:0] == 22'h000528 || addr[21:0] == 22'h000529)
+			$display("WATCH $0A50: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
+				addr[21:0], din, ds, debug_pc, wr_count);
+		if (addr[21:0] == 22'h0005CD)
+			$display("WATCH $0B9A: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
+				addr[21:0], din, ds, debug_pc, wr_count);
+		if ((addr[21:0] == 22'h000004 || addr[21:0] == 22'h000005)
+		    && (din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
+		        && din != 16'hffff && din != 16'h0000))
+			$display("WATCH BERR_VEC: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
+				addr[21:0], din, ds, debug_pc, wr_count);
+		// sResource table at $2000 (word addr $1000-$1020)
+		if (addr[21:0] >= 22'h001000 && addr[21:0] < 22'h001020
+		    && din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
+		    && din != 16'hffff)
+			$display("WATCH sRsrc@2000: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
+				addr[21:0], din, ds, debug_pc, wr_count);
 	end
 
 	if (reset) begin
