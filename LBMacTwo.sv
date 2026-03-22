@@ -223,7 +223,7 @@ localparam CONF_STR = {
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"O5,Speed,8MHz,16MHz;",
+	"O5,Speed,16MHz;",
 	"O4,Memory,1MB,4MB;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
@@ -236,7 +236,7 @@ localparam CONF_STR = {
 	"V,v",`BUILD_DATE
 };
 
-wire status_turbo = status[5];
+wire status_turbo = 1'b1; // Mac II always runs at 16MHz
 wire status_overlay_en = status[6];
 
 ////////////////////   CLOCKS   ///////////////////
@@ -569,10 +569,12 @@ always @(posedge clk_sys) begin
 		berr_counter <= 0;
 		berr_out <= 0;
 	end else begin
-		berr_out <= 0;
-		if (_cpuAS)
+		if (_cpuAS) begin
 			berr_counter <= 0;
-		else if (is_cpu_space || any_select)
+			berr_out <= 0;
+		end else if (berr_out) begin
+			// Hold BERR until AS deasserts (CPU ends bus cycle)
+		end else if (is_cpu_space || any_select)
 			berr_counter <= 0;
 		else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz
 			begin berr_out <= 1; berr_counter <= 0; end

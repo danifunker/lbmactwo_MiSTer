@@ -314,7 +314,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// VIA2 Port A: {ram_size[1:0] (output loopback), nubus_irq_state[5:0]}
 	// PA[7:6] read back the output latch (RAM size config written by ROM)
 	// PA[5:0] are NuBus slot IRQ state (active-low, directly from video card slot E = bit 5)
-	assign via2_pa_i = {via2_pa_o[7:6], ~via2_pa_oe[5] | nubus_irq_n, 5'b11111};
+	// VIA6522 reads port_a_i directly (no internal DDR mux for port A),
+	// so we must mux externally: output latch when output, pin state when input.
+	assign via2_pa_i = {via2_pa_o[7:6],
+	                    (via2_pa_o[5] & via2_pa_oe[5]) | (nubus_irq_n & ~via2_pa_oe[5]),
+	                    5'b11111};
 
 	// VIA2 Port B: hardwired Mac II value
 	// PB7 is output (timer chain to VIA1 CA1), PB[6:0] = 0x4F

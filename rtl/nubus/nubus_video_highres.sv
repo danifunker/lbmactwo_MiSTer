@@ -77,28 +77,57 @@ module nubus_video_highres (
 
     // ========================================================================
     // Declaration ROM — 8KB (4096 x 16-bit words), on-chip
-    // NuBus convention: mapped at top of slot space ($FFE000-$FFFFFF)
+    //
+    // NuBus byte-lane mapping: 341-0660 ROM is an 8-bit EPROM on byte lane 3
+    // (D7-D0, LSB of each 32-bit NuBus word). Each ROM byte occupies one
+    // byte-lane-3 position per 4-byte NuBus word, so 8KB ROM → 32KB address
+    // space at top of slot: $FF8000-$FFFFFF.
+    //
+    // The ROM is inverted (ByteLanes test byte $1E, rom[-2]=$FF →
+    // inverted, real ByteLanes = $E1 = lane 0 in MAME convention = lane 3
+    // in NuBus physical convention). The Mac ROM's slot manager detects
+    // inversion automatically, so we serve the raw file bytes.
+    // MAME mirrors the ROM across all 16MB of slot space (mirror_all_mb=true).
+    // We achieve this by making ROM the fallback for any unmatched read.
+    //
+    // Reference: MAME nubus.cpp install_declaration_rom(),
+    //            Snow mdc12.rs line 316 "ROM (byte lane 3)"
     // ========================================================================
     (* ramstyle = "M10K" *) reg [15:0] rom [0:4095];
 
+    // ROM read — byte-lane 3 addressing
+    // Each ROM byte at every 4th NuBus address (addr[1:0]==3).
+    // ROM byte index = addr[14:2], ROM word index = addr[14:3].
+    // addr[2] selects even byte (rom_word[15:8]) or odd byte (rom_word[7:0]).
     reg [15:0] rom_rdata;
     always @(posedge clk)
-        rom_rdata <= rom[addr[12:1]];
+        rom_rdata <= rom[addr[14:3]];
+
+    // DO NOT invert ROM data — the Mac ROM slot manager detects inverted
+    // ROMs (rom[-2]==$FF → ByteLanes complement) and handles inversion itself.
+    // Serving raw file bytes matches real hardware behavior.
+    wire [7:0] rom_byte_raw = addr[2] ? rom_rdata[7:0] : rom_rdata[15:8];
+    wire [7:0] rom_byte_out = rom_byte_raw;  // Raw file bytes, no inversion
+    // Lane 3 validity: on a 16-bit bus, a word read at addr[1:0]==2 covers
+    // lanes 2 (high byte) and 3 (low byte). So lane 3 data appears in
+    // data_out[7:0] whenever addr[1] is set (addr[1:0] == 2 or 3).
+    wire rom_lane_valid = addr[1];  // Lane 3 in low byte of 16-bit word
 
     // ROM Download — boot1.rom (ioctl_index 1), 8KB
-    // Byte-swap to big-endian for NuBus (68k byte order)
+    // No byte-swap: ioctl_data[15:8] = even file byte, [7:0] = odd file byte,
+    // which matches our rom_byte_out selection via addr[2].
     // synthesis translate_off
     integer rom_load_count = 0;
     // synthesis translate_on
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
-            rom[ioctl_addr[12:1]] <= {ioctl_data[7:0], ioctl_data[15:8]};
+            rom[ioctl_addr[12:1]] <= ioctl_data;
             // synthesis translate_off
             rom_load_count = rom_load_count + 1;
             if (rom_load_count <= 4 || rom_load_count == 4096)
                 $display("NUBUS_ROM_LOAD[%0d]: addr=%h data=%h -> rom[%0d]=%h",
                     rom_load_count, ioctl_addr, ioctl_data,
-                    ioctl_addr[12:1], {ioctl_data[7:0], ioctl_data[15:8]});
+                    ioctl_addr[12:1], ioctl_data);
             // synthesis translate_on
         end
     end
@@ -133,6 +162,7 @@ module nubus_video_highres (
 
     // NuBus ack timing
     reg [2:0] ack_delay;
+    reg rom_read_pending;  // Set when ROM read in progress (ack_delay=3 path)
 
     // ========================================================================
     // Decoded register values
@@ -305,10 +335,10 @@ module nubus_video_highres (
     //   $x9_0000 - $x9_FFFF  RAMDAC+VBL   (addr[19:16]=9)
     //   $xA_0000 - $xA_FFFF  VBL control  (addr[19:16]=A)
     //
-    // Declaration ROM (NOT mirrored, fixed at top of slot):
-    //   $FF_E000 - $FF_FFFF  ROM (8KB)    (addr[23:13]=7FF)
+    // Declaration ROM (mirrored across entire 16MB slot space, like MAME):
+    //   Any unmatched read returns ROM data (addr[14:0] selects within 32KB window)
     // ========================================================================
-    wire addr_is_rom    = (addr[23:13] == 11'h7FF);
+    // ROM is now mirrored across entire slot space (fallback for any unmatched read)
     wire addr_is_vram   = !addr[19];                         // $x0_0000 - $x7_FFFF
     wire addr_is_regs   = (addr[19:16] == 4'h8);            // $x8_xxxx
     wire addr_is_ramdac = (addr[19:16] == 4'h9);            // $x9_xxxx
@@ -331,6 +361,7 @@ module nubus_video_highres (
             last_fetch_word <= 19'h7FFFF;
             ack_n <= 1'b1;
             ack_delay <= 3'd0;
+            rom_read_pending <= 1'b0;
             data_out <= 16'd0;
             ramdac_addr <= 8'd0;
             ramdac_rgb <= 2'd0;
@@ -363,12 +394,11 @@ module nubus_video_highres (
                     vram_wr <= 1'b0;
 
                     // Priority: CPU access > video fetch
+                    // VRAM/regs/RAMDAC/VBL checked first; ROM is fallback
+                    // (MAME: mirror_all_mb=true mirrors ROM across entire 16MB slot space)
                     if (select && in_our_slot && ack_n && ack_delay == 3'd0) begin
                         // synthesis translate_off
-                        if (addr_is_rom)
-                            $display("NUBUS: %s ROM addr=%h data_in=%h rom[%0d]=%h",
-                                rw_n ? "RD" : "WR", addr, data_in, addr[12:1], rom[addr[12:1]]);
-                        else if (addr_is_regs && !rw_n)
+                        if (addr_is_regs && !rw_n)
                             $display("NUBUS: WR REG[%0d] addr=%h data_in=%h addr[1]=%b",
                                 addr[5:2], addr, data_in, addr[1]);
                         else if (addr_is_ramdac && !rw_n)
@@ -376,23 +406,19 @@ module nubus_video_highres (
                                 addr, addr[2], data_in, ramdac_rgb, ramdac_addr);
                         else if (addr_is_vblctl)
                             $display("NUBUS: WR VBL_CTL addr=%h addr[4]=%b", addr, addr[4]);
-                        else if (addr_is_vram)
+                        else if (addr_is_vram && !rw_n)
                             ; // too noisy — uncomment if needed
-                            // $display("NUBUS: %s VRAM addr=%h", rw_n ? "RD" : "WR", addr);
                         else if (addr_is_ramdac && rw_n)
                             $display("NUBUS: RD RAMDAC/VBL addr=%h", addr);
+                        else if (rw_n)
+                            $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h byte=%h lane=%0d data_out=%h",
+                                addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, addr[1:0],
+                                rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
                         // synthesis translate_on
-                        // ---------------------------------------------------
-                        // ROM read ($FFE000-$FFFFFF)
-                        // ---------------------------------------------------
-                        if (rw_n && addr_is_rom) begin
-                            // rom_rdata available next cycle (synchronous ROM)
-                            ack_delay <= 3'd3;
-                        end
                         // ---------------------------------------------------
                         // VRAM write ($x0_0000 - $x7_FFFF)
                         // ---------------------------------------------------
-                        else if (!rw_n && addr_is_vram) begin
+                        if (!rw_n && addr_is_vram) begin
                             if (cpu_vram_word < VRAM_SIZE) begin
                                 vram_addr <= VRAM_BASE + {6'd0, cpu_vram_word};
                                 vram_dout <= ~data_in;  // Invert on write (MAME: data ^= 0xFFFFFFFF)
@@ -509,10 +535,16 @@ module nubus_video_highres (
                             ack_delay <= 3'd2;
                         end
                         // ---------------------------------------------------
-                        // Default: unknown address, ack anyway
+                        // Default: ROM read (mirrored across entire slot space)
+                        // Any unmatched read returns declaration ROM data.
+                        // Writes to unknown addresses are silently acked.
                         // ---------------------------------------------------
+                        else if (rw_n) begin
+                            // ROM read — rom_rdata available next cycle (synchronous)
+                            ack_delay <= 3'd3;
+                            rom_read_pending <= 1'b1;
+                        end
                         else begin
-                            data_out <= 16'd0;
                             ack_delay <= 3'd2;
                         end
 
@@ -569,8 +601,12 @@ module nubus_video_highres (
             endcase
 
             // Latch ROM read data one cycle before ack
-            if (ack_delay == 3'd2 && rw_n && in_our_slot && addr_is_rom)
-                data_out <= rom_rdata;
+            // Byte lane 3: ROM data on D7-D0, $FF on D15-D8
+            // Non-lane-3 addresses return $FFFF (empty lanes)
+            if (ack_delay == 3'd2 && rom_read_pending) begin
+                data_out <= rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF;
+                rom_read_pending <= 1'b0;
+            end
         end
     end
 
@@ -644,5 +680,38 @@ module nubus_video_highres (
     assign vga_r = pixel_valid ? clut[pixel_idx][23:16] : 8'd0;
     assign vga_g = pixel_valid ? clut[pixel_idx][15:8]  : 8'd0;
     assign vga_b = pixel_valid ? clut[pixel_idx][7:0]   : 8'd0;
+
+    // ========================================================================
+    // Debug: video pipeline state (synthesis translate_off)
+    // ========================================================================
+    // synthesis translate_off
+    reg debug_printed_regs;
+    reg [10:0] debug_prev_v_cnt;
+    initial begin
+        debug_printed_regs = 0;
+        debug_prev_v_cnt = 0;
+    end
+
+    always @(posedge clk) begin
+        // Print register state once when video_en first goes high
+        if (video_en && !debug_printed_regs) begin
+            debug_printed_regs <= 1;
+            $display("VIDEO_EN: video enabled! mode_raw=%0d mode=%0d base=%0d stride=%0d",
+                mode_raw, mode, vram_base_offset, vram_stride);
+            $display("VIDEO_EN: CLUT[0]=%h CLUT[1]=%h CLUT[255]=%h",
+                clut[0], clut[1], clut[255]);
+        end
+
+        // Print first few pixels of each new frame (v_cnt==0, h_cnt < 16)
+        if (clk_video_en && video_en && v_cnt == 0 && h_cnt < 16 && debug_prev_v_cnt != 0) begin
+            $display("VIDEO_PIX: h=%0d v=%0d cache=%h cache_valid=%b byte_sel=%b vram_byte=%h pixel_idx=%0d rgb=%h%h%h",
+                h_cnt, v_cnt, vram_cache, vram_cache_valid, byte_sel_d,
+                vram_byte, pixel_idx, vga_r, vga_g, vga_b);
+        end
+
+        if (clk_video_en)
+            debug_prev_v_cnt <= v_cnt;
+    end
+    // synthesis translate_on
 
 endmodule

@@ -32,7 +32,8 @@ module tg68k (
 	input berr,
 	input [15:0] din,
 	output [15:0] dout,
-	output reg [31:0] addr
+	output reg [31:0] addr,
+	output [31:0] VBR_out
 );
 
 wire  [1:0] tg68_busstate;
@@ -220,7 +221,8 @@ TG68KdotC_Kernel tg68k (
 	.nWr            ( tg68_rw       ),
 	.busstate       ( tg68_busstate ), // 00-> fetch code 10->read data 11->write data 01->no memaccess
 	.nResetOut      ( reset_n       ),
-	.FC             ( fc            )
+	.FC             ( fc            ),
+	.VBR_out        ( VBR_out       )
 );
 
 endmodule
