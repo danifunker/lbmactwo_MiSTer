@@ -65,7 +65,7 @@ int cfg_memSize = 1;       // 0=1MB, 1=4MB
 
 // CPU trace
 // ---------
-bool cpu_trace_enable = true;  // Enable from start
+bool cpu_trace_enable = false;  // Disabled by default for speed; toggle in GUI
 bool cpu_trace_started = false;  // Wait for ROM load and reset
 FILE* cpu_trace_file = nullptr;
 const char* cpu_trace_filename = "cpu_trace.log";
@@ -416,6 +416,20 @@ int verilate() {
 					VERTOPINTERN->debug_selectRAM,
 					VERTOPINTERN->debug_vbr);
 			}
+			// Log IPL changes (interrupt level)
+			{
+				static uint8_t last_ipl = 7;
+				uint8_t cur_ipl = VERTOPINTERN->debug_cpuIPL;
+				if (cur_ipl != last_ipl) {
+					fprintf(stderr, "IPL %d->%d at cycle %llu: PC=%08X addr=%08X FC=%d VBR=%08X\n",
+						last_ipl, cur_ipl, (unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_fc,
+						VERTOPINTERN->debug_vbr);
+					last_ipl = cur_ipl;
+				}
+			}
 			// Log BERR events
 			if (VERTOPINTERN->debug_berr) {
 				fprintf(stderr, "*** BERR at cycle %llu: PC=%08X addr=%08X FC=%d\n",
@@ -458,10 +472,16 @@ int verilate() {
 					last_trace_addr = cur_addr;
 				}
 			}
-			// Enable trace after 600M cycles to capture post-RAM-test activity
-			if (main_time == 600000000 && !cpu_trace_enable) {
+			// Enable CPU trace briefly around the interrupt hang point
+			if (main_time == 444000000 && !cpu_trace_enable) {
 				cpu_trace_enable = true;
-				fprintf(stderr, "*** Enabling CPU trace at cycle 600M ***\n");
+				cpu_trace_file = fopen(cpu_trace_filename, "w");
+				fprintf(stderr, "*** Enabling CPU trace at cycle 444M ***\n");
+			}
+			if (main_time == 452000000 && cpu_trace_enable) {
+				cpu_trace_enable = false;
+				if (cpu_trace_file) { fclose(cpu_trace_file); cpu_trace_file = nullptr; }
+				fprintf(stderr, "*** Disabling CPU trace at cycle 452M ***\n");
 			}
 		}
 		return 1;

@@ -88,6 +88,7 @@ module emu
 	output        debug_selectVIA2,
 	output        debug_berr,
 	output [31:0] debug_vbr,
+	output  [2:0] debug_cpuIPL,
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
@@ -730,5 +731,6 @@ module emu
 	assign debug_viaWr = selectVIA && !_cpuVMA && !_cpuRW;
 	assign debug_cpuVMA = _cpuVMA;
 	assign debug_selectVIA2 = selectVIA2;
+	assign debug_cpuIPL = _cpuIPL;
 
 endmodule

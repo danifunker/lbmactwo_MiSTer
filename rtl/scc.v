@@ -625,8 +625,22 @@ always @(posedge clk) begin
 	end
 	else begin
       tx_fin_pre<=tx_busy_a;
-		 
-		if (wr5_a[3] &  wr1_a[1] & tx_busy_a & ~tx_fin_pre) begin
+
+		// Z8530 Tx Buffer Empty interrupt fires on:
+		// 1. Buffer full->empty transition (falling edge of tx_busy_a)
+		// 2. Tx interrupt first enabled (WR1[1] or WR5[3] written) with buffer already empty
+		if (wr5_a[3] & wr1_a[1] & tx_fin_pre & ~tx_busy_a) begin
+			// Falling edge of tx_busy_a: transmission complete, buffer empty
+			tx_ip<=~tx_mip;
+			tx_mip<=0;
+		end
+		// Initial Tx interrupt when WR5 enables transmitter with buffer empty
+		if (cen && wreg_a && rindex == 5 && wdata[3] && wr1_a[1] && ~tx_busy_a) begin
+			tx_ip<=~tx_mip;
+			tx_mip<=0;
+		end
+		// Initial Tx interrupt when WR1 enables Tx int with Tx enabled and buffer empty
+		if (cen && wreg_a && rindex == 1 && wdata[1] && wr5_a[3] && ~tx_busy_a) begin
 			tx_ip<=~tx_mip;
 			tx_mip<=0;
 		end
@@ -634,8 +648,7 @@ always @(posedge clk) begin
 			tx_ip<=0;
 		end
 		if (wreg_a & (rindex == 0) & (wdata[5:3] == 3'b101)) begin
-          // If CIP=1, inhibit generation of next TX interrupt
-          // Actually, "Reset TxInt pend." clears current interrupt
+          // Reset TxInt Pending command
           tx_mip<= ~tx_ip;
           tx_ip<=0;
 		end
@@ -643,7 +656,7 @@ always @(posedge clk) begin
 			tx_mip<=0;
 			tx_ip<=0;
 		end
-	end	
+	end
 end
 
 
