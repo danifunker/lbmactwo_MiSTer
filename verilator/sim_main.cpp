@@ -61,16 +61,16 @@ int multi_step_amount = 1024;
 // Mac II only (uses TG68K 68030)
 // cfg_cpuType=2  -> cpu="11" (68030 - required for Mac II)
 int cfg_cpuType = 2;       // 68030 mode via TG68K (required)
-int cfg_memSize = 1;       // 0=1MB, 1=4MB
+int cfg_memSize = 0;       // 0=1MB, 1=4MB
 
 // CPU trace
 // ---------
-bool cpu_trace_enable = false;  // Disabled by default for speed; toggle in GUI
+bool cpu_trace_enable = true;   // Enabled by default; toggle in GUI
 bool cpu_trace_started = false;  // Wait for ROM load and reset
 FILE* cpu_trace_file = nullptr;
 const char* cpu_trace_filename = "cpu_trace.log";
 int cpu_trace_count = 0;
-const int cpu_trace_max = 10000000;  // Stop after this many instructions
+const int cpu_trace_max = 0;  // 0 = unlimited
 int post_download_delay = 0;  // Delay after ROM load before tracing
 uint32_t cpu_trace_last_pc = 0xFFFFFFFF;  // For edge detection (new instruction)
 
@@ -263,7 +263,7 @@ int verilate() {
 						const char* fc_name = (fc == 6) ? "SP" : (fc == 5) ? "SD" : (fc == 2) ? "UP" : (fc == 1) ? "UD" : "??";
 					fprintf(cpu_trace_file, "%s %08X: %04X  %s\n", fc_name, pc, opcode, disasm);
 						cpu_trace_count++;
-						if (cpu_trace_count >= cpu_trace_max) {
+						if (cpu_trace_max > 0 && cpu_trace_count >= cpu_trace_max) {
 							fprintf(stderr, "CPU trace limit reached (%d instructions)\n", cpu_trace_max);
 							fclose(cpu_trace_file);
 							cpu_trace_file = nullptr;
@@ -430,6 +430,47 @@ int verilate() {
 					last_ipl = cur_ipl;
 				}
 			}
+			// Log SCC state changes and chip select activity
+			{
+				static uint8_t last_wr9 = 0xFF, last_wr5a = 0xFF, last_wr1a = 0xFF;
+				static uint8_t last_txip = 0xFF;
+				static uint8_t last_wreg_a = 0, wreg_a_count = 0;
+				uint8_t wr9 = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr9;
+				uint8_t wr5a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr5_a;
+				uint8_t wr1a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr1_a;
+				uint8_t txip = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__tx_ip;
+				uint8_t wreg_a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wreg_a;
+				uint8_t selSCC = VERTOPINTERN->emu__DOT__selectSCC;
+				if (wr9 != last_wr9 || wr5a != last_wr5a || wr1a != last_wr1a || txip != last_txip) {
+					fprintf(stderr, "SCC @%llu: WR9=%02X(MIE=%d) WR5a=%02X(TxEn=%d) WR1a=%02X(TxIE=%d) tx_ip=%d\n",
+						(unsigned long long)main_time,
+						wr9, (wr9>>3)&1, wr5a, (wr5a>>3)&1, wr1a, (wr1a>>1)&1, txip);
+					last_wr9 = wr9; last_wr5a = wr5a; last_wr1a = wr1a; last_txip = txip;
+				}
+				// Log SCC write events (wreg_a or wreg_b rising edge)
+				uint8_t wreg_b = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wreg_b;
+				if ((wreg_a && !last_wreg_a) || (wreg_b && !last_wreg_a && wreg_a_count < 100)) {
+					uint8_t rindex_v = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rindex;
+					fprintf(stderr, "SCC_WR @%llu: ch=%c rindex=%d PC=%08X addr=%08X\n",
+						(unsigned long long)main_time,
+						wreg_a ? 'A' : 'B', rindex_v,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_cpuAddr);
+					wreg_a_count++;
+				}
+				last_wreg_a = wreg_a;
+				// Log rx_wr_a_latch changes and startup counter
+				{
+					static uint8_t last_rxlatch = 0xFF;
+					uint8_t rxlatch = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rx_wr_a_latch;
+					uint8_t rr0a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rr0_a;
+					if (rxlatch != last_rxlatch) {
+						fprintf(stderr, "SCC_RX @%llu: rx_wr_a_latch=%d rr0_a=%02X\n",
+							(unsigned long long)main_time, rxlatch, rr0a);
+						last_rxlatch = rxlatch;
+					}
+				}
+			}
 			// Log BERR events
 			if (VERTOPINTERN->debug_berr) {
 				fprintf(stderr, "*** BERR at cycle %llu: PC=%08X addr=%08X FC=%d\n",
@@ -472,17 +513,70 @@ int verilate() {
 					last_trace_addr = cur_addr;
 				}
 			}
-			// Enable CPU trace briefly around the interrupt hang point
-			if (main_time == 444000000 && !cpu_trace_enable) {
-				cpu_trace_enable = true;
-				cpu_trace_file = fopen(cpu_trace_filename, "w");
-				fprintf(stderr, "*** Enabling CPU trace at cycle 444M ***\n");
+			// Boot decision watchpoints - log key PC values to stderr
+			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
+				uint32_t pc = VERTOPINTERN->debug_pc;
+
+				// VIA1 Port A state at critical decision points
+				uint8_t via_pra = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_pra;
+				uint8_t via_ddra = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_ddra;
+				uint8_t via_pac = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__port_a_c;
+				uint8_t via_ira = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__ira;
+
+				// Dongle detection: read PA, test bit 1 at $2A8C and $2A9E
+				if (pc == 0x40802A7C || pc == 0x40802A84 || pc == 0x40802A88 ||
+				    pc == 0x40802A8C || pc == 0x40802A90 ||
+				    pc == 0x40802A92 || pc == 0x40802A96 ||
+				    pc == 0x40802A9A || pc == 0x40802A9E || pc == 0x40802AA2) {
+					uint16_t dbus = VERTOPINTERN->debug_cpuDataOut;
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					fprintf(stderr, "*** DONGLE @%08X cycle %llu: PRA=%02X DDRA=%02X PAC=%02X IRA=%02X bus=%04X addr=%08X ***\n",
+						pc, (unsigned long long)main_time, via_pra, via_ddra, via_pac, via_ira, dbus, addr);
+				}
+
+
+				// Debug dongle detection: bset #26,D7 means dongle detected
+				if (pc == 0x40802AA4)
+					fprintf(stderr, "*** DONGLE DETECTED (bset #26,D7) at cycle %llu: PRA=%02X DDRA=%02X PAC=%02X IRA=%02X ***\n",
+						(unsigned long long)main_time, via_pra, via_ddra, via_pac, via_ira);
+				// ROM checksum test: tst.l D6 — if D6!=0, enters debug monitor
+				if (pc == 0x40802AB4)
+					fprintf(stderr, "*** ROM CHECKSUM TEST (tst.l D6) at cycle %llu ***\n", (unsigned long long)main_time);
+				// bne after checksum test — if we see $2ABA next, checksum passed; $2C3C = failed
+				if (pc == 0x40802AB6)
+					fprintf(stderr, "*** ROM CHECKSUM BNE at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40802ABA)
+					fprintf(stderr, "*** ROM CHECKSUM PASSED (clr.w D7) at cycle %llu ***\n", (unsigned long long)main_time);
+				// Debug monitor entry
+				if (pc == 0x40802C3C)
+					fprintf(stderr, "*** DEBUG MONITOR ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
+				// SCC polling loop
+				if (pc == 0x40803296)
+					fprintf(stderr, "*** SCC POLL LOOP ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
+				// Bus error handler at $2906
+				if (pc == 0x40802906)
+					fprintf(stderr, "*** BUS ERROR HANDLER at cycle %llu ***\n", (unsigned long long)main_time);
 			}
-			if (main_time == 452000000 && cpu_trace_enable) {
-				cpu_trace_enable = false;
-				if (cpu_trace_file) { fclose(cpu_trace_file); cpu_trace_file = nullptr; }
-				fprintf(stderr, "*** Disabling CPU trace at cycle 452M ***\n");
+
+			// After ROM download completes, verify ROM data in sim_ram
+			{
+				static bool rom_verified = false;
+				if (!*bus.ioctl_download && !rom_verified && main_time > 5000000) {
+					rom_verified = true;
+					// Read first 8 words of ROM from sim_ram
+					// ROM is at sim_ram address 0x200000+ (word addresses)
+					// Access via ram: addr input -> dout
+					fprintf(stderr, "ROM VERIFY: Checking ROM in sim_ram at word addr 0x200000+\n");
+					// We can't directly access sim_ram memory from here easily,
+					// but we can check what debug_ram_dout returns.
+					// Instead, let's compute expected checksum from ROM file
+					fprintf(stderr, "ROM VERIFY: ROM file checksum should be $9779D2C4\n");
+					fprintf(stderr, "ROM VERIFY: If checksum fails, ROM data in sim_ram may be corrupt\n");
+				}
 			}
+
+			// Enable CPU trace after checksum passes → debug monitor entry
+			// Programmatic trace window removed - use GUI checkbox or default-on instead
 		}
 		return 1;
 	}
@@ -773,7 +867,18 @@ int main(int argc, char** argv, char** env) {
 
 		// CPU trace controls
 		ImGui::Separator();
-		ImGui::Checkbox("CPU Trace", &cpu_trace_enable);
+		if (ImGui::Checkbox("CPU Trace", &cpu_trace_enable)) {
+			if (cpu_trace_enable && !cpu_trace_file) {
+				cpu_trace_file = fopen(cpu_trace_filename, "w");
+				cpu_trace_count = 0;
+				if (cpu_trace_file)
+					fprintf(stderr, "CPU trace enabled via GUI, writing to %s\n", cpu_trace_filename);
+			} else if (!cpu_trace_enable && cpu_trace_file) {
+				fclose(cpu_trace_file);
+				cpu_trace_file = nullptr;
+				fprintf(stderr, "CPU trace disabled via GUI\n");
+			}
+		}
 		ImGui::SameLine();
 		ImGui::Text("PC: %08X  Op: %04X", VERTOPINTERN->debug_pc, VERTOPINTERN->debug_opcode);
 

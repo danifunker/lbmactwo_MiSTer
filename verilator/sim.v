@@ -361,6 +361,13 @@ module emu
 	reg [31:0] write_addr;
 	reg [15:0] write_data;
 
+	// Capture VIA read data while AS is still asserted
+	reg [15:0] via_rd_data_r;
+	always @(posedge clk_sys) begin
+		if (!tg68_as_n && selectVIA && tg68_rw)
+			via_rd_data_r <= dataControllerDataOut;
+	end
+
 	always @(posedge clk_sys) begin
 		if (!n_reset) begin
 			fetch_valid <= 0;
@@ -388,6 +395,10 @@ module emu
 					write_data <= tg68_dout[15:0];
 					write_valid <= 1;
 				end
+				// Debug: log all data reads where address is in VIA space (data captured one cycle late)
+				if (tg68_rw && tg68_a[31:20] == 12'h50F)
+					$display("VIA_BUS_RD_LATE: addr=%h data=%h via_din_r=%h UDS=%b LDS=%b selVIA=%b",
+						tg68_a, dataControllerDataOut, via_rd_data_r, _cpuUDS, _cpuLDS, selectVIA);
 			end
 		end
 	end

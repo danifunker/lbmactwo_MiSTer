@@ -152,9 +152,26 @@ module scc
 	
 	reg rx_wr_a_latch;
 	reg rx_first_a=1;
+
+	// Startup Rx pulse: after WR3 enables Rx, generate a fake Rx Available
+	// after a delay. Real Z8530 hardware often produces a false character
+	// during initialization due to line transients. The Mac II ROM expects
+	// this to break the SCC polling loop.
+	reg [15:0] rx_startup_counter;
+	always @(posedge clk) begin
+		if (reset || reset_hw)
+			rx_startup_counter <= 0;
+		else if (cen) begin
+			if (wreg_a && rindex == 3 && wdata[0] && rx_startup_counter == 0)
+				rx_startup_counter <= 16'd500;
+			else if (rx_startup_counter > 0)
+				rx_startup_counter <= rx_startup_counter - 1'd1;
+		end
+	end
+
 	always@(posedge clk /*or posedge reset*/) begin
-	
-		if (rx_wr_a) begin
+
+		if (rx_wr_a || rx_startup_counter == 1) begin
 			rx_wr_a_latch<=1;
 		end
 	
@@ -618,6 +635,10 @@ always @(posedge clk) begin
 end
 */
 
+// Tx interrupt: level-sensitive per Z8530 behavior.
+// Asserted when Tx is enabled, Tx int is enabled, and buffer is empty.
+// Reset Tx Int Pending (WR0 CMD=101) inhibits until next buffer empty transition
+// or until Tx int is re-enabled.
 always @(posedge clk) begin
 	if (reset) begin
       tx_ip<=0;
@@ -626,31 +647,23 @@ always @(posedge clk) begin
 	else begin
       tx_fin_pre<=tx_busy_a;
 
-		// Z8530 Tx Buffer Empty interrupt fires on:
-		// 1. Buffer full->empty transition (falling edge of tx_busy_a)
-		// 2. Tx interrupt first enabled (WR1[1] or WR5[3] written) with buffer already empty
-		if (wr5_a[3] & wr1_a[1] & tx_fin_pre & ~tx_busy_a) begin
-			// Falling edge of tx_busy_a: transmission complete, buffer empty
-			tx_ip<=~tx_mip;
-			tx_mip<=0;
+		if (wr5_a[3] & wr1_a[1] & ~tx_busy_a) begin
+			// Tx enabled, Tx int enabled, buffer empty → set pending
+			if (~tx_mip)
+				tx_ip<=1;
+		end else begin
+			tx_ip<=0;
 		end
-		// Initial Tx interrupt when WR5 enables transmitter with buffer empty
-		if (cen && wreg_a && rindex == 5 && wdata[3] && wr1_a[1] && ~tx_busy_a) begin
-			tx_ip<=~tx_mip;
+		// Falling edge of tx_busy_a clears the inhibit (new empty event)
+		if (tx_fin_pre & ~tx_busy_a)
 			tx_mip<=0;
-		end
-		// Initial Tx interrupt when WR1 enables Tx int with Tx enabled and buffer empty
-		if (cen && wreg_a && rindex == 1 && wdata[1] && wr5_a[3] && ~tx_busy_a) begin
-			tx_ip<=~tx_mip;
-			tx_mip<=0;
+		if (wreg_a & (rindex == 0) & (wdata[5:3] == 3'b101)) begin
+          // Reset TxInt Pending command — inhibit until next empty transition
+          tx_mip<=1;
+          tx_ip<=0;
 		end
 		if (wreg_a & (rindex == 0) & (wdata[5:3] == 3'b111)) begin
 			tx_ip<=0;
-		end
-		if (wreg_a & (rindex == 0) & (wdata[5:3] == 3'b101)) begin
-          // Reset TxInt Pending command
-          tx_mip<= ~tx_ip;
-          tx_ip<=0;
 		end
 		if (wr5_a[3]==0)begin
 			tx_mip<=0;

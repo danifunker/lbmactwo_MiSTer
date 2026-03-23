@@ -245,7 +245,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	always @(*) begin
 		case (macModel)
 			3'd0, 3'd1:  via_pa_ext = 7'h7F; // Mac Plus, SE: all pulled high
-			3'd2, 3'd3:  via_pa_ext = 7'h01; // Mac II, Mac II FDHD: model=1
+			3'd2, 3'd3:  via_pa_ext = 7'h03; // Mac II, Mac II FDHD: model=1, bit1=1 (no dongle)
 			3'd4:         via_pa_ext = 7'h00; // Mac IIx: model=0
 			3'd5, 3'd6:  via_pa_ext = 7'h43; // Mac IIcx, SE/30: model=3, model6=1
 			default:      via_pa_ext = 7'h7F;

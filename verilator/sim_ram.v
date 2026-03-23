@@ -101,6 +101,22 @@ always @(posedge clk) begin
 	end
 end
 
+// ROM verification: dump first 8 words and compute checksum after download
+reg rom_verified = 0;
+always @(posedge clk) begin
+	if (!reset && !rom_verified && wr_count > 100000) begin
+		rom_verified <= 1;
+		$display("ROM VERIFY: word[0x200000]=%h (expect 9779)", mem[22'h200000]);
+		$display("ROM VERIFY: word[0x200001]=%h (expect D2C4)", mem[22'h200001]);
+		$display("ROM VERIFY: word[0x200002]=%h (expect 4080)", mem[22'h200002]);
+		$display("ROM VERIFY: word[0x200003]=%h (expect 002A)", mem[22'h200003]);
+		$display("ROM VERIFY: word[0x200004]=%h (expect 0178)", mem[22'h200004]);
+		$display("ROM VERIFY: word[0x200005]=%h (expect 4EFA)", mem[22'h200005]);
+		$display("ROM VERIFY: word[0x200006]=%h (expect 0084)", mem[22'h200006]);
+		$display("ROM VERIFY: word[0x200007]=%h (expect 4EFA)", mem[22'h200007]);
+	end
+end
+
 // Allow ROM/RAM initialization from simulation
 // verilator tracing_off
 /* verilator lint_off UNUSED */

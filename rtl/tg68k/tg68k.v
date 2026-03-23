@@ -110,6 +110,9 @@ always @(posedge clk) begin
 
 				6: begin
 					tg68_din_r <= tg68_din;
+					if (tg68_rw && addr[31:20] == 12'h50F)
+						$display("TG68K_LATCH: addr=%h din=%h uds=%b lds=%b rw=%b",
+							addr, tg68_din, tg68_uds_n, tg68_lds_n, tg68_rw);
 					uds_n_r <= 1;
 					lds_n_r <= 1;
 					as_n_r <= 1;
