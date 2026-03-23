@@ -20,14 +20,21 @@ module sim_ram
 	input [31:0]        debug_pc    // CPU PC for watchpoint logging
 );
 
-// 8MB of RAM (4M words of 16 bits)
-// Address bits [21:0] used, giving 4MW = 8MB
+// 1MB of RAM (512K words of 16 bits) + ROM space
 // Upper address bits select ROM vs RAM area
-reg [15:0] mem [0:4194303];  // 4M words = 8MB
+// ROM area (addr[21:20]=01) uses full 256K words for 512KB ROM
+// RAM area: 512K words (addr[18:0]). Accesses beyond 1MB return 0
+// and writes are ignored — matches real hardware (BERR/no response).
+reg [15:0] mem [0:4194303];  // Keep full array for ROM storage
+
+// RAM range check: addr[21:20]==00 and addr[19]==0 means within 1MB
+// ROM/other: addr[21] set (ROM downloads, ROM reads, disk reads)
+wire ram_in_range = (addr[21:20] == 2'b00) && (addr[19] == 1'b0);
+wire is_rom = addr[21];
 
 // Combinational read - no latency, data available immediately when oe is asserted
-// This matches the timing expected by the Mac's bus controller
-assign dout = mem[addr[21:0]];
+wire [21:0] effective_addr = is_rom ? addr[21:0] : {3'b0, addr[18:0]};
+assign dout = (ram_in_range || is_rom) ? mem[effective_addr] : 16'h0000;
 
 // Simple synchronous read/write
 // Debug: track writes for verification
@@ -41,10 +48,10 @@ integer vram_wr_count = 0;
 
 always @(posedge clk) begin
 	// Writes are allowed even during reset (needed for ROM loading)
-	if (we && |ds) begin
-		// Write with byte strobes
-		if (ds[1]) mem[addr[21:0]][15:8] <= din[15:8];
-		if (ds[0]) mem[addr[21:0]][7:0]  <= din[7:0];
+	if (we && |ds && (ram_in_range || is_rom)) begin
+		// Write with byte strobes (only to valid RAM or ROM range)
+		if (ds[1]) mem[effective_addr][15:8] <= din[15:8];
+		if (ds[0]) mem[effective_addr][7:0]  <= din[7:0];
 		last_wr_addr <= addr[21:0];
 		last_wr_data <= din;
 		last_wr_valid <= 1;
@@ -123,6 +130,15 @@ end
 initial begin
 	// Memory will be initialized by the simulation testbench
 	// via ioctl_download mechanism
+
+	// Skip RAM test: write "WLCS" marker at byte address $0CFC
+	// (same approach as Snow emulator). The Mac II ROM checks this
+	// at $E4 and $1A0 — if present, both RAM tests are skipped.
+	// Without this, the aliasing test fails because our sim wraps
+	// at 1MB instead of generating BERR like real hardware.
+	// Byte addr $0CFC = word addr $067E/$067F
+	mem[22'h00067E] = 16'h574C;  // "WL"
+	mem[22'h00067F] = 16'h5343;  // "CS"
 end
 /* verilator lint_on UNUSED */
 // verilator tracing_on

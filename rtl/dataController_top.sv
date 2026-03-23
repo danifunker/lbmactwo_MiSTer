@@ -9,6 +9,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// system control:
 	input machineType, // 0 - Mac Plus, 1 - Mac SE
 	input [2:0] macModel, // 0=Plus, 1=SE, 2=MacII, 3=MacII FDHD, 4=IIx, 5=IIcx, 6=SE/30
+	input [1:0] configRAMSize, // 0=1MB, 1=2MB, 2+=4MB (for VIA2 PA7:6 RAM sizing pins)
 	input _systemReset,
 
 	// 68000 CPU control:
@@ -311,12 +312,15 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	assign _via2Irq = ~via2Irq;
 
-	// VIA2 Port A: {ram_size[1:0] (output loopback), nubus_irq_state[5:0]}
-	// PA[7:6] read back the output latch (RAM size config written by ROM)
+	// VIA2 Port A: {ram_size[1:0], nubus_irq_state[5:0]}
+	// PA[7:6] are RAM sizing pins (hardware config from SIMM decoder).
+	// ROM reads these to determine SIMM configuration (Snow: expected_sz):
+	//   00 = 256K SIMMs (1-2MB configs), 01 = 1MB SIMMs (4-8MB configs)
+	// When DDR is output, loopback the output latch; when input, return HW config.
 	// PA[5:0] are NuBus slot IRQ state (active-low, directly from video card slot E = bit 5)
-	// VIA6522 reads port_a_i directly (no internal DDR mux for port A),
-	// so we must mux externally: output latch when output, pin state when input.
-	assign via2_pa_i = {via2_pa_o[7:6],
+	wire [1:0] ram_size_via = configRAMSize[1] ? 2'b01 : 2'b00; // 4MB/8MB->01, 1MB/2MB->00
+	assign via2_pa_i = {(via2_pa_oe[7] ? via2_pa_o[7] : ram_size_via[1]),
+	                    (via2_pa_oe[6] ? via2_pa_o[6] : ram_size_via[0]),
 	                    (via2_pa_o[5] & via2_pa_oe[5]) | (nubus_irq_n & ~via2_pa_oe[5]),
 	                    5'b11111};
 

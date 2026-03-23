@@ -65,7 +65,7 @@ int cfg_memSize = 0;       // 0=1MB, 1=4MB
 
 // CPU trace
 // ---------
-bool cpu_trace_enable = true;   // Enabled by default; toggle in GUI
+bool cpu_trace_enable = false;  // Disabled by default for speed; toggle in GUI
 bool cpu_trace_started = false;  // Wait for ROM load and reset
 FILE* cpu_trace_file = nullptr;
 const char* cpu_trace_filename = "cpu_trace.log";
@@ -553,6 +553,18 @@ int verilate() {
 				// SCC polling loop
 				if (pc == 0x40803296)
 					fprintf(stderr, "*** SCC POLL LOOP ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
+				// bset #17,D7 after SCC init
+				if (pc == 0x40803414) {
+					static int bset17_count = 0;
+					if (bset17_count++ < 5)
+						fprintf(stderr, "*** BSET #17,D7 at cycle %llu ***\n", (unsigned long long)main_time);
+				}
+				// btst #17,D7 in SCC poll
+				if (pc == 0x4080329A) {
+					static int btst17_count = 0;
+					if (btst17_count++ < 5)
+						fprintf(stderr, "*** BTST #17,D7 (SCC poll) at cycle %llu ***\n", (unsigned long long)main_time);
+				}
 				// Bus error handler at $2906
 				if (pc == 0x40802906)
 					fprintf(stderr, "*** BUS ERROR HANDLER at cycle %llu ***\n", (unsigned long long)main_time);

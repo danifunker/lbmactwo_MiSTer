@@ -10,7 +10,7 @@ module addrController_top(
 	// system config:
 	input turbo,               // 0 = normal, 1 = faster
 	input [1:0] configROMSize,  // 0 = 64K ROM, 1 = 128K ROM, 2 = 256K ROM
-	input [1:0] configRAMSize,	// 0 = 128K, 1 = 512K, 2 = 1MB, 3 = 4MB RAM
+	input [1:0] configRAMSize,	// 0 = 1MB, 1 = 2MB, 2 = 4MB, 3 = 8MB RAM
 
 	// CPU memory interface (supports 32-bit addressing for 68020/68030):
 	input [31:0] cpuAddr,
@@ -120,24 +120,22 @@ module addrController_top(
 	wire ram_access = (cpuBusControl && selectRAM) || videoBusControl;
 	wire rom_access = (cpuBusControl && selectROM);
 	
-	// simulate smaller RAM/ROM sizes
+	// ROM address clamping (simulate smaller ROM sizes)
+	// RAM address mirroring: 2MB mirrors within 4MB space (bit 21 forced to 0)
+	// so ROM's sizing algorithm detects the mirror pattern.
+	// Other RAM sizes pass through unmodified — selectRAM gating in addrDecoder
+	// handles size limiting (out-of-range accesses BERR like real hardware).
 	assign macAddr[16] = rom_access && configROMSize == 2'b00 ? 1'b0 :     // force A16 to 0 for 64K ROM access
-									addrMux[16]; 
-	assign macAddr[17] = ram_access && configRAMSize == 2'b00 ? 1'b0 :   // force A17 to 0 for 128K RAM access
-									rom_access && configROMSize == 2'b01 ? 1'b0 :  // force A17 to 0 for 128K ROM access
+									addrMux[16];
+	assign macAddr[17] = rom_access && configROMSize == 2'b01 ? 1'b0 :  // force A17 to 0 for 128K ROM access
 									rom_access && configROMSize == 2'b00 ? 1'b1 :  // force A17 to 1 for 64K ROM access (64K ROM image is at $20000)
-									addrMux[17]; 
-	assign macAddr[18] = ram_access && configRAMSize == 2'b00 ? 1'b0 :   // force A18 to 0 for 128K RAM access
-	                     rom_access && configROMSize != 2'b11 ? 1'b0 : // force A18 to 0 for 64K/128K/256K ROM access
-									addrMux[18]; 
-	assign macAddr[19] = ram_access && configRAMSize[1] == 1'b0 ? 1'b0 : // force A19 to 0 for 128K or 512K RAM access
-									rom_access ? 1'b0 : 								   // force A19 to 0 for ROM access
-									addrMux[19]; 
-	assign macAddr[20] = ram_access && configRAMSize != 2'b11 ? 1'b0 :   // force A20 to 0 for all but 4MB RAM access
-									rom_access ? 1'b0 : 								   // force A20 to 0 for ROM access
-									addrMux[20]; 
-	assign macAddr[21] = ram_access && configRAMSize != 2'b11 ? 1'b0 :   // force A21 to 0 for all but 4MB RAM access
-									rom_access ? 1'b0 : 								   // force A21 to 0 for ROM access
+									addrMux[17];
+	assign macAddr[18] = rom_access && configROMSize != 2'b11 ? 1'b0 : // force A18 to 0 for 64K/128K/256K ROM access
+									addrMux[18];
+	assign macAddr[19] = rom_access ? 1'b0 : addrMux[19];
+	assign macAddr[20] = rom_access ? 1'b0 : addrMux[20];
+	assign macAddr[21] = rom_access ? 1'b0 :
+									ram_access && configRAMSize == 2'b01 ? 1'b0 :  // 2MB mirror: wrap at 2MB
 									addrMux[21]; 
 	
 			
@@ -153,6 +151,7 @@ module addrController_top(
 	// address decoding
 	addrDecoder ad(
 		.configROMSize(configROMSize),
+		.configRAMSize(configRAMSize),
 		.address(cpuAddr),
 		._cpuAS(_cpuAS),
 		.memoryOverlayOn(memoryOverlayOn),

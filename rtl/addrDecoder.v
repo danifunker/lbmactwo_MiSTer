@@ -97,6 +97,7 @@
 
 module addrDecoder(
 	input [1:0] configROMSize,
+	input [1:0] configRAMSize,	// 0=1MB, 1=2MB, 2+=4MB
 	input [31:0] address,
 	input _cpuAS,
 	input memoryOverlayOn,
@@ -182,104 +183,110 @@ module addrDecoder(
 		// 24-bit Address Space (Mac Plus/SE/Classic and Mac II compatibility)
 		// ========================================================================
 		// This handles $00xxxxxx space (and $FFxxxxxx/$80xxxxxx which mirror it)
+		//
+		// RAM takes priority over 24-bit peripheral mappings, matching real Mac II
+		// hardware where the SIMM decoder responds before the peripheral decoder.
+		// With >4MB RAM, addresses like $40xxxx (ROM in 24-bit mode) become RAM.
+		// Peripherals remain accessible via 32-bit addresses ($40000000 ROM,
+		// $50F00000 I/O) which are decoded in the 32-bit section above.
+		//
+		// RAM ranges (with mirroring for ROM detection):
+		//   1MB: $00-$0F only (no mirror)
+		//   2MB: $00-$3F (mirrored in 4MB space, addr wraps at 2MB)
+		//   4MB: $00-$3F (no mirror)
+		//   8MB: $00-$7F (no mirror, overrides 24-bit ROM/SCSI)
 		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF || address[31:24] == 8'h80) begin
-			casez (address[23:20])
-				4'b00??: begin // $00_0000 - $3F_FFFF (4MB)
-					if (memoryOverlayOn == 0)
-						selectRAM = !_cpuAS;
-					else begin
-						// Overlay mode: ROM appears at bottom of memory
-						// Mac II: 256K ROM at $00_0000 - $03_FFFF when overlay is on
-						// Mac Plus/SE: 128K ROM can extend to $0F_FFFF with mirroring
-						if (address[23:20] == 4'b0000) begin
-							// Check ROM size: if 256K (configROMSize[1]==1), only map first 256K
-							if (configROMSize[1]) begin
-								// 256K ROM: only $00_0000 - $03_FFFF
-								if (address[19:18] == 2'b00)  // address < $040000
+
+			// Check if address is within RAM range (including mirror space)
+			// Overlay mode is handled separately below
+			if (!memoryOverlayOn && (
+				(configRAMSize == 2'b00 && address[23:20] == 4'h0) ||                // 1MB: $00-$0F
+				(configRAMSize == 2'b01 && address[23:22] == 2'b00) ||               // 2MB: $00-$3F (mirrored)
+				(configRAMSize == 2'b10 && address[23:22] == 2'b00) ||               // 4MB: $00-$3F
+				(configRAMSize == 2'b11 && address[23]    == 1'b0)))                  // 8MB: $00-$7F
+			begin
+				selectRAM = !_cpuAS;
+			end
+			else begin
+				// Overlay mode OR address outside RAM range: decode 24-bit peripherals
+				casez (address[23:20])
+					4'b00??: begin // $00_0000 - $3F_FFFF
+						if (memoryOverlayOn) begin
+							// Overlay mode: ROM appears at bottom of memory
+							if (address[23:20] == 4'b0000) begin
+								if (configROMSize[1]) begin
+									// 256K ROM: $00_0000 - $03_FFFF
+									if (address[19:18] == 2'b00)
+										selectROM = !_cpuAS;
+									else
+										selectRAM = !_cpuAS;
+								end else begin
+									// 128K or smaller ROM: repeats to $0F_FFFF
 									selectROM = !_cpuAS;
-								else
-									selectRAM = !_cpuAS;  // Above ROM = RAM
+								end
 							end else begin
-								// 128K or smaller ROM: original behavior (repeats to $0F_FFFF)
-								selectROM = !_cpuAS;
+								selectRAM = !_cpuAS;
 							end
-						end else begin
-							// Above $0F_FFFF = RAM even in overlay mode
-							selectRAM = !_cpuAS;
 						end
+						// Non-overlay outside RAM range: no select -> bus error
 					end
-				end
-				
-				4'b0100: begin // $40_0000 - $4F_FFFF (ROM space)
-					// Mac Plus ROM detection via SCSI
-					// If ROM is 256K (configROMSize[1]==1), or if A17==0 (first 128K),
-					// then this is ROM. Otherwise it might be SCSI space.
-					if (configROMSize[1] || address[17] == 1'b0)
-						selectROM = !_cpuAS;
-					selectSEOverlay = !_cpuAS;
-				end
-				
-				4'b0101: begin // $50_0000 - $5F_FFFF (SCSI space)
-					if (address[19]) // $58_0000 - $5F_FFFF
-						selectSCSI = !_cpuAS;
-					selectSEOverlay = !_cpuAS;
-				end
-				
-				4'b0110: begin // $60_0000 - $6F_FFFF (Overlay RAM)
-					if (memoryOverlayOn)
-						selectRAM = !_cpuAS;
-				end
-				
-				4'b10?1: begin // $A0_0000 - $AF_FFFF and $B0_0000 - $BF_FFFF (SCC)
-					// Note: In Mac II mode, need to avoid conflict with NuBus slot $A and $B
-					// But those are at $A000_0000+, not $00A0_0000
-					// So in 24-bit space, SCC is safe here
-					selectSCC = !_cpuAS;
-				end
-				
-				4'b1100: begin // $C0_0000 - $CF_FFFF (IWM on some models)
-					// Note: In Mac II mode, avoid conflict with NuBus slot $C at $C000_0000
-					// But we're in 24-bit space ($00Cxxxxx), so this is safe
-					if (!configROMSize[1])
-						selectIWM = !_cpuAS;
-				end
-				
-				4'b1101: begin // $D0_0000 - $DF_FFFF (IWM)
-					// Note: In Mac II mode, avoid conflict with NuBus slot $D at $D000_0000
-					// But we're in 24-bit space ($00Dxxxxx), so this is safe
-					selectIWM = !_cpuAS;
-				end
-				
-				4'b1110: begin // $E0_0000 - $EF_FFFF (VIA - Mac Plus/SE)
-					// Note: In Mac II mode, avoid conflict with NuBus slot $E at $E000_0000
-					// But we're in 24-bit space ($00Exxxxx), so this is safe
-					if (address[19]) // $E8_0000 - $EF_FFFF
-						selectVIA = !_cpuAS;
-				end
 
-				4'b1111: begin // $F0_0000 - $FF_FFFF (Mac IIx I/O mirror of $5000_0000)
-					// This is the 24-bit mirror of the 32-bit I/O space at $5000_0000
-					// VIA1: $F0_0000, VIA2: $F0_2000, SCC: $F0_4000
-					// SCSI: $F1_0000, IWM: $F1_6000
-					if (address[19:13] == 7'b0000_000)       // $F0_0000 - $F0_1FFF: VIA1
-						selectVIA = !_cpuAS;
-					else if (address[19:13] == 7'b0000_001)  // $F0_2000 - $F0_3FFF: VIA2
-						selectVIA2 = !_cpuAS;
-					else if (address[19:13] == 7'b0000_010)  // $F0_4000 - $F0_5FFF: SCC
+					4'b0100: begin // $40_0000 - $4F_FFFF (ROM in 24-bit space)
+						if (configROMSize[1] || address[17] == 1'b0)
+							selectROM = !_cpuAS;
+						selectSEOverlay = !_cpuAS;
+					end
+
+					4'b0101: begin // $50_0000 - $5F_FFFF (SCSI space)
+						if (address[19]) // $58_0000 - $5F_FFFF
+							selectSCSI = !_cpuAS;
+						selectSEOverlay = !_cpuAS;
+					end
+
+					4'b0110: begin // $60_0000 - $6F_FFFF (Overlay RAM)
+						if (memoryOverlayOn)
+							selectRAM = !_cpuAS;
+					end
+
+					4'b10?1: begin // $A0/$B0 (SCC in 24-bit space)
 						selectSCC = !_cpuAS;
-					else if (address[19:14] == 6'b0001_00)   // $F1_0000 - $F1_3FFF: SCSI
-						selectSCSI = !_cpuAS;
-					else if (address[19:13] == 7'b0001_010)  // $F1_4000 - $F1_5FFF: ASC
-						selectASC = !_cpuAS;
-					else if (address[19:13] == 7'b0001_011)  // $F1_6000 - $F1_7FFF: IWM/SWIM
-						selectIWM = !_cpuAS;
-					else if (address[19:13] == 7'b0100_000)  // $F4_0000 - $F4_1FFF: VIA1 alt
-						selectVIA = !_cpuAS;
-				end
+					end
 
-				default:
-					; // select nothing
-			endcase
+					4'b1100: begin // $C0 (IWM on some models)
+						if (!configROMSize[1])
+							selectIWM = !_cpuAS;
+					end
+
+					4'b1101: begin // $D0 (IWM)
+						selectIWM = !_cpuAS;
+					end
+
+					4'b1110: begin // $E0 (VIA - Mac Plus/SE)
+						if (address[19])
+							selectVIA = !_cpuAS;
+					end
+
+					4'b1111: begin // $F0 (Mac II 24-bit I/O mirror of $5000_0000)
+						if (address[19:13] == 7'b0000_000)       // VIA1
+							selectVIA = !_cpuAS;
+						else if (address[19:13] == 7'b0000_001)  // VIA2
+							selectVIA2 = !_cpuAS;
+						else if (address[19:13] == 7'b0000_010)  // SCC
+							selectSCC = !_cpuAS;
+						else if (address[19:14] == 6'b0001_00)   // SCSI
+							selectSCSI = !_cpuAS;
+						else if (address[19:13] == 7'b0001_010)  // ASC
+							selectASC = !_cpuAS;
+						else if (address[19:13] == 7'b0001_011)  // IWM/SWIM
+							selectIWM = !_cpuAS;
+						else if (address[19:13] == 7'b0100_000)  // VIA1 alt
+							selectVIA = !_cpuAS;
+					end
+
+					default:
+						; // select nothing
+				endcase
+			end
 		end
 	end
 endmodule

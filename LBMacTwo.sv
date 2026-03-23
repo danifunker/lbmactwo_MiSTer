@@ -223,8 +223,7 @@ localparam CONF_STR = {
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"O5,Speed,16MHz;",
-	"O4,Memory,1MB,4MB;",
+	"O45,Memory,1MB,2MB,4MB,8MB;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
 	"-;",
@@ -253,7 +252,7 @@ pll pll
 	.locked(pll_locked)
 );
 
-reg       status_mem;
+reg [1:0] status_mem;
 reg [1:0] status_mod;
 reg       n_reset = 0;
 reg       osd_reset_req = 0;
@@ -288,7 +287,7 @@ always @(posedge clk_sys) begin
 		end
 		else if(rst_cnt) begin
 			rst_cnt    <= rst_cnt - 1'd1;
-			status_mem <= status[4];
+			status_mem <= status[5:4];
 			status_mod <= status[10:9];
 		end
 		else begin
@@ -406,7 +405,7 @@ assign AUDIO_MIX = 0;
 // set the real-world inputs to sane defaults
 localparam 	  configROMSize = 2'b10;  // 128K ROM
 
-wire [1:0] configRAMSize = 2'b11; // 1MB/4MB
+wire [1:0] configRAMSize = status_mem; // 00=1MB, 01=2MB, 10=4MB, 11=8MB
 wire selectNuBus;
 
 // Mac II uses SCC for serial communication, not UARTs
@@ -737,6 +736,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.E_falling(E_falling),
 	.machineType(1'b1), // Mac II mode
 	.macModel(3'd2),    // Mac II (non-FDHD)
+	.configRAMSize(configRAMSize),
 	._systemReset(n_reset),
 	._cpuReset(_cpuReset),
 	._cpuIPL(_cpuIPL),

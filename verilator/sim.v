@@ -183,7 +183,7 @@ module emu
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
-	wire [1:0] configRAMSize = 2'b11; // 4MB
+	wire [1:0] configRAMSize = 2'b10; // 4MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
 
 	// Serial Ports (not used on Mac II - uses SCC)
 	wire serialOut = 1'b1;
@@ -530,6 +530,7 @@ module emu
 		.E_falling(E_falling),
 		.machineType(1'b1),  // Mac II mode
 		.macModel(3'd2),     // Mac II (non-FDHD)
+		.configRAMSize(configRAMSize),
 		._systemReset(n_reset),
 		._cpuReset(_cpuReset),
 		._cpuIPL(_cpuIPL),
