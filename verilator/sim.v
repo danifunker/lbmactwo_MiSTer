@@ -753,8 +753,8 @@ module emu
 	assign debug_cpuDataOut = dataControllerDataOut;  // Peripherals send this to CPU
 	assign debug_cpuRW = _cpuRW;  // 1=read, 0=write
 	assign debug_cpuBusControl = cpuBusControl;
-	assign debug_viaRd = selectVIA && !_cpuVMA && _cpuRW;
-	assign debug_viaWr = selectVIA && !_cpuVMA && !_cpuRW;
+	assign debug_viaRd = (selectVIA || selectVIA2) && !_cpuVMA && _cpuRW;
+	assign debug_viaWr = (selectVIA || selectVIA2) && !_cpuVMA && !_cpuRW;
 	assign debug_cpuVMA = _cpuVMA;
 	assign debug_selectVIA2 = selectVIA2;
 	assign debug_cpuIPL = _cpuIPL;

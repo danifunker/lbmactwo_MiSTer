@@ -1,337 +1,390 @@
-/* ADB implementation for plus_too */
+/* ADB Modem PIC transceiver for Mac II
+ * Based on Snow emulator's transceiver.rs (Mac II ADB protocol)
+ *
+ * State machine controlled by VIA1 PB4/PB5 (ST0/ST1):
+ *   Command (0,0) - CPU sends command byte via shift register
+ *   Data1   (1,0) - Process command, return first response byte
+ *   Data2   (0,1) - Return second response byte
+ *   Idle    (1,1) - Default state
+ *
+ * INT line is state-dependent:
+ *   Command: always false
+ *   Data1:   true when cmd empty AND response empty (no data / device didn't respond)
+ *   Data2/Idle: true when any device has SRQ
+ */
 
 module adb(
 	input            clk,
 	input            clk_en,
 	input            reset,
-	input      [1:0] st,
-	output           _int,
+	input      [1:0] st,       // {ST1, ST0} from VIA1 PB5/PB4
+	output           _int,     // active-low interrupt to VIA1 PB3
 	input            viaBusy,
 	output reg       listen,
 	input      [7:0] adb_din,
 	input            adb_din_strobe,
 	output reg [7:0] adb_dout,
 	output reg       adb_dout_strobe,
-	
+
 	output reg       capslock,
 
 	input     [24:0] ps2_mouse,
 	input     [10:0] ps2_key
 );
 
-localparam TALKINTERVAL = 17'd8000*4'd11; // 11 ms
+// ADB bus states (matches Snow's AdbBusState enum)
+localparam [1:0] ST_COMMAND = 2'b00;  // ST0=0, ST1=0
+localparam [1:0] ST_DATA1   = 2'b01;  // ST0=1, ST1=0  (st = {ST1,ST0} = {0,1})
+localparam [1:0] ST_DATA2   = 2'b10;  // ST0=0, ST1=1  (st = {ST1,ST0} = {1,0})
+localparam [1:0] ST_IDLE    = 2'b11;  // ST0=1, ST1=1
 
-reg   [3:0] cmd_r;
-reg   [1:0] st_r;
-wire  [1:0] r_r = cmd_r[1:0];
-reg   [3:0] addr_r;
-reg   [3:0] respCnt;
-reg  [16:0] talkTimer;
-reg         idleActive;
+// Note on st encoding: dataController_top.sv passes .st({ADBST1, ADBST0})
+// So st[0] = ST0, st[1] = ST1
+// Snow: Command = ST0=0,ST1=0 → st=2'b00
+// Snow: Data1   = ST0=1,ST1=0 → st=2'b01
+// Snow: Data2   = ST0=0,ST1=1 → st=2'b10
+// Snow: Idle    = ST0=1,ST1=1 → st=2'b11
 
-wire  [3:0] cmd = adb_din[3:0];
-wire  [3:0] addr = adb_din[7:4];
+// Device addresses
+localparam [3:0] ADDR_KEYBOARD = 4'd2;
+localparam [3:0] ADDR_MOUSE    = 4'd3;
 
-reg         sendResponse;
+// Command byte fields
+reg  [7:0] cmd_byte;          // Last received command byte
+reg        cmd_valid;         // Command byte has been received
+reg        cmd_processed;     // Command has been processed
 
+// Response buffer (max 2 bytes for Talk responses)
+reg  [7:0] response [0:7];   // Up to 8 bytes
+reg  [3:0] resp_len;          // Number of valid response bytes
+reg  [3:0] resp_idx;          // Next byte to return
+
+// Listen data buffer
+reg  [7:0] listen_data [0:7];
+reg  [3:0] listen_len;
+
+// State tracking
+reg  [1:0] st_prev;
+
+// Parsed command fields
+wire [3:0] cmd_addr    = cmd_byte[7:4];
+wire [1:0] cmd_type    = cmd_byte[3:2];  // 00=Reset, 01=Flush, 10=Listen, 11=Talk
+wire [1:0] cmd_reg     = cmd_byte[1:0];
+
+// Device register storage
+reg  [3:0] kbd_addr;          // Keyboard device address (default 2)
+reg  [3:0] mouse_addr;        // Mouse device address (default 3)
+
+// Keyboard state
+reg  [15:0] kbdReg0;          // Key data register
+reg  [15:0] kbdReg2;          // Modifier/LED register
+reg   [7:0] kbdFifo [0:7];
+reg   [2:0] kbdFifoRd, kbdFifoWr;
+wire        kbdFifoEmpty = (kbdFifoRd == kbdFifoWr);
+wire        kbd_has_data = !kbdFifoEmpty;
+
+// Mouse state
+reg   [6:0] mouseX, mouseY;
+reg         mouseButton;
+reg         mouse_has_event;
+
+// SRQ: device has pending data
+wire kbd_srq   = kbd_has_data;
+wire mouse_srq = mouse_has_event;
+wire any_srq   = kbd_srq | mouse_srq;
+
+// Response empty check
+wire resp_empty = (resp_idx >= resp_len);
+
+// INT line — state-dependent per Snow's get_int()
+// Active-low output
+reg int_out;
+always @(*) begin
+	case (st)
+		ST_COMMAND: int_out = 1'b0;                              // Never assert during command
+		ST_DATA1:   int_out = (!cmd_valid && resp_empty);        // Completion: no cmd and no response
+		ST_DATA2:   int_out = any_srq;                           // SRQ pending
+		ST_IDLE:    int_out = any_srq;                           // SRQ pending
+	endcase
+end
+assign _int = ~int_out;
+
+// Process command and generate response
+// This mirrors Snow's process_cmd()
+task process_command;
+	input do_finish;  // true when transitioning out of data phase (for Listen)
+	begin
+		resp_len <= 0;
+		resp_idx <= 0;
+
+		if (cmd_type == 2'b00) begin
+			// Reset (broadcast to all devices)
+			kbd_addr <= ADDR_KEYBOARD;
+			mouse_addr <= ADDR_MOUSE;
+			kbdReg0 <= 16'hFFFF;
+			kbdReg2 <= 16'hFFFF;
+			kbdFifoRd <= 0;
+			kbdFifoWr <= 0;
+			mouseX <= 0;
+			mouseY <= 0;
+			mouseButton <= 0;
+			mouse_has_event <= 0;
+			cmd_processed <= 1;
+		end
+		else if (cmd_addr == kbd_addr) begin
+			case (cmd_type)
+				2'b01: begin // Flush
+					kbdFifoRd <= 0;
+					kbdFifoWr <= 0;
+					kbdReg0 <= 16'hFFFF;
+					cmd_processed <= 1;
+				end
+				2'b10: begin // Listen
+					if (do_finish) begin
+						// Deferred execution: apply listen data now
+						if (cmd_reg == 2'd2 && listen_len >= 1) begin
+							kbdReg2[2:0] <= listen_data[0][2:0]; // LED bits
+						end
+						else if (cmd_reg == 2'd3 && listen_len >= 2) begin
+							// Reg 3 write — check for address reassignment
+							if (listen_data[1][7:0] == 8'hFE) begin
+								kbd_addr <= listen_data[0][7:4]; // New address from high nibble
+							end
+						end
+						cmd_processed <= 1;
+					end
+					// else: don't process yet, wait for finish
+				end
+				2'b11: begin // Talk
+					case (cmd_reg)
+						2'd0: begin
+							// Build kbdReg0 from FIFO
+							kbdReg0 <= 16'hFFFF; // Default: no keys
+							if (!kbdFifoEmpty) begin
+								reg [7:0] key1;
+								key1 = kbdFifo[kbdFifoRd];
+								kbdFifoRd <= kbdFifoRd + 1'd1;
+
+								if (kbdFifoRd + 1'd1 != kbdFifoWr) begin
+									// Two keys available
+									response[0] <= key1;
+									response[1] <= kbdFifo[kbdFifoRd + 1'd1];
+									kbdFifoRd <= kbdFifoRd + 2'd2;
+									resp_len <= 2;
+								end else begin
+									// One key: pad with $FF
+									response[0] <= key1;
+									response[1] <= 8'hFF;
+									resp_len <= 2;
+								end
+							end
+							// else: empty response (no keys pending)
+							cmd_processed <= 1;
+						end
+						2'd2: begin
+							response[0] <= kbdReg2[15:8];
+							response[1] <= kbdReg2[7:0];
+							resp_len <= 2;
+							cmd_processed <= 1;
+						end
+						2'd3: begin
+							// Reg3: {reserved=0, exceptional=1, srq_enable=1, reserved=0, addr[3:0], handler_id[7:0]}
+							response[0] <= {1'b0, 1'b1, 1'b1, 1'b0, kbd_addr};
+							response[1] <= 8'h02; // Handler ID 2 = Apple Extended Keyboard
+							resp_len <= 2;
+							cmd_processed <= 1;
+						end
+						default: begin
+							cmd_processed <= 1;
+						end
+					endcase
+				end
+				default: cmd_processed <= 1;
+			endcase
+		end
+		else if (cmd_addr == mouse_addr) begin
+			case (cmd_type)
+				2'b01: begin // Flush
+					mouseX <= 0;
+					mouseY <= 0;
+					mouse_has_event <= 0;
+					cmd_processed <= 1;
+				end
+				2'b10: begin // Listen
+					if (do_finish) begin
+						if (cmd_reg == 2'd3 && listen_len >= 2) begin
+							if (listen_data[1][7:0] == 8'hFE) begin
+								mouse_addr <= listen_data[0][7:4];
+							end
+						end
+						cmd_processed <= 1;
+					end
+				end
+				2'b11: begin // Talk
+					case (cmd_reg)
+						2'd0: begin
+							if (mouse_has_event) begin
+								response[0] <= {~mouseButton, mouseY};
+								response[1] <= {1'b1, mouseX};
+								resp_len <= 2;
+								mouseX <= 0;
+								mouseY <= 0;
+								mouse_has_event <= 0;
+							end
+							// else: empty response
+							cmd_processed <= 1;
+						end
+						2'd3: begin
+							response[0] <= {1'b0, 1'b1, 1'b1, 1'b0, mouse_addr};
+							response[1] <= 8'h01; // Handler ID 1 = Apple Mouse
+							resp_len <= 2;
+							cmd_processed <= 1;
+						end
+						default: begin
+							cmd_processed <= 1;
+						end
+					endcase
+				end
+				default: cmd_processed <= 1;
+			endcase
+		end
+		else begin
+			// No device at this address — empty response
+			cmd_processed <= 1;
+		end
+	end
+endtask
+
+// Main state machine — mirrors Snow's io() method
 always @(posedge clk) begin
 	if (reset) begin
-		respCnt <= 0;
-		idleActive <= 0;
-		cmd_r <= 0;
+		st_prev <= ST_IDLE;
+		cmd_valid <= 0;
+		cmd_processed <= 0;
+		resp_len <= 0;
+		resp_idx <= 0;
 		listen <= 0;
-		sendResponse <= 0;
-	end else if (clk_en) begin
-		st_r <= st;
+		listen_len <= 0;
+		adb_dout <= 0;
 		adb_dout_strobe <= 0;
-		sendResponse <= 0;
 
-		case (st)
-		2'b00: // new command
-		begin
-			if (st_r != 2'b00)
-				listen <= 1;
-
-			respCnt <= 0;
-			if (adb_din_strobe) begin
-				idleActive <= 1;
-				cmd_r <= cmd;
-				addr_r <= addr;
-				listen <= 0;
-
-				if (addr_r != addr || cmd_r != cmd)
-					talkTimer <= 0;
-				else
-					talkTimer <= TALKINTERVAL;
-
-			end
-		end
-
-		2'b01, 2'b10: // even byte, odd byte
-		begin
-			// Reset, flush, talk
-			if (!viaBusy && (cmd_r[3:1] == 0 || cmd_r[3:2] == 2'b11) && respCnt[0] == st[1]) begin
-				sendResponse <= 1;
-				respCnt <= respCnt + 1'd1;
-			end
-			if (sendResponse) begin
-				adb_dout <= adbReg;
-				adb_dout_strobe <= 1;
-			end
-			// Listen
-			if (st_r != st) listen <= cmd_r[3:2] == 2'b10;
-			if (cmd_r[3:2] == 2'b10 && respCnt[0] == st[1]) begin
-				if (adb_din_strobe) begin
-					listen <= 0;
-					respCnt <= respCnt + 1'd1;
-					// Listen : it's handled in the device specific part
-					// The Listen command is to write to registers, some use cases:
-					// - device ID and device handler writes
-					// - LED status for the keyboard
-				end
-			end
-		end
-
-		2'b11: // idle
-		begin
-			if (cmd_r[3:2] == 2'b11 && idleActive) begin
-				if (talkTimer != 0)
-					talkTimer <= talkTimer - 1'd1;
-				else begin
-					adb_dout <= 8'hFF;
-					adb_dout_strobe <= 1;
-					talkTimer <= TALKINTERVAL;
-					idleActive <= 0;
-				end
-			end
-		end
-		default: ;
-		endcase
-	end
-end
-
-// Device handlers
-wire  [3:0] addrKeyboard = kbdReg3[11:8];
-wire  [3:0] addrMouse = mouseReg3[11:8];
-
-wire   mouseInt = (addr_r != addrMouse && mouseValid == 2'b01);
-wire   keyboardInt = (addr_r != addrKeyboard && (keyboardValid == 1 || keyboardValid == 2));
-wire   irq = mouseInt | keyboardInt | !adbValid;
-wire   int_inhibit = respCnt < 3 && 
-                     ((addr_r == addrMouse && mouseValid == 2'b01) ||
-					  (addr_r == addrKeyboard && (keyboardValid == 1 || keyboardValid == 2)));
-assign _int = ~(irq && (st == 2'b01 || st == 2'b10)) | int_inhibit;
-
-// Mouse handler
-reg  [15:0] mouseReg3;
-reg   [6:0] X,Y;
-reg   [1:0] mouseValid;
-
-reg mstb;
-always @(posedge clk) if (clk_en) mstb <= ps2_mouse[24];
-
-wire       mouseStrobe = mstb ^ ps2_mouse[24];
-wire [8:0] mouseX = {ps2_mouse[4], ps2_mouse[15:8]};
-wire [8:0] mouseY = {ps2_mouse[5], ps2_mouse[23:16]};
-wire       button = ps2_mouse[0];
-
-always @(posedge clk) begin
-	if (reset || cmd_r == 0) begin
-		mouseReg3 <= 16'h6301; // device id: 3 device handler id: 1
-		X <= 0;
-		Y <= 0;
-		mouseValid <= 0;
-	end else if (clk_en) begin
-
-		if (mouseStrobe) begin
-			if (~mouseX[8] & |mouseX[7:6]) X <= 7'h3F;
-			else if (mouseX[8] & ~mouseX[6]) X <= 7'h40;
-			else X <= mouseX[6:0];
-
-			if (~mouseY[8] & |mouseY[7:6]) Y <= 7'h40;
-			else if (mouseY[8] & ~mouseY[6]) Y <= 7'h3F;
-			else Y <= -mouseY[6:0];
-
-			mouseValid <= 2'b01;
-		end
-
-		if (addr_r == addrMouse) begin
-
-			if (mouseValid == 2'b01 && respCnt == 3)
-				// mouse data sent
-				mouseValid <= 2'b10;
-
-			if ((mouseValid == 2'b10 && st == 2'b00) || cmd_r == 4'b0001) begin
-				// Flush mouse data after read or flush command
-				mouseValid <= 0;
-				X <= 0;
-				Y <= 0;
-			end
-		end
-
-	end
-end
-
-// Keyboard handler
-reg   [1:0] keyboardValid;
-reg  [15:0] kbdReg0;
-reg  [15:0] kbdReg2;
-reg  [15:0] kbdReg3;
-reg   [7:0] kbdFifo[8];
-reg   [2:0] kbdFifoRd, kbdFifoWr;
-
-always @(posedge clk) begin
-	if (reset || cmd_r == 0) begin
+		kbd_addr <= ADDR_KEYBOARD;
+		mouse_addr <= ADDR_MOUSE;
 		kbdReg0 <= 16'hFFFF;
 		kbdReg2 <= 16'hFFFF;
-		kbdReg3 <= 16'h6202; // device id: 2 device handler id: 2
-		keyboardValid <= 0;
 		kbdFifoRd <= 0;
 		kbdFifoWr <= 0;
+		mouseX <= 0;
+		mouseY <= 0;
+		mouseButton <= 0;
+		mouse_has_event <= 0;
 	end else if (clk_en) begin
+		adb_dout_strobe <= 0;
+		listen <= 0;
 
+		// Detect state transitions
+		if (st != st_prev) begin
+			st_prev <= st;
+
+			case (st)
+				ST_IDLE: begin
+					// Transition to idle — no special processing
+				end
+
+				ST_COMMAND: begin
+					// Transition to command state
+					// If we had a pending multi-byte command (Listen), finish it
+					if (cmd_valid && cmd_type == 2'b10 && !cmd_processed) begin
+						process_command(1'b1); // finish=true
+					end
+					// Prepare for new command
+					cmd_valid <= 0;
+					cmd_processed <= 0;
+					resp_len <= 0;
+					resp_idx <= 0;
+					listen_len <= 0;
+				end
+
+				ST_DATA1, ST_DATA2: begin
+					// Transition to data phase
+					if (cmd_valid && !cmd_processed) begin
+						// Process command, generate response
+						process_command(1'b0); // finish=false
+					end
+
+					// Return next response byte
+					if (!resp_empty) begin
+						adb_dout <= response[resp_idx];
+						adb_dout_strobe <= 1;
+						resp_idx <= resp_idx + 1'd1;
+					end else begin
+						// No data — return 0
+						adb_dout <= 8'h00;
+						adb_dout_strobe <= 1;
+					end
+				end
+			endcase
+		end
+
+		// Receive command byte during Command state
+		if (st == ST_COMMAND && adb_din_strobe) begin
+			if (!cmd_valid) begin
+				// First byte: this is the command byte
+				cmd_byte <= adb_din;
+				cmd_valid <= 1;
+				cmd_processed <= 0;
+				resp_len <= 0;
+				resp_idx <= 0;
+				listen_len <= 0;
+			end else begin
+				// Additional bytes: Listen data
+				listen_data[listen_len] <= adb_din;
+				listen_len <= listen_len + 1'd1;
+			end
+		end
+
+		// Receive Listen data during Data phases (ROM sends via SR)
+		if ((st == ST_DATA1 || st == ST_DATA2) && adb_din_strobe) begin
+			if (cmd_valid && cmd_type == 2'b10) begin
+				listen_data[listen_len] <= adb_din;
+				listen_len <= listen_len + 1'd1;
+				listen <= 1; // Signal to VIA bit-bang that we're listening
+			end
+		end
+
+		// Store keyboard events into FIFO (from PS2 handler)
 		if (keyStrobe && keyData[6:0] != 7'h7F) begin
-			// Store the keypress in the FIFO
 			kbdFifo[kbdFifoWr] <= keyData;
 			kbdFifoWr <= kbdFifoWr + 1'd1;
 		end
 
-		if (kbdFifoWr != kbdFifoRd && st == 2'b11 && keyboardValid < 2) begin
-			// Read the FIFO when no other key processing in progress
-			if (kbdReg0[6:0] == kbdFifo[kbdFifoRd][6:0])
-				kbdReg0[7:0] <= kbdFifo[kbdFifoRd];
-			else if (kbdReg0[14:8] == kbdFifo[kbdFifoRd][6:0])
-				kbdReg0[15:8] <= kbdFifo[kbdFifoRd];
-			else if (kbdReg0[7:0] == 8'hFF)
-				kbdReg0[7:0] <= kbdFifo[kbdFifoRd];
-			else
-				kbdReg0[15:8] <= kbdFifo[kbdFifoRd];
+		// PS2 mouse input handling
+		if (mouseStrobe) begin
+			// Clamp mouse deltas to 7-bit signed range
+			if (~mouseXraw[8] & |mouseXraw[7:6]) mouseX <= 7'h3F;
+			else if (mouseXraw[8] & ~mouseXraw[6]) mouseX <= 7'h40;
+			else mouseX <= mouseXraw[6:0];
 
-			// kbdReg0 has a valid key
-			keyboardValid <= keyboardValid + 1'd1;
-			kbdFifoRd <= kbdFifoRd + 1'd1;
-		end
+			if (~mouseYraw[8] & |mouseYraw[7:6]) mouseY <= 7'h40;
+			else if (mouseYraw[8] & ~mouseYraw[6]) mouseY <= 7'h3F;
+			else mouseY <= -mouseYraw[6:0];
 
-		if (addr_r == addrKeyboard)	begin
-			if (cmd_r == 4'b1010 && adb_din_strobe && st[1]^st[0]) begin
-				// write into reg2 (keyboard LEDs)
-				if (respCnt == 1) kbdReg2[2:0] <= adb_din[2:0];
-			end
-
-			if (keyboardValid != 0 && respCnt == 2)
-				// Beginning of keyboard data read
-				keyboardValid <= 2'd3;
-
-			if ((keyboardValid == 3 && st == 2'b00) || cmd_r == 4'b0001) begin
-				// Flush keyboard data after read or flush command
-				keyboardValid <= 0;
-				kbdReg0 <= 16'hFFFF;
-				if (cmd_r == 4'b0001) begin
-					// Flush
-					kbdFifoRd <= 0;
-					kbdFifoWr <= 0;
-				end
-			end
-		end
-
-	end
-end
-
-// Register 0 in the Apple Standard Mouse
-// Bit   Meaning
-// 15    Button status; 0 = down
-// 14-8  Y move counts'
-// 7     Not used (always 1)
-// 6-0   X move counts
-
-// Register 0 in the Apple Standard Keyboard
-// Bit   Meaning
-// 15    Key status for first key; 0 = down
-// 14-8  Key code for first key; a 7-bit ASCII value
-// 7     Key status for second key; 0 = down
-// 6-0   Key code for second key; a 7-bit ASCII value
-
-// Register 2 in the Apple Extended Keyboard
-// Bit   Key
-// 15    None (reserved)
-// 14    Delete
-// 13    Caps Lock
-// 12    Reset
-// 11    Control
-// 10    Shift
-// 9     Option
-// 8     Command
-// 7     Num Lock/Clear
-// 6     Scroll Lock
-// 5-3   None (reserved)
-// 2     LED 3 (Scroll Lock) *
-// 1     LED 2 (Caps Lock) *
-// 0     LED 1 (Num Lock) *
-//
-// *Changeable via Listen Register 2
-
-// Register 3 (common for all devices):
-// Bit   Description
-// 15    Reserved; must be 0
-// 14    Exceptional event, device specific; always 1 if not used
-// 13    Service Request enable; 1 = enabled
-// 12    Reserved; must be 0
-// 11-8  Device address
-// 7-0   Device Handler ID
-
-reg  [7:0] adbReg;
-reg        adbValid;
-reg [15:0] talkReg;
-
-always @(*) begin
-	adbReg = 8'hFF;
-	adbValid = 0;
-	talkReg = 0;
-	if (addr_r == addrKeyboard) begin
-		if (cmd_r[3:1] == 0) begin
-			// reset
-			if (respCnt == 0) adbValid = 1;
-		end else begin
-			// talk
-			case (r_r)
-			2'b00: talkReg = kbdReg0;
-			2'b10: talkReg = kbdReg2;
-			2'b11: talkReg = kbdReg3;
-			default: ;
-			endcase
-
-			if (respCnt == 1) begin
-				adbReg = talkReg[15:8];
-				adbValid = 1;
-			end
-			if (respCnt == 2) begin
-				adbReg = talkReg[7:0];
-				adbValid = 1;
-			end
-		end
-	end else if (addr_r == addrMouse) begin
-		if (cmd_r[3:1] == 0) begin
-			// reset
-			if (respCnt == 0) adbValid = 1;
-		end else begin
-			// talk
-			case (r_r)
-			2'b00: talkReg = { ~button, Y, 1'b1, X };
-			2'b11: talkReg = mouseReg3;
-			default: ;
-			endcase
-			if (respCnt == 1) begin
-				adbReg = talkReg[15:8];
-				adbValid = 1;
-			end
-			if (respCnt == 2) begin
-				adbReg = talkReg[7:0];
-				adbValid = 1;
-			end
+			mouseButton <= mouseBtn;
+			mouse_has_event <= 1;
 		end
 	end
 end
 
+// PS2 mouse input handling
+reg mstb;
+always @(posedge clk) if (clk_en) mstb <= ps2_mouse[24];
+
+wire       mouseStrobe = mstb ^ ps2_mouse[24];
+wire [8:0] mouseXraw = {ps2_mouse[4], ps2_mouse[15:8]};
+wire [8:0] mouseYraw = {ps2_mouse[5], ps2_mouse[23:16]};
+wire       mouseBtn = ps2_mouse[0];
+
+// PS2 keyboard input handling
 reg       keyStrobe;
 reg [7:0] keyData;
 wire      press = ps2_key[9];
@@ -343,7 +396,7 @@ always @(posedge clk) begin
 	if (clk_en) begin
 		kstb <= ps2_key[10];
 		if (kstb ^ ps2_key[10]) begin
-			case(ps2_key[8:0]) // Scan Code Set 2
+			case(ps2_key[8:0]) // Scan Code Set 2 → ADB scan codes
 			  9'h000: keyData[6:0] <= 7'h7F;
 			  9'h001: keyData[6:0] <= 7'h65;	//F9
 			  9'h002: keyData[6:0] <= 7'h7F;
@@ -356,7 +409,7 @@ always @(posedge clk) begin
 			  9'h009: keyData[6:0] <= 7'h6D;	//F10
 			  9'h00a: keyData[6:0] <= 7'h64;	//F8
 			  9'h00b: keyData[6:0] <= 7'h61;	//F6
-			  9'h00c: keyData[6:0] <= 7'h76;	//F4
+			  9'h00c: keyData[6:0] <= 7'h7F;
 			  9'h00d: keyData[6:0] <= 7'h30;	//TAB
 			  9'h00e: keyData[6:0] <= 7'h32;	//~ (`)
 			  9'h00f: keyData[6:0] <= 7'h7F;
@@ -429,7 +482,7 @@ always @(posedge clk) begin
 			  9'h052: keyData[6:0] <= 7'h27;	//'"
 			  9'h053: keyData[6:0] <= 7'h7F;
 			  9'h054: keyData[6:0] <= 7'h21;	//[
-			  9'h055: keyData[6:0] <= 7'h18;	// = 
+			  9'h055: keyData[6:0] <= 7'h18;	// =
 			  9'h056: keyData[6:0] <= 7'h7F;
 			  9'h057: keyData[6:0] <= 7'h7F;
 			  9'h058: keyData[6:0] <= 7'h39;	//CAPSLOCK
@@ -647,7 +700,7 @@ always @(posedge clk) begin
 			  9'h12c: keyData[6:0] <= 7'h7F;
 			  9'h12d: keyData[6:0] <= 7'h7F;
 			  9'h12e: keyData[6:0] <= 7'h7F;
-			  9'h12f: keyData[6:0] <= 7'h7F;	
+			  9'h12f: keyData[6:0] <= 7'h7F;
 			  9'h130: keyData[6:0] <= 7'h7F;
 			  9'h131: keyData[6:0] <= 7'h7F;
 			  9'h132: keyData[6:0] <= 7'h7F;
@@ -824,7 +877,7 @@ always @(posedge clk) begin
 			  9'h1dd: keyData[6:0] <= 7'h7F;
 			  9'h1de: keyData[6:0] <= 7'h7F;
 			  9'h1df: keyData[6:0] <= 7'h7F;
-			  9'h1e0: keyData[6:0] <= 7'h7F;	//ps2 extended key(duplicate, see $e0)
+			  9'h1e0: keyData[6:0] <= 7'h7F;
 			  9'h1e1: keyData[6:0] <= 7'h7F;
 			  9'h1e2: keyData[6:0] <= 7'h7F;
 			  9'h1e3: keyData[6:0] <= 7'h7F;
@@ -872,4 +925,3 @@ always @(posedge clk) begin
 end
 
 endmodule
-

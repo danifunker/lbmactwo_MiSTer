@@ -104,20 +104,20 @@ module nubus_video_highres (
 
     // ROM byte-lane remapping for 16-bit bus
     //
-    // The 341-0660 ROM file is stored INVERTED, with format byte $1E.
-    // After inversion, the real format byte is $E1 = NuBus lane 0 (D31-D24).
-    // On real Mac II hardware (32-bit NuBus), the EPROM sits on lane 0.
+    // The 341-0660 ROM file is stored INVERTED (format byte $1E at pos -1,
+    // inversion marker $FF at pos -2).  MAME's install_declaration_rom
+    // detects this and XORs all bytes with $FF to de-invert, then uses
+    // the de-inverted format byte $E1 to select lane 0.
     //
-    // Our FPGA has only a 16-bit data bus (D15-D0), so lanes 0 and 1
-    // (D31-D16) are physically inaccessible.  We serve the ROM on lane 3
-    // (D7-D0) instead, which requires:
-    //   1. De-invert all bytes (XOR $FF) so the Slot Manager sees non-inverted data
-    //   2. Override the format byte from $E1 (lane 0) to $78 (lane 3)
+    // Our FPGA serves data on lane 3 (D7-D0 of 16-bit bus), so we:
+    //   1. De-invert all bytes (XOR $FF)
+    //   2. Override format byte to $78 (lane 3, non-inverted)
+    //      ~$78 = $87: upper=$8 (ROM size), lower=$7=0111 (lane 3 has data)
     //
-    // After this remapping:
-    //   - Format byte $78 → ByteLanes = $08 = lane 3 only
-    //   - Inversion marker (pos -1) = $00 → non-inverted ROM
-    //   - Test pattern = $5A932BC7 (standard non-inverted)
+    // After remapping, the Slot Manager sees:
+    //   - Format byte $78 at position -1
+    //   - Inversion marker $00 at position -2 (non-inverted)
+    //   - Test pattern $5A932BC7 (standard non-inverted)
     wire [7:0] rom_byte_raw = addr[2] ? rom_rdata[7:0] : rom_rdata[15:8];
     wire [7:0] rom_byte_deinv = rom_byte_raw ^ 8'hFF;  // De-invert
     // Format byte is the last byte: ROM word 4095, low byte (addr[2]==1)
