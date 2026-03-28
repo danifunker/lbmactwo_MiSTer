@@ -78,15 +78,14 @@ module nubus_video_highres (
     // ========================================================================
     // Declaration ROM — 8KB (4096 x 16-bit words), on-chip
     //
-    // NuBus byte-lane mapping: 341-0660 ROM is an 8-bit EPROM on byte lane 3
-    // (D7-D0, LSB of each 32-bit NuBus word). Each ROM byte occupies one
-    // byte-lane-3 position per 4-byte NuBus word, so 8KB ROM → 32KB address
-    // space at top of slot: $FF8000-$FFFFFF.
+    // NuBus byte-lane mapping: 341-0660 ROM file is an inverted single-lane
+    // ROM originally on NuBus lane 0 (D31-D24).  Format byte $1E (inverted
+    // $E1 = MAME lane 0).  Since our FPGA uses a 16-bit data bus, lane 0
+    // is inaccessible.  We remap to lane 3 (D7-D0) by de-inverting all
+    // bytes and overriding the format byte to $78 (lane 3, non-inverted).
+    // Each ROM byte occupies one lane-3 position per 4-byte NuBus word,
+    // so 8KB ROM → 32KB address space at top of slot: $FF8000-$FFFFFF.
     //
-    // The ROM is inverted (ByteLanes test byte $1E, rom[-2]=$FF →
-    // inverted, real ByteLanes = $E1 = lane 0 in MAME convention = lane 3
-    // in NuBus physical convention). The Mac ROM's slot manager detects
-    // inversion automatically, so we serve the raw file bytes.
     // MAME mirrors the ROM across all 16MB of slot space (mirror_all_mb=true).
     // We achieve this by making ROM the fallback for any unmatched read.
     //
@@ -103,15 +102,29 @@ module nubus_video_highres (
     always @(posedge clk)
         rom_rdata <= rom[addr[14:3]];
 
-    // DO NOT invert ROM data — the Mac ROM slot manager detects inverted
-    // ROMs (rom[-2]==$FF → ByteLanes complement) and handles inversion itself.
-    // Serving raw file bytes matches real hardware behavior.
+    // ROM byte-lane remapping for 16-bit bus
+    //
+    // The 341-0660 ROM file is stored INVERTED, with format byte $1E.
+    // After inversion, the real format byte is $E1 = NuBus lane 0 (D31-D24).
+    // On real Mac II hardware (32-bit NuBus), the EPROM sits on lane 0.
+    //
+    // Our FPGA has only a 16-bit data bus (D15-D0), so lanes 0 and 1
+    // (D31-D16) are physically inaccessible.  We serve the ROM on lane 3
+    // (D7-D0) instead, which requires:
+    //   1. De-invert all bytes (XOR $FF) so the Slot Manager sees non-inverted data
+    //   2. Override the format byte from $E1 (lane 0) to $78 (lane 3)
+    //
+    // After this remapping:
+    //   - Format byte $78 → ByteLanes = $08 = lane 3 only
+    //   - Inversion marker (pos -1) = $00 → non-inverted ROM
+    //   - Test pattern = $5A932BC7 (standard non-inverted)
     wire [7:0] rom_byte_raw = addr[2] ? rom_rdata[7:0] : rom_rdata[15:8];
-    wire [7:0] rom_byte_out = rom_byte_raw;  // Raw file bytes, no inversion
-    // Lane 3 validity: on a 16-bit bus, a word read at addr[1:0]==2 covers
-    // lanes 2 (high byte) and 3 (low byte). So lane 3 data appears in
-    // data_out[7:0] whenever addr[1] is set (addr[1:0] == 2 or 3).
-    wire rom_lane_valid = addr[1];  // Lane 3 in low byte of 16-bit word
+    wire [7:0] rom_byte_deinv = rom_byte_raw ^ 8'hFF;  // De-invert
+    // Format byte is the last byte: ROM word 4095, low byte (addr[2]==1)
+    wire is_format_byte = (addr[14:3] == 12'hFFF) && addr[2];
+    wire [7:0] rom_byte_out = is_format_byte ? 8'h78 : rom_byte_deinv;
+    // Only lane 3 responds (addr[1:0] == 3, i.e. D7-D0 on the 16-bit bus)
+    wire rom_lane_valid = (addr[1:0] == 2'b11);
 
     // ROM Download — boot1.rom (ioctl_index 1), 8KB
     // No byte-swap: ioctl_data[15:8] = even file byte, [7:0] = odd file byte,
@@ -411,9 +424,9 @@ module nubus_video_highres (
                         else if (addr_is_ramdac && rw_n)
                             $display("NUBUS: RD RAMDAC/VBL addr=%h", addr);
                         else if (rw_n)
-                            $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h byte=%h lane=%0d data_out=%h",
-                                addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, addr[1:0],
-                                rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
+                            $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h raw=%h out=%h lane=%0d data_out=%h",
+                                addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
+                                addr[1:0], rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
                         // synthesis translate_on
                         // ---------------------------------------------------
                         // VRAM write ($x0_0000 - $x7_FFFF)

@@ -192,9 +192,23 @@ module emu
 	wire serialRTS;
 
 	// NuBus Video system wires
-	wire [15:0] nubusDataOut;
-	wire nubusAck;
+	wire [15:0] nubusDataOut_card;
+	wire nubusAck_card;
 	wire nubus_irq_n;
+
+	// NuBus open-bus: empty slots return $FFFF with DTACK instead of bus error.
+	// The Slot Manager reads declaration ROM headers — $FF means "slot empty".
+	reg [3:0] nubus_timeout;
+	wire nubus_no_card = selectNuBus & nubusAck_card; // selected but card not responding
+	wire [15:0] nubusDataOut = nubus_no_card && nubus_timeout >= 4'd4 ? 16'hFFFF : nubusDataOut_card;
+	wire nubusAck = nubus_no_card && nubus_timeout >= 4'd4 ? 1'b0 : nubusAck_card;
+
+	always @(posedge clk_sys) begin
+		if (_cpuAS)
+			nubus_timeout <= 0;
+		else if (nubus_no_card && nubus_timeout < 4'd15)
+			nubus_timeout <= nubus_timeout + 1'd1;
+	end
 	wire [7:0] nubus_r, nubus_g, nubus_b;
 	wire nubus_hsync, nubus_vsync, nubus_blank;
 	wire selectNuBus;
@@ -490,11 +504,11 @@ module emu
 		.reset(!_cpuReset),
 		.addr(cpuAddr),
 		.data_in(cpuDataOut),
-		.data_out(nubusDataOut),
+		.data_out(nubusDataOut_card),
 		.uds_lds({!_cpuUDS, !_cpuLDS}),
 		.rw_n(_cpuRW),
 		.select(selectNuBus),
-		.ack_n(nubusAck),
+		.ack_n(nubusAck_card),
 		.vga_r(nubus_r),
 		.vga_g(nubus_g),
 		.vga_b(nubus_b),
