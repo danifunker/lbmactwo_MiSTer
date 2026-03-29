@@ -1,4 +1,4 @@
-# Mac II Boot Sequence — Current Analysis (2026-03-28)
+# Mac II Boot Sequence — Current Analysis (2026-03-29)
 
 ## NuBus Video Card Status: Working Correctly
 
@@ -10,7 +10,7 @@ The NuBus High Resolution Video Card (TFB 2.2 / 341-0660) declaration ROM handli
 - **Monitor ID**: Vblank status register at `$x9_0010` returns `(vblank<<16) | (1<<17)` — correct for Hi-Res 640x480 color monitor.
 - **No built-in video**: Confirmed. Mac II has no built-in framebuffer. All video output is NuBus-only (`VGA_R/G/B` driven exclusively from `nubus_video_highres`). The gray screenshot is from the default CLUT grayscale ramp with uninitialized VRAM.
 - **Slot E**: Card configured at slot $E. Standard slot `$E000_0000-$EEFF_FFFF`, super slot `$FE00_0000-$FEFF_FFFF`.
-- **Empty slot handling**: Slots 9-D return `$FFFF` via timeout (no bus error), which the Slot Manager interprets as "no card" (format byte $FF).
+- **Empty slot handling**: Empty slots now generate proper bus errors via the NuBus arbiter + system BERR counter (see below). The Slot Manager's BERR handler catches these and marks slots as empty.
 
 ## ADB Controller: FIXED (2026-03-28)
 
@@ -57,19 +57,57 @@ After ADB init, the ROM entered a tight BTST #5 polling loop at PC=$40806DD8, wa
 ### Result
 854 SR completion events fired in 300-frame sim. BTST #5 loop hit only 18 times (brief waits, all resolved). Boot progressed well past ADB init into NuBus slot scanning and declaration ROM reading.
 
-## Boot Sequence Timeline (from sim output)
+## TG68K Bus Error Frame / NuBus Empty Slots: FIXED (2026-03-29)
+
+After ADB/SR fixes, the boot reached NuBus slot re-scanning but stalled due to broken bus error handling. The Mac II Slot Manager probes empty NuBus slots and relies on bus errors (BERR) to detect them. Two problems prevented this from working:
+
+### Root causes
+
+1. **Wrong BERR exception frame for 68010+ mode** — TG68K's trap2 state unconditionally routed BERR exceptions through trap4→trap5→trap6, which pushes 3 extra words (68000-style extended frame). But the format/vector word said format `$0` (8-byte frame). On RTE, only 8 bytes were popped, leaving 6 bytes of garbage on the stack. This corrupted the return address, causing wild jumps (PC=`$40803214` in NuBus space).
+
+2. **trap1 didn't push PC for BERR** — The trap1 state only set `writePC` for interrupts and trace exceptions, not for BERR. This meant the PC value pushed to the stack came from `writePC_add` (next instruction) rather than the faulting instruction's actual PC.
+
+3. **No double bus fault → HALT** — If BERR fired during BERR exception processing (e.g., stack in unmapped memory), the CPU would infinite-loop instead of halting. Real 68020 enters HALT state on double bus fault.
+
+4. **Fake DTACK workaround was fragile** — The previous approach returned `$FFFF` with fake DTACK after 4 clocks for empty NuBus slots. This caused the Slot Manager's sResource directory scan to interpret `$FFFF` as a count word of 65535, looping 65536 times per slot.
+
+### Fixes applied
+
+- **`TG68KdotC_Kernel.vhd`** (trap2): Changed `IF trap_berr='1'` to `IF trap_berr='1' AND use_VBR_Stackframe='0'` — only push the extended 68000 frame when actually in 68000 mode. For 68010+, the format `$0` frame (SR + PC + format/vector = 8 bytes) is now complete and self-consistent with RTE.
+
+- **`TG68KdotC_Kernel.vhd`** (trap1): Added `OR trap_berr='1'` to the writePC condition, so BERR pushes the actual PC.
+
+- **`TG68KdotC_Kernel.vhd`** (HALT): Added `halted` and `berr_seen_low` signals. During BERR exception processing (`trap_berr='1'`), if `berr` goes low then re-asserts, `halted` is set. When halted: `clkena_lw` is gated off (freezes microcode), `busstate` forced to `"01"` (no bus activity). New `cpu_halted` output port. Only reset clears halt.
+
+- **`rtl/nubus/nubus_arbiter.sv`** (new): Replaced inline fake-DTACK logic in sim.v. Empty NuBus slots now get no DTACK — the system BERR counter fires after 260 clocks (~8us), matching real hardware. Card responses pass through directly.
+
+- **`tg68k.v`**: Added `cpu_halted` output port, wired to kernel.
+
+### Result
+In 2000-frame sim: 5 BERR events (all at PC=`$40807580`, probing addr `$A0830E80`), correctly caught by Slot Manager's BERR handler. 17 unique PCs install BERR handlers throughout boot — the ROM progresses through multiple boot stages. Boot reaches PC=`$40812Fxx` (deep into ROM init) and enters VIA1 ORA polling — likely ADB communication for device enumeration.
+
+## Boot Sequence Timeline (from 2000-frame sim)
 
 1. **ROM load + reset** — System ROM and NuBus video ROM loaded. Reset sequence completes.
 2. **VIA polling** — Initial VIA ORA reads (port A = $82, DDRA = $3D). Dongle checks at `$40802A7C`.
 3. **ROM checksum** — Passes at cycle ~14M.
-4. **BERR vector setup** — Multiple writes to bus error vector ($000004-$000005) at various PCs.
-5. **Slot scanning** — ROM probes slots 9-D (all empty, return $FFFF). Probes slot E — finds card.
-6. **Declaration ROM read** — Full 8210-byte read of slot E declaration ROM.
-7. **VIA setup** — VIA2 configured: ACR=$C0, T1=$196E (60.15 Hz PB7). VIA1 IER=$87 (CA1/CA2/SR).
-8. **ADB init** — ADB controller communicates successfully (Talk Reg 3 returns device IDs).
-9. **ADB SR transfers** — VIA1 shift register completes 854 transfers (BTST #5 loop passes through).
-10. **NuBus re-scan** — ROM re-probes all NuBus slots, re-reads slot E declaration ROM.
-11. **Current state** — Boot continues past ADB init. Need longer sim to identify next blocker.
+4. **Debug monitor entry** — At cycle ~14M, ROM initializes debug monitor.
+5. **BERR vector setup** — Multiple writes to bus error vector ($000004-$000005) from 17 different PCs throughout boot.
+6. **VIA1/VIA2 setup** — VIA2 configured: ACR=$C0, T1=$196E (60.15 Hz PB7). VIA1 IER=$87 (CA1/CA2/SR).
+7. **ADB init** — ADB controller communicates successfully (Talk Reg 3 returns device IDs).
+8. **ADB SR transfers** — VIA1 shift register completes many transfers (BTST #5 loop passes through).
+9. **IPL interrupts begin** — VIA interrupts (IPL 6→7 transitions) at cycle ~65M, PC around `$408005xx`–`$40807008`.
+10. **NuBus slot scanning with BERR** — At cycle ~71M, ROM probes NuBus slots. Empty slot at `$A0830E80` triggers BERR, caught by Slot Manager handler. Slot E card found and initialized.
+11. **Late ROM init** — BERR handlers reinstalled at PCs `$4080E5xx`–`$4080E60E`. Write to `$0B9A` (low memory global) at PC=`$40812F5E`.
+12. **Current state** — VIA1 ORA polling loop (ADB communication). Port A reads cycling through ira=$81→$83 with DDRA=$3F/$3D. Writes to ORA driving ADB data lines. Boot appears to be in ADB device enumeration or waiting for ADB response.
+
+## Current Blocker: ADB Communication (polling VIA1 ORA)
+
+The boot is stuck polling VIA1 port A (ORA no-handshake reads). The pattern suggests ADB bit-banging:
+- Writes to ORA: `$82`→`$FF`→`$BF`→`$7F`→`$3F`→`$01`→`$EF`→`$83` (driving ADB data/clock)
+- Reads from ORA: ira cycling through `$81`, `$83` (waiting for ADB response bits)
+
+This is likely the ROM's ADB device enumeration phase, which requires proper ADB transceiver timing and response byte delivery. The ADB controller may need timing adjustments or the VIA↔ADB handshake may need work.
 
 ## Reference Implementations
 
@@ -80,15 +118,18 @@ After ADB init, the ROM entered a tight BTST #5 polling loop at PC=$40806DD8, wa
 ## Key Files
 
 - `rtl/adb.sv` — ADB Modem PIC transceiver (Mac II protocol, rewritten 2026-03-28)
+- `rtl/tg68k/TG68KdotC_Kernel.vhd` — CPU core (BERR frame fix, HALT support)
+- `rtl/tg68k/tg68k.v` — CPU bus wrapper (cpu_halted port)
+- `rtl/nubus/nubus_arbiter.sv` — NuBus empty-slot BERR handler (new 2026-03-29)
 - `rtl/nubus/nubus_video_highres.sv` — NuBus video card implementation
 - `rtl/addrDecoder.v` — address decoder (NuBus slot space at lines 139-154)
 - `rtl/dataController_top.sv` — peripheral controller, VIA/SCC/ADB connections
-- `verilator/sim.v` — sim wrapper (NuBus timeout/open-bus at lines 199-211)
+- `verilator/sim.v` — sim wrapper (NuBus arbiter instantiation, BERR counter)
 - `verilator/sim_main.cpp` — sim harness (screenshot capture)
 - `releases/boot1.rom` — declaration ROM file (8KB, 341-0660)
 
 ## Next Steps
 
-1. **Run longer sim (1000+ frames)** — identify where boot stalls next after ADB/SR fix
-2. **Check NuBus slot re-scan** — verify ROM correctly handles second pass over empty slots and slot E
-3. **Monitor for new blockers** — SCSI, IWM/floppy, or other peripheral init may be next
+1. **Debug ADB VIA1 ORA polling** — determine what ADB response the ROM expects; cross-reference ORA bit patterns with Snow's transceiver.rs state machine
+2. **Check ADB timing** — the bit-bang sequence suggests low-level ADB bus signaling; verify clock/data timing matches real hardware
+3. **Monitor for further blockers** — SCSI init, IWM/floppy, or memory manager init may follow ADB
