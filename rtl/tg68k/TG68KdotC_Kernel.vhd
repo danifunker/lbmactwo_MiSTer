@@ -134,6 +134,7 @@ entity TG68KdotC_Kernel is
 		nResetOut				: out std_logic;
 		FC							: out std_logic_vector(2 downto 0);
 		clr_berr					: out std_logic;
+		cpu_halted				: out std_logic;
 -- for debug
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
@@ -292,6 +293,8 @@ architecture logic of TG68KdotC_Kernel is
 	signal trap_SR				: std_logic_vector(7 downto 0);
 	signal make_trace			: std_logic;
 	signal make_berr			: std_logic;
+	signal halted				: std_logic;
+	signal berr_seen_low		: std_logic;
 	signal useStackframe2	: std_logic;
 	
 	signal set_stop			: bit;
@@ -454,15 +457,16 @@ ALU: TG68K_ALU
 
 
 	nWr <= '0' WHEN state="11" ELSE '1';
-	busstate <= state;
+	busstate <= "01" WHEN halted='1' ELSE state;
 	nResetOut <= '0' WHEN exec(opcRESET)='1' ELSE '1';
-	
+	cpu_halted <= halted;
+
 	-- does shift for byte access. note active low me
 	-- should produce address error on 68000
 	memmaskmux <= memmask when addr(0) = '1' else memmask(4 downto 0) & '1';
 	nUDS <= memmaskmux(5);
 	nLDS <= memmaskmux(4);
-	clkena_lw <= '1' WHEN clkena_in='1' AND memmaskmux(3)='1' ELSE '0';
+	clkena_lw <= '1' WHEN clkena_in='1' AND memmaskmux(3)='1' AND halted='0' ELSE '0';
 	clr_berr <= '1' WHEN setopcode='1' AND trap_berr='1' ELSE '0';
 	
 	PROCESS (clk, nReset)
@@ -1231,6 +1235,8 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 --				recall_last <= '0';
 				Suppress_Base <= '0'; 
 				make_berr <= '0';
+				halted <= '0';
+				berr_seen_low <= '0';
 				memmask <= "111111";
 				exec_write_back <= '0';
 			ELSE
@@ -1267,8 +1273,17 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 
 					if(trap_berr='0') then
 						make_berr <= (berr OR make_berr);
+						berr_seen_low <= '0';
 					else
 						make_berr <= '0';
+						-- Double bus fault detection: if berr goes low then
+						-- re-asserts during exception processing, CPU halts
+						if berr='0' then
+							berr_seen_low <= '1';
+						end if;
+						if berr_seen_low='1' and berr='1' then
+							halted <= '1';
+						end if;
 					end if;
 						
 					stop <= set_stop OR (stop AND NOT setinterrupt);
@@ -3935,7 +3950,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					END IF;
 
 				WHEN trap1 =>		-- TRAP
-					IF trap_interrupt='1' OR trap_trace='1' THEN
+					IF trap_interrupt='1' OR trap_trace='1' OR trap_berr='1' THEN
 						writePC <= '1';
 					END IF;
 					set(presub) <= '1';
@@ -3949,9 +3964,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					setstate <= "11";
 					datatype <= "01";
 					writeSR <= '1';
-					IF trap_berr='1' THEN
+					IF trap_berr='1' AND use_VBR_Stackframe='0' THEN
+						-- 68000: push extended bus error frame (trap4-6)
 						next_micro_state <= trap4;
 					ELSE
+						-- 68010+: format $0 frame complete, fetch vector
 						next_micro_state <= trap3;
 					END IF;
 				WHEN trap3 =>		-- TRAP

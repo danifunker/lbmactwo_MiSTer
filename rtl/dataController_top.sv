@@ -302,7 +302,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_o      (cb2_o),
 		.cb2_t      (cb2_t),
 
-		.irq        (viaIrq)
+		.irq        (viaIrq),
+		.sr_active  (via1_sr_active)
 	);
 
 	// VIA2 - NuBus interrupt routing, RAM sizing, timer chain
@@ -368,7 +369,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_o      (),
 		.cb2_t      (),
 
-		.irq        (via2Irq)
+		.irq        (via2Irq),
+		.sr_active  ()           // not used for VIA2
 	);
 
 	wire _rtccs   = ~via_pb_oe[2] | via_pb_o[2];
@@ -390,10 +392,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire ADBST0 = ~via_pb_oe[4] | via_pb_o[4];
 	wire ADBST1 = ~via_pb_oe[5] | via_pb_o[5];
 	wire ADBListen;
+	wire via1_sr_active;
 
 	reg kbdclk;
 	reg [10:0] kbdclk_count;
 	reg kbd_transmitting, kbd_wait_receiving, kbd_receiving;
+	reg adb_recv_pending;
 	reg [2:0] kbd_bitcnt;
 
 	wire cb2_i = kbddata_o;
@@ -403,10 +407,15 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg  [7:0] kbd_to_mac;
 	reg kbd_data_valid;
 
-	// Keyboard transmitter-receiver
+	// Keyboard transmitter-receiver / ADB CB1 clock generator
+	// For Mac II: VIA1 SR needs CB1 toggles to shift data in/out.
+	// The clock runs when kbd_transmitting/receiving (legacy) OR when
+	// VIA1's shift register is armed (via1_sr_active).
+	wire kbd_clk_active = (kbd_transmitting && !kbd_wait_receiving) || kbd_receiving
+	                     || (machineType && via1_sr_active);
 	always @(posedge clk32) begin
 		if (clk8_en_p) begin
-			if ((kbd_transmitting && !kbd_wait_receiving) || kbd_receiving) begin
+			if (kbd_clk_active) begin
 				kbdclk_count <= kbdclk_count + 1'd1;
 				if (kbdclk_count == (machineType ? 8'd80 : 12'd1300)) begin // ~165usec - Mac Plus / faster - ADB
 					kbdclk <= ~kbdclk;
@@ -428,26 +437,37 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	always @(posedge clk32) begin
 		reg kbdclk_d;
 		reg ADBListenD;
+		reg via1_sr_active_d;
 		if (!_cpuReset) begin
 			kbd_bitcnt <= 0;
 			kbd_transmitting <= 0;
 			kbd_wait_receiving <= 0;
 			kbd_data_valid <= 0;
+			adb_recv_pending <= 0;
 			ADBListenD <= 0;
+			via1_sr_active_d <= 0;
 		end else if (clk8_en_p) begin
 			if (kbd_in_strobe && !machineType) begin
 				kbd_to_mac <= kbd_in_data;
 				kbd_data_valid <= 1;
 			end
 
+			// ADB response: buffer the byte, defer clocking until VIA1 SR is armed.
+			// The ROM reads/writes VIA1 SR to arm the shift register (shift_active=1)
+			// before expecting CB1 clocks. Starting immediately would race ahead.
 			if (adb_dout_strobe && machineType) begin
 				kbd_to_mac <= adb_dout;
+				adb_recv_pending <= 1;
+			end
+			if (adb_recv_pending && via1_sr_active && !kbd_receiving && !kbd_transmitting) begin
 				kbd_receiving <= 1;
+				adb_recv_pending <= 0;
 			end
 
 			kbd_out_strobe <= 0;
 			adb_din_strobe <= 0;
 			kbdclk_d <= kbdclk;
+			via1_sr_active_d <= via1_sr_active;
 
 			// Only the Macintosh can initiate communication over the keyboard lines. On
 			// power-up of either the Macintosh or the keyboard, the Macintosh is in
@@ -458,10 +478,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 				kbd_bitcnt <= 0;
 			end
 
-			// ADB transmission start
+			// ADB transmission start — either from ADB Listen or VIA1 SR shift-out.
+			// VIA1 SR drives CB2 with command bits; we capture them into kbd_out_data
+			// and deliver to ADB module after 8 bits, same as the Listen path.
 			if (machineType && !kbd_transmitting && !kbd_receiving) begin
 				ADBListenD <= ADBListen;
-				if (!ADBListenD && ADBListen) begin
+				if ((!ADBListenD && ADBListen) || (!via1_sr_active_d && via1_sr_active)) begin
 					kbd_transmitting <= 1;
 					kbd_bitcnt <= 0;
 				end

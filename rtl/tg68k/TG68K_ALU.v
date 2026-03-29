@@ -14,7 +14,7 @@ module TG68K_ALU
    input  set_stop,
    input  Z_error,
    input  [1:0] rot_bits,
-   input  [88:0] exec,
+   input  [90:0] exec,
    input  [31:0] OP1out,
    input  [31:0] OP2out,
    input  [31:0] reg_QA,

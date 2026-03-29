@@ -562,9 +562,10 @@ module nubus_video_highres (
                         end
 
                     // synthesis translate_off
-                    end else if (select && !in_our_slot && ack_n && ack_delay == 3'd0) begin
-                        $display("NUBUS: SELECT but NOT our slot! addr=%h [31:28]=%h [27:24]=%h",
-                            addr, addr[31:28], addr[27:24]);
+                    // Uncomment for NuBus slot debug:
+                    // end else if (select && !in_our_slot && ack_n && ack_delay == 3'd0) begin
+                    //     $display("NUBUS: SELECT but NOT our slot! addr=%h [31:28]=%h [27:24]=%h",
+                    //         addr, addr[31:28], addr[27:24]);
                     // synthesis translate_on
                     end else if (!select && !ack_n) begin
                         // CPU deasserted select — end transaction

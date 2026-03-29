@@ -30,6 +30,7 @@ module tg68k (
 
 	input [2:0] ipl,
 	input berr,
+	output cpu_halted,
 	input [15:0] din,
 	output [15:0] dout,
 	output reg [31:0] addr,
@@ -110,9 +111,10 @@ always @(posedge clk) begin
 
 				6: begin
 					tg68_din_r <= tg68_din;
-					if (tg68_rw && addr[31:20] == 12'h50F)
-						$display("TG68K_LATCH: addr=%h din=%h uds=%b lds=%b rw=%b",
-							addr, tg68_din, tg68_uds_n, tg68_lds_n, tg68_rw);
+					// Uncomment for TG68K VIA latch debugging:
+					// if (tg68_rw && addr[31:20] == 12'h50F)
+					//	$display("TG68K_LATCH: addr=%h din=%h uds=%b lds=%b rw=%b",
+					//		addr, tg68_din, tg68_uds_n, tg68_lds_n, tg68_rw);
 					uds_n_r <= 1;
 					lds_n_r <= 1;
 					as_n_r <= 1;
@@ -215,7 +217,8 @@ TG68KdotC_Kernel tg68k (
 	.IPL            ( ipl           ),
 	.IPL_autovector ( 1'b1          ),
 	.berr           ( berr          ),
-	.clr_berr       ( /*tg68_clr_berr*/ ),
+	.clr_berr       (               ),
+	.cpu_halted     ( cpu_halted    ),
 	.CPU            ( cpu           ), // 00->68000  01->68010  11->68020(only some parts - yet)
 	.addr_out       ( tg68_addr     ),
 	.data_write     ( dout          ),

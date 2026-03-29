@@ -33,23 +33,29 @@ Rewrote `rtl/adb.sv` to match Snow emulator's Mac II ADB Modem PIC protocol (`tr
 ### Result
 Boot progressed from SCC idle loop (PC=$40803296, cycle 417M) to the BTST #5 polling loop (PC=$40806DD8, cycle ~80M). ROM checksum passes. ADB init completes successfully. Boot now reaches a much later phase.
 
-## Current Blocker: BTST #5, $015D(A3) Polling Loop
+## VIA1 Shift Register / ADB Data Transfer: FIXED (2026-03-28)
 
-After ADB init, the ROM enters a tight loop at PC=$40806DD8:
+After ADB init, the ROM entered a tight BTST #5 polling loop at PC=$40806DD8, waiting for VIA1 SR completion interrupt (IFR bit 2) to fire. Three issues prevented it:
 
-```
-$40806DD8: BTST #5, $015D(A3)    ; Test bit 5 of structure field
-$40806DDE: BNE.S $40806DD8       ; Loop if bit 5 is set
-$40806DE0: JSR   <subroutine>    ; Occasionally calls subroutine
-```
+### Root causes
 
-This loop polls bit 5 of a data structure pointed to by A3, offset $015D. Per `docs/snow_boot_sequence.md`, this is **NOT** a VIA register — it's a ROM initialization structure field. The JSR at $40806DE0 periodically executes (the loop does eventually call it), but the bit 5 condition never fully clears.
+1. **VIA SR not armed on ACR write** — The Mac II ROM sets the shift mode by writing VIA1 ACR ($50F01600) *without* accessing the SR register. Our `via6522.sv` only armed the shift register on SR read/write (`trigger_serial`), matching the 6522 datasheet but not how the Mac II ROM uses it. Snow's VIA emulation starts shifting on ACR write.
 
-### What we know about this loop
-- It appears after ADB init completes and VIA2 Timer A is configured
-- The structure at A3+$015D likely tracks initialization state
-- Bit 5 may be cleared by an interrupt handler or callback from a peripheral init step
-- No NuBus video writes occur — ROM hasn't reached video card initialization yet
+2. **Keyboard clock generator not running** — Even after arming the SR, no CB1 clock edges were generated. The `kbd_clk_active` signal in `dataController_top.sv` only ran during `kbd_transmitting` or `kbd_receiving`, but VIA1 SR activation alone didn't trigger either state.
+
+3. **ADB response bytes not buffered** — The ADB controller (`adb.sv`) strobed response bytes immediately, but `kbd_receiving` wasn't set because VIA1 SR wasn't armed yet. The response data was lost.
+
+### Fixes applied
+
+- **`via6522.sv`**: Added `trigger_acr_shift` — arms shift register when ACR is written with a non-disabled shift mode (bits 4:2 ≠ 000). Added `sr_active` output port exposing internal `shift_active` state. Fixed `serial_event` to use falling-edge detection of `shift_active` for reliable completion.
+
+- **`dataController_top.sv`**:
+  - `kbd_clk_active` now includes `via1_sr_active` — clock generator runs whenever VIA1 SR is armed
+  - Added `adb_recv_pending` register — buffers ADB response bytes until VIA1 SR is ready to receive
+  - Auto-starts `kbd_transmitting` on VIA1 SR activation edge (for shift-out to ADB)
+
+### Result
+854 SR completion events fired in 300-frame sim. BTST #5 loop hit only 18 times (brief waits, all resolved). Boot progressed well past ADB init into NuBus slot scanning and declaration ROM reading.
 
 ## Boot Sequence Timeline (from sim output)
 
@@ -61,7 +67,9 @@ This loop polls bit 5 of a data structure pointed to by A3, offset $015D. Per `d
 6. **Declaration ROM read** — Full 8210-byte read of slot E declaration ROM.
 7. **VIA setup** — VIA2 configured: ACR=$C0, T1=$196E (60.15 Hz PB7). VIA1 IER=$87 (CA1/CA2/SR).
 8. **ADB init** — ADB controller communicates successfully (Talk Reg 3 returns device IDs).
-9. **BTST #5 loop** — CPU enters polling loop at $40806DD8. **Currently stalls here.**
+9. **ADB SR transfers** — VIA1 shift register completes 854 transfers (BTST #5 loop passes through).
+10. **NuBus re-scan** — ROM re-probes all NuBus slots, re-reads slot E declaration ROM.
+11. **Current state** — Boot continues past ADB init. Need longer sim to identify next blocker.
 
 ## Reference Implementations
 
@@ -81,9 +89,6 @@ This loop polls bit 5 of a data structure pointed to by A3, offset $015D. Per `d
 
 ## Next Steps
 
-Investigate the BTST #5 polling loop at PC=$40806DD8:
-- Determine what A3 points to and what the structure at offset $015D represents
-- Check if bit 5 is supposed to be cleared by an interrupt handler
-- Check if this relates to Egret/PRAM/RTC initialization
-- Try running Snow with instruction tracing to see how it gets past this point
-- Add sim tracing for the memory address being polled (A3+$015D)
+1. **Run longer sim (1000+ frames)** — identify where boot stalls next after ADB/SR fix
+2. **Check NuBus slot re-scan** — verify ROM correctly handles second pass over empty slots and slot E
+3. **Monitor for new blockers** — SCSI, IWM/floppy, or other peripheral init may be next

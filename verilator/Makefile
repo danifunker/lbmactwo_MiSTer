@@ -71,6 +71,7 @@ V_SRC = \
 	$(RTL)/videoTimer.v \
 	$(RTL)/videoShifter.v \
 	sim_vram.v \
+	$(RTL)/nubus/nubus_arbiter.sv \
 	$(RTL)/nubus/nubus_video_highres.sv \
 	$(RTL)/via6522.sv \
 	$(RTL)/adb.sv \

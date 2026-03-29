@@ -196,19 +196,24 @@ module emu
 	wire nubusAck_card;
 	wire nubus_irq_n;
 
-	// NuBus open-bus: empty slots return $FFFF with DTACK instead of bus error.
-	// The Slot Manager reads declaration ROM headers — $FF means "slot empty".
-	reg [3:0] nubus_timeout;
-	wire nubus_no_card = selectNuBus & nubusAck_card; // selected but card not responding
-	wire [15:0] nubusDataOut = nubus_no_card && nubus_timeout >= 4'd4 ? 16'hFFFF : nubusDataOut_card;
-	wire nubusAck = nubus_no_card && nubus_timeout >= 4'd4 ? 1'b0 : nubusAck_card;
+	// NuBus arbiter: handles empty-slot bus errors (see nubus_arbiter.sv)
+	wire [15:0] nubusDataOut;
+	wire nubusAck;
+	wire nubus_acked_arb;
+	wire nubus_berr;
 
-	always @(posedge clk_sys) begin
-		if (_cpuAS)
-			nubus_timeout <= 0;
-		else if (nubus_no_card && nubus_timeout < 4'd15)
-			nubus_timeout <= nubus_timeout + 1'd1;
-	end
+	nubus_arbiter nubus_arb (
+		.clk(clk_sys),
+		._cpuAS(_cpuAS),
+		.cpuAddr(cpuAddr),
+		.selectNuBus(selectNuBus),
+		.card_data_out(nubusDataOut_card),
+		.card_ack_n(nubusAck_card),
+		.data_out(nubusDataOut),
+		.ack_n(nubusAck),
+		.acked(nubus_acked_arb),
+		.berr(nubus_berr)
+	);
 	wire [7:0] nubus_r, nubus_g, nubus_b;
 	wire nubus_hsync, nubus_vsync, nubus_blank;
 	wire selectNuBus;
@@ -274,7 +279,7 @@ module emu
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
 	reg [8:0] berr_counter;
 	reg berr_out;
-	wire nubus_acked = selectNuBus & ~nubusAck;  // NuBus card actually responding
+	wire nubus_acked = nubus_acked_arb;  // from nubus_arbiter: card or empty-slot responded
 	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
 	                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay;
 	wire is_cpu_space = (cpuFC == 3'b111);
@@ -357,6 +362,7 @@ module emu
 
 		.ipl        ( _cpuIPL      ),
 		.berr       ( berr_out     ),
+		.cpu_halted (              ),
 		.din        ( dataControllerDataOut ),
 		.dout       ( tg68_dout    ),
 		.addr       ( tg68_a       ),
@@ -409,10 +415,10 @@ module emu
 					write_data <= tg68_dout[15:0];
 					write_valid <= 1;
 				end
-				// Debug: log all data reads where address is in VIA space (data captured one cycle late)
-				if (tg68_rw && tg68_a[31:20] == 12'h50F)
-					$display("VIA_BUS_RD_LATE: addr=%h data=%h via_din_r=%h UDS=%b LDS=%b selVIA=%b",
-						tg68_a, dataControllerDataOut, via_rd_data_r, _cpuUDS, _cpuLDS, selectVIA);
+				// Uncomment for VIA bus read debugging:
+				// if (tg68_rw && tg68_a[31:20] == 12'h50F)
+				//	$display("VIA_BUS_RD_LATE: addr=%h data=%h via_din_r=%h UDS=%b LDS=%b selVIA=%b",
+				//		tg68_a, dataControllerDataOut, via_rd_data_r, _cpuUDS, _cpuLDS, selectVIA);
 			end
 		end
 	end

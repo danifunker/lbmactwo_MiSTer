@@ -54,7 +54,8 @@ module via6522 (
     input  wire        cb2_i,
     output wire        cb2_t,
 
-    output wire        irq
+    output wire        irq,
+    output wire        sr_active  // shift register armed and counting
 );
     localparam [15:0] latch_reset_pattern = 16'h5550;
 
@@ -683,6 +684,20 @@ module via6522 (
         ser_cb2_o = shift_reg[7];
     end
 
+    // Detect ACR write enabling a shift mode — arms shift register like SR access.
+    // On real Mac II, ROM writes ACR to set shift mode without first writing SR.
+    // Snow emulator also starts shift on ACR write.
+    reg trigger_acr_shift;
+    always @(posedge clock) begin
+        if (reset)
+            trigger_acr_shift <= 1'b0;
+        else if (falling) begin
+            trigger_acr_shift <= 1'b0;
+            if (wen && addr == 4'hB && data_in[4:2] != 3'b000)
+                trigger_acr_shift <= 1'b1;
+        end
+    end
+
     always @(*) begin
         serport_en = shift_dir |
                      shift_clk_sel[1] | shift_clk_sel[0];
@@ -690,6 +705,16 @@ module via6522 (
         shift_tick_r = ~shift_clock_d & shift_clock;
         shift_tick_f = shift_clock_d & ~shift_clock;
     end
+
+    // synthesis translate_off
+    // Uncomment for VIA SR debugging:
+    // always @(posedge clock) begin
+    //     if ((trigger_serial || trigger_acr_shift) && falling)
+    //         $display("VIA_SR_ARM: trigger_sr=%b trigger_acr=%b sr=%02x acr_mode=%03b", trigger_serial, trigger_acr_shift, shift_reg, shift_mode_control);
+    //     if (shift_active_d && !shift_active && rising)
+    //         $display("VIA_SR_COMPLETE: ifr=%02x ier=%02x", irq_flags, irq_mask);
+    // end
+    // synthesis translate_on
 
     always @(posedge clock) begin
         if (reset == 1'b1) begin
@@ -706,11 +731,24 @@ module via6522 (
     end
 
     // tell people that we're ready!
-    assign serial_event = shift_tick_r & ~shift_active & rising & serport_en;
+    // Detect shift_active falling edge (1→0 transition) for SR completion.
+    // The original logic (shift_tick_r & ~shift_active) required a CB1 edge
+    // AFTER shift_active cleared, but with external clocking the clock stops
+    // at exactly 8 edges, so the event could never fire.
+    reg shift_active_d;
+    always @(posedge clock) begin
+        if (rising == 1'b1)
+            shift_active_d <= shift_active;
+        if (reset == 1'b1)
+            shift_active_d <= 1'b0;
+    end
+    assign serial_event = (shift_active_d & ~shift_active & rising & serport_en)
+                        | (shift_tick_r & ~shift_active & rising & serport_en);
+    assign sr_active = shift_active;
     always @(posedge clock) begin
         if (falling == 1'b1) begin
             if (shift_active == 1'b0 && shift_mode_control != 3'b000) begin
-                if (trigger_serial == 1'b1) begin
+                if (trigger_serial == 1'b1 || trigger_acr_shift == 1'b1) begin
                     bit_cnt <= 3'd7;
                     shift_active <= 1'b1;
                 end
