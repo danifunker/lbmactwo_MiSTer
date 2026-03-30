@@ -1,4 +1,4 @@
-# Mac II Boot Sequence — Current Analysis (2026-03-29)
+# Mac II Boot Sequence — Current Analysis (2026-03-30)
 
 ## NuBus Video Card Status: Working Correctly
 
@@ -101,13 +101,39 @@ In 2000-frame sim: 5 BERR events (all at PC=`$40807580`, probing addr `$A0830E80
 11. **Late ROM init** — BERR handlers reinstalled at PCs `$4080E5xx`–`$4080E60E`. Write to `$0B9A` (low memory global) at PC=`$40812F5E`.
 12. **Current state** — VIA1 ORA polling loop (ADB communication). Port A reads cycling through ira=$81→$83 with DDRA=$3F/$3D. Writes to ORA driving ADB data lines. Boot appears to be in ADB device enumeration or waiting for ADB response.
 
-## Current Blocker: ADB Communication (polling VIA1 ORA)
+## ADB Response Timing / Device Enumeration: FIXED (2026-03-30)
 
-The boot is stuck polling VIA1 port A (ORA no-handshake reads). The pattern suggests ADB bit-banging:
-- Writes to ORA: `$82`→`$FF`→`$BF`→`$7F`→`$3F`→`$01`→`$EF`→`$83` (driving ADB data/clock)
-- Reads from ORA: ira cycling through `$81`, `$83` (waiting for ADB response bits)
+After the VIA SR fixes, ADB device enumeration failed because response bytes arrived one state transition late. The ROM scanned all 16 ADB addresses with Talk R3, but the first response byte was always `$00` instead of the actual device data.
 
-This is likely the ROM's ADB device enumeration phase, which requires proper ADB transceiver timing and response byte delivery. The ADB controller may need timing adjustments or the VIA↔ADB handshake may need work.
+### Root causes
+
+1. **Non-blocking assignment race in `adb.sv`** — `process_command` was called during Data1/Data2 state transitions. It set `resp_len` and `response[]` via non-blocking assignments (`<=`), but `resp_empty` was checked in the same cycle, seeing the OLD `resp_len=0`. Result: first Data1 always returned `$00`, and `response[0]` appeared on Data2 (one transition late).
+
+2. **`kbd_bitcnt` not reset on receive start** — When `kbd_receiving` started, `kbd_bitcnt` wasn't explicitly reset to 0. While it happened to be 0 in most cases (from the previous transmit ending), this was fragile.
+
+### Fixes applied
+
+- **`rtl/adb.sv`**: Moved `process_command(1'b0)` from the Data1/Data2 state transition handler to a standalone check: `if (cmd_valid && !cmd_processed && st == ST_COMMAND)`. This runs one cycle after the command byte is received (when `cmd_byte` has settled via non-blocking assignment), ensuring `resp_len` and `response[]` are ready long before the Data1 transition reads them.
+
+- **`rtl/dataController_top.sv`**: Added `kbd_bitcnt <= 0` when `kbd_receiving` starts from `adb_recv_pending`.
+
+### Result
+
+ADB device enumeration now completes successfully:
+- Reset ($00) → all devices reset
+- Talk R3 addr 0–15 → keyboard found at addr 2 (`$62,$02`), mouse at addr 3 (`$63,$01`)
+- Talk R0 addr 3 → mouse event poll
+- Boot progresses past ADB init into VIA1 CA1 interrupt handling
+
+## Current Blocker: VIA1 CA1 Interrupt Loop
+
+After ADB enumeration completes, the boot enters a repeating VIA1 CA1 interrupt handling loop:
+- IFR reads `$82` (bit 7 IRQ + bit 1 CA1 flag)
+- ROM clears CA1 flag by writing `$02` to IFR
+- Flag immediately re-asserts
+- Repeated at PC `$4080609A`/`$4080609E`/`$4080618C`
+
+VIA1 CA1 on Mac II is typically the VBL interrupt. The CA1 input may not be properly driven, causing continuous re-triggering. The boot reaches PC=$40805F4A (ORA polling loop) between interrupt bursts.
 
 ## Reference Implementations
 
@@ -117,19 +143,19 @@ This is likely the ROM's ADB device enumeration phase, which requires proper ADB
 
 ## Key Files
 
-- `rtl/adb.sv` — ADB Modem PIC transceiver (Mac II protocol, rewritten 2026-03-28)
+- `rtl/adb.sv` — ADB Modem PIC transceiver (Mac II protocol, response timing fix 2026-03-30)
 - `rtl/tg68k/TG68KdotC_Kernel.vhd` — CPU core (BERR frame fix, HALT support)
 - `rtl/tg68k/tg68k.v` — CPU bus wrapper (cpu_halted port)
 - `rtl/nubus/nubus_arbiter.sv` — NuBus empty-slot BERR handler (new 2026-03-29)
 - `rtl/nubus/nubus_video_highres.sv` — NuBus video card implementation
 - `rtl/addrDecoder.v` — address decoder (NuBus slot space at lines 139-154)
-- `rtl/dataController_top.sv` — peripheral controller, VIA/SCC/ADB connections
+- `rtl/dataController_top.sv` — peripheral controller, VIA/SCC/ADB connections, kbd_bitcnt fix
 - `verilator/sim.v` — sim wrapper (NuBus arbiter instantiation, BERR counter)
 - `verilator/sim_main.cpp` — sim harness (screenshot capture)
 - `releases/boot1.rom` — declaration ROM file (8KB, 341-0660)
 
 ## Next Steps
 
-1. **Debug ADB VIA1 ORA polling** — determine what ADB response the ROM expects; cross-reference ORA bit patterns with Snow's transceiver.rs state machine
-2. **Check ADB timing** — the bit-bang sequence suggests low-level ADB bus signaling; verify clock/data timing matches real hardware
-3. **Monitor for further blockers** — SCSI init, IWM/floppy, or memory manager init may follow ADB
+1. **Debug VIA1 CA1 interrupt loop** — determine what drives CA1 (VBL from VIA2? RTC?), check if the source is properly connected and generating correct timing
+2. **Check VIA1 CA1 edge/level sensitivity** — CA1 may be configured for edge-triggered but receiving a stuck level
+3. **Monitor for further blockers** — SCSI init, IWM/floppy, or memory manager init may follow

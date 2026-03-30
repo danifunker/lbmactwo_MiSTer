@@ -709,10 +709,10 @@ module via6522 (
     // synthesis translate_off
     // Uncomment for VIA SR debugging:
     // always @(posedge clock) begin
-    //     if ((trigger_serial || trigger_acr_shift) && falling)
-    //         $display("VIA_SR_ARM: trigger_sr=%b trigger_acr=%b sr=%02x acr_mode=%03b", trigger_serial, trigger_acr_shift, shift_reg, shift_mode_control);
+    //     if ((trigger_serial || trigger_acr_shift) && falling && shift_active == 1'b0)
+    //         $display("VIA_SR_ARM: trigger_sr=%b trigger_acr=%b sr=%02x acr_mode=%03b shift_dir=%b clk_sel=%02b", trigger_serial, trigger_acr_shift, shift_reg, shift_mode_control, shift_dir, shift_clk_sel);
     //     if (shift_active_d && !shift_active && rising)
-    //         $display("VIA_SR_COMPLETE: ifr=%02x ier=%02x", irq_flags, irq_mask);
+    //         $display("VIA_SR_COMPLETE: sr=%02x ifr=%02x ier=%02x bit_cnt=%0d", shift_reg, irq_flags, irq_mask, bit_cnt);
     // end
     // synthesis translate_on
 

@@ -410,9 +410,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// Keyboard transmitter-receiver / ADB CB1 clock generator
 	// For Mac II: VIA1 SR needs CB1 toggles to shift data in/out.
 	// The clock runs when kbd_transmitting/receiving (legacy) OR when
-	// VIA1's shift register is armed (via1_sr_active).
-	wire kbd_clk_active = (kbd_transmitting && !kbd_wait_receiving) || kbd_receiving
-	                     || (machineType && via1_sr_active);
+	// For Mac II ADB, only start CB1 clock when we are actively transmitting or
+	// receiving. This prevents the clock from starting prematurely (before ADB
+	// response data is loaded) when the VIA SR is re-armed but the ORB state
+	// transition hasn't happened yet.
+	wire kbd_clk_active = (kbd_transmitting && !kbd_wait_receiving) || kbd_receiving;
 	always @(posedge clk32) begin
 		if (clk8_en_p) begin
 			if (kbd_clk_active) begin
@@ -462,6 +464,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			if (adb_recv_pending && via1_sr_active && !kbd_receiving && !kbd_transmitting) begin
 				kbd_receiving <= 1;
 				adb_recv_pending <= 0;
+				kbd_bitcnt <= 0;
 			end
 
 			kbd_out_strobe <= 0;
@@ -481,9 +484,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// ADB transmission start — either from ADB Listen or VIA1 SR shift-out.
 			// VIA1 SR drives CB2 with command bits; we capture them into kbd_out_data
 			// and deliver to ADB module after 8 bits, same as the Listen path.
+			// Only start when VIA is shifting OUT (cb2_t=1). When VIA is shifting IN
+			// (cb2_t=0, ACR mode 011), we must NOT start kbd_transmitting — instead
+			// kbd_receiving will start via adb_recv_pending to drive response data on CB2.
 			if (machineType && !kbd_transmitting && !kbd_receiving) begin
 				ADBListenD <= ADBListen;
-				if ((!ADBListenD && ADBListen) || (!via1_sr_active_d && via1_sr_active)) begin
+				if ((!ADBListenD && ADBListen) || (!via1_sr_active_d && via1_sr_active && cb2_t)) begin
 					kbd_transmitting <= 1;
 					kbd_bitcnt <= 0;
 				end

@@ -306,19 +306,14 @@ always @(posedge clk) begin
 				end
 
 				ST_DATA1, ST_DATA2: begin
-					// Transition to data phase
-					if (cmd_valid && !cmd_processed) begin
-						// Process command, generate response
-						process_command(1'b0); // finish=false
-					end
-
-					// Return next response byte
+					// Return next pre-computed response byte
+					// (process_command runs on cmd receipt, response ready before data phase)
 					if (!resp_empty) begin
 						adb_dout <= response[resp_idx];
 						adb_dout_strobe <= 1;
 						resp_idx <= resp_idx + 1'd1;
 					end else begin
-						// No data — return 0
+						// No data - return 0
 						adb_dout <= 8'h00;
 						adb_dout_strobe <= 1;
 					end
@@ -333,14 +328,19 @@ always @(posedge clk) begin
 				cmd_byte <= adb_din;
 				cmd_valid <= 1;
 				cmd_processed <= 0;
-				resp_len <= 0;
-				resp_idx <= 0;
 				listen_len <= 0;
 			end else begin
 				// Additional bytes: Listen data
 				listen_data[listen_len] <= adb_din;
 				listen_len <= listen_len + 1'd1;
 			end
+		end
+
+		// Process command as soon as cmd_byte settles (1 cycle after receipt).
+		// This ensures response[] and resp_len are ready before the Data1 transition.
+		// Listen commands are excluded — they defer to process_command(finish=true).
+		if (cmd_valid && !cmd_processed && st == ST_COMMAND) begin
+			process_command(1'b0);
 		end
 
 		// Receive Listen data during Data phases (ROM sends via SR)
