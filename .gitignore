@@ -47,3 +47,4 @@ cpu_trace.log
 ram_debug.log
 verilator/obj_dir
 verilator/*.png
+verilator/*.txt

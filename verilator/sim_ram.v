@@ -20,20 +20,20 @@ module sim_ram
 	input [31:0]        debug_pc    // CPU PC for watchpoint logging
 );
 
-// 1MB of RAM (512K words of 16 bits) + ROM space
+// 4MB of RAM (2M words of 16 bits) + ROM space
 // Upper address bits select ROM vs RAM area
-// ROM area (addr[21:20]=01) uses full 256K words for 512KB ROM
-// RAM area: 512K words (addr[18:0]). Accesses beyond 1MB return 0
+// ROM area (addr[21]=1) uses 256K words for 512KB ROM + disk images
+// RAM area: 2M words (addr[20:0]). Accesses beyond 4MB return 0
 // and writes are ignored — matches real hardware (BERR/no response).
-reg [15:0] mem [0:4194303];  // Keep full array for ROM storage
+reg [15:0] mem [0:4194303];  // 4M words: 2M RAM + 2M ROM/disk
 
-// RAM range check: addr[21:20]==00 and addr[19]==0 means within 1MB
+// RAM range check: addr[21]==0 means within 4MB RAM space (2M words)
 // ROM/other: addr[21] set (ROM downloads, ROM reads, disk reads)
-wire ram_in_range = (addr[21:20] == 2'b00) && (addr[19] == 1'b0);
+wire ram_in_range = (addr[21] == 1'b0);
 wire is_rom = addr[21];
 
 // Combinational read - no latency, data available immediately when oe is asserted
-wire [21:0] effective_addr = is_rom ? addr[21:0] : {3'b0, addr[18:0]};
+wire [21:0] effective_addr = is_rom ? addr[21:0] : {1'b0, addr[20:0]};
 assign dout = (ram_in_range || is_rom) ? mem[effective_addr] : 16'h0000;
 
 // Simple synchronous read/write
@@ -86,7 +86,11 @@ always @(posedge clk) begin
 		        && din != 16'hffff && din != 16'h0000))
 			$display("WATCH BERR_VEC: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
-		// sResource table at $2000 (word addr $1000-$1020)
+		// WLCS marker at byte $0CFC = word addr $067E/$067F
+			if (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F)
+				$display("WATCH WLCS: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
+					addr[21:0], din, ds, debug_pc, wr_count);
+			// sResource table at $2000 (word addr $1000-$1020)
 		if (addr[21:0] >= 22'h001000 && addr[21:0] < 22'h001020
 		    && din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
 		    && din != 16'hffff)
@@ -98,6 +102,10 @@ always @(posedge clk) begin
 		last_wr_valid <= 0;
 		// Don't reset wr_count so we can track all writes
 	end else begin
+		// Watch WLCS reads at byte $0CFC = word addr $067E/$067F
+		if (oe && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
+			$display("WATCH WLCS: RD addr=%h dout=%h PC=%h",
+				addr[21:0], mem[{3'b0, addr[18:0]}], debug_pc);
 		// Debug video reads (VRAM is at 0x1A0000 = 0x340000 >> 1 in word address)
 		if (oe && addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin
 			if (vram_rd_count < 50)
