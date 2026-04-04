@@ -90,6 +90,10 @@ module emu
 	output [31:0] debug_vbr,
 	output  [2:0] debug_cpuIPL,
 
+	// Serial terminal interface
+	output        serial_txd,       // SCC Channel A TX output (for sim-side RX)
+	input         serial_rxd,       // SCC Channel A RX input (from sim-side TX)
+
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
 	input         cfg_memSize       // 0=1MB, 1=4MB
@@ -185,11 +189,12 @@ module emu
 	localparam configROMSize = 2'b10;  // 256K ROM
 	wire [1:0] configRAMSize = 2'b10; // 4MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
 
-	// Serial Ports (not used on Mac II - uses SCC)
-	wire serialOut = 1'b1;
-	wire serialIn = 1'b1;
+	// Serial Ports — connected to serial terminal in sim_main.cpp
+	wire serialOut;              // SCC Channel A TX (driven by SCC)
+	wire serialIn = serial_rxd; // SCC Channel A RX (driven by sim)
 	wire serialCTS = 1'b0;
 	wire serialRTS;
+	assign serial_txd = serialOut;
 
 	// NuBus Video system wires
 	wire [15:0] nubusDataOut_card;

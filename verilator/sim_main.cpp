@@ -28,6 +28,7 @@
 #include "sim_audio.h"
 #include "sim_input.h"
 #include "sim_clock.h"
+#include "sim_serial.h"
 #include "m68k_dasm.h"
 
 #include "../imgui/imgui_memory_editor.h"
@@ -124,6 +125,7 @@ const char* windowTitle_Video = "VGA output";
 const char* windowTitle_Audio = "Audio output";
 bool showDebugLog = true;
 DebugConsole console;
+SimSerialTerminal serialTerminal;
 MemoryEditor mem_edit;
 
 // HPS emulator
@@ -396,6 +398,28 @@ int verilate() {
 		}
 #endif
 
+		// Serial terminal: tick soft UART every rising edge
+		if (clk_sys.IsRising()) {
+			bool fpga_txd = VERTOPINTERN->serial_txd;
+			// Debug: log txd transitions
+			static bool last_txd = true;
+			if (fpga_txd != last_txd) {
+				fprintf(stderr, "SERIAL_TXD: %d->%d at cycle %llu\n",
+						last_txd ? 1 : 0, fpga_txd ? 1 : 0, (unsigned long long)main_time);
+				last_txd = fpga_txd;
+			}
+			bool sim_rxd = serialTerminal.Tick(fpga_txd);
+			VERTOPINTERN->serial_rxd = sim_rxd;
+
+			// Auto-update baud config from SCC baud rate divider
+			static uint32_t last_baud_div = 0;
+			uint32_t baud_div = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__baud_divid_speed_a;
+			if (baud_div != last_baud_div) {
+				serialTerminal.UpdateConfigDirect(baud_div, 8, 1, false, false);
+				last_baud_div = baud_div;
+			}
+		}
+
 		// Output pixels on rising edge of pixel clock
 		if (clk_sys.IsRising() && VERTOPINTERN->CE_PIXEL) {
 			uint32_t colour = 0xFF000000 | VERTOPINTERN->VGA_B << 16 | VERTOPINTERN->VGA_G << 8 | VERTOPINTERN->VGA_R;
@@ -438,7 +462,7 @@ int verilate() {
 				uint8_t wr9 = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr9;
 				uint8_t wr5a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr5_a;
 				uint8_t wr1a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr1_a;
-				uint8_t txip = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__tx_ip;
+				uint8_t txip = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__tx_irq_pend_a;
 				uint8_t wreg_a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wreg_a;
 				uint8_t selSCC = VERTOPINTERN->emu__DOT__selectSCC;
 				if (wr9 != last_wr9 || wr5a != last_wr5a || wr1a != last_wr1a || txip != last_txip) {
@@ -462,7 +486,7 @@ int verilate() {
 				// Log rx_wr_a_latch changes and startup counter
 				{
 					static uint8_t last_rxlatch = 0xFF;
-					uint8_t rxlatch = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rx_wr_a_latch;
+					uint8_t rxlatch = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rx_wr_a_r;
 					uint8_t rr0a = VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rr0_a;
 					if (rxlatch != last_rxlatch) {
 						fprintf(stderr, "SCC_RX @%llu: rx_wr_a_latch=%d rr0_a=%02X\n",
@@ -513,9 +537,58 @@ int verilate() {
 					last_trace_addr = cur_addr;
 				}
 			}
+			// PC trace window 70M-182M: log unique PC values to find failure path
+			if (main_time >= 14170000 && main_time < 14300000) {
+				static uint32_t last_trace_pc = 0;
+				uint32_t cur_pc = VERTOPINTERN->debug_pc;
+				if (cur_pc != last_trace_pc && VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
+					fprintf(stderr, "PCTRACE %llu: PC=%08X addr=%08X RW=%d BERR=%d\n",
+						(unsigned long long)main_time,
+						cur_pc,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_berr ? 1 : 0);
+					last_trace_pc = cur_pc;
+				}
+			}
 			// Boot decision watchpoints - log key PC values to stderr
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+
+				// Key startup path watchpoints
+				if (pc == 0x40800694)
+					fprintf(stderr, "*** EXCEPTION HANDLER at cycle %llu addr=%08X ***\n",
+						(unsigned long long)main_time, VERTOPINTERN->debug_cpuAddr);
+				if (pc == 0x4080009A)
+					fprintf(stderr, "*** STARTINIT1 ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40802B82)
+					fprintf(stderr, "*** BTST #26,D7 (loopback decision) at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40802BAA)
+					fprintf(stderr, "*** NORMAL BOOT JUMP (jmp 0x9A) at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40802E96)
+					fprintf(stderr, "*** TMENTRY1 at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40802C3C)
+					fprintf(stderr, "*** ERROR1HANDLER ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
+				// RAM test entry: $2BBC = ROM offset, full PC = $40802BBC
+				if (pc == 0x40802BBC)
+					fprintf(stderr, "*** RAM_TEST ENTRY at cycle %llu addr=%08X ***\n",
+						(unsigned long long)main_time, VERTOPINTERN->debug_cpuAddr);
+				// RAM test return (after MOVEM restore): watch for d6!=0
+				if (pc == 0x40802C28)
+					fprintf(stderr, "*** RAM_TEST EXIT at cycle %llu ***\n",
+						(unsigned long long)main_time);
+				// Log non-ROM, non-video data bus reads/writes during RAM test window
+				static bool in_ramtest = false;
+				if (pc == 0x40802BBC) in_ramtest = true;
+				if (pc == 0x40802C28 || pc == 0x40802C3C) in_ramtest = false;
+				if (in_ramtest && main_time > 14182000 && (main_time % 128 < 8)) {
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					bool rw = VERTOPINTERN->debug_cpuRW;
+					bool selram = VERTOPINTERN->debug_selectRAM;
+					if (selram)
+						fprintf(stderr, "RAMTEST_BUS cycle=%llu: addr=%08X %s selRAM=%d\n",
+							(unsigned long long)main_time, addr, rw ? "RD" : "WR", selram);
+				}
 
 				// VIA1 Port A state at critical decision points
 				uint8_t via_pra = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_pra;
@@ -547,9 +620,7 @@ int verilate() {
 					fprintf(stderr, "*** ROM CHECKSUM BNE at cycle %llu ***\n", (unsigned long long)main_time);
 				if (pc == 0x40802ABA)
 					fprintf(stderr, "*** ROM CHECKSUM PASSED (clr.w D7) at cycle %llu ***\n", (unsigned long long)main_time);
-				// Debug monitor entry
-				if (pc == 0x40802C3C)
-					fprintf(stderr, "*** DEBUG MONITOR ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
+				// (Error1Handler watchpoint moved above)
 				// SCC polling loop
 				if (pc == 0x40803296)
 					fprintf(stderr, "*** SCC POLL LOOP ENTRY at cycle %llu ***\n", (unsigned long long)main_time);
@@ -904,6 +975,10 @@ int main(int argc, char** argv, char** env) {
 		// Debug log window
 		console.Draw(windowTitle_DebugLog, &showDebugLog, ImVec2(500, 700));
 		ImGui::SetWindowPos(windowTitle_DebugLog, ImVec2(0, 210), ImGuiCond_Once);
+
+		// Serial terminal window
+		static bool showSerial = true;
+		serialTerminal.Draw("Serial Terminal A", &showSerial);
 
 		// Memory debug - access sim_ram memory
 		ImGui::Begin("RAM Editor");
