@@ -976,7 +976,12 @@ int main(int argc, char** argv, char** env) {
 		console.Draw(windowTitle_DebugLog, &showDebugLog, ImVec2(500, 700));
 		ImGui::SetWindowPos(windowTitle_DebugLog, ImVec2(0, 210), ImGuiCond_Once);
 
-		// Serial terminal window
+		// Serial terminal window — update SCC status for init indicator
+		serialTerminal.UpdateSCCStatus(
+			VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr3_a,
+			VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr5_a,
+			VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr9,
+			VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr14_a);
 		static bool showSerial = true;
 		serialTerminal.Draw("Serial Terminal A", &showSerial);
 

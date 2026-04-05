@@ -87,6 +87,9 @@ struct SimSerialTerminal {
                             int stop_bits = 1, bool parity_en = false,
                             bool parity_even = false);
 
+    // Update SCC register state for status display
+    void UpdateSCCStatus(uint8_t wr3, uint8_t wr5, uint8_t wr9, uint8_t wr14);
+
     // Draw the ImGui window
     void Draw(const char* title, bool* p_open);
 
@@ -118,4 +121,10 @@ private:
     // Line ending for TX
     enum class LineEnding { CR, LF, CRLF };
     LineEnding m_line_ending = LineEnding::CR;
+
+    // SCC register state for status display
+    uint8_t m_scc_wr3 = 0;
+    uint8_t m_scc_wr5 = 0;
+    uint8_t m_scc_wr9 = 0;
+    uint8_t m_scc_wr14 = 0;
 };

@@ -289,6 +289,13 @@ void SimSerialTerminal::SendInput() {
     m_input_buf[0] = '\0';
 }
 
+void SimSerialTerminal::UpdateSCCStatus(uint8_t wr3, uint8_t wr5, uint8_t wr9, uint8_t wr14) {
+    m_scc_wr3 = wr3;
+    m_scc_wr5 = wr5;
+    m_scc_wr9 = wr9;
+    m_scc_wr14 = wr14;
+}
+
 void SimSerialTerminal::Draw(const char* title, bool* p_open) {
     ImGui::SetNextWindowSize(ImVec2(580, 420), ImGuiCond_FirstUseEver);
 
@@ -296,6 +303,22 @@ void SimSerialTerminal::Draw(const char* title, bool* p_open) {
         ImGui::End();
         return;
     }
+
+    // SCC init status
+    bool rx_en = m_scc_wr3 & 0x01;   // WR3[0] = RX Enable
+    bool tx_en = m_scc_wr5 & 0x08;   // WR5[3] = TX Enable
+    bool brg_en = m_scc_wr14 & 0x01; // WR14[0] = BRG Enable
+    bool mie = m_scc_wr9 & 0x08;     // WR9[3] = Master Interrupt Enable
+    bool scc_ready = rx_en && tx_en && brg_en;
+
+    if (scc_ready)
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "SCC READY");
+    else
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "SCC INIT");
+    ImGui::SameLine();
+    ImGui::TextDisabled("RX:%s TX:%s BRG:%s MIE:%s",
+                        rx_en ? "on" : "--", tx_en ? "on" : "--",
+                        brg_en ? "on" : "--", mie ? "on" : "--");
 
     // Status bar
     uint32_t cpb = m_uart.GetClocksPerBaud();
