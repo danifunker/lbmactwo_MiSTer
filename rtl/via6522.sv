@@ -447,12 +447,22 @@ module via6522 (
                                             
                 4'h1: begin // ORA
                     if (ca2_no_irq_clr == 1'b0) begin
-             
+
                         irq_flags[0] <= 1'b0;
                     end
                     irq_flags[1] <= 1'b0;
                 end
-                    
+
+                4'hF: begin // ORA no-handshake
+                    // Snow clears CA1/CA2 IFR bits on 0x0F reads too
+                    // (../snow/core/src/mac/via.rs:374-375). Real 6522 does not,
+                    // but Mac II ROM apparently expects this behavior.
+                    if (ca2_no_irq_clr == 1'b0) begin
+                        irq_flags[0] <= 1'b0;
+                    end
+                    irq_flags[1] <= 1'b0;
+                end
+
                 4'h4: begin // TA LO counter
                     irq_flags[6] <= 1'b0;
                 end

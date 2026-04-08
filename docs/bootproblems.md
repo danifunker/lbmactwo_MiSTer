@@ -125,15 +125,96 @@ ADB device enumeration now completes successfully:
 - Talk R0 addr 3 → mouse event poll
 - Boot progresses past ADB init into VIA1 CA1 interrupt handling
 
-## Current Blocker: VIA1 CA1 Interrupt Loop
+## VIA1 CA1 Interrupt Loop: RESOLVED (2026-04-08)
 
-After ADB enumeration completes, the boot enters a repeating VIA1 CA1 interrupt handling loop:
-- IFR reads `$82` (bit 7 IRQ + bit 1 CA1 flag)
-- ROM clears CA1 flag by writing `$02` to IFR
-- Flag immediately re-asserts
-- Repeated at PC `$4080609A`/`$4080609E`/`$4080618C`
+The CA1 loop documented here previously was fixed incidentally by earlier
+branch work (likely the ADB response-timing fix in `6dc436d` and/or the
+SCC refactor). Verified this session by:
 
-VIA1 CA1 on Mac II is typically the VBL interrupt. The CA1 input may not be properly driven, causing continuous re-triggering. The boot reaches PC=$40805F4A (ORA polling loop) between interrupt bursts.
+1. Temporarily bypassing the `via2_pb_o[7] → via1_ca1` chain with a clean
+   60 Hz pulse (Snow-style, see `../snow/core/src/mac/macii/bus.rs:747`).
+   Boot reached `TMENTRY1` (Time Manager entry) and advanced to a new
+   blocker. Committed as `3be3972`.
+2. Instrumented `via2_pb_o[7]` edge rate. Measured **124 Hz post-init**
+   — correct for a 60 Hz VBL chain (PB7 toggles twice per period).
+3. Restored the real PB7 chain and re-ran: **identical** progress
+   (same `TMENTRY1`, same 48 writes to `$0B9A`, same next-blocker landing
+   point at `$40805F4A`). Bypass reverted in `0fcf8c5`.
+
+The PB7→CA1 chain is functionally correct. No action needed here.
+
+## Current Blocker: VIA1 ORA Polling + Delay Loop at $40805F48 (2026-04-08)
+
+After TMENTRY1 at cycle 79.8M, boot lands in an outer loop that:
+- Calls a delay routine at `$40805F48` (SUBQ.W #1,D4 / BPL.S -4) — a
+  simple register-decrement spin that completes and exits to `$40805F4C`
+  (TST.W D3). The delay loop is not itself a hang.
+- Repeatedly reads VIA1 Port A via the **no-handshake** register
+  (address `$F`, `ORA_NH`), seeing `ira=$81` every time:
+  - bit 0 = 1 (model sense, correct for Mac II: Snow returns
+    `RegisterA(0).with_model(1)` = `0x01`)
+  - bit 7 = 1 (SCC WReq — "no data ready", our `scc.v` hardcodes
+    `wreq=1` at line 1656)
+
+### Snow reference (`../snow/core/src/mac/via.rs:368-378`)
+
+```rust
+0x01 | 0x0F => {
+    // Set sccwrreq on every port A read
+    self.a_in.set_sccwrreq(true);
+    // Clear CA1/CA2 IFR bits on port A reads (both handshake AND no-handshake)
+    self.ifr.set_vblank(false);
+    self.ifr.set_onesec(false);
+    ...
+}
+```
+
+Snow clears IFR bits 0 and 1 on **both** ORA (`$01`) and ORA no-handshake
+(`$0F`) reads. Real 6522 only clears on `$01`. Our `via6522.sv` matches
+the real 6522 (only clears at `addr == 4'h1`, not `4'hF`, in the read
+action block at line 438). If the Mac II ROM relies on Snow's extended
+behavior, the CA1 interrupt flag can stay latched after a no-handshake
+read, causing spurious re-entry into the VBL interrupt servicer.
+
+### Resolution (2026-04-08)
+
+Applied Snow's IFR clear behavior to `via6522.sv`: now clears `irq_flags[1]`
+(CA1/VBL) and `irq_flags[0]` (CA2/onesec) on reads of **both** `$01` and
+`$0F` (ORA handshake and no-handshake). The `$40805F48` ORA polling loop
+now exits cleanly. Boot advances past Time Manager init, sets up a new
+exception vector table (VBR=`$40802806`), and reaches SCC initialization.
+
+## Current Blocker: SCC Channel A RR0 Polling at $408032AC (2026-04-08)
+
+After VBR setup, boot lands in a tight SCC Channel A status-register
+polling loop:
+
+- PC: `$408032AC`, opcode `674C` (BEQ.S +76)
+- Reads SCC RR0 on channel A repeatedly, getting `$2C` every time
+  - bit 5 = CTS = 1
+  - bit 3 = Sync/Hunt = 1
+  - bit 2 = Tx Buffer Empty = 1
+  - **bit 0 = Rx Character Available = 0** (ROM is waiting for this)
+- ROM is presumably waiting for an SCC Rx character that never arrives.
+  This is AppleTalk/LocalTalk init, serial port probing, or an Egret/ADB
+  response via the SCC.
+
+### Snow reference
+
+`../snow/core/src/mac/scc.rs` and `../snow/core/src/mac/macii/bus.rs`
+initialize the SCC and drive Rx events from the Mac II bus tick loop.
+Worth checking how Snow handles the initial SCC config sequence, and
+whether the Mac II ROM expects a loopback/probe response on channel A
+during this phase.
+
+### Next steps
+
+1. Trace SCC writes leading up to the first `$408032AC` hit to identify
+   which channel A config sequence the ROM is running (SDLC? Async?
+   External clock?).
+2. Check Snow's SCC Rx behavior in the Mac II bus tick path.
+3. If ROM expects a self-test / loopback reply, may need to enable
+   loopback mode or fake an Rx char.
 
 ## Reference Implementations
 
