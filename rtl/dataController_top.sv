@@ -266,7 +266,24 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// VIA2 PB7 output chains to VIA1 CA1 (60.15 Hz timer → 1-second interrupt)
 	wire via2_pb7_to_via1_ca1;
-	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
+
+	// SNOW_CA1_BYPASS: Snow emulator skips the PB7→CA1 chain entirely and
+	// just pulses VIA1 IFR bit 1 at 60 Hz directly (see ../snow/core/src/mac/macii/bus.rs:747).
+	// Diagnostic: if boot advances past the CA1 interrupt loop with this in place,
+	// the real bug is in VIA2 T1 / PB7 toggle rate, not in CA1 edge handling.
+	// clk32 is 32.5 MHz → 32_500_000 / 60 / 2 = 270_833 for a ~60 Hz square wave.
+	reg [18:0] snow_ca1_div = 0;
+	reg        snow_ca1 = 0;
+	always @(posedge clk32) begin
+		if (snow_ca1_div == 19'd270832) begin
+			snow_ca1_div <= 0;
+			snow_ca1     <= ~snow_ca1;
+		end else begin
+			snow_ca1_div <= snow_ca1_div + 1'd1;
+		end
+	end
+
+	wire via1_ca1 = machineType ? snow_ca1 : _vblank;
 
 	assign viaDataOut[7:0] = 8'hEF;
 
