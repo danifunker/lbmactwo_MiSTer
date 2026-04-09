@@ -22,7 +22,7 @@ module via6522 (
     input  wire [3:0]  addr,
     input  wire        wen,
     input  wire        ren,
- 
+
     input  wire [7:0]  data_in,
     output reg  [7:0]  data_out,
 
@@ -55,7 +55,14 @@ module via6522 (
     output wire        cb2_t,
 
     output wire        irq,
-    output wire        sr_active  // shift register armed and counting
+    output wire        sr_active, // shift register armed and counting
+
+    // External shift register completion (Snow-style timer-based SR)
+    // When sr_ext_complete pulses, IFR bit 2 is set and shift_active clears.
+    // If sr_ext_load is also high, shift_reg is loaded from sr_ext_data.
+    input  wire        sr_ext_complete,
+    input  wire        sr_ext_load,
+    input  wire [7:0]  sr_ext_data
 );
     localparam [15:0] latch_reset_pattern = 16'h5550;
 
@@ -774,6 +781,15 @@ module via6522 (
                     end
                 end
             end
+        end
+
+        // External shift completion (Snow-style timer-based)
+        if (sr_ext_complete == 1'b1) begin
+            shift_active <= 1'b0;
+            bit_cnt <= 3'd0;
+            irq_flags[2] <= 1'b1;  // SR complete interrupt
+            if (sr_ext_load)
+                shift_reg <= sr_ext_data;
         end
 
         if (reset == 1'b1) begin

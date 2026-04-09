@@ -303,7 +303,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (cb2_t),
 
 		.irq        (viaIrq),
-		.sr_active  (via1_sr_active)
+		.sr_active  (via1_sr_active),
+
+		// Snow-style timer-based SR completion
+		.sr_ext_complete (via1_sr_ext_complete),
+		.sr_ext_load     (via1_sr_ext_load),
+		.sr_ext_data     (via1_sr_ext_data)
 	);
 
 	// VIA2 - NuBus interrupt routing, RAM sizing, timer chain
@@ -370,7 +375,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (),
 
 		.irq        (via2Irq),
-		.sr_active  ()           // not used for VIA2
+		.sr_active  (),          // not used for VIA2
+
+		.sr_ext_complete (1'b0),
+		.sr_ext_load     (1'b0),
+		.sr_ext_data     (8'h00)
 	);
 
 	wire _rtccs   = ~via_pb_oe[2] | via_pb_o[2];
@@ -393,6 +402,91 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire ADBST1 = ~via_pb_oe[5] | via_pb_o[5];
 	wire ADBListen;
 	wire via1_sr_active;
+
+	// Snow-style timer-based VIA1 shift register completion.
+	// The real VIA SR depends on CB1 clocking (kbdclk) which in turn depends
+	// on via1_sr_active rising — but SR arming itself has verilator timing
+	// issues with wen/falling overlap. This bypass mimics Snow's approach:
+	// detect SR/ACR writes at the bus level and complete the shift after
+	// a ~3ms delay (matching Snow's SHIFT_DELAY).
+	wire via1_wr = selectVIA && !_cpuVMA && !_cpuRW;
+	wire via1_sr_wr = via1_wr && cpuAddrRegHi == 4'hA;  // SR write (reg $A)
+	wire via1_acr_wr = via1_wr && cpuAddrRegHi == 4'hB; // ACR write (reg $B)
+
+	reg [2:0] via1_acr_shift_mode;
+	reg [7:0] via1_sr_shadow;
+	reg [16:0] via1_shift_timer;
+	reg via1_shift_dir;              // 1 = shift-out, 0 = shift-in
+	reg via1_sr_ext_complete;
+	reg via1_sr_ext_load;
+	reg [7:0] via1_sr_ext_data;
+	reg via1_sr_out_done;            // pulses when shift-out timer expires
+
+	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin.
+	localparam SHIFT_DELAY = 17'd100000;
+
+	always @(posedge clk32) begin
+		if (!_cpuReset) begin
+			via1_acr_shift_mode <= 3'b000;
+			via1_sr_shadow <= 8'h00;
+			via1_shift_timer <= 17'd0;
+			via1_shift_dir <= 1'b0;
+			via1_sr_ext_complete <= 1'b0;
+			via1_sr_ext_load <= 1'b0;
+			via1_sr_ext_data <= 8'h00;
+			via1_sr_out_done <= 1'b0;
+		end else begin
+			via1_sr_ext_complete <= 1'b0;
+			via1_sr_ext_load <= 1'b0;
+			via1_sr_out_done <= 1'b0;
+
+			// Track ACR writes — shadow the shift mode bits
+			if (via1_acr_wr) begin
+				via1_acr_shift_mode <= cpuDataIn[12:10]; // bits [4:2] of byte
+				// ACR changed to shift-out mode: start timer
+				if (cpuDataIn[12:10] == 3'b111 && via1_acr_shift_mode != 3'b111) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b1;
+				end
+				// ACR changed to shift-in mode: start timer for response
+				else if (cpuDataIn[12:10] == 3'b011 && via1_acr_shift_mode != 3'b011) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b0;
+				end
+				// ACR changed to disabled: cancel any pending shift
+				else if (cpuDataIn[12:10] == 3'b000) begin
+					via1_shift_timer <= 17'd0;
+				end
+			end
+
+			// Track SR writes — shadow the data and (re)start timer
+			if (via1_sr_wr) begin
+				via1_sr_shadow <= cpuDataIn[15:8];
+				if (via1_acr_shift_mode == 3'b111) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b1;
+				end
+				if (via1_acr_shift_mode == 3'b011) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b0;
+				end
+			end
+
+			// Countdown and complete
+			if (via1_shift_timer > 17'd1) begin
+				via1_shift_timer <= via1_shift_timer - 17'd1;
+			end else if (via1_shift_timer == 17'd1) begin
+				via1_shift_timer <= 17'd0;
+				via1_sr_ext_complete <= 1'b1;
+				via1_sr_out_done <= via1_shift_dir;
+				if (!via1_shift_dir) begin
+					// Shift-in complete: load response into SR
+					via1_sr_ext_load <= 1'b1;
+					via1_sr_ext_data <= kbd_to_mac;
+				end
+			end
+		end
+	end
 
 	reg kbdclk;
 	reg [10:0] kbdclk_count;
@@ -471,6 +565,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			adb_din_strobe <= 0;
 			kbdclk_d <= kbdclk;
 			via1_sr_active_d <= via1_sr_active;
+
+			// Snow-style shift-out completion: deliver byte to ADB transceiver
+			if (via1_sr_out_done && machineType) begin
+				adb_din_strobe <= 1;
+				adb_din <= via1_sr_shadow;
+			end
 
 			// Only the Macintosh can initiate communication over the keyboard lines. On
 			// power-up of either the Macintosh or the keyboard, the Macintosh is in
