@@ -75,6 +75,19 @@ const int cpu_trace_max = 0;  // 0 = unlimited
 int post_download_delay = 0;  // Delay after ROM load before tracing
 uint32_t cpu_trace_last_pc = 0xFFFFFFFF;  // For edge detection (new instruction)
 
+// Fetch buffer: sliding window of recent code-space fetches (PC -> word).
+// TG68 fetches opcode then extension words sequentially; buffer up to
+// FETCH_BUF_SIZE consecutive fetches and emit the oldest when we have enough
+// context to disassemble the full instruction.
+struct FetchEntry { uint32_t pc; uint16_t word; uint8_t fc; };
+const int FETCH_BUF_SIZE = 8;
+FetchEntry fetch_buf[FETCH_BUF_SIZE];
+int fetch_buf_len = 0;
+
+static inline const char* fc_name_for(uint8_t fc) {
+    return (fc == 6) ? "SP" : (fc == 5) ? "SD" : (fc == 2) ? "UP" : (fc == 1) ? "UD" : "??";
+}
+
 // RAM debug
 // ---------
 bool ram_debug_enable = false;  // Disable for speed
@@ -249,27 +262,67 @@ int verilate() {
 					fetch_count++;
 				}
 
-				// Only log when PC changes (new instruction) to avoid duplicates
+				// Filter extension words: buffer consecutive sequential fetches
+				// and emit the oldest only when Musashi confirms instruction length.
 				if (pc != cpu_trace_last_pc) {
 					cpu_trace_last_pc = pc;
 
-					// Disassemble - for now just use single opcode word
-					unsigned short opwords[2] = { opcode, 0 };
-					const char* disasm = disassemble_68k_ext(pc, opwords, 2);
+					// Non-sequential (branch/exception) → flush buffered entries
+					// first, walking them as a chain of opcodes+extensions.
+					bool sequential = (fetch_buf_len > 0) &&
+						(pc == fetch_buf[fetch_buf_len-1].pc + 2);
 
-					// Output to debug console
-					console.AddLog("%08X: %04X  %s", pc, opcode, disasm);
-
-					// Also write to trace file if open
-					if (cpu_trace_file) {
-						const char* fc_name = (fc == 6) ? "SP" : (fc == 5) ? "SD" : (fc == 2) ? "UP" : (fc == 1) ? "UD" : "??";
-					fprintf(cpu_trace_file, "%s %08X: %04X  %s\n", fc_name, pc, opcode, disasm);
-						cpu_trace_count++;
-						if (cpu_trace_max > 0 && cpu_trace_count >= cpu_trace_max) {
-							fprintf(stderr, "CPU trace limit reached (%d instructions)\n", cpu_trace_max);
-							fclose(cpu_trace_file);
-							cpu_trace_file = nullptr;
+					if (!sequential && fetch_buf_len > 0) {
+						int i = 0;
+						while (i < fetch_buf_len) {
+							FetchEntry &e = fetch_buf[i];
+							unsigned short opwords[5] = {0};
+							int avail = fetch_buf_len - i;
+							for (int k = 0; k < avail && k < 5; k++)
+								opwords[k] = fetch_buf[i+k].word;
+							unsigned int len = 2;
+							const char* disasm = disassemble_68k_ext_len(e.pc, opwords, avail, &len);
+							if (len < 2) len = 2;
+							int words = len / 2;
+							cpu_trace_count++;
+							console.AddLog("%08X: %04X  %s", e.pc, e.word, disasm);
+							if (cpu_trace_file) {
+								fprintf(cpu_trace_file, "%s %08X: %04X  %s\n", fc_name_for(e.fc), e.pc, e.word, disasm);
+							}
+							i += words;
 						}
+						fetch_buf_len = 0;
+					}
+
+					// Append this fetch to the buffer.
+					if (fetch_buf_len < FETCH_BUF_SIZE) {
+						fetch_buf[fetch_buf_len++] = { pc, opcode, fc };
+					} else {
+						// Buffer full — emit oldest then shift (shouldn't happen:
+						// longest 68020 instruction is 11 words, we buffer 8).
+						FetchEntry &e = fetch_buf[0];
+						unsigned short opwords[5] = {0};
+						for (int k = 0; k < 5; k++) opwords[k] = fetch_buf[k].word;
+						unsigned int len = 2;
+						const char* disasm = disassemble_68k_ext_len(e.pc, opwords, 5, &len);
+						if (len < 2) len = 2;
+						int words = len / 2;
+						if (words > FETCH_BUF_SIZE) words = FETCH_BUF_SIZE;
+						cpu_trace_count++;
+						console.AddLog("%08X: %04X  %s", e.pc, e.word, disasm);
+							if (cpu_trace_file) {
+								fprintf(cpu_trace_file, "%s %08X: %04X  %s\n", fc_name_for(e.fc), e.pc, e.word, disasm);
+							}
+						int keep = fetch_buf_len - words;
+						for (int k = 0; k < keep; k++) fetch_buf[k] = fetch_buf[k + words];
+						fetch_buf_len = keep;
+						fetch_buf[fetch_buf_len++] = { pc, opcode, fc };
+					}
+
+					if (cpu_trace_max > 0 && cpu_trace_count >= cpu_trace_max && cpu_trace_file) {
+						fprintf(stderr, "CPU trace limit reached (%d instructions)\n", cpu_trace_max);
+						fclose(cpu_trace_file);
+						cpu_trace_file = nullptr;
 					}
 				}
 			}
@@ -452,6 +505,74 @@ int verilate() {
 						VERTOPINTERN->debug_fc,
 						VERTOPINTERN->debug_vbr);
 					last_ipl = cur_ipl;
+				}
+			}
+			// Dump PC stream in the stuck window: 250M..250M+20K
+			{
+				static uint32_t last_pc = 0;
+				if (main_time >= 250000000ULL && main_time < 250020000ULL) {
+					uint32_t pc = VERTOPINTERN->debug_pc;
+					if (pc != last_pc && VERTOPINTERN->debug_fetch_valid) {
+						fprintf(stderr, "PC_TRACE @%llu: PC=%08X op=%04X\n",
+							(unsigned long long)main_time, pc,
+							VERTOPINTERN->debug_opcode);
+						last_pc = pc;
+					}
+				}
+			}
+			// PC histogram for the stuck 40802Exx/2Fxx/32xx window (active after cycle 200M)
+			{
+				static int pc_hits[0x400] = {0};
+				static uint64_t last_dump = 0;
+				if (main_time > 200000000ULL) {
+					uint32_t pc = VERTOPINTERN->debug_pc;
+					if (pc >= 0x40802E00 && pc < 0x40803200) {
+						pc_hits[(pc - 0x40802E00) >> 1]++;
+					}
+					if (main_time - last_dump >= 50000000ULL) {
+						last_dump = main_time;
+						fprintf(stderr, "PC_HIST @%llu: top10:\n", (unsigned long long)main_time);
+						for (int k = 0; k < 10; k++) {
+							int best = -1, best_v = 0;
+							for (int i = 0; i < 0x400; i++) {
+								if (pc_hits[i] > best_v) { best_v = pc_hits[i]; best = i; }
+							}
+							if (best < 0 || best_v == 0) break;
+							fprintf(stderr, "  PC=%08X hits=%d\n", 0x40802E00 + (best<<1), best_v);
+							pc_hits[best] = -1;
+						}
+						for (int i = 0; i < 0x400; i++) if (pc_hits[i] < 0) pc_hits[i] = 0;
+					}
+				}
+			}
+			// BTST #5 polling loop trace
+			{
+				static uint32_t btst_ea = 0xFFFFFFFF;
+				static int btst_log = 0;
+				static int btst_wlog = 0;
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				if ((pc == 0x40806DD8 || pc == 0x40806DDA || pc == 0x40806DDC) && VERTOPINTERN->debug_cpuRW) {
+					uint32_t ea = VERTOPINTERN->debug_cpuAddr;
+					// Non-ROM address = operand effective address
+					if ((ea & 0xFF000000) != 0x40000000 && ea < 0x40000000) {
+						if (btst_log < 6 || ea != btst_ea) {
+							fprintf(stderr, "BTST_LOOP @%llu: PC=%08X read EA=%08X data=%04X fc=%d\n",
+								(unsigned long long)main_time, pc, ea,
+								VERTOPINTERN->debug_cpuDataOut,
+								VERTOPINTERN->debug_fc);
+							btst_ea = ea;
+						}
+						btst_log++;
+					}
+				}
+				if (btst_ea != 0xFFFFFFFF && VERTOPINTERN->debug_write_valid) {
+					uint32_t wa = VERTOPINTERN->debug_write_addr;
+					if ((wa & ~1u) == (btst_ea & ~1u) && btst_wlog < 20) {
+						fprintf(stderr, "BTST_LOOP_WR @%llu: write addr=%08X data=%04X PC=%08X\n",
+							(unsigned long long)main_time, wa,
+							VERTOPINTERN->debug_write_data, pc);
+						btst_wlog++;
+					}
 				}
 			}
 			// Log SCC state changes and chip select activity
