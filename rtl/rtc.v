@@ -79,12 +79,15 @@ initial begin
 	pram[8'h0B] = 8'h00;
 	pram[8'h0C] = 8'h00;
 	pram[8'h0D] = 8'h02;
-	pram[8'h0E] = 8'h63;
-	pram[8'h0F] = 8'h00;
-	pram[8'h10] = 8'h03;
+	pram[8'h0E] = 8'h4D;  // Extended PRAM validity 'M'
+	pram[8'h0F] = 8'h63;  // Extended PRAM validity 'c'
+	pram[8'h10] = 8'hA8;  // SPValid: marks SPConfig bytes as valid
 	pram[8'h11] = 8'h88;
 	pram[8'h12] = 8'h00;
-	pram[8'h13] = 8'h22;  // AppleTalk node hint
+	pram[8'h13] = 8'h22;  // SPConfig: both ports useAsync
+	                       // → SPConfig & 0x0F != 0 → emAppleTalkInactiveOnBoot
+	                       // Prevents LocalTalk self-test hang at $408032AC
+	                       // (see ../MacLC_MiSTer commit 83c226c6)
 end
 
 initial begin

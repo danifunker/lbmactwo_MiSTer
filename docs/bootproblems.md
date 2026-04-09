@@ -184,7 +184,24 @@ Applied Snow's IFR clear behavior to `via6522.sv`: now clears `irq_flags[1]`
 now exits cleanly. Boot advances past Time Manager init, sets up a new
 exception vector table (VBR=`$40802806`), and reaches SCC initialization.
 
-## Current Blocker: SCC Channel A RR0 Polling at $408032AC (2026-04-08)
+## SCC Channel A RR0 Polling at $408032AC: RESOLVED (2026-04-08)
+
+Same class of hang as the MacLC_MiSTer LocalTalk self-test wedge
+(see `../MacLC_MiSTer` commit `83c226c`). The Mac II ROM boots with
+AppleTalk active by default and runs a LocalTalk self-test that polls
+SCC channel A RR0 for Rx char available.
+
+MacLC's fix: set XPRAM `0x13=0x22` (SPConfig: both ports useAsync), which
+makes `SPConfig & 0x0F != 0` → ROM sets `emAppleTalkInactiveOnBoot` and
+skips LocalTalk init entirely.
+
+Our `rtl/rtc.v` already had `pram[0x13]=0x22`, but the **SPValid magic
+bytes at 0x0E/0x0F/0x10 were wrong** (`0x63 00 03` instead of
+`0x4D 63 A8` = `'M' 'c' 0xA8`), so the ROM discarded the SPConfig as
+invalid and ran AppleTalk anyway. Fixed the validity bytes; boot now
+advances past the `$408032AC` loop.
+
+## Current Blocker (DEPRECATED): SCC Channel A RR0 Polling at $408032AC (2026-04-08)
 
 After VBR setup, boot lands in a tight SCC Channel A status-register
 polling loop:
@@ -207,14 +224,30 @@ Worth checking how Snow handles the initial SCC config sequence, and
 whether the Mac II ROM expects a loopback/probe response on channel A
 during this phase.
 
+### Next steps (RESOLVED — see SPValid fix above)
+
+## Current Blocker: Interrupt Handler SCC Poll at $40802EEA (2026-04-08)
+
+After the SPValid fix unblocks AppleTalk, boot advances past the LLAP
+self-test and reaches a new resting point in an **interrupt handler in
+RAM** at PC `$40802EEA` (reached via VBR=`$40802806`). The handler is
+still polling SCC channel A RR0, seeing the same `$2C` value, and
+apparently never exiting.
+
+Opcode at `$40802EEA` is `0205` (ANDI.B #imm,D5) — not itself a poll,
+but an instruction in a tight service routine that keeps reading SCC.
+
+Preceding PCs observed on the way here: `$408036FE` (Op `3018`),
+`$4080DE3E` (Op `51CD` DBRA D5 loop), `$40805F44` (Op `1087` write).
+
 ### Next steps
 
-1. Trace SCC writes leading up to the first `$408032AC` hit to identify
-   which channel A config sequence the ROM is running (SDLC? Async?
-   External clock?).
-2. Check Snow's SCC Rx behavior in the Mac II bus tick path.
-3. If ROM expects a self-test / loopback reply, may need to enable
-   loopback mode or fake an Rx char.
+1. Identify what interrupt is firing by looking at the vector table at
+   `$40802806` — which SCC interrupt bit is installed where?
+2. Check if WR9 (interrupt vector enable) or WR1/WR15 config is causing
+   the SCC to assert IRQ continuously with no clearable condition.
+3. Compare against Snow's SCC interrupt generation logic
+   (`../snow/core/src/mac/scc.rs`).
 
 ## Reference Implementations
 
