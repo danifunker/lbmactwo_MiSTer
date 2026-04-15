@@ -65,6 +65,7 @@ module asc(
 	reg [7:0] asc_fifo_mode;   // $803 - FIFO_MODE: bit7=clear FIFOs
 	reg [7:0] asc_fifo_irq;    // $804 - FIFO_IRQ_STATUS (read clears)
 	reg [7:0] asc_wt_control;  // $805 - WAVETABLE_CONTROL
+	reg [7:0] asc_volume;      // $806 - VOLUME
 	reg [7:0] asc_clock_rate;  // $807 - CLOCK_RATE: 0=22,257Hz, non-zero=11,127Hz
 
 	// Phase and frequency registers — 32-bit, 4 channels
@@ -125,6 +126,16 @@ module asc(
 	wire cpu_read   = cpu_access && rw;
 	wire cpu_write  = cpu_access && !rw;
 
+	// A 68020 bus cycle holds cs+ds for several system clocks. Edge-detect the
+	// write so pointer advances, register writes, and FIFO RAM writes each fire
+	// exactly once per CPU access.
+	reg cpu_write_d1;
+	always @(posedge clk) begin
+		if (reset) cpu_write_d1 <= 1'b0;
+		else       cpu_write_d1 <= cpu_write;
+	end
+	wire cpu_write_strobe = cpu_write && !cpu_write_d1;
+
 	// Channel register decode for $810-$82F
 	wire [5:0] reg_off = addr[5:0] - 6'h10;  // 0-31 within channel reg space
 	wire [1:0] ch_num = reg_off[4:3];
@@ -161,6 +172,7 @@ module asc(
 					6'h03: data_out = asc_fifo_mode;
 					6'h04: data_out = asc_fifo_irq;    // read clears (in clocked block)
 					6'h05: data_out = asc_wt_control;
+					6'h06: data_out = asc_volume;
 					6'h07: data_out = asc_clock_rate;
 					default: begin
 						// $810-$82F: channel phase/freq registers
@@ -275,10 +287,10 @@ module asc(
 		end else if (cpu_access) begin
 			if (addr[12:10] == 3'b000) begin
 				ram_a_addr_a = (asc_mode == 8'h01) ? fifo_a_wr_ptr : addr[9:0];
-				ram_a_we = !rw;
+				ram_a_we = cpu_write_strobe;
 			end else if (addr[12:10] == 3'b001) begin
 				ram_b_addr_a = (asc_mode == 8'h01) ? fifo_b_wr_ptr : addr[9:0];
-				ram_b_we = !rw;
+				ram_b_we = cpu_write_strobe;
 			end
 		end
 	end
@@ -295,6 +307,7 @@ module asc(
 			asc_fifo_mode <= 0;
 			asc_fifo_irq <= 0;
 			asc_wt_control <= 0;
+			asc_volume <= 0;
 			asc_clock_rate <= 0;
 			fifo_a_wr_ptr <= 0;
 			fifo_a_rd_ptr <= 0;
@@ -319,9 +332,10 @@ module asc(
 			end
 
 			// ----------------------------------------------------------
-			// CPU writes (RAM writes handled by port A mux above)
+			// CPU writes (RAM writes handled by port A mux above).
+			// Gated by cpu_write_strobe so each bus cycle fires exactly once.
 			// ----------------------------------------------------------
-			if (cpu_write) begin
+			if (cpu_write_strobe) begin
 				if (addr[12:10] == 3'b000 && asc_mode == 8'h01) begin
 					// FIFO A write: update pointers
 					fifo_a_wr_ptr <= fifo_a_wr_ptr + 1'd1;
@@ -366,6 +380,7 @@ module asc(
 						end
 						// 6'h04: fifo_irq is read-only (cleared on read)
 						6'h05: asc_wt_control <= data_in;
+						6'h06: asc_volume <= data_in;
 						6'h07: asc_clock_rate <= data_in;
 						default: begin
 							// $810-$82F: channel phase/freq registers
@@ -408,12 +423,13 @@ module asc(
 					fifo_b_count <= fifo_b_count - 1'd1;
 				end
 
-				// IRQ at half-empty (count reaches 512)
-				if (fifo_a_count == 11'd512 || (ctrl_stereo && fifo_b_count == 11'd512))
-					asc_fifo_irq[0] <= 1'b1;
-				// IRQ at empty
-				if (fifo_a_count == 11'd1 || (ctrl_stereo && fifo_b_count == 11'd1))
-					asc_fifo_irq[1] <= 1'b1;
+				// Per-channel FIFO IRQ status (Snow/MAME layout):
+				//   bit 0 = A half-empty, bit 1 = A empty
+				//   bit 2 = B half-empty, bit 3 = B empty
+				if (fifo_a_count == 11'd512) asc_fifo_irq[0] <= 1'b1;
+				if (fifo_a_count == 11'd1)   asc_fifo_irq[1] <= 1'b1;
+				if (ctrl_stereo && fifo_b_count == 11'd512) asc_fifo_irq[2] <= 1'b1;
+				if (ctrl_stereo && fifo_b_count == 11'd1)   asc_fifo_irq[3] <= 1'b1;
 			end
 
 			// ----------------------------------------------------------

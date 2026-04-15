@@ -143,7 +143,19 @@ SCC refactor). Verified this session by:
 
 The PB7→CA1 chain is functionally correct. No action needed here.
 
-## Current Blocker: VIA1 ORA Polling + Delay Loop at $40805F48 (2026-04-08)
+## Superseded: "VIA1 ORA Polling" at $40805F48 (2026-04-08) — Misidentified
+
+**Status (re-evaluated 2026-04-15):** the Snow IFR-clear-on-`$0F` fix
+below is a real 6522 parity issue and is still the right change, but it
+does **not** unblock `$40805F48`. The loop at `$40805F48` is not VIA1
+ORA polling — it's the inner delay of the **ASC FIFO RAM test**
+(see next section). The ORA_NH reads observed here were almost
+certainly part of a different loop captured earlier in the same trace,
+not the surrounding context of `$40805F48`.
+
+Keep the Snow IFR fix; move on to the ASC analysis.
+
+### Original 2026-04-08 notes (retained for history)
 
 After TMENTRY1 at cycle 79.8M, boot lands in an outer loop that:
 - Calls a delay routine at `$40805F48` (SUBQ.W #1,D4 / BPL.S -4) — a
@@ -180,9 +192,109 @@ read, causing spurious re-entry into the VBL interrupt servicer.
 
 Applied Snow's IFR clear behavior to `via6522.sv`: now clears `irq_flags[1]`
 (CA1/VBL) and `irq_flags[0]` (CA2/onesec) on reads of **both** `$01` and
-`$0F` (ORA handshake and no-handshake). The `$40805F48` ORA polling loop
-now exits cleanly. Boot advances past Time Manager init, sets up a new
-exception vector table (VBR=`$40802806`), and reaches SCC initialization.
+`$0F` (ORA handshake and no-handshake). The fix is correct for 6522
+parity with Snow, but re-analysis on 2026-04-15 showed `$40805F48` is
+the inner delay of the ASC FIFO RAM test (next section), not ORA
+polling, so this fix alone did not advance past `$40805F48`.
+
+## Current Blocker: ASC FIFO RAM Test at $40805E4A (2026-04-15)
+
+Re-ran sim with full CPU trace (5.6M instructions, `--stop-at-frame 300`
+killed at ~120 s). PC histogram:
+
+| PC range   | % of trace | Notes |
+|------------|-----------:|-------|
+| `$40805xxx` | 82%        | ASC FIFO test (stuck here) |
+| `$40803xxx` | 12%        | ROM checksum loop (completes) |
+| `$40804xxx` |  2%        | Early init |
+| other       |  4%        | VIA/SCC/mem setup |
+
+Last 500k trace lines: 4.6M × 3 instructions at `$40805F48/4A/4C`
+(inner delay `SUBQ.W #1,D4; BPL.S -4; TST.W D3`), plus ~1424
+completions per window of the outer pattern-fill body at
+`$40805F28–$40805F5C`. The outer loop **is** iterating, but the whole
+routine never exits in the trace — entered at line 675049, still
+looping at line 5,626,865.
+
+### Call chain
+
+```
+reset → $40800090 → init bsrs → $408000BA: A3 ← $50F18000
+                                ↓  (probe bsr $4080073E; if !Z, A3 ← $50F14000)
+                                ↓
+                  $408000D0: bsrw $40805E4A   ← stuck subroutine
+                                ↓
+                  $40805E4A: save %fp, A4 ← $40805F78 (param table), loop
+                                ↓
+                  $40805EB8–$40805ED6: write ASC banks + MODE=2
+                  $40805EE0: tstb A3@($800)  ← ASC VERSION register
+                             = 0 (rtl/asc.sv:158 hard-wires 0)
+                             → D3 ← $30013F10 (branch-not-taken path)
+                                ↓
+                  $40805F18–$40805F76: pattern fill + readback
+                                ↓
+                             (never exits)
+```
+
+### What this actually is
+
+A3 is the **Apple Sound Chip (ASC)** base. Both candidate addresses
+point at ASC territory — `$50F14000` matches `rtl/addrDecoder.v:173`
+(`address[19:13] == 7'b0001_010`) and `rtl/asc.sv:3`
+(`$50F14000–$50F15FFF`). The test:
+
+- Writes `$40` at offsets `0/$200/$400/$600` — striping across the two
+  FIFO banks (`$000–$3FF` FIFO A, `$400–$7FF` FIFO B).
+- Writes `$02` to `$801` (MODE = wavetable) and clears `$803` (FIFO_MODE).
+- Reads `$800` (VERSION) to branch on original vs enhanced ASC.
+- Pattern-writes via `(A0)+` and verifies via `moveml %a4@+,%d0-%d2;
+  movew %a4@+,%d3` parameter reloads from the in-ROM table at
+  `$40805F78`, then rotates bytes through `%d7` with `ROXR.B #1`
+  and scatters them to `(A0)`, `(A0+$200)`, `(A0+$400)`, `(A0+$600)`.
+
+This is the ROM's ASC FIFO RAM self-test. Analogous in purpose to
+the MacLC STM init (which our MacLC analysis hung on at `$A49F0E`),
+but on Mac II it's ASC, not STM — the Mac II has no Egret/STM chip.
+
+### Likely culprit
+
+`rtl/asc.sv` FIFO readback semantics. Line 149 does expose
+`ram_a_rdata_a` as `data_out` for the FIFO A range, and line 273–277
+switches between `fifo_a_rd_ptr` and `addr[9:0]` based on `asc_mode`,
+but the ROM is writing in wavetable mode (`MODE=2`) and expecting
+**direct-addressed** readback of everything it just wrote. Two things
+to verify:
+
+1. Does `ram_a_addr_a = addr[9:0]` gate correctly for read cycles when
+   `asc_mode != 1` (FIFO)? The current expression uses
+   `(asc_mode == 8'h01) ? fifo_a_wr_ptr : addr[9:0]` on writes; the
+   read-path selection needs the same direct-address behavior in
+   non-FIFO modes.
+2. Does FIFO B (`$400–$7FF`) symmetrically support direct-address
+   read/write in MODE=2?
+
+### Reproduce
+
+```bash
+cd verilator
+# sim_main.cpp:69  — set cpu_trace_enable = true
+make -j4
+rm -f cpu_trace.log sim_err.log
+( ./obj_dir/Vemu --stop-at-frame 300 2>sim_err.log & \
+  SIM=$!; sleep 120; kill -9 $SIM; wait $SIM 2>/dev/null )
+tail -40 cpu_trace.log             # should show $40805F48/4A/4C repeating
+awk '{print substr($2,1,5)}' cpu_trace.log | sort | uniq -c | sort -rn | head
+```
+
+### Next steps
+
+1. Read `rtl/asc.sv` lines 140–290 end-to-end; confirm the non-FIFO
+   direct-addressed read path for both FIFO A and FIFO B banks.
+2. Add a waveform probe on `ram_a_addr_a` / `ram_a_rdata_a` / `addr`
+   during the `$40805F28–$40805F5C` window (PC trigger).
+3. Once FIFO readback is symmetric, expect exit to `$40805F60`
+   (`lea %a3@(2068), %a0; clr.l (A0)+; ...; clrb %a3@(2049); jmp %fp@`)
+   and return through `$408000D4`.
 
 ## SCC Channel A RR0 Polling at $408032AC: RESOLVED (2026-04-08)
 

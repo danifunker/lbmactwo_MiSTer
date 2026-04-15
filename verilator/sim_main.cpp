@@ -66,7 +66,7 @@ int cfg_memSize = 0;       // 0=1MB, 1=4MB
 
 // CPU trace
 // ---------
-bool cpu_trace_enable = false;  // Disabled by default for speed; toggle in GUI
+bool cpu_trace_enable = true;  // Disabled by default for speed; toggle in GUI
 bool cpu_trace_started = false;  // Wait for ROM load and reset
 FILE* cpu_trace_file = nullptr;
 const char* cpu_trace_filename = "cpu_trace.log";
