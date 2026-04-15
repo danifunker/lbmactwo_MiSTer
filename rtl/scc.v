@@ -295,8 +295,22 @@ module scc
 							/* enable int on next rx char */
 							if (wdata[5:3] == 3'b100)
 								rx_first_a<=1;
+						end else if (rindex_a == 4'h0) begin
+							/* State REGISTER with pointer=0: per Z8530, another WR0 write.
+							 * Latch new pointer from wdata[2:0]; stay in REGISTER state so
+							 * the next ctrl access uses the new pointer. This overrides the
+							 * reset scheduled at the top of this block (later NBA wins). */
+							rindex_a[2:0] <= wdata[2:0];
+							rindex_a[3] <= (wdata[5:3] == 3'b001);
+							scc_state_a <= 1;
+							if (wdata[5:3] == 3'b100)
+								rx_first_a <= 1;
+`ifdef DEBUG_SCC
+							$display("SCC_WR0_REWRITE: ch=A wdata=%02x rindex_new=%x (REGISTER state, pointer=0)",
+								wdata, {((wdata[5:3] == 3'b001) ? 1'b1 : 1'b0), wdata[2:0]});
+`endif
 						end else begin
-							/* State REGISTER: This write is to selected register */
+							/* State REGISTER with pointer!=0: write to selected register */
 `ifdef DEBUG_SCC
 							$display("SCC_WR_SELECTED: ch=A rindex=%x wdata=%02x (WR%d)",
 								rindex_a, wdata, rindex_a);
@@ -318,8 +332,19 @@ module scc
 							/* enable int on next rx char */
 							if (wdata[5:3] == 3'b100)
 								rx_first_b<=1;
+						end else if (rindex_b == 4'h0) begin
+							/* State REGISTER with pointer=0: per Z8530, another WR0 write. */
+							rindex_b[2:0] <= wdata[2:0];
+							rindex_b[3] <= (wdata[5:3] == 3'b001);
+							scc_state_b <= 1;
+							if (wdata[5:3] == 3'b100)
+								rx_first_b <= 1;
+`ifdef DEBUG_SCC
+							$display("SCC_WR0_REWRITE: ch=B wdata=%02x rindex_new=%x (REGISTER state, pointer=0)",
+								wdata, {((wdata[5:3] == 3'b001) ? 1'b1 : 1'b0), wdata[2:0]});
+`endif
 						end else begin
-							/* State REGISTER: This write is to selected register */
+							/* State REGISTER with pointer!=0: write to selected register */
 `ifdef DEBUG_SCC
 							$display("SCC_WR_SELECTED: ch=B rindex=%x wdata=%02x (WR%d)",
 								rindex_b, wdata, rindex_b);
