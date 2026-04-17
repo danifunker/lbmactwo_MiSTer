@@ -279,6 +279,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal set_vectoraddr	: bit;
 	signal writeSR				: bit;
 	signal trap_berr			: bit;
+	signal berr_frame_cnt		: integer range 0 to 20 := 0;
 	signal trap_illegal		: bit;
 	signal trap_addr_error	: bit;
 	signal trap_priv			: bit;
@@ -931,6 +932,9 @@ PROCESS (clk)
 					IF	useStackframe2='1' THEN
 						-- stack frame format #2
 						data_write_tmp(15 downto 0) <= "0010" & trap_vector(11 downto 0); --TH
+					elsif trap_berr='1' then
+						-- stack frame format $B (bus error, 68020)
+						data_write_tmp(15 downto 0) <= "1011" & trap_vector(11 downto 0);
 					else
 						data_write_tmp(15 downto 0) <= "0000" & trap_vector(11 downto 0);
 						writePCnext <= trap_trap OR trap_trapv OR exec(trap_chk) OR Z_error;
@@ -1609,7 +1613,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		 build_bcd, set_Z_error, trapd, movem_run, last_data_read, set, set_V_Flag, z_error, trap_trace, trap_interrupt,
 		 SVmode, preSVmode, stop, long_done, ea_only, setstate, addrvalue, execOPC, exec_write_back, exe_datatype,
 		 datatype, interrupt, c_out, trapmake, rot_cnt, brief, addr, trap_trapv, last_data_in, use_VBR_Stackframe,
-		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr)
+		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr, berr_frame_cnt)
 	BEGIN
 		TG68_PC_brw <= '0';	
 		setstate <= "00";
@@ -1701,12 +1705,16 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		END IF;
 		
 		IF interrupt='1' AND trap_berr='1' THEN
-			next_micro_state <= trap0;
+			IF use_VBR_Stackframe='1' THEN
+				next_micro_state <= trap_berr20;
+			ELSE
+				next_micro_state <= trap0;
+			END IF;
 			IF preSVmode='0' THEN
 				set(changeMode) <= '1';
 			END IF;
 			setstate <= "01";
-		END IF;	
+		END IF;
 		IF trapmake='1' AND trapd='0' THEN
 			IF cpu(1)='1' AND (trap_trapv='1' OR set_Z_error='1' OR exec(trap_chk)='1') THEN
 				next_micro_state <= trap00;
@@ -3462,9 +3470,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		IF rising_edge(clk) THEN
 	        IF Reset='1' THEN
 				micro_state <= ld_nn;
+				berr_frame_cnt <= 0;
 			ELSIF clkena_lw='1' THEN
 				trapd <= trapmake;
 				micro_state <= next_micro_state;
+				IF next_micro_state = trap_berr20 AND micro_state /= trap_berr20 THEN
+					berr_frame_cnt <= 20;
+				ELSIF next_micro_state = rte_berr20 AND micro_state /= rte_berr20 THEN
+					berr_frame_cnt <= 19;
+				ELSIF (micro_state = trap_berr20 OR micro_state = rte_berr20) AND berr_frame_cnt > 0 THEN
+					berr_frame_cnt <= berr_frame_cnt - 1;
+				END IF;
 			END IF;
 		END IF;
 
@@ -3999,7 +4015,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					datatype <= "01";
 					writeSR <= '1';
 					next_micro_state <= trap3;
-					
+
+					WHEN trap_berr20 =>	-- 68020 format $B: push 84 bytes of extended frame
+						set(presub) <= '1';
+						setstackaddr <='1';
+						setstate <= "11";
+						datatype <= "10";
+						writeSR <= '1';
+						IF berr_frame_cnt > 0 THEN
+							next_micro_state <= trap_berr20;
+						ELSE
+							next_micro_state <= trap0;
+						END IF;
+
 										-- return from exception - RTE
 										-- fetch PC and status register from stack
 										-- 010+ fetches another word containing
@@ -4048,12 +4076,30 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						set(postadd) <= '1';
 						setstackaddr <= '1';
 						next_micro_state <= rte5;
+					elsif last_data_in(15 downto 12)="1011" then
+											  -- format $B: skip 84 bytes of extended frame
+						setstate <= "10";
+						datatype <= "10";
+						set(postadd) <= '1';
+						setstackaddr <= '1';
+						next_micro_state <= rte_berr20;
 					else
 						datatype <= "01";
 						next_micro_state <= nop;
 					end if;
 				WHEN rte5 =>            -- RTE
 					next_micro_state <= nop;
+
+				WHEN rte_berr20 =>	-- RTE format $B: skip remaining extended frame
+					set(postadd) <= '1';
+					setstackaddr <= '1';
+					setstate <= "10";
+					datatype <= "10";
+					IF berr_frame_cnt > 0 THEN
+						next_micro_state <= rte_berr20;
+					ELSE
+						next_micro_state <= nop;
+					END IF;
 -------------------------------------
 
 				WHEN rtd1 =>		-- RTD
