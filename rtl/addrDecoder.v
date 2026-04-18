@@ -133,7 +133,7 @@ module addrDecoder(
 		// Also treat $80xxxxxx as 24-bit: the Slot Manager flags sResource entry
 		// pointers with BSET #7 (byte 0), turning $0000xxxx into $8000xxxx.
 		// On real Mac II this bus-errors and the handler strips bit 31; since
-		// TG68K doesn't handle bus errors in 68020 mode, mirror $80→$00 instead.
+		// TG68K doesn't fully implement format $B fault address, mirror $80→$00 instead.
 		if (address[31:24] != 8'h00 && address[31:24] != 8'hFF
 		    && address[31:24] != 8'h80) begin
 			// Standard NuBus Slot Space: $9000_0000 - $EEFF_FFFF

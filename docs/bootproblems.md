@@ -1,4 +1,4 @@
-# Mac II Boot Sequence — Current Analysis (2026-03-30)
+# Mac II Boot Sequence — Current Analysis (2026-04-17)
 
 ## NuBus Video Card Status: Working Correctly
 
@@ -57,7 +57,7 @@ After ADB init, the ROM entered a tight BTST #5 polling loop at PC=$40806DD8, wa
 ### Result
 854 SR completion events fired in 300-frame sim. BTST #5 loop hit only 18 times (brief waits, all resolved). Boot progressed well past ADB init into NuBus slot scanning and declaration ROM reading.
 
-## TG68K Bus Error Frame / NuBus Empty Slots: FIXED (2026-03-29)
+## TG68K Bus Error Frame / NuBus Empty Slots: FIXED (2026-03-29, updated 2026-04-17)
 
 After ADB/SR fixes, the boot reached NuBus slot re-scanning but stalled due to broken bus error handling. The Mac II Slot Manager probes empty NuBus slots and relies on bus errors (BERR) to detect them. Two problems prevented this from working:
 
@@ -83,8 +83,35 @@ After ADB/SR fixes, the boot reached NuBus slot re-scanning but stalled due to b
 
 - **`tg68k.v`**: Added `cpu_halted` output port, wired to kernel.
 
-### Result
+### Result (2026-03-29)
 In 2000-frame sim: 5 BERR events (all at PC=`$40807580`, probing addr `$A0830E80`), correctly caught by Slot Manager's BERR handler. 17 unique PCs install BERR handlers throughout boot — the ROM progresses through multiple boot stages. Boot reaches PC=`$40812Fxx` (deep into ROM init) and enters VIA1 ORA polling — likely ADB communication for device enumeration.
+
+### Format $B update (2026-04-17)
+
+The format `$0` fix above was incomplete. The Mac II ROM's Slot Manager BERR
+catcher at `$4080E590` expects a 92-byte format `$B` frame (the real 68020 bus
+error frame), accessing `SP@(10)` (SSW) and `SP@(44)` (stage B address). With
+format `$0` (8 bytes), those writes landed past the frame and corrupted the
+program stack, ultimately corrupting resource handle pointers.
+
+**Fix (commit `5953f28`):** Implemented format `$B` bus error frame in TG68K:
+
+- Added `trap_berr20` micro state: counter-based loop pushes 21 longwords (84
+  bytes) of extended frame data before the standard 8-byte header (SR + PC +
+  format/vector). Total frame = 92 bytes.
+- Format/vector word set to `$B008` for BERR in 68020 mode (`use_VBR_Stackframe='1'`).
+- Added `rte_berr20` micro state: on RTE, detects format `$B` in `rte4` and
+  loops to read/discard 84 bytes (20 longword reads after the initial one in
+  `rte4`), correctly restoring SP.
+- `berr_frame_cnt` signal (integer 0–20) drives both push and pop loops.
+- Extended frame data is SR placeholder values (content irrelevant — the BERR
+  catcher overwrites the fields it cares about).
+
+**Result:** Boot progresses from crashing into the ROM debug shell (format `$0`)
+to reaching the OS main event loop (21M trace instructions, 342K SCC poll
+iterations). One BERR remains at PC=`$40807580` / addr `$A0830E80` (KMAP master
+pointer corruption), caught by POST handler — system continues normally.
+See "Remaining: KMAP Pointer Corruption" below.
 
 ## Boot Sequence Timeline (from 2000-frame sim)
 
@@ -338,28 +365,53 @@ during this phase.
 
 ### Next steps (RESOLVED — see SPValid fix above)
 
-## Current Blocker: Interrupt Handler SCC Poll at $40802EEA (2026-04-08)
+## Current Blocker: Interrupt Handler SCC Poll at $40802EEA: RESOLVED (2026-04-17)
 
 After the SPValid fix unblocks AppleTalk, boot advances past the LLAP
 self-test and reaches a new resting point in an **interrupt handler in
-RAM** at PC `$40802EEA` (reached via VBR=`$40802806`). The handler is
-still polling SCC channel A RR0, seeing the same `$2C` value, and
-apparently never exiting.
+RAM** at PC `$40802EEA`. This was resolved by the format `$B` bus error
+frame fix and associated SCC/VIA work — boot now reaches the OS event loop.
 
-Opcode at `$40802EEA` is `0205` (ANDI.B #imm,D5) — not itself a poll,
-but an instruction in a tight service routine that keeps reading SCC.
+## Remaining: KMAP Pointer Corruption (2026-04-17)
 
-Preceding PCs observed on the way here: `$408036FE` (Op `3018`),
-`$4080DE3E` (Op `51CD` DBRA D5 loop), `$40805F44` (Op `1087` write).
+One non-fatal BERR remains at PC=`$40807580`, accessing `$A0830E80`
+(NuBus slot A standard space — empty slot). This is the keyboard handler
+at `$4080753A` dereferencing a corrupted KMAP resource master pointer.
 
-### Next steps
+### Call chain
 
-1. Identify what interrupt is firing by looking at the vector table at
-   `$40802806` — which SCC interrupt bit is installed where?
-2. Check if WR9 (interrupt vector enable) or WR1/WR15 config is causing
-   the SCC to assert IRQ continuously with no clearable condition.
-3. Compare against Snow's SCC interrupt generation logic
-   (`../snow/core/src/mac/scc.rs`).
+```
+$40806552: movea.l (A0,D0.w), A2    ; A2 = device handler private data
+$4080757A: movea.l (A2), A1          ; A1 = KMAP master pointer (corrupted)
+$4080757C: move.b ($4,A1,D1.w), D3  ; access $A0830E80 → BERR
+```
+
+### What happens
+
+1. _GetResource('KMAP', 0) at `$40807880` returns a valid handle (D0≠0)
+2. Master pointer stored at (A2) via `move.l (A0), (A2)` at `$40807888`
+3. Later, keyboard callback at `$4080753A` reads (A2) — master pointer
+   is now `$A083xxxx` (corrupted to NuBus slot A space)
+4. BERR fires, POST handler at `$408020FA` catches it
+5. POST handler adjusts SP by 6 (designed for 8-byte frame, but format
+   `$B` is 92 bytes — leaves 86 bytes on stack)
+6. Boot continues normally despite the stack residue
+
+### Investigation done
+
+- Format `$B` fix did not prevent this BERR — Slot Manager probing
+  never triggers BERRs (all 86 probes complete in 112 cycles, all to
+  slot $E which has the video card)
+- `$80→$00` address mirror tested: removing it had zero effect (same
+  BERR at same cycle). `$80xxxxxx` addresses not accessed during boot.
+- Corruption source is NOT Slot Manager BERR frame corruption (that's
+  fixed). Likely heap or Resource Manager corruption from an earlier
+  phase.
+
+### Impact
+
+Low. The POST handler catches the BERR and boot continues into the
+normal OS event loop. System is functional.
 
 ## Reference Implementations
 
@@ -370,18 +422,21 @@ Preceding PCs observed on the way here: `$408036FE` (Op `3018`),
 ## Key Files
 
 - `rtl/adb.sv` — ADB Modem PIC transceiver (Mac II protocol, response timing fix 2026-03-30)
-- `rtl/tg68k/TG68KdotC_Kernel.vhd` — CPU core (BERR frame fix, HALT support)
+- `rtl/tg68k/TG68KdotC_Kernel.vhd` — CPU core (BERR format $0→$B fix, HALT support)
+- `rtl/tg68k/TG68K_Pack.vhd` — micro state type definitions (trap_berr20, rte_berr20 added 2026-04-17)
+- `rtl/tg68k/TG68K_Pack.sv` — SystemVerilog micro state enum (mirrors .vhd)
 - `rtl/tg68k/tg68k.v` — CPU bus wrapper (cpu_halted port)
 - `rtl/nubus/nubus_arbiter.sv` — NuBus empty-slot BERR handler (new 2026-03-29)
 - `rtl/nubus/nubus_video_highres.sv` — NuBus video card implementation
-- `rtl/addrDecoder.v` — address decoder (NuBus slot space at lines 139-154)
+- `rtl/addrDecoder.v` — address decoder (NuBus slot space, $80→$00 mirror)
 - `rtl/dataController_top.sv` — peripheral controller, VIA/SCC/ADB connections, kbd_bitcnt fix
 - `verilator/sim.v` — sim wrapper (NuBus arbiter instantiation, BERR counter)
-- `verilator/sim_main.cpp` — sim harness (screenshot capture)
+- `verilator/sim_main.cpp` — sim harness (screenshot capture, debug instrumentation)
 - `releases/boot1.rom` — declaration ROM file (8KB, 341-0660)
 
 ## Next Steps
 
-1. **Debug VIA1 CA1 interrupt loop** — determine what drives CA1 (VBL from VIA2? RTC?), check if the source is properly connected and generating correct timing
-2. **Check VIA1 CA1 edge/level sensitivity** — CA1 may be configured for edge-triggered but receiving a stuck level
-3. **Monitor for further blockers** — SCSI init, IWM/floppy, or memory manager init may follow
+1. **Interactive sim test** — run without `--stop-at-frame` to visually verify boot reaches the Mac desktop
+2. **KMAP corruption (low priority)** — instrument `$40807888` data bus to see if master pointer is corrupted at _GetResource time or later; check heap integrity
+3. **POST handler frame cleanup** — the POST handler at `$408020FA` only skips 6 bytes of the exception frame; with format `$B` (92 bytes), 86 bytes remain on the stack. Consider teaching the POST handler path about the frame size, or implementing format `$B` fault address field so the handler can do proper RTE recovery
+4. **Monitor for further blockers** — SCSI init, IWM/floppy, or memory manager issues may appear once the system tries to access disk
