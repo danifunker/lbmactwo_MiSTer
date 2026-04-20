@@ -67,6 +67,7 @@ V_SRC = \
 	$(RTL)/tg68k/tg68k.v \
 	$(RTL)/addrController_top.v \
 	$(RTL)/addrDecoder.v \
+	$(RTL)/hmmu.v \
 	$(RTL)/dataController_top.sv \
 	$(RTL)/videoTimer.v \
 	$(RTL)/videoShifter.v \

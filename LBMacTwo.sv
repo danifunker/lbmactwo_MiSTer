@@ -552,7 +552,13 @@ assign      _cpuVMA       = tg68_vma_n;
 assign      cpuFC[0]      = tg68_fc0;
 assign      cpuFC[1]      = tg68_fc1;
 assign      cpuFC[2]      = tg68_fc2;
-assign      cpuAddr       = tg68_a;
+// Mac II HMMU address translation: VIA2 PB3 low enables 24-bit mapping
+// onto the 32-bit bus. Bypassed for FC=7 CPU-space cycles (coprocessor
+// CIR dialog must see the raw address).
+wire        hmmu_active;
+wire [31:0] cpuAddr_xlated;
+hmmu u_hmmu(.addr_in(tg68_a), .active(hmmu_active), .addr_out(cpuAddr_xlated));
+assign      cpuAddr       = (cpuFC == 3'b111) ? tg68_a : cpuAddr_xlated;
 assign      cpuDataOut    = tg68_dout;
 
 wire        tg68_rw;
@@ -807,6 +813,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.vid_alt(vid_alt),
 
 	.memoryOverlayOn(memoryOverlayOn),
+	.hmmu_active(hmmu_active),
 
 	.ascAudioLeft(asc_audio_l),
 	.ascAudioRight(asc_audio_r),

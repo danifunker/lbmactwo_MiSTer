@@ -321,7 +321,12 @@ module emu
 	assign      cpuFC[0]      = tg68_fc0;
 	assign      cpuFC[1]      = tg68_fc1;
 	assign      cpuFC[2]      = tg68_fc2;
-	assign      cpuAddr       = tg68_a;  // Full 32-bit address
+	// Mac II HMMU: translate CPU address when VIA2 PB3 is driven low.
+	// FC=7 (CPU space / coprocessor CIR) bypasses translation.
+	wire        hmmu_active;
+	wire [31:0] cpuAddr_xlated;
+	hmmu u_hmmu(.addr_in(tg68_a), .active(hmmu_active), .addr_out(cpuAddr_xlated));
+	assign      cpuAddr       = (cpuFC == 3'b111) ? tg68_a : cpuAddr_xlated;
 	assign      cpuDataOut    = tg68_dout;
 
 	// tg68k wire declarations
@@ -611,6 +616,7 @@ module emu
 		.vid_alt(vid_alt),
 
 		.memoryOverlayOn(memoryOverlayOn),
+		.hmmu_active(hmmu_active),
 
 		.ascAudioLeft(asc_audio_l),
 		.ascAudioRight(asc_audio_r),

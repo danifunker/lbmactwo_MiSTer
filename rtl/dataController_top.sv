@@ -76,6 +76,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// misc
 	output memoryOverlayOn,
+
+	// Mac II HMMU enable (VIA2 PB3 low → 24-bit translated mode)
+	output hmmu_active,
+
 	input [1:0] insertDisk,
 	input [1:0] diskSides,
 	output [1:0] diskEject,
@@ -336,6 +340,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// VIA2 PB7 drives VIA1 CA1 for 60.15 Hz timer chain
 	assign via2_pb7_to_via1_ca1 = via2_pb_o[7];
+
+	// VIA2 PB3: Mac II HMMU/AMU enable — active when PB3 is driven low
+	// (DDRB[3]=1, ORB[3]=0). Matches MAME macii.cpp `set_hmmu_enable` and
+	// Snow bus.rs `amu_active` gating.
+	assign hmmu_active = via2_pb_oe[3] & ~via2_pb_o[3];
 
 	// VIA2 CA1: NuBus IRQ aggregator (active-low when any slot asserts IRQ)
 	wire via2_ca1 = nubus_irq_n;  // directly from video card for now (Phase 1)

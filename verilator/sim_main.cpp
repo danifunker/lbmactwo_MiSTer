@@ -849,6 +849,196 @@ int verilate() {
 				last_berr = berr_now;
 			}
 
+			// ===================================================================
+			// KMAP pointer corruption watchpoint (added 2026-04-20)
+			// Per docs/bootproblems.md: $40807880 calls _GetResource('KMAP'),
+			// $40807888 stores master pointer via `move.l (A0),(A2)`, and later
+			// $4080757A reads (A2) and finds it corrupted. Find what writes to
+			// (A2)'s target address between store and read.
+			// ===================================================================
+			{
+				static uint32_t kmap_mptr_addr = 0;     // address written at $40807888
+				static uint32_t kmap_mptr_value = 0;    // original master ptr
+				static uint64_t kmap_store_cycle = 0;
+				static bool kmap_armed = false;
+				static int kmap_hi_latch_valid = 0;
+				static uint32_t kmap_hi_latch_val = 0;
+
+				// Capture the store at $40807888. The RTL writes each word twice
+				// (we see duplicates in VEC2_WR), so de-dup by cycle+pc.
+				if (VERTOPINTERN->debug_cpuBusControl && !VERTOPINTERN->debug_cpuRW &&
+				    !*bus.ioctl_download) {
+					uint32_t pc = VERTOPINTERN->debug_pc;
+					uint32_t waddr = VERTOPINTERN->debug_cpuAddr;
+					uint16_t wdata = VERTOPINTERN->debug_cpuDataIn;
+					// The store instruction is at $40807888 — next fetch PC
+					// after this instruction will be seen as debug_pc.
+					// Cover likely surrounding PCs.
+					if (pc >= 0x40807880 && pc <= 0x40807890) {
+						static uint64_t last_log_cycle = 0;
+						if (main_time - last_log_cycle > 4) {
+							fprintf(stderr, "[KMAP] write @ pc=%08X waddr=%08X wdata=%04X cycle=%llu\n",
+								pc, waddr, wdata, (unsigned long long)main_time);
+							last_log_cycle = main_time;
+						}
+						// Longword write = two word writes to addr and addr+2
+						// Capture both halves and reconstruct the longword.
+						if (!kmap_armed) {
+							// Heuristic: first write is high word, second is low word.
+							if (!kmap_hi_latch_valid) {
+								kmap_hi_latch_val = ((uint32_t)wdata) << 16;
+								kmap_mptr_addr = waddr;
+								kmap_hi_latch_valid = 1;
+							} else {
+								kmap_mptr_value = kmap_hi_latch_val | wdata;
+								kmap_store_cycle = main_time;
+								kmap_armed = true;
+								kmap_hi_latch_valid = 0;
+								fprintf(stderr, "[KMAP] STORE complete: (A2)=%08X <- %08X cycle=%llu\n",
+									kmap_mptr_addr, kmap_mptr_value,
+									(unsigned long long)kmap_store_cycle);
+							}
+						}
+					}
+
+					// Once armed, watch every write to the target address (and ±2)
+					if (kmap_armed) {
+						if (waddr >= kmap_mptr_addr && waddr <= kmap_mptr_addr + 3) {
+							static int kmap_hit = 0;
+							if (kmap_hit < 200) {
+								fprintf(stderr, "[KMAP] TGT_WR waddr=%08X wdata=%04X cycle=%llu pc=%08X\n",
+									waddr, wdata,
+									(unsigned long long)main_time, pc);
+								kmap_hit++;
+							}
+						}
+					}
+				}
+
+				// Log the read at $4080757A / $4080757C area
+				if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
+					uint32_t pc = VERTOPINTERN->debug_pc;
+					if (pc == 0x4080757A || pc == 0x4080757C) {
+						static uint64_t last_rd_log = 0;
+						if (main_time - last_rd_log > 4) {
+							fprintf(stderr, "[KMAP] READ_FETCH pc=%08X cycle=%llu (A2_mptr was %08X at cycle %llu, stored at (A2)=%08X)\n",
+								pc, (unsigned long long)main_time,
+								kmap_mptr_value, (unsigned long long)kmap_store_cycle,
+								kmap_mptr_addr);
+							last_rd_log = main_time;
+						}
+					}
+				}
+			}
+
+			// ===================================================================
+			// BERR/RTE frame instrumentation (added 2026-04-20)
+			// Captures exception frame pushes after BERR and frame pops on RTE.
+			// Goal: verify format $B push count vs RTE pop count, detect
+			// POST-handler SP+=6 leaving residue on stack.
+			// ===================================================================
+			{
+				enum Phase { IDLE, PUSHING, RUNNING, POPPING };
+				static Phase phase = IDLE;
+				static int last_berr2 = 0;
+				static int push_count = 0;
+				static int pop_count = 0;
+				static uint32_t fault_pc = 0;
+				static uint32_t fault_addr = 0;
+				static int fault_fc = 0;
+				static uint64_t fault_cycle = 0;
+				static int session_id = 0;
+				static int last_fetch_valid = 0;
+				bool bi_active = true;
+				int berr_now = VERTOPINTERN->debug_berr ? 1 : 0;
+
+				if (bi_active) {
+					// Rising BERR: snapshot fault info, enter PUSHING
+					if (berr_now && !last_berr2) {
+						fault_pc    = VERTOPINTERN->debug_pc;
+						fault_addr  = VERTOPINTERN->debug_cpuAddr;
+						fault_fc    = VERTOPINTERN->debug_fc;
+						fault_cycle = main_time;
+						push_count  = 0;
+						pop_count   = 0;
+						session_id++;
+						phase = PUSHING;
+						fprintf(stderr, "[BI#%d] BERR cycle=%llu pc=%08X addr=%08X FC=%d\n",
+							session_id, (unsigned long long)fault_cycle,
+							fault_pc, fault_addr, fault_fc);
+					}
+					last_berr2 = berr_now;
+
+					// In PUSHING phase: count all writes (frame pushes).
+					// debug_fc reflects the last instruction fetch only, so we can't
+					// filter by FC here. Assume writes during this window are pushes.
+					if (phase == PUSHING && VERTOPINTERN->debug_write_valid) {
+						uint32_t waddr = VERTOPINTERN->debug_write_addr;
+						uint16_t wdata = VERTOPINTERN->debug_write_data;
+						if (push_count < 60) {
+							fprintf(stderr, "[BI#%d] push#%02d @%08X = %04X\n",
+								session_id, push_count, waddr, wdata);
+						}
+						push_count++;
+					}
+
+					// After PUSHING, look for handler starting: instruction fetch
+					// at new PC means we're running the handler now.
+					if (phase == PUSHING && VERTOPINTERN->debug_fetch_valid && !last_fetch_valid) {
+						uint32_t pc = VERTOPINTERN->debug_pc;
+						if (pc != fault_pc && push_count >= 4) {
+							fprintf(stderr, "[BI#%d] HANDLER_ENTRY pc=%08X pushes=%d (expect 23 for fmt$B)\n",
+								session_id, pc, push_count);
+							phase = RUNNING;
+						}
+					}
+
+					// In RUNNING phase: log each new PC (up to N), watch for RTE
+					if (phase == RUNNING && VERTOPINTERN->debug_fetch_valid && !last_fetch_valid) {
+						uint16_t op = VERTOPINTERN->debug_opcode;
+						uint32_t pc = VERTOPINTERN->debug_pc;
+						static uint32_t last_hpc = 0;
+						static int hpc_count = 0;
+						if (pc != last_hpc) {
+							if (hpc_count < 120) {
+								fprintf(stderr, "[BI#%d] handler_pc=%08X op=%04X\n",
+									session_id, pc, op);
+							}
+							hpc_count++;
+							last_hpc = pc;
+						}
+						if (op == 0x4E73) {
+							fprintf(stderr, "[BI#%d] RTE_FETCH pc=%08X\n",
+								session_id, VERTOPINTERN->debug_pc);
+							pop_count = 0;
+							phase = POPPING;
+						}
+					}
+
+					// In POPPING phase: timeout after N cycles or on first instruction
+					// fetch from new PC (meaning RTE completed). We don't have a
+					// clean per-cycle read strobe, so rely on fetch boundary.
+					if (phase == POPPING) {
+						static uint64_t pop_start_cycle = 0;
+						if (pop_start_cycle == 0) pop_start_cycle = main_time;
+						if (VERTOPINTERN->debug_fetch_valid && !last_fetch_valid) {
+							uint32_t pc = VERTOPINTERN->debug_pc;
+							fprintf(stderr, "[BI#%d] POST_RTE_FETCH pc=%08X (pushes=%d)\n",
+								session_id, pc, push_count);
+							phase = IDLE;
+							pop_start_cycle = 0;
+						} else if (main_time - pop_start_cycle > 5000) {
+							fprintf(stderr, "[BI#%d] POP_TIMEOUT no fetch seen (pushes=%d)\n",
+								session_id, push_count);
+							phase = IDLE;
+							pop_start_cycle = 0;
+						}
+					}
+
+					last_fetch_valid = VERTOPINTERN->debug_fetch_valid ? 1 : 0;
+				}
+			}
+
 			// After ROM download completes, verify ROM data in sim_ram
 			{
 				static bool rom_verified = false;
