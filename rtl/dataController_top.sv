@@ -517,7 +517,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// receiving. This prevents the clock from starting prematurely (before ADB
 	// response data is loaded) when the VIA SR is re-armed but the ORB state
 	// transition hasn't happened yet.
-	wire kbd_clk_active = (kbd_transmitting && !kbd_wait_receiving) || kbd_receiving;
+	// Mac II uses Snow-style atomic SR byte delivery via via1_sr_ext_complete;
+	// path B (CB1 bit-bang) is disabled entirely on Mac II to avoid racing
+	// path A. See docs/adb_shift_plan.md.
+	wire kbd_clk_active = !machineType &&
+	                      ((kbd_transmitting && !kbd_wait_receiving) || kbd_receiving);
 	always @(posedge clk32) begin
 		if (clk8_en_p) begin
 			if (kbd_clk_active) begin
@@ -560,14 +564,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// ADB response: buffer the byte, defer clocking until VIA1 SR is armed.
 			// The ROM reads/writes VIA1 SR to arm the shift register (shift_active=1)
 			// before expecting CB1 clocks. Starting immediately would race ahead.
+			// Mac II: stash ADB response byte for path A (3 ms SR timer)
+			// to deliver via sr_ext_data = kbd_to_mac. Do NOT start path B.
 			if (adb_dout_strobe && machineType) begin
 				kbd_to_mac <= adb_dout;
-				adb_recv_pending <= 1;
-			end
-			if (adb_recv_pending && via1_sr_active && !kbd_receiving && !kbd_transmitting) begin
-				kbd_receiving <= 1;
-				adb_recv_pending <= 0;
-				kbd_bitcnt <= 0;
 			end
 
 			kbd_out_strobe <= 0;
@@ -596,13 +596,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// Only start when VIA is shifting OUT (cb2_t=1). When VIA is shifting IN
 			// (cb2_t=0, ACR mode 011), we must NOT start kbd_transmitting — instead
 			// kbd_receiving will start via adb_recv_pending to drive response data on CB2.
-			if (machineType && !kbd_transmitting && !kbd_receiving) begin
-				ADBListenD <= ADBListen;
-				if ((!ADBListenD && ADBListen) || (!via1_sr_active_d && via1_sr_active && cb2_t)) begin
-					kbd_transmitting <= 1;
-					kbd_bitcnt <= 0;
-				end
-			end
+			// Mac II path-B start trigger removed: path A (via1_sr_out_done →
+			// adb_din_strobe) delivers the shifted-out byte to the ADB
+			// transceiver 3 ms after the SR write. See docs/adb_shift_plan.md.
 
 			// The last bit of the command leaves the keyboard data line low; the
 			// Macintosh then indicates it's ready to receive the keyboard's response by
