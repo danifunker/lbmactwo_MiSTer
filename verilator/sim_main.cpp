@@ -760,6 +760,93 @@ int verilate() {
 				// Bus error handler at $2906
 				if (pc == 0x40802906)
 					fprintf(stderr, "*** BUS ERROR HANDLER at cycle %llu ***\n", (unsigned long long)main_time);
+
+				// --- Exception-into-debug-shell investigation ---
+				// Track the previous "normal" PC so we can identify the faulting
+				// instruction when the CPU jumps to the POST exception chain
+				// at $408020F8-$40802114.
+				static uint32_t prev_pc = 0;
+				static int excpt_log_count = 0;
+				bool in_excpt_entry = (pc >= 0x408020F8 && pc <= 0x40802114);
+				if (in_excpt_entry && excpt_log_count < 16) {
+					fprintf(stderr, "*** EXCPT_ENTRY pc=%08X (offset=%d) prev_pc=%08X cycle=%llu cpuAddr=%08X dataIn=%04X dataOut=%04X RW=%d FC=%d ***\n",
+						pc, (int)(pc - 0x408020F8), prev_pc,
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc);
+					excpt_log_count++;
+				}
+				// Update prev_pc only with non-exception-handler PCs so the
+				// log shows the faulting code, not the handler trampoline.
+				if (!in_excpt_entry && pc != 0)
+					prev_pc = pc;
+
+				// Log boot-init checkpoints between InitZone and the magic check
+				// so we know which trap/instruction precedes the exception.
+				if (pc == 0x408001B8)
+					fprintf(stderr, "*** BOOT $1B8 _InitZone trap at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x408001C2)
+					fprintf(stderr, "*** BOOT $1C2 jsr NewPtrSysClear at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x408001C8)
+					fprintf(stderr, "*** BOOT $1C8 bsr 40800D9E (magic-setter chain) at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40800D9E)
+					fprintf(stderr, "*** BOOT $D9E reached (magic-setter outer) at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x408008AE)
+					fprintf(stderr, "*** BOOT $8AE reached (writes 5A932BC7 magic) at cycle %llu ***\n", (unsigned long long)main_time);
+				if (pc == 0x40801E1C)
+					fprintf(stderr, "*** BOOT $1E1C magic check at cycle %llu ***\n", (unsigned long long)main_time);
+			}
+
+			// Watch CPU writes to $0AF0 (exception code), $0C70 (saved PC),
+			// $0C74 (saved SR) — these record what the POST handler captured.
+			if (VERTOPINTERN->debug_cpuBusControl && !VERTOPINTERN->debug_cpuRW &&
+			    !*bus.ioctl_download) {
+				uint32_t addr = VERTOPINTERN->debug_cpuAddr & 0x00FFFFFF;
+				if (addr == 0x000AF0 || addr == 0x000AF1 ||
+				    addr == 0x000C70 || addr == 0x000C71 ||
+				    addr == 0x000C72 || addr == 0x000C73 ||
+				    addr == 0x000C74 || addr == 0x000C75) {
+					static int wr_log_count = 0;
+					if (wr_log_count < 32) {
+						fprintf(stderr, "*** EXCPT_SAVE wr addr=%08X data=%04X cycle=%llu pc=%08X ***\n",
+							addr, VERTOPINTERN->debug_cpuDataIn,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc);
+						wr_log_count++;
+					}
+				}
+				// Vector 2 (Bus Error) at $00000008..$0000000B - track every
+				// write so we can see whether Slot Manager's catcher is installed
+				// at the time the BERR fires (vs POST handler).
+				if (addr >= 0x000008 && addr <= 0x00000B) {
+					static int vec2_log_count = 0;
+					if (vec2_log_count < 4096) {
+						fprintf(stderr, "*** VEC2_WR addr=%08X data=%04X cycle=%llu pc=%08X ***\n",
+							addr, VERTOPINTERN->debug_cpuDataIn,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc);
+						vec2_log_count++;
+					}
+				}
+			}
+
+			// BERR rising-edge log: which PC, address, FC asserted bus error.
+			{
+				static int last_berr = 0;
+				static int berr_log_count = 0;
+				int berr_now = VERTOPINTERN->debug_berr ? 1 : 0;
+				if (berr_now && !last_berr && berr_log_count < 32) {
+					fprintf(stderr, "*** BERR_EDGE cycle=%llu pc=%08X cpuAddr=%08X FC=%d ***\n",
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_fc);
+					berr_log_count++;
+				}
+				last_berr = berr_now;
 			}
 
 			// After ROM download completes, verify ROM data in sim_ram

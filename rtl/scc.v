@@ -768,7 +768,7 @@ module scc
 			 eom_latch_a, /* Tx Underrun/EOM - use latch instead of hardcoded 1 */
 			 1'b1, /* CTS - hardcode to 1 (always ready) for now */
 			 1'b0, /* Sync/Hunt */
-			 1'b1, /* DCD - hardcode to 1 (carrier detected) */
+			 wr15_a[3] ? dcd_latch_a : dcd_a, /* DCD */
 			 tx_empty_latch_a, /* Tx Empty - use latch like Clemens does */
 			 1'b0, /* Zero Count */
 			 (rx_queue_pos_a > 0)  /* Rx Available - based on FIFO not empty */

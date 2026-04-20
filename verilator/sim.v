@@ -366,13 +366,22 @@ module emu
 		.bgack_n    ( 1'b1         ),
 
 		.ipl        ( _cpuIPL      ),
-		.berr       ( berr_out     ),
+		.berr       ( berr_effective ),
 		.cpu_halted (              ),
-		.din        ( dataControllerDataOut ),
+		.din        ( cpu_data_in  ),
 		.dout       ( tg68_dout    ),
 		.addr       ( tg68_a       ),
-		.VBR_out    ( debug_vbr    )
+		.VBR_out    ( debug_vbr    ),
+		.berr_inhibit ( cpu_berr_inhibit ),
+		.berr_data    ( cpu_berr_data    )
 	);
+
+	// Format $B RTE: when berr_inhibit is active, suppress bus errors
+	// and provide the data input buffer value from the exception frame
+	wire cpu_berr_inhibit;
+	wire [31:0] cpu_berr_data;
+	wire berr_effective = cpu_berr_inhibit ? 1'b0 : berr_out;
+	wire [15:0] cpu_data_in = cpu_berr_inhibit ? cpu_berr_data[15:0] : dataControllerDataOut;
 	
 	// CPU debug - simplified without busstate
 	reg [31:0] last_fetch_pc;

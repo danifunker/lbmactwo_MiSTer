@@ -135,6 +135,9 @@ entity TG68KdotC_Kernel is
 		FC							: out std_logic_vector(2 downto 0);
 		clr_berr					: out std_logic;
 		cpu_halted				: out std_logic;
+		-- Format $B RTE: suppress next BERR, provide data instead
+		berr_inhibit			: out std_logic;
+		berr_data				: out std_logic_vector(31 downto 0);
 -- for debug
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
@@ -297,6 +300,16 @@ architecture logic of TG68KdotC_Kernel is
 	signal halted				: std_logic;
 	signal berr_seen_low		: std_logic;
 	signal useStackframe2	: std_logic;
+
+	-- Format $B bus error frame: latched bus cycle info
+	signal berr_fault_addr   : std_logic_vector(31 downto 0);
+	signal berr_rw           : std_logic;  -- 1=read, 0=write
+	signal berr_sz           : std_logic_vector(1 downto 0);  -- 00=long, 01=byte, 10=word
+	signal berr_fc_latch     : std_logic_vector(2 downto 0);
+	-- Format $B RTE: data input buffer mechanism
+	signal berr_ssw_df       : std_logic;  -- DF bit from SSW read during RTE
+	signal berr_data_buf     : std_logic_vector(31 downto 0);  -- data input buffer from frame
+	signal berr_inhibit_int  : std_logic;  -- suppress next bus error, provide berr_data_buf
 	
 	signal set_stop			: bit;
 	signal stop					: bit;
@@ -469,6 +482,8 @@ ALU: TG68K_ALU
 	nLDS <= memmaskmux(4);
 	clkena_lw <= '1' WHEN clkena_in='1' AND memmaskmux(3)='1' AND halted='0' ELSE '0';
 	clr_berr <= '1' WHEN setopcode='1' AND trap_berr='1' ELSE '0';
+	berr_inhibit <= berr_inhibit_int;
+	berr_data <= berr_data_buf;
 	
 	PROCESS (clk, nReset)
 	BEGIN
@@ -991,11 +1006,27 @@ PROCESS (clk)
 					data_write_tmp <= last_data_read;
 				ELSIF writeSR='1'THEN
 					data_write_tmp(15 downto 0) <= trap_SR(7 downto 0)& Flags(7 downto 0);
-				ELSE	
+				ELSE
 					data_write_tmp <= OP2out;
 				END IF;
-			END IF;	
-		END IF;	
+				-- Format $B frame: override data at specific offsets
+				-- berr_frame_cnt=0 → SP+8: {internal_reg, SSW}
+				-- berr_frame_cnt=2 → SP+16: fault address
+				-- all others → 0
+				IF micro_state = trap_berr20 OR next_micro_state = trap_berr20 THEN
+					CASE berr_frame_cnt IS
+						WHEN 0 =>
+							-- SSW: {FC(1),FB(0),RC(0),RB(0), 3'b0,DF(1), RMW(0),RW,SZ[1:0],0,FC[2:0]}
+							data_write_tmp <= X"0000" & "0000" & "000" & '1' &
+							                  '0' & berr_rw & berr_sz & '0' & berr_fc_latch;
+						WHEN 2 =>
+							data_write_tmp <= berr_fault_addr;
+						WHEN OTHERS =>
+							data_write_tmp <= (OTHERS => '0');
+					END CASE;
+				END IF;
+			END IF;
+		END IF;
 	END PROCESS;
 	
 -----------------------------------------------------------------------------
@@ -1301,7 +1332,25 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							trap_trace <= '1';
 						ELSIF make_berr='1' THEN
 							trap_berr <= '1';
-						ELSE	
+							-- Latch bus cycle info for format $B frame
+							berr_fault_addr <= addr;
+							-- state="10" is read, state="11" is write
+							IF state = "10" THEN
+								berr_rw <= '1';
+							ELSE
+								berr_rw <= '0';
+							END IF;
+							-- FC is an output port; latch supervisor bit from FlagsSR
+							-- FC(2)=supervisor, FC(1:0)=data/program
+							berr_fc_latch <= FlagsSR(5) & state(1) & (NOT state(1) OR state(0));
+							-- TG68K datatype: 00=byte, 01=word, 10=long
+							-- SSW size: 00=long, 01=byte, 10=word
+							CASE exe_datatype IS
+								WHEN "00" => berr_sz <= "01"; -- byte
+								WHEN "01" => berr_sz <= "10"; -- word
+								WHEN OTHERS => berr_sz <= "00"; -- long
+							END CASE;
+						ELSE
 							rIPL_nr <= IPL_nr;
 							IPL_vec <= "00011"&IPL_nr;            --	TH		
 							trap_interrupt <= '1';
@@ -3471,6 +3520,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 	        IF Reset='1' THEN
 				micro_state <= ld_nn;
 				berr_frame_cnt <= 0;
+				berr_inhibit_int <= '0';
+				berr_ssw_df <= '0';
+				berr_data_buf <= (OTHERS => '0');
 			ELSIF clkena_lw='1' THEN
 				trapd <= trapmake;
 				micro_state <= next_micro_state;
@@ -3478,8 +3530,26 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					berr_frame_cnt <= 20;
 				ELSIF next_micro_state = rte_berr20 AND micro_state /= rte_berr20 THEN
 					berr_frame_cnt <= 19;
+					-- Latch SSW from SP+8: rte4 just read it, available in last_data_read
+					-- SSW is in the low word, DF is bit 8
+					berr_ssw_df <= last_data_read(8);
 				ELSIF (micro_state = trap_berr20 OR micro_state = rte_berr20) AND berr_frame_cnt > 0 THEN
 					berr_frame_cnt <= berr_frame_cnt - 1;
+				END IF;
+				-- During rte_berr20: latch data input buffer when cnt=10
+				IF micro_state = rte_berr20 AND berr_frame_cnt = 10 THEN
+					berr_data_buf <= last_data_read;
+				END IF;
+				-- After rte_berr20 completes: if DF was cleared by handler,
+				-- set berr_inhibit so re-executed instruction uses saved data
+				IF micro_state = rte_berr20 AND next_micro_state = nop THEN
+					IF berr_ssw_df = '0' THEN
+						berr_inhibit_int <= '1';
+					END IF;
+				END IF;
+				-- Clear berr_inhibit after one instruction completes
+				IF berr_inhibit_int = '1' AND setopcode = '1' THEN
+					berr_inhibit_int <= '0';
 				END IF;
 			END IF;
 		END IF;

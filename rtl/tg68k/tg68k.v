@@ -34,7 +34,11 @@ module tg68k (
 	input [15:0] din,
 	output [15:0] dout,
 	output reg [31:0] addr,
-	output [31:0] VBR_out
+	output [31:0] VBR_out,
+
+	// Format $B RTE: suppress next BERR, provide data instead
+	output berr_inhibit,
+	output [31:0] berr_data
 );
 
 wire  [1:0] tg68_busstate;
@@ -219,6 +223,8 @@ TG68KdotC_Kernel tg68k (
 	.berr           ( berr          ),
 	.clr_berr       (               ),
 	.cpu_halted     ( cpu_halted    ),
+	.berr_inhibit   ( berr_inhibit  ),
+	.berr_data      ( berr_data     ),
 	.CPU            ( cpu           ), // 00->68000  01->68010  11->68020(only some parts - yet)
 	.addr_out       ( tg68_addr     ),
 	.data_write     ( dout          ),

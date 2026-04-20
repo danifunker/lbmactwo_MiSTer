@@ -623,11 +623,17 @@ tg68k tg68k_inst (
 	.bgack_n    ( 1'b1         ),
 
 	.ipl        ( _cpuIPL      ),
-	.berr       ( berr_out     ),
-	.din        ( selectFPU ? fpu_data_out[15:0] : dataControllerDataOut ),
+	.berr       ( berr_inhibit_active ? 1'b0 : berr_out ),
+	.din        ( berr_inhibit_active ? berr_data_out[15:0] :
+	              (selectFPU ? fpu_data_out[15:0] : dataControllerDataOut) ),
 	.dout       ( tg68_dout    ),
-	.addr       ( tg68_a       )
+	.addr       ( tg68_a       ),
+	.berr_inhibit ( berr_inhibit_active ),
+	.berr_data    ( berr_data_out      )
 );
+
+wire berr_inhibit_active;
+wire [31:0] berr_data_out;
 
 // MC68881 FPU - CIR dialog mode (coprocessor protocol via TG68K)
 // Data bus: TG68K is 16-bit; CIR protocol uses d_in[15:0] for writes, d_out[15:0] for reads
