@@ -315,6 +315,27 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.sr_ext_data     (via1_sr_ext_data)
 	);
 
+`ifdef SIMULATION
+	// VIA1 IRQ instrumentation — log every IFR/IER change so we can
+	// identify which bit is re-asserting the level-1 autovector IRQ.
+	reg [6:0] via1_ifr_d, via1_ier_d;
+	reg       via1_irq_d;
+	always @(posedge clk32) begin
+		via1_ifr_d <= via.irq_flags;
+		via1_ier_d <= via.irq_mask;
+		via1_irq_d <= viaIrq;
+		if (via.irq_flags !== via1_ifr_d)
+			$display("[VIA1 IFR] %t cycle=%0d ifr=%02h->%02h ier=%02h irq=%b",
+			         $time, $time/1, via1_ifr_d, via.irq_flags, via.irq_mask, viaIrq);
+		if (via.irq_mask !== via1_ier_d)
+			$display("[VIA1 IER] %t cycle=%0d ier=%02h->%02h ifr=%02h irq=%b",
+			         $time, $time/1, via1_ier_d, via.irq_mask, via.irq_flags, viaIrq);
+		if (viaIrq !== via1_irq_d)
+			$display("[VIA1 IRQ] %t cycle=%0d irq=%b->%b ifr=%02h ier=%02h",
+			         $time, $time/1, via1_irq_d, viaIrq, via.irq_flags, via.irq_mask);
+	end
+`endif
+
 	// VIA2 - NuBus interrupt routing, RAM sizing, timer chain
 	wire [7:0] via2_pa_i, via2_pa_o, via2_pa_oe;
 	wire [7:0] via2_pb_o, via2_pb_oe;
