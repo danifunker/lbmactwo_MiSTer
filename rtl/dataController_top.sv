@@ -320,19 +320,59 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// identify which bit is re-asserting the level-1 autovector IRQ.
 	reg [6:0] via1_ifr_d, via1_ier_d;
 	reg       via1_irq_d;
+	reg       onesec_d, pb7_d, ca1_c_d, ca2_c_d;
+	reg [31:0] onesec_edges, pb7_edges, ca1_edges, ca2_edges;
+	reg [31:0] via1_ora_reads, via1_ora_writes;
+	reg [31:0] via1_ifr_writes, via1_ier_writes, via1_any_reads, via1_any_writes;
+	reg [63:0] cyc;
 	always @(posedge clk32) begin
+		cyc <= cyc + 1;
 		via1_ifr_d <= via.irq_flags;
 		via1_ier_d <= via.irq_mask;
 		via1_irq_d <= viaIrq;
+		onesec_d   <= onesec;
+		pb7_d      <= via2_pb_o[7];
+		ca1_c_d    <= via.ca1_c;
+		ca2_c_d    <= via.ca2_c;
+
+		// Edge counters — Mac II expectations at 32.5 MHz:
+		//   onesec:        1 Hz  → edge every ~32.5M cycles
+		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~540K cycles
+		//   ca1_c (=PB7):  same as PB7
+		//   ca2_c (=onesec): same as onesec
+		if (onesec && !onesec_d)         onesec_edges <= onesec_edges + 1;
+		if (via2_pb_o[7] !== pb7_d)      pb7_edges    <= pb7_edges    + 1;
+		if (via.ca1_c && !ca1_c_d)       ca1_edges    <= ca1_edges    + 1;
+		if (via.ca2_c && !ca2_c_d)       ca2_edges    <= ca2_edges    + 1;
+
+		// VIA1 register accesses
+		if (via.falling) begin
+			if (via.ren) via1_any_reads  <= via1_any_reads  + 1;
+			if (via.wen) via1_any_writes <= via1_any_writes + 1;
+			if (via.addr == 4'h1 && via.ren) via1_ora_reads  <= via1_ora_reads  + 1;
+			if (via.addr == 4'h1 && via.wen) via1_ora_writes <= via1_ora_writes + 1;
+			if (via.addr == 4'hD && via.wen) via1_ifr_writes <= via1_ifr_writes + 1;
+			if (via.addr == 4'hE && via.wen) via1_ier_writes <= via1_ier_writes + 1;
+		end
+
 		if (via.irq_flags !== via1_ifr_d)
-			$display("[VIA1 IFR] %t cycle=%0d ifr=%02h->%02h ier=%02h irq=%b",
-			         $time, $time/1, via1_ifr_d, via.irq_flags, via.irq_mask, viaIrq);
+			$display("[VIA1 IFR] cyc=%0d ifr=%02h->%02h ier=%02h irq=%b",
+			         cyc, via1_ifr_d, via.irq_flags, via.irq_mask, viaIrq);
 		if (via.irq_mask !== via1_ier_d)
-			$display("[VIA1 IER] %t cycle=%0d ier=%02h->%02h ifr=%02h irq=%b",
-			         $time, $time/1, via1_ier_d, via.irq_mask, via.irq_flags, viaIrq);
+			$display("[VIA1 IER] cyc=%0d ier=%02h->%02h ifr=%02h irq=%b",
+			         cyc, via1_ier_d, via.irq_mask, via.irq_flags, viaIrq);
 		if (viaIrq !== via1_irq_d)
-			$display("[VIA1 IRQ] %t cycle=%0d irq=%b->%b ifr=%02h ier=%02h",
-			         $time, $time/1, via1_irq_d, viaIrq, via.irq_flags, via.irq_mask);
+			$display("[VIA1 IRQ] cyc=%0d irq=%b->%b ifr=%02h ier=%02h",
+			         cyc, via1_irq_d, viaIrq, via.irq_flags, via.irq_mask);
+
+		// Periodic stats dump
+		if (cyc != 0 && cyc[23:0] == 24'h0)
+			$display("[STATS] cyc=%0d onesec=%0d pb7=%0d ca1=%0d ca2=%0d anyR=%0d anyW=%0d oraR=%0d oraW=%0d ifrW=%0d ierW=%0d ifr=%02h ier=%02h",
+			         cyc, onesec_edges, pb7_edges, ca1_edges, ca2_edges,
+			         via1_any_reads, via1_any_writes,
+			         via1_ora_reads, via1_ora_writes,
+			         via1_ifr_writes, via1_ier_writes,
+			         via.irq_flags, via.irq_mask);
 	end
 `endif
 

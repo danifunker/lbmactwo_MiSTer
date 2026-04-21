@@ -785,4 +785,43 @@ module emu
 	assign debug_selectVIA2 = selectVIA2;
 	assign debug_cpuIPL = _cpuIPL;
 
+
+`ifdef SIMULATION
+	// Dump interrupt dispatch table when ROM enables CA1/CA2 IRQs (IER=0x03).
+	// The dispatcher at $40806080 does JSR through a table; bits 0/1 map to
+	// CA2/CA1. If those entries are RTS stubs, nothing ever clears IFR.
+	// We also watch for the target of JSR (A0) at $408060AA by logging
+	// the next fetch.
+	reg [6:0] dbg_ier_d;
+	reg dbg_dumped;
+	integer di;
+	always @(posedge clk_sys) begin
+		dbg_ier_d <= dc0.via.irq_mask;
+		if (!dbg_dumped && dc0.via.irq_mask == 7'h03 && dbg_ier_d != 7'h03) begin
+			dbg_dumped <= 1'b1;
+			$display("[DUMP] IER just became 03 — RAM bytes 0x0180..0x01FF:");
+			for (di = 22'h00C0; di < 22'h0100; di = di + 1)
+				$display("  word[%04h] byte[%04h] = %04h", di[11:0], di[11:0]<<1, ram.mem[di]);
+			$display("[DUMP] RAM bytes 0x1FFE0..0x1FFFF (A3 area):");
+			for (di = 22'hFFF0; di < 22'h10000; di = di + 1)
+				$display("  word[%05h] byte[%05h] = %04h", di[19:0], di[19:0]<<1, ram.mem[di]);
+		end
+	end
+
+	// Log handler target: when PC is at $408060AA (JSR (A0)), the next PC
+	// that is fetched will be the handler address the dispatcher jumped to.
+	reg [31:0] last_fetch_pc_d;
+	reg dbg_waiting_target;
+	always @(posedge clk_sys) begin
+		last_fetch_pc_d <= last_fetch_pc;
+		if (last_fetch_pc == 32'h408060AA && last_fetch_pc_d != 32'h408060AA)
+			dbg_waiting_target <= 1'b1;
+		else if (dbg_waiting_target && last_fetch_pc != 32'h408060AA
+		         && last_fetch_pc != last_fetch_pc_d) begin
+			$display("[JSR_TGT] dispatcher JSR target PC = %08h", last_fetch_pc);
+			dbg_waiting_target <= 1'b0;
+		end
+	end
+`endif
+
 endmodule
