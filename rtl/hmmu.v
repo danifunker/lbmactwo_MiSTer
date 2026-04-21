@@ -39,5 +39,9 @@ module hmmu (
         endcase
     end
 
-    assign addr_out = active ? xlated : addr_in;
+    // Pass through when CPU already issued a genuine 32-bit address
+    // (upper byte non-zero). Only translate 24-bit-style addresses
+    // ($00xxxxxx) while AMU is active.
+    wire passthrough = (addr_in[31:24] != 8'h00);
+    assign addr_out = (active && !passthrough) ? xlated : addr_in;
 endmodule
