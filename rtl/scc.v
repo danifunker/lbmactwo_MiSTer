@@ -171,9 +171,23 @@ module scc
 	reg wr8_wr_a;
 	reg wr8_wr_b;
 		
+	/* Bus transaction edge detect: CPU holds cs high for several clk32 cycles,
+	 * so without qualification the state machine would process the same write
+	 * on multiple cen pulses. Latch a "consumed" flag once the first cen pulse
+	 * processes the transaction; clear when cs drops. */
+	reg cs_consumed;
+	always @(posedge clk) begin
+		if (reset_hw) cs_consumed <= 0;
+		else begin
+			if (!cs) cs_consumed <= 0;
+			else if (cen && !cs_consumed) cs_consumed <= 1;
+		end
+	end
+	wire cs_active = cs & ~cs_consumed;
+
 	/* Register/Data access helpers */
-	assign wreg_a  = cs & we & (~rs[1]) &  rs[0];
-	assign wreg_b  = cs & we & (~rs[1]) & ~rs[0];
+	assign wreg_a  = cs_active & we & (~rs[1]) &  rs[0];
+	assign wreg_b  = cs_active & we & (~rs[1]) & ~rs[0];
 
 	// FIX: rindex_latch selects the active channel's pointer combinatorially
 	// This ensures reads and writes see the correct channel's register pointer immediately
@@ -253,7 +267,7 @@ module scc
 			rx_first_a<=1;
 			rx_first_b<=1;
 		end else begin
-			if (cen && cs) begin
+			if (cen && cs && !cs_consumed) begin
             if (!rs[1]) begin
                 /* Reset register pointer after completing access to the selected register */
                 /* - Writes: when state==REGISTER, the write targets the selected register; reset afterward */
