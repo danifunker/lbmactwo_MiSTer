@@ -822,6 +822,181 @@ module emu
 			dbg_waiting_target <= 1'b0;
 		end
 	end
+
+	// Probe ASC register-bank writes ($50F14800..$50F1481F): mode/control/
+	// volume etc. — tells us if POST actually programmed the chime.
+	reg [31:0] asc_reg_writes;
+	always @(posedge clk_sys) begin
+		if (!tg68_as_n && !tg68_rw
+		    && tg68_a[31:12] == 20'h50F14
+		    && tg68_a[11]                      // $800..$FFF range
+		    && asc_reg_writes < 40) begin
+			$display("[ASC_REGWR] PC=%08h addr=%08h data=%04h ds=%b",
+			         last_fetch_pc, tg68_a, memoryDataOut,
+			         {~_memoryUDS, ~_memoryLDS});
+			asc_reg_writes <= asc_reg_writes + 1;
+		end
+	end
+
+	// Probe entry to the SCC-polling dispatch routine. Start address
+	// $40803280 is a generous window to catch the JSR target / routine
+	// entry point. Log the last 6 distinct PCs before first entry.
+	reg        saw_33xx;
+	reg [31:0] pre_33xx [0:7];
+	reg [2:0]  pre_33xx_idx;
+	always @(posedge clk_sys) begin
+		if (!saw_33xx) begin
+			pre_33xx[pre_33xx_idx] <= last_fetch_pc;
+			pre_33xx_idx <= pre_33xx_idx + 1;
+			if (last_fetch_pc >= 32'h40803280 && last_fetch_pc <= 32'h40803290) begin
+				saw_33xx <= 1'b1;
+				$display("[MONITOR_ENTRY] first fetch in range = %08h", last_fetch_pc);
+				$display("  history[-7]=%08h", pre_33xx[(pre_33xx_idx+1) & 3'h7]);
+				$display("  history[-6]=%08h", pre_33xx[(pre_33xx_idx+2) & 3'h7]);
+				$display("  history[-5]=%08h", pre_33xx[(pre_33xx_idx+3) & 3'h7]);
+				$display("  history[-4]=%08h", pre_33xx[(pre_33xx_idx+4) & 3'h7]);
+				$display("  history[-3]=%08h", pre_33xx[(pre_33xx_idx+5) & 3'h7]);
+				$display("  history[-2]=%08h", pre_33xx[(pre_33xx_idx+6) & 3'h7]);
+				$display("  history[-1]=%08h", pre_33xx[(pre_33xx_idx+7) & 3'h7]);
+			end
+		end
+	end
+
+	// Call-chain probe for the stuck SCC Rx poll.
+	// $408032A0 is the polling routine's entry; $40803304 is its JMP (A6)
+	// exit. The PC fetched after $40803304 is the caller's return address.
+	// Capture (a) how many times we enter $408032A0, and (b) the first 8
+	// distinct return addresses observed after the JMP (A6).
+	reg [31:0] poll_entry_count;
+	reg [31:0] poll_entry_last_fetch;  // PC just before $408032A0
+	reg        poll_entry_seen;
+	reg [31:0] poll_ret_count;
+	reg        poll_ret_pending;
+	always @(posedge clk_sys) begin
+		// Entry edge into $408032A0
+		if (last_fetch_pc == 32'h408032A0 && !poll_entry_seen) begin
+			poll_entry_seen <= 1'b1;
+			poll_entry_count <= poll_entry_count + 1;
+			if (poll_entry_count < 8)
+				$display("[POLL_ENTRY] #%0d  prev_fetch=%08h (caller side)",
+				         poll_entry_count, poll_entry_last_fetch);
+		end else if (last_fetch_pc != 32'h408032A0) begin
+			poll_entry_seen <= 1'b0;
+			poll_entry_last_fetch <= last_fetch_pc;
+		end
+
+		// Arm capture of PC after JMP (A6) at $40803304
+		if (last_fetch_pc == 32'h40803304)
+			poll_ret_pending <= 1'b1;
+		else if (poll_ret_pending) begin
+			if (last_fetch_pc != 32'h40803304) begin
+				poll_ret_pending <= 1'b0;
+				if (poll_ret_count < 8) begin
+					poll_ret_count <= poll_ret_count + 1;
+					$display("[POLL_RET ] #%0d  JMP (A6) went to PC=%08h",
+					         poll_ret_count, last_fetch_pc);
+				end
+			end
+		end
+	end
+
+	// RAM-test tracker: count JSRs into $40802BBC (orchestrator) and log
+	// every bus write whose data word is $6DB6 (the test pattern's high
+	// half). Each run of the pattern starts writes at A2 (bank boundary)
+	// ascending to A1. First $6DB6 write of a run = where the test began.
+	reg [31:0] bbc_entries;
+	reg        bbc_pc_seen;
+	reg [31:0] pat_writes;
+	reg [31:0] pat_reads;
+	reg [31:0] pat_we_pulses;
+	always @(posedge clk_sys) begin
+		if (last_fetch_pc == 32'h40802BBC && !bbc_pc_seen) begin
+			bbc_pc_seen <= 1'b1;
+			bbc_entries <= bbc_entries + 1;
+			$display("[BBC_ENTRY] #%0d  prev=%08h", bbc_entries, post_prev_pc);
+		end else if (last_fetch_pc != 32'h40802BBC) begin
+			bbc_pc_seen <= 1'b0;
+		end
+		// Reads in $0..$40 but ONLY while inside RAM-test routine $40803700-$40803800.
+		if (!tg68_as_n && tg68_rw && tg68_a < 32'h40
+		    && last_fetch_pc[31:8] == 24'h408037
+		    && pat_reads < 24) begin
+			$display("[PAT_RD] #%0d PC=%08h tg68_a=%08h cpuAddr=%08h selROM=%b selRAM=%b",
+			         pat_reads, last_fetch_pc, tg68_a, cpuAddr,
+			         !_romOE, !_ramOE);
+			pat_reads <= pat_reads + 1;
+		end
+		// Probe actual ram_we pulses during the RAM test (PC inside $40803700-$40803800)
+		if (ram_we && ram_addr < 25'h20
+		    && last_fetch_pc[31:8] == 24'h408037
+		    && pat_we_pulses < 20) begin
+			$display("[RAM_WE] #%0d PC=%08h ram_addr=%07h ram_din=%04h ds=%b",
+			         pat_we_pulses, last_fetch_pc, ram_addr, ram_din, ram_ds);
+			pat_we_pulses <= pat_we_pulses + 1;
+		end
+		if (!tg68_as_n && !tg68_rw && memoryDataOut == 16'h6DB6
+		    && pat_writes < 20) begin
+			$display("[PAT_WR] #%0d PC=%08h tg68_a=%08h cpuAddr=%08h overlay=%b selROM=%b selRAM=%b",
+			         pat_writes, last_fetch_pc, tg68_a, cpuAddr,
+			         memoryOverlayOn, !_romOE, !_ramOE);
+			pat_writes <= pat_writes + 1;
+		end
+	end
+
+	// POST failure probe: ring-buffer of the last 16 distinct fetched PCs,
+	// dumped on first fetch of $40802C3C (POST failure entry point). The PC
+	// just before $40802C3C (typically a BNE.W inside $40802AFA..$40802B7C)
+	// uniquely identifies which POST subroutine reported failure.
+	reg [31:0] post_hist [0:15];
+	reg [3:0]  post_hist_idx;
+	reg [31:0] post_prev_pc;
+	reg        post_fail_seen;
+	integer    post_i;
+	always @(posedge clk_sys) begin
+		if (!post_fail_seen && last_fetch_pc != post_prev_pc) begin
+			post_hist[post_hist_idx] <= last_fetch_pc;
+			post_hist_idx <= post_hist_idx + 4'd1;
+			post_prev_pc  <= last_fetch_pc;
+			if (last_fetch_pc == 32'h40802C3C) begin
+				post_fail_seen <= 1'b1;
+				$display("[POST_FAIL] reached $40802C3C failure entry");
+				$display("  ram.mem[0]=%04h [1]=%04h [2]=%04h [3]=%04h [4]=%04h [5]=%04h [6]=%04h [7]=%04h",
+				         ram.mem[0], ram.mem[1], ram.mem[2], ram.mem[3],
+				         ram.mem[4], ram.mem[5], ram.mem[6], ram.mem[7]);
+				for (post_i = 0; post_i < 16; post_i = post_i + 1) begin
+					$display("  hist[-%0d] = %08h",
+					         16 - post_i,
+					         post_hist[(post_hist_idx + post_i[3:0]) & 4'hF]);
+				end
+			end
+		end
+	end
+
+	// Test-routine entry/exit counter: how many times does $40803714 (start)
+	// fire vs $408037AA (JMP (A6) return)? Also log first 8 orchestrator
+	// PC transitions after each return to see pass/fail branch decision.
+	reg [15:0] test_enter_cnt;
+	reg [15:0] test_exit_cnt;
+	reg [31:0] test_last_pc;
+	reg [3:0]  post_ret_window;
+	always @(posedge clk_sys) begin
+		if (last_fetch_pc != test_last_pc) begin
+			test_last_pc <= last_fetch_pc;
+			if (last_fetch_pc == 32'h40803714) begin
+				test_enter_cnt <= test_enter_cnt + 1;
+				$display("[TEST_ENTER #%0d] pc=%08h", test_enter_cnt, last_fetch_pc);
+			end
+			if (last_fetch_pc == 32'h408037AA) begin
+				test_exit_cnt <= test_exit_cnt + 1;
+				$display("[TEST_EXIT #%0d] pc=%08h", test_exit_cnt, last_fetch_pc);
+				post_ret_window <= 4'd8;
+			end
+			if (post_ret_window != 0 && last_fetch_pc != 32'h408037AA) begin
+				$display("[POST_RET] pc=%08h (win=%0d)", last_fetch_pc, post_ret_window);
+				post_ret_window <= post_ret_window - 1;
+			end
+		end
+	end
 `endif
 
 endmodule

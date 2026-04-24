@@ -42,9 +42,11 @@ reg [21:0] last_wr_addr;
 reg [15:0] last_wr_data;
 reg        last_wr_valid;
 integer    wr_count = 0;
+integer    lowram_writes = 0;
 integer    vram_rd_count = 0;
 
 integer vram_wr_count = 0;
+integer testrd_count = 0;
 
 always @(posedge clk) begin
 	// Writes are allowed even during reset (needed for ROM loading)
@@ -71,6 +73,13 @@ always @(posedge clk) begin
 		if (wr_count >= 20 && wr_count < 50 && addr[21] == 0)
 			$display("sim_ram WR[%0d]: addr=%h din=%h ds=%b (after ROM)",
 				wr_count, addr[21:0], din, ds);
+		// Trace first 60 writes made by the RAM-test pattern instruction at $40803744
+		if (debug_pc == 32'h40803744 && addr[21] == 0
+		    && addr[21:0] >= 22'h000400 && lowram_writes < 80) begin
+			$display("TEST_WR[%0d]: addr=%h din=%h ds=%b wr_count=%0d",
+				lowram_writes, addr[21:0], din, ds, wr_count);
+			lowram_writes <= lowram_writes + 1;
+		end
 		// Watchpoint: low memory system globals used by Slot Manager
 		// $0A50 (SRsrcTblPtr) = CPU byte addr → word addr $0528
 		// $0B9A (flag) = word addr $05CD
@@ -106,6 +115,14 @@ always @(posedge clk) begin
 		if (oe && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
 			$display("WATCH WLCS: RD addr=%h dout=%h PC=%h",
 				addr[21:0], mem[{3'b0, addr[18:0]}], debug_pc);
+		// RAM-test readback probe: PC inside $40803xxx test routine and
+		// addr in top-of-4MB tested range ($1FFE80..$1FFFFF word)
+		if (oe && debug_pc >= 32'h4080378E && debug_pc <= 32'h408037AA
+		    && testrd_count < 200) begin
+			$display("TEST_RD[%0d]: PC=%h addr=%h dout=%h",
+				testrd_count, debug_pc, addr[21:0], mem[effective_addr]);
+			testrd_count <= testrd_count + 1;
+		end
 		// Debug video reads (VRAM is at 0x1A0000 = 0x340000 >> 1 in word address)
 		if (oe && addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin
 			if (vram_rd_count < 50)
