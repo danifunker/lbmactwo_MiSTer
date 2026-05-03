@@ -972,6 +972,90 @@ module emu
 		end
 	end
 
+	// $408032AC entry tracker + 16-PC ring before first entry
+	reg [31:0] tac_ring [0:15];
+	reg [3:0]  tac_idx;
+	reg [31:0] tac_prev_pc;
+	reg        tac_seen;
+	integer    tac_i;
+	always @(posedge clk_sys) begin
+		if (!tac_seen && last_fetch_pc != tac_prev_pc) begin
+			tac_ring[tac_idx] <= last_fetch_pc;
+			tac_idx <= tac_idx + 1;
+			tac_prev_pc <= last_fetch_pc;
+			if (last_fetch_pc == 32'h408032AC) begin
+				tac_seen <= 1;
+				$display("[TAC_ENTRY] first hit $408032AC, 16 PCs leading:");
+				for (tac_i = 0; tac_i < 16; tac_i = tac_i + 1)
+					$display("  [-%0d] %08h", 16 - tac_i,
+					         tac_ring[(tac_idx + tac_i[3:0]) & 4'hF]);
+			end
+		end
+	end
+
+	// VBR change tracker — log every transition with the new value + PC.
+	// VBR should only change on MOVEC to VBR; an odd/misaligned value is a bug.
+	reg [31:0] vbr_prev;
+	always @(posedge clk_sys) begin
+		if (debug_vbr != vbr_prev) begin
+			$display("[VBR_CHG] %08h -> %08h at PC=%08h (odd=%b)",
+			         vbr_prev, debug_vbr, last_fetch_pc, debug_vbr[0]);
+			vbr_prev <= debug_vbr;
+		end
+	end
+
+	// IRQ + throughput profiler. Counts IPL assert edges per level and
+	// instruction fetches per report window.
+	reg [31:0] prof_cyc;
+	reg [31:0] prof_fetches;
+	reg [31:0] prof_irq1, prof_irq2, prof_irq4, prof_irq7;
+	reg [2:0]  prof_ipl_prev;
+	reg [31:0] prof_fetch_prev;
+	always @(posedge clk_sys) begin
+		prof_cyc <= prof_cyc + 1;
+		if (last_fetch_pc != prof_fetch_prev) begin
+			prof_fetches <= prof_fetches + 1;
+			prof_fetch_prev <= last_fetch_pc;
+		end
+		// _cpuIPL active-low: count edges where IPL goes from 7 (inactive)
+		// down to a lower value (assertion).
+		if (prof_ipl_prev == 3'b111 && _cpuIPL != 3'b111) begin
+			case (_cpuIPL)
+				3'b110: prof_irq1 <= prof_irq1 + 1;
+				3'b101: prof_irq2 <= prof_irq2 + 1;
+				3'b011: prof_irq4 <= prof_irq4 + 1;
+				3'b000: prof_irq7 <= prof_irq7 + 1;
+				default: ;
+			endcase
+		end
+		prof_ipl_prev <= _cpuIPL;
+		// Report every ~16M sys_clks (~0.5 sec wall)
+		if (prof_cyc[23:0] == 24'h000000 && prof_cyc != 0) begin
+			$display("[PROF] cyc=%0d fetches=%0d irq1=%0d irq2=%0d irq4=%0d irq7=%0d",
+			         prof_cyc, prof_fetches, prof_irq1, prof_irq2, prof_irq4, prof_irq7);
+		end
+	end
+
+	// Outer wavetable-scramble loop progress: count $40805F5C hits (the
+	// dbra D2 at loop bottom). If the counter climbs, we're progressing.
+	reg [31:0] f5c_hits;
+	reg [31:0] f14_hits;
+	reg [31:0] f5c_last_report;
+	reg [31:0] f5c_prev_pc;
+	always @(posedge clk_sys) begin
+		if (last_fetch_pc == 32'h40805F5C && f5c_prev_pc != 32'h40805F5C)
+			f5c_hits <= f5c_hits + 1;
+		if (last_fetch_pc == 32'h40805F14 && f5c_prev_pc != 32'h40805F14) begin
+			f14_hits <= f14_hits + 1;
+			$display("[F14_ENTRY #%0d] prev_pc=%08h", f14_hits, f5c_prev_pc);
+		end
+		f5c_prev_pc <= last_fetch_pc;
+		if ((f5c_hits - f5c_last_report) >= 256) begin
+			$display("[F5C_PROGRESS] hits=%0d f14=%0d", f5c_hits, f14_hits);
+			f5c_last_report <= f5c_hits;
+		end
+	end
+
 	// Test-routine entry/exit counter: how many times does $40803714 (start)
 	// fire vs $408037AA (JMP (A6) return)? Also log first 8 orchestrator
 	// PC transitions after each return to see pass/fail branch decision.
