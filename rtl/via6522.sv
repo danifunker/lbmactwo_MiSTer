@@ -367,8 +367,9 @@ module via6522 (
                 
                 4'hF: begin // ORA no handshake
                     pio_i_pra <= data_in;
-                    $display("VIA1 ORA_NH WRITE: addr=%h data_in=%h old_pra=%h",
-                        addr, data_in, pio_i_pra);
+                    if ($test$plusargs("via_debug"))
+                        $display("VIA1 ORA_NH WRITE: addr=%h data_in=%h old_pra=%h",
+                            addr, data_in, pio_i_pra);
                 end
                 
                 default: begin
@@ -388,7 +389,7 @@ module via6522 (
             end
             4'h1: begin // ORA
                 data_out <= ira;
-                if (ren)
+                if (ren && $test$plusargs("via_debug"))
                     $display("VIA1 ORA READ: addr=%h ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
                         addr, ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
             end
@@ -433,7 +434,7 @@ module via6522 (
             end
             4'hF: begin // ORA
                 data_out <= ira;
-                if (ren)
+                if (ren && $test$plusargs("via_debug"))
                     $display("VIA1 ORA_NH READ: ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
                         ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
             end

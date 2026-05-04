@@ -10,7 +10,12 @@
 //   0x80_0000..0x8F_FFFF  0x4000_0000 | (addr24 & 0xFFFFF)        ROM
 //   0x90..0xEF            0xF000_0000 | ((addr24 & 0xF00000)<<4)
 //                                     | (addr24 & 0xFFFFF)        NuBus
-//   0xF0_0000..0xFF_FFFF  0x5000_0000 | (addr24 & 0xFFFFF)        I/O
+//   0xF0_0000..0xFF_FFFF  0x50F0_0000 | (addr24 & 0xFFFFF)        I/O
+//
+// MAME models the Mac II I/O map at 0x5000_0000 with a 0x00f0_0000 mirror,
+// so both 0x500x_xxxx and 0x50Fx_xxxx resolve there. This core's physical
+// decoder intentionally only selects the verified 0x50Fx_xxxx window, so the
+// translated HMMU output must land in that window.
 //
 // When PB3 is high (DDRB[3]=1, ORB[3]=1) or configured as input, the
 // HMMU is inactive and the address passes through unchanged (full 32-bit
@@ -34,7 +39,7 @@ module hmmu (
             4'b1100,
             4'b1101,
             4'b1110: xlated = {4'hF, lo[23:20], 4'h0, lo[19:0]};            // 9..E NuBus
-            4'b1111: xlated = {8'h50, 4'h0, lo[19:0]};                      // F    I/O
+            4'b1111: xlated = {12'h50F, lo[19:0]};                          // F    I/O
             default: xlated = {8'h00, lo};
         endcase
     end

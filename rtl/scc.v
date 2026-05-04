@@ -474,9 +474,9 @@ module scc
 	// Debug: Show resets
 	always @(posedge clk) begin
 		if (cen) begin
-			if (reset) $display("SCC_RESET: Hardware reset triggered");
-			if (reset_a) $display("SCC_RESET: Channel A reset triggered");
-			if (reset_b) $display("SCC_RESET: Channel B reset triggered");
+			if ($test$plusargs("scc_debug") && reset) $display("SCC_RESET: Hardware reset triggered");
+			if ($test$plusargs("scc_debug") && reset_a) $display("SCC_RESET: Channel A reset triggered");
+			if ($test$plusargs("scc_debug") && reset_b) $display("SCC_RESET: Channel B reset triggered");
 		end
 	end
 
@@ -761,7 +761,7 @@ module scc
 
 	// Debug: Log control register reads
 	always@(posedge clk) begin
-		if (cs && ~we && ~rs[1]) begin
+		if ($test$plusargs("scc_debug") && cs && ~we && ~rs[1]) begin
 			$display("SCC_CTRL_READ: ch=%s rindex=%x rindex_latch=%x data=%02x (RR%d) rr0=%02x state=%d",
 				rs[0] ? "A" : "B", rindex, rindex_latch, rdata_mux, rindex_latch,
 				rs[0] ? rr0_a : rr0_b, rs[0] ? scc_state_a : scc_state_b);
@@ -772,7 +772,7 @@ module scc
 			end
 		end
 		// Debug: Log data register reads
-		if (cs && ~we && rs[1]) begin
+		if ($test$plusargs("scc_debug") && cs && ~we && rs[1]) begin
 			$display("SCC_DATA_READ: ch=%s data=%02x fifo_pos=%d",
 				rs[0] ? "A" : "B", rdata_mux, rs[0] ? rx_queue_pos_a : rx_queue_pos_b);
 		end
@@ -790,7 +790,7 @@ module scc
 
 	// Debug: Show RR0 composition when reading from control register
 	always @(posedge clk) begin
-		if (cen && cs && !we && !rs[1] && rs[0] && rindex == 0) begin
+		if ($test$plusargs("scc_debug") && cen && cs && !we && !rs[1] && rs[0] && rindex == 0) begin
 			$display("SCC_RR0_READ: ch=A rr0=%02x eom=%b tx_empty=%b rx_avail=%b (fifo_pos=%d)",
 			         rr0_a, eom_latch_a, tx_empty_latch_a, (rx_queue_pos_a > 0), rx_queue_pos_a);
 		end
@@ -1199,26 +1199,26 @@ end
 	always@(posedge clk or posedge reset) begin
 		if (reset) begin
 			tx_empty_latch_a <= 1'b1;  // Reset: transmitter is empty
-			$display("SCC_LATCH: tx_empty_latch_a <= 1 (hardware reset)");
+			if ($test$plusargs("scc_debug")) $display("SCC_LATCH: tx_empty_latch_a <= 1 (hardware reset)");
 		end else if (reset_a) begin
 			tx_empty_latch_a <= 1'b1;  // Channel reset: transmitter is empty
-			$display("SCC_LATCH: tx_empty_latch_a <= 1 (channel reset)");
+			if ($test$plusargs("scc_debug")) $display("SCC_LATCH: tx_empty_latch_a <= 1 (channel reset)");
     end else begin
         // Combinational detect of ADATA write (channel A data port)
         // Clear TXEMPTY immediately on ADATA write
         if (cs && we && rs[1] && rs[0]) begin
             tx_empty_latch_a <= 1'b0;
-            $display("SCC_LATCH: tx_empty_latch_a <= 0 (ADATA write) baud_divid=%d WR4=%02x WR12=%02x WR13=%02x WR14=%02x", baud_divid_speed_a, wr4_a, wr12_a, wr13_a, wr14_a);
+            if ($test$plusargs("scc_debug")) $display("SCC_LATCH: tx_empty_latch_a <= 0 (ADATA write) baud_divid=%d WR4=%02x WR12=%02x WR13=%02x WR14=%02x", baud_divid_speed_a, wr4_a, wr12_a, wr13_a, wr14_a);
         end
         // Also clear if writing explicit WR8 via control path
         if (cep && (wreg_a && rindex_latch == 8)) begin
             tx_empty_latch_a <= 1'b0;
-            $display("SCC_LATCH: tx_empty_latch_a <= 0 (WR8 write)");
+            if ($test$plusargs("scc_debug")) $display("SCC_LATCH: tx_empty_latch_a <= 0 (WR8 write)");
         end
         // Set on TX complete (busy 1->0) independent of bus activity
         if (tx_busy_a_r == 1'b1 && tx_busy_a == 1'b0) begin
             tx_empty_latch_a <= 1'b1;
-            $display("SCC_SERIAL_OUT: ch=A byte=%02x time=%0t", tx_data_a, $time);
+            if ($test$plusargs("scc_debug")) $display("SCC_SERIAL_OUT: ch=A byte=%02x time=%0t", tx_data_a, $time);
         end
     end
 	end

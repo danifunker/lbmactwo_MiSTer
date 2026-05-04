@@ -786,7 +786,7 @@ module emu
 	assign debug_cpuIPL = _cpuIPL;
 
 
-`ifdef SIMULATION
+`ifdef LEGACY_DEBUG
 	// Dump interrupt dispatch table when ROM enables CA1/CA2 IRQs (IER=0x03).
 	// The dispatcher at $40806080 does JSR through a table; bits 0/1 map to
 	// CA2/CA1. If those entries are RTS stubs, nothing ever clears IFR.

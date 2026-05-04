@@ -148,7 +148,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	always @(posedge clk32) if (cpuBusControl && memoryLatch) cpu_data <= memoryDataIn;
 
 	// CPU-side data output mux
-	assign cpuDataOut = selectASC ? { ascDataOut, 8'hEF } :
+	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
 							  selectIWM ? iwmDataOut :
 							  selectVIA ? viaDataOut :
 							  selectVIA2 ? via2DataOut :
@@ -191,11 +191,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.clk        (clk32),
 		.reset      (!_cpuReset),
 		.addr       (cpuAddrASC),
-		.data_in    (cpuDataIn[15:8]),
+		.data_in    (cpuDataIn),
 		.data_out   (ascDataOut),
 		.cs         (selectASC),
 		.rw         (_cpuRW),
-		.ds         (!_cpuUDS),
+		.uds        (!_cpuUDS),
+		.lds        (!_cpuLDS),
 		.audio_left (ascAudioLeft),
 		.audio_right(ascAudioRight),
 		.irq_n      (asc_irq_n)
@@ -355,18 +356,18 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			if (via.addr == 4'hE && via.wen) via1_ier_writes <= via1_ier_writes + 1;
 		end
 
-		if (via.irq_flags !== via1_ifr_d)
+		if ($test$plusargs("via_debug") && via.irq_flags !== via1_ifr_d)
 			$display("[VIA1 IFR] cyc=%0d ifr=%02h->%02h ier=%02h irq=%b",
 			         cyc, via1_ifr_d, via.irq_flags, via.irq_mask, viaIrq);
-		if (via.irq_mask !== via1_ier_d)
+		if ($test$plusargs("via_debug") && via.irq_mask !== via1_ier_d)
 			$display("[VIA1 IER] cyc=%0d ier=%02h->%02h ifr=%02h irq=%b",
 			         cyc, via1_ier_d, via.irq_mask, via.irq_flags, viaIrq);
-		if (viaIrq !== via1_irq_d)
+		if ($test$plusargs("via_debug") && viaIrq !== via1_irq_d)
 			$display("[VIA1 IRQ] cyc=%0d irq=%b->%b ifr=%02h ier=%02h",
 			         cyc, via1_irq_d, viaIrq, via.irq_flags, via.irq_mask);
 
 		// Periodic stats dump
-		if (cyc != 0 && cyc[23:0] == 24'h0)
+		if ($test$plusargs("via_debug") && cyc != 0 && cyc[23:0] == 24'h0)
 			$display("[STATS] cyc=%0d onesec=%0d pb7=%0d ca1=%0d ca2=%0d anyR=%0d anyW=%0d oraR=%0d oraW=%0d ifrW=%0d ierW=%0d ifr=%02h ier=%02h",
 			         cyc, onesec_edges, pb7_edges, ca1_edges, ca2_edges,
 			         via1_any_reads, via1_any_writes,

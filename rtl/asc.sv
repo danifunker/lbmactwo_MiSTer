@@ -9,11 +9,12 @@ module asc(
 	input         clk,        // 32.5 MHz system clock
 	input         reset,      // active high
 	input  [12:0] addr,       // 8KB address window
-	input   [7:0] data_in,    // CPU data (upper byte of bus)
+	input  [15:0] data_in,    // CPU data bus
 	output reg [7:0] data_out,
 	input         cs,         // chip select
 	input         rw,         // 1=read, 0=write
-	input         ds,         // data strobe (active high, from !_cpuUDS)
+	input         uds,        // upper data strobe, active high
+	input         lds,        // lower data strobe, active high
 	output reg signed [15:0] audio_left,
 	output reg signed [15:0] audio_right,
 	output        irq_n       // active-low IRQ to VIA2 CB1
@@ -68,12 +69,10 @@ module asc(
 	reg [7:0] asc_volume;      // $806 - VOLUME
 	reg [7:0] asc_clock_rate;  // $807 - CLOCK_RATE: 0=22,257Hz, non-zero=11,127Hz
 
-	// Phase and frequency registers — 32-bit, 4 channels
-	// Layout at $810-$82F: 8 bytes per channel (4 phase + 4 freq), big-endian
-	//   Ch0: phase=$810-$813, freq=$814-$817
-	//   Ch1: phase=$818-$81B, freq=$81C-$81F
-	//   Ch2: phase=$820-$823, freq=$824-$827
-	//   Ch3: phase=$828-$82B, freq=$82C-$82F
+	// Phase and frequency registers — original ASC uses 24-bit 9.15 values.
+	// MAME/ASCTester show the live bytes at $811-$813 and $815-$817 for ch0,
+	// then every 8 bytes for the remaining channels.  The first byte of each
+	// 4-byte field is just a stored register byte, not part of the live value.
 	reg [31:0] phase [0:3];
 	reg [31:0] freq  [0:3];
 
@@ -122,7 +121,7 @@ module asc(
 	// =====================================================================
 	// CPU read/write interface
 	// =====================================================================
-	wire cpu_access = cs && ds;
+	wire cpu_access = cs && (uds || lds);
 	wire cpu_read   = cpu_access && rw;
 	wire cpu_write  = cpu_access && !rw;
 
@@ -136,18 +135,32 @@ module asc(
 	end
 	wire cpu_write_strobe = cpu_write && !cpu_write_d1;
 
-	// Channel register decode for $810-$82F
+	reg        byte_write_pending;
+	reg [12:0] byte_write_addr;
+	reg  [7:0] byte_write_data;
+
+	wire       cpu_word_write = cpu_write_strobe && uds && lds;
+	wire [12:0] cpu_byte_write_addr =
+		(!uds && lds && !addr[0]) ? (addr + 13'd1) : addr;
+	wire [7:0] cpu_byte_write_data = uds ? data_in[15:8] : data_in[7:0];
+	wire       asc_write_strobe = cpu_write_strobe || byte_write_pending;
+	wire [12:0] asc_write_addr = byte_write_pending ? byte_write_addr : cpu_byte_write_addr;
+	wire [7:0] asc_write_data = byte_write_pending ? byte_write_data : cpu_byte_write_data;
+
+	// Channel register decode for $811-$82F live 24-bit phase/increment bytes.
 	wire [5:0] reg_off = addr[5:0] - 6'h10;  // 0-31 within channel reg space
 	wire [1:0] ch_num = reg_off[4:3];
 	wire ch_is_freq = reg_off[2];
-	wire [1:0] ch_byte = reg_off[1:0];  // big-endian: 0=MSB, 3=LSB
+	wire [1:0] ch_byte = reg_off[1:0];
 
 	// CPU read uses registered RAM output (1-cycle latency)
 	// The CPU bus on Mac II is slow enough that this is fine
 	reg cpu_read_d;
+	reg cpu_read_d2;
 	reg [12:0] addr_d;
 	always @(posedge clk) begin
 		cpu_read_d <= cpu_read;
+		cpu_read_d2 <= cpu_read_d;
 		addr_d <= addr;
 	end
 
@@ -177,20 +190,19 @@ module asc(
 					default: begin
 						// $810-$82F: channel phase/freq registers
 						if (addr_d[5:0] >= 6'h10 && addr_d[5:0] <= 6'h2F) begin
-							// Use delayed decode signals
 							if (addr_d[2])
 								case (addr_d[1:0])
-									2'd0: data_out = freq[addr_d[4:3]][31:24];
 									2'd1: data_out = freq[addr_d[4:3]][23:16];
 									2'd2: data_out = freq[addr_d[4:3]][15:8];
 									2'd3: data_out = freq[addr_d[4:3]][7:0];
+									default: data_out = 8'h00;
 								endcase
 							else
 								case (addr_d[1:0])
-									2'd0: data_out = phase[addr_d[4:3]][31:24];
 									2'd1: data_out = phase[addr_d[4:3]][23:16];
 									2'd2: data_out = phase[addr_d[4:3]][15:8];
 									2'd3: data_out = phase[addr_d[4:3]][7:0];
+									default: data_out = 8'h00;
 								endcase
 						end
 					end
@@ -275,8 +287,8 @@ module asc(
 		// Defaults: no write
 		ram_a_we = 0;
 		ram_b_we = 0;
-		ram_a_wdata = data_in;
-		ram_b_wdata = data_in;
+		ram_a_wdata = asc_write_data;
+		ram_b_wdata = asc_write_data;
 		ram_a_addr_a = addr[9:0];
 		ram_b_addr_a = addr[9:0];
 
@@ -284,13 +296,13 @@ module asc(
 			// FIFO read — point port A at read pointer
 			ram_a_addr_a = fifo_a_rd_ptr;
 			ram_b_addr_a = fifo_b_rd_ptr;
-		end else if (cpu_access) begin
-			if (addr[12:10] == 3'b000) begin
-				ram_a_addr_a = (asc_mode == 8'h01) ? fifo_a_wr_ptr : addr[9:0];
-				ram_a_we = cpu_write_strobe;
-			end else if (addr[12:10] == 3'b001) begin
-				ram_b_addr_a = (asc_mode == 8'h01) ? fifo_b_wr_ptr : addr[9:0];
-				ram_b_we = cpu_write_strobe;
+		end else if (cpu_access || byte_write_pending) begin
+			if (asc_write_addr[12:10] == 3'b000) begin
+				ram_a_addr_a = (asc_mode == 8'h01) ? fifo_a_wr_ptr : asc_write_addr[9:0];
+				ram_a_we = asc_write_strobe;
+			end else if (asc_write_addr[12:10] == 3'b001) begin
+				ram_b_addr_a = (asc_mode == 8'h01) ? fifo_b_wr_ptr : asc_write_addr[9:0];
+				ram_b_we = asc_write_strobe;
 			end
 		end
 	end
@@ -319,11 +331,20 @@ module asc(
 			fifo_last_r <= 0;
 			audio_left <= 0;
 			audio_right <= 0;
+			byte_write_pending <= 0;
 			for (i = 0; i < 4; i = i + 1) begin
 				phase[i] <= 0;
 				freq[i] <= 0;
 			end
 		end else begin
+			if (byte_write_pending)
+				byte_write_pending <= 1'b0;
+			else if (cpu_word_write) begin
+				byte_write_pending <= 1'b1;
+				byte_write_addr <= addr + 13'd1;
+				byte_write_data <= data_in[7:0];
+			end
+
 			// ----------------------------------------------------------
 			// IRQ status clear on read of $804
 			// ----------------------------------------------------------
@@ -335,26 +356,26 @@ module asc(
 			// CPU writes (RAM writes handled by port A mux above).
 			// Gated by cpu_write_strobe so each bus cycle fires exactly once.
 			// ----------------------------------------------------------
-			if (cpu_write_strobe) begin
-				if (addr[12:10] == 3'b000 && asc_mode == 8'h01) begin
+			if (asc_write_strobe) begin
+				if (asc_write_addr[12:10] == 3'b000 && asc_mode == 8'h01) begin
 					// FIFO A write: update pointers
 					fifo_a_wr_ptr <= fifo_a_wr_ptr + 1'd1;
 					if (fifo_a_count < 11'd1024)
 						fifo_a_count <= fifo_a_count + 1'd1;
 				end
-				else if (addr[12:10] == 3'b001 && asc_mode == 8'h01) begin
+				else if (asc_write_addr[12:10] == 3'b001 && asc_mode == 8'h01) begin
 					// FIFO B write: update pointers
 					fifo_b_wr_ptr <= fifo_b_wr_ptr + 1'd1;
 					if (fifo_b_count < 11'd1024)
 						fifo_b_count <= fifo_b_count + 1'd1;
 				end
-				else if (addr[12:11] == 2'b01) begin
+				else if (asc_write_addr[12:11] == 2'b01) begin
 					// $800+: registers
-					case (addr[5:0])
+					case (asc_write_addr[5:0])
 						6'h01: begin
-							asc_mode <= data_in;
+							asc_mode <= asc_write_data;
 							// Reset FIFOs and phase on mode change
-							if (data_in != asc_mode) begin
+							if (asc_write_data != asc_mode) begin
 								fifo_a_wr_ptr <= 0;
 								fifo_a_rd_ptr <= 0;
 								fifo_b_wr_ptr <= 0;
@@ -365,11 +386,11 @@ module asc(
 									phase[i] <= 0;
 							end
 						end
-						6'h02: asc_control <= data_in;
+						6'h02: asc_control <= asc_write_data;
 						6'h03: begin
-							asc_fifo_mode <= data_in;
+							asc_fifo_mode <= asc_write_data;
 							// Bit 7: clear FIFOs
-							if (data_in[7]) begin
+							if (asc_write_data[7]) begin
 								fifo_a_wr_ptr <= 0;
 								fifo_a_rd_ptr <= 0;
 								fifo_b_wr_ptr <= 0;
@@ -379,25 +400,25 @@ module asc(
 							end
 						end
 						// 6'h04: fifo_irq is read-only (cleared on read)
-						6'h05: asc_wt_control <= data_in;
-						6'h06: asc_volume <= data_in;
-						6'h07: asc_clock_rate <= data_in;
+						6'h05: asc_wt_control <= asc_write_data;
+						6'h06: asc_volume <= asc_write_data;
+						6'h07: asc_clock_rate <= asc_write_data;
 						default: begin
 							// $810-$82F: channel phase/freq registers
-							if (addr[5:0] >= 6'h10 && addr[5:0] <= 6'h2F) begin
-								if (ch_is_freq) begin
-									case (ch_byte)
-										2'd0: freq[ch_num][31:24] <= data_in;
-										2'd1: freq[ch_num][23:16] <= data_in;
-										2'd2: freq[ch_num][15:8]  <= data_in;
-										2'd3: freq[ch_num][7:0]   <= data_in;
+							if (asc_write_addr[5:0] >= 6'h10 && asc_write_addr[5:0] <= 6'h2F) begin
+								if (asc_write_addr[2]) begin
+									case (asc_write_addr[1:0])
+										2'd1: freq[asc_write_addr[4:3]][23:16] <= asc_write_data;
+										2'd2: freq[asc_write_addr[4:3]][15:8]  <= asc_write_data;
+										2'd3: freq[asc_write_addr[4:3]][7:0]   <= asc_write_data;
+										default: ;
 									endcase
 								end else begin
-									case (ch_byte)
-										2'd0: phase[ch_num][31:24] <= data_in;
-										2'd1: phase[ch_num][23:16] <= data_in;
-										2'd2: phase[ch_num][15:8]  <= data_in;
-										2'd3: phase[ch_num][7:0]   <= data_in;
+									case (asc_write_addr[1:0])
+										2'd1: phase[asc_write_addr[4:3]][23:16] <= asc_write_data;
+										2'd2: phase[asc_write_addr[4:3]][15:8]  <= asc_write_data;
+										2'd3: phase[asc_write_addr[4:3]][7:0]   <= asc_write_data;
+										default: ;
 									endcase
 								end
 							end
@@ -476,5 +497,35 @@ module asc(
 			end
 		end
 	end
+
+`ifdef SIMULATION
+	reg [7:0] asc_dbg_ram_writes;
+	reg [7:0] asc_dbg_ram_reads;
+	reg [7:0] asc_dbg_reg_writes;
+
+	always @(posedge clk) begin
+		if (reset) begin
+			asc_dbg_ram_writes <= 0;
+			asc_dbg_ram_reads <= 0;
+			asc_dbg_reg_writes <= 0;
+		end else if ($test$plusargs("asc_debug")) begin
+			if (asc_write_strobe && asc_write_addr[12:11] == 2'b01 && asc_dbg_reg_writes < 64) begin
+				$display("[ASC_REG_WR] addr=%04h data=%02h mode=%02h control=%02h fifo_mode=%02h",
+				         asc_write_addr, asc_write_data, asc_mode, asc_control, asc_fifo_mode);
+				asc_dbg_reg_writes <= asc_dbg_reg_writes + 1'd1;
+			end
+			if (asc_write_strobe && asc_write_addr[12:11] == 2'b00 && asc_dbg_ram_writes < 128) begin
+				$display("[ASC_RAM_WR] addr=%04h bank=%0d data=%02h mode=%02h",
+				         asc_write_addr, asc_write_addr[10], asc_write_data, asc_mode);
+				asc_dbg_ram_writes <= asc_dbg_ram_writes + 1'd1;
+			end
+			if (cpu_read_d && !cpu_read_d2 && addr_d[12:11] == 2'b00 && asc_dbg_ram_reads < 128) begin
+				$display("[ASC_RAM_RD] addr=%04h bank=%0d data=%02h mode=%02h",
+				         addr_d, addr_d[10], data_out, asc_mode);
+				asc_dbg_ram_reads <= asc_dbg_ram_reads + 1'd1;
+			end
+		end
+	end
+`endif
 
 endmodule

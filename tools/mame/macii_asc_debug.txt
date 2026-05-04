@@ -1,0 +1,5 @@
+printf "MAME Mac II ASC boot probe\n"
+bp 40805E4A,1,{ printf "ASC_ENTER pc=%08X a3=%08X\n",pc,a3 ; g }
+bp 40805F60,1,{ printf "ASC_EXIT pc=%08X d3=%08X d4=%08X\n",pc,d3,d4 ; g }
+bp 40805F78,1,{ printf "ASC_DONE pc=%08X d3=%08X d4=%08X\n",pc,d3,d4 ; g }
+g

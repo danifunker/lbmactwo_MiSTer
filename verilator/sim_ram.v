@@ -59,22 +59,22 @@ always @(posedge clk) begin
 		last_wr_valid <= 1;
 		wr_count <= wr_count + 1;
 		// Debug first 20 writes, then every 100000th
-		if (wr_count < 20 || wr_count % 100000 == 0)
+		if ($test$plusargs("ram_debug") && (wr_count < 20 || wr_count % 100000 == 0))
 			$display("sim_ram WR[%0d]: addr=%h din=%h ds=%b",
 				wr_count, addr[21:0], din, ds);
 		// Debug VRAM writes (VRAM is at 0x1A0000-0x1DFFFF word address = 0x340000-0x3BFFFF byte)
 		if (addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin
-			if (vram_wr_count < 20 || vram_wr_count % 1000 == 0)
+			if ($test$plusargs("ram_debug") && (vram_wr_count < 20 || vram_wr_count % 1000 == 0))
 				$display("sim_ram VRAM_WR[%0d]: addr=%h (line %0d) din=%h ds=%b",
 					vram_wr_count, addr[21:0], (addr[21:0] - 22'h1A0000) >> 9, din, ds);
 			vram_wr_count <= vram_wr_count + 1;
 		end
 		// Debug all writes in non-ROM area to see where CPU is writing
-		if (wr_count >= 20 && wr_count < 50 && addr[21] == 0)
+		if ($test$plusargs("ram_debug") && wr_count >= 20 && wr_count < 50 && addr[21] == 0)
 			$display("sim_ram WR[%0d]: addr=%h din=%h ds=%b (after ROM)",
 				wr_count, addr[21:0], din, ds);
 		// Trace first 60 writes made by the RAM-test pattern instruction at $40803744
-		if (debug_pc == 32'h40803744 && addr[21] == 0
+		if ($test$plusargs("ram_debug") && debug_pc == 32'h40803744 && addr[21] == 0
 		    && addr[21:0] >= 22'h000400 && lowram_writes < 80) begin
 			$display("TEST_WR[%0d]: addr=%h din=%h ds=%b wr_count=%0d",
 				lowram_writes, addr[21:0], din, ds, wr_count);
@@ -84,23 +84,23 @@ always @(posedge clk) begin
 		// $0A50 (SRsrcTblPtr) = CPU byte addr → word addr $0528
 		// $0B9A (flag) = word addr $05CD
 		// Bus error vector at $0008 = word addr $0004
-		if (addr[21:0] == 22'h000528 || addr[21:0] == 22'h000529)
+		if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h000528 || addr[21:0] == 22'h000529))
 			$display("WATCH $0A50: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
-		if (addr[21:0] == 22'h0005CD)
+		if ($test$plusargs("ram_debug") && addr[21:0] == 22'h0005CD)
 			$display("WATCH $0B9A: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
-		if ((addr[21:0] == 22'h000004 || addr[21:0] == 22'h000005)
+		if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h000004 || addr[21:0] == 22'h000005)
 		    && (din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
 		        && din != 16'hffff && din != 16'h0000))
 			$display("WATCH BERR_VEC: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
 		// WLCS marker at byte $0CFC = word addr $067E/$067F
-			if (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F)
+			if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
 				$display("WATCH WLCS: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 					addr[21:0], din, ds, debug_pc, wr_count);
 			// sResource table at $2000 (word addr $1000-$1020)
-		if (addr[21:0] >= 22'h001000 && addr[21:0] < 22'h001020
+		if ($test$plusargs("ram_debug") && addr[21:0] >= 22'h001000 && addr[21:0] < 22'h001020
 		    && din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
 		    && din != 16'hffff)
 			$display("WATCH sRsrc@2000: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
@@ -112,12 +112,12 @@ always @(posedge clk) begin
 		// Don't reset wr_count so we can track all writes
 	end else begin
 		// Watch WLCS reads at byte $0CFC = word addr $067E/$067F
-		if (oe && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
+		if ($test$plusargs("ram_debug") && oe && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
 			$display("WATCH WLCS: RD addr=%h dout=%h PC=%h",
 				addr[21:0], mem[{3'b0, addr[18:0]}], debug_pc);
 		// RAM-test readback probe: PC inside $40803xxx test routine and
 		// addr in top-of-4MB tested range ($1FFE80..$1FFFFF word)
-		if (oe && debug_pc >= 32'h4080378E && debug_pc <= 32'h408037AA
+		if ($test$plusargs("ram_debug") && oe && debug_pc >= 32'h4080378E && debug_pc <= 32'h408037AA
 		    && testrd_count < 200) begin
 			$display("TEST_RD[%0d]: PC=%h addr=%h dout=%h",
 				testrd_count, debug_pc, addr[21:0], mem[effective_addr]);
@@ -125,7 +125,7 @@ always @(posedge clk) begin
 		end
 		// Debug video reads (VRAM is at 0x1A0000 = 0x340000 >> 1 in word address)
 		if (oe && addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin
-			if (vram_rd_count < 50)
+			if ($test$plusargs("ram_debug") && vram_rd_count < 50)
 				$display("sim_ram VRAM_RD[%0d]: addr=%h (line %0d) dout=%h",
 					vram_rd_count, addr[21:0], (addr[21:0] - 22'h1A0000) >> 9, mem[addr[21:0]]);
 			vram_rd_count <= vram_rd_count + 1;

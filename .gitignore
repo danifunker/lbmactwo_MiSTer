@@ -48,3 +48,6 @@ ram_debug.log
 verilator/obj_dir
 verilator/*.png
 verilator/*.txt
+
+# Local emulator checkout and ROMs used for boot comparison.
+/mame/

@@ -333,6 +333,15 @@ int SimVideo::Initialise(const char* windowTitle) {
 	return 0;
 }
 
+int SimVideo::InitialiseHeadless() {
+	output_ptr = (uint32_t*)malloc(output_size);
+	if (!output_ptr) {
+		return 1;
+	}
+	memset(output_ptr, 0xAA, output_size);
+	return 0;
+}
+
 void SimVideo::UpdateTexture() {
 
 #ifdef WIN32
@@ -386,6 +395,13 @@ void SimVideo::CleanUp() {
 	SDL_DestroyWindow(window);
 	SDL_Quit();
 #endif
+}
+
+void SimVideo::CleanUpHeadless() {
+	if (output_ptr) {
+		free(output_ptr);
+		output_ptr = NULL;
+	}
 }
 
 

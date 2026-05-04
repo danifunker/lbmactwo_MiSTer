@@ -115,6 +115,10 @@ const int via_debug_max = 50000;
 bool via_debug_prev_rd = false;
 bool via_debug_prev_wr = false;
 
+// Ad-hoc boot diagnostics are useful when chasing a specific failure, but
+// they produce very large logs on long headless runs.
+bool verbose_debug_enable = false;
+
 // Screenshot functionality
 // ------------------------
 std::vector<int> screenshot_frames;
@@ -456,11 +460,11 @@ int verilate() {
 			bool fpga_txd = VERTOPINTERN->serial_txd;
 			// Debug: log txd transitions
 			static bool last_txd = true;
-			if (fpga_txd != last_txd) {
+			if (verbose_debug_enable && fpga_txd != last_txd) {
 				fprintf(stderr, "SERIAL_TXD: %d->%d at cycle %llu\n",
 						last_txd ? 1 : 0, fpga_txd ? 1 : 0, (unsigned long long)main_time);
-				last_txd = fpga_txd;
 			}
+			last_txd = fpga_txd;
 			bool sim_rxd = serialTerminal.Tick(fpga_txd);
 			VERTOPINTERN->serial_rxd = sim_rxd;
 
@@ -481,6 +485,7 @@ int verilate() {
 
 		if (clk_sys.IsRising()) {
 			main_time++;
+			if (verbose_debug_enable) {
 			// Print progress every 10 million cycles (~308ms of simulated time at 32.5MHz)
 			if ((main_time % 10000000) == 0) {
 				fprintf(stderr, "Cycle %llu: PC=%08X Op=%04X RW=%d overlay=%d selROM=%d selRAM=%d VBR=%08X\n",
@@ -1058,6 +1063,7 @@ int verilate() {
 
 			// Enable CPU trace after checksum passes → debug monitor entry
 			// Programmatic trace window removed - use GUI checkbox or default-on instead
+			}
 		}
 		return 1;
 	}
@@ -1075,6 +1081,9 @@ void show_help() {
 	printf("Options:\n");
 	printf("  -h, --help                    Show this help message\n");
 	printf("  --headless, --no-gui          Run without SDL/ImGui (CI/headless)\n");
+	printf("  --no-cpu-trace                Disable CPU trace logging\n");
+	printf("  --no-via-debug                Disable VIA debug logging\n");
+	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
@@ -1151,6 +1160,12 @@ int main(int argc, char** argv, char** env) {
 			return 0;
 		} else if (strcmp(argv[i], "--headless") == 0 || strcmp(argv[i], "--no-gui") == 0) {
 			headless = true;
+		} else if (strcmp(argv[i], "--no-cpu-trace") == 0) {
+			cpu_trace_enable = false;
+		} else if (strcmp(argv[i], "--no-via-debug") == 0) {
+			via_debug_enable = false;
+		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
+			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
 			screenshot_mode = true;
 			std::string frames_str = argv[i + 1];
@@ -1233,8 +1248,13 @@ int main(int argc, char** argv, char** env) {
 	input.SetMapping(input_menu, SDL_SCANCODE_M);
 #endif
 
-	// Setup video output
-	if (video.Initialise(windowTitle) == 1) { return 1; }
+	// Setup video output. Headless mode still needs the framebuffer because
+	// video.Clock() writes pixels and frame counters into SimVideo state.
+	if (headless) {
+		if (video.InitialiseHeadless() == 1) { return 1; }
+	} else if (video.Initialise(windowTitle) == 1) {
+		return 1;
+	}
 
 	// Open CPU trace file
 	if (cpu_trace_enable) {
@@ -1311,6 +1331,51 @@ int main(int argc, char** argv, char** env) {
 	bool done = false;
 	while (!done)
 	{
+		if (headless) {
+			unsigned long mouse_temp = mouse_clock ? (1UL << 24) : 0;
+			mouse_clock = !mouse_clock;
+			VERTOPINTERN->ps2_mouse = mouse_temp;
+
+			if (run_enable) {
+				for (int step = 0; step < batchSize; step++) { verilate(); }
+			}
+			else {
+				if (single_step) { verilate(); }
+				if (multi_step) {
+					for (int step = 0; step < multi_step_amount; step++) { verilate(); }
+				}
+			}
+
+			bool took_screenshot_this_frame = false;
+			if (screenshot_mode) {
+				auto it = std::find(screenshot_frames.begin(), screenshot_frames.end(), video.count_frame);
+				if (it != screenshot_frames.end()) {
+					save_screenshot(video.count_frame);
+					screenshot_frames.erase(it);
+					took_screenshot_this_frame = true;
+				}
+			}
+
+			if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
+				if (took_screenshot_this_frame) {
+					printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
+						stop_at_frame,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_vbr);
+				} else {
+					printf("Reached stop frame %d, exiting... PC=%08X Op=%04X VBR=%08X\n",
+						stop_at_frame,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_vbr);
+				}
+				break;
+			}
+
+			continue;
+		}
+
 		SDL_Event event;
 		while (SDL_PollEvent(&event))
 		{
@@ -1462,9 +1527,17 @@ int main(int argc, char** argv, char** env) {
 		// Check if we should stop at this frame
 		if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
 			if (took_screenshot_this_frame) {
-				printf("Reached stop frame %d after taking screenshot, exiting...\n", stop_at_frame);
+				printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
+					stop_at_frame,
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
 			} else {
-				printf("Reached stop frame %d, exiting...\n", stop_at_frame);
+				printf("Reached stop frame %d, exiting... PC=%08X Op=%04X VBR=%08X\n",
+					stop_at_frame,
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
 			}
 			break;
 		}
@@ -1507,7 +1580,11 @@ int main(int argc, char** argv, char** env) {
 #ifndef DISABLE_AUDIO
 	audio.CleanUp();
 #endif
-	video.CleanUp();
+	if (headless) {
+		video.CleanUpHeadless();
+	} else {
+		video.CleanUp();
+	}
 	input.CleanUp();
 
 	return 0;
