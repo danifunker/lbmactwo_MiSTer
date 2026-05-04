@@ -391,3 +391,36 @@ video VBL/RAMDAC status area. That makes NuBus video VBL status/interrupt
 behavior the current highest-value target. The declaration ROM lane mismatch was
 real and is fixed, but the boot still has not reached MAME's low-memory code
 handoff.
+
+## 2026-05-04 VBL And RAM-Bank Update
+
+Focused VBL probes show the NuBus video status path is not the current blocker.
+MAME and Verilator both enter the same low-memory VBL polling path:
+
+```text
+MAME:      pc=00002C6E/00002D88/00003F16/00004384/00004606
+Verilator: pc=00002C72/00002D8A/00003F1A/00004386/00004608
+```
+
+Both read `$FE090010/$FE090012` and see the expected non-vblank status outside
+VBL. Verilator then fell back through the ROM SCSI/no-device probe while MAME
+continued into ROM code around `$0082E8xx`.
+
+The real divergence was RAM banking. MAME's default `macii` RAM option is 2MB,
+and MAME's GLUE model maps bank B into `$00800000-$008FFFFF`; the boot path
+executes code in that window. The RTL only mirrored 2MB RAM through `$00000000-
+$003FFFFF`, so the `$0082xxxx` ROM/RAM path was not available. The RTL now
+selects RAM for the 2MB bank-B window and maps it to the second 1MB RAM bank;
+the Verilator wrapper now uses 2MB RAM to match MAME's default.
+
+After this fix, Verilator gets past the SCSI fallback and reaches later SCC
+initialization by frame 500:
+
+```text
+PC=40803288 Op=062A VBR=40802806
+SCC_RX_FIFO_EMPTY: ch=A read from empty FIFO
+```
+
+That puts the current blocker back in the SCC receive/status path, not ASC,
+NuBus VBL, or the SCSI no-target timeout. The earlier `408032xx` SCC loop is
+again the next comparison target.

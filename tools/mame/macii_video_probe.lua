@@ -38,7 +38,7 @@ local function should_print(cat, count)
 	if cat == "ROM_R" then return count < 96 end
 	if cat == "REG_W" then return count < 64 end
 	if cat == "RAMDAC_W" then return count < 64 end
-	if cat == "RAMDAC_R" then return count < 32 end
+	if cat == "RAMDAC_R" then return count < 160 end
 	if cat == "VBL_W" then return count < 32 end
 	if cat == "VRAM_W" then return count < 32 end
 	if cat == "VRAM_R" then return count < 16 end

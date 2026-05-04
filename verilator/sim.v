@@ -187,7 +187,7 @@ module emu
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
-	wire [1:0] configRAMSize = 2'b10; // 4MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
+	wire [1:0] configRAMSize = 2'b01; // 2MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
 
 	// Serial Ports — connected to serial terminal in sim_main.cpp
 	wire serialOut;              // SCC Channel A TX (driven by SCC)

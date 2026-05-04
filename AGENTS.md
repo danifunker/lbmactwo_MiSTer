@@ -69,8 +69,13 @@ NuBus declaration ROM path has been changed back to MAME's lane-0 layout: MAME
 and Verilator should both probe `$FEFFFFFC` and read declaration bytes from
 `$FEFF8000`, `$FEFF8004`, etc.
 
-After that lane fix, Verilator reaches the slot/video init path and is still in
-ROM Slot Manager delay code by frame 450 (`PC=$40801658`, `$016A=$00000134`).
-The noisy probe showed heavy reads of the video card VBL status registers
-`$FE090010/$FE090012`, so the next suspect is NuBus video VBL/status/IRQ
-behavior rather than ASC, IWM, or SCSI.
+After that lane fix, focused VBL probes showed Verilator and MAME enter the
+same low-memory VBL polling path, so NuBus VBL status is not the current
+blocker. The next real divergence was RAM banking: MAME's default 2MB Mac II
+layout maps bank B at `$00800000-$008FFFFF`, and the boot path executes code
+there. The RTL now maps that 2MB bank-B window and the Verilator wrapper uses
+2MB RAM to match MAME.
+
+With that RAM-bank fix, Verilator gets past the SCSI fallback and reaches the
+old SCC loop at `PC=$40803288` with `VBR=$40802806`. The next suspect is SCC
+receive/status behavior, not ASC, NuBus VBL, or SCSI.

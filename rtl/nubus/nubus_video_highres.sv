@@ -120,6 +120,7 @@ module nubus_video_highres (
     // which matches our rom_byte_out selection via addr[2].
     // synthesis translate_off
     integer rom_load_count = 0;
+    integer vbl_debug_count = 0;
     // synthesis translate_on
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
@@ -520,6 +521,15 @@ module nubus_video_highres (
                             end else begin
                                 data_out <= 16'd0;
                             end
+                            // synthesis translate_off
+                            if ($test$plusargs("vbl_debug") && vbl_debug_count < 240) begin
+                                $display("NUBUS_VBL_R addr=%h data=%h h=%0d v=%0d vblank=%b irq=%b dis=%b",
+                                    addr,
+                                    (addr[15:2] == 14'h0004) ? (addr[1] ? 16'h0000 : {14'd0, 1'b1, (v_cnt >= V_RES) ? 1'b1 : 1'b0}) : 16'h0000,
+                                    h_cnt, v_cnt, (v_cnt >= V_RES), irq_active, vbl_disable);
+                                vbl_debug_count = vbl_debug_count + 1;
+                            end
+                            // synthesis translate_on
                             ack_delay <= 3'd2;
                         end
                         // ---------------------------------------------------
@@ -536,6 +546,13 @@ module nubus_video_highres (
                                 vbl_disable <= 1'b0;
                                 irq_clear <= 1'b1;
                             end
+                            // synthesis translate_off
+                            if ($test$plusargs("vbl_debug") && vbl_debug_count < 240) begin
+                                $display("NUBUS_VBL_W addr=%h data=%h h=%0d v=%0d irq=%b dis=%b clear=%b",
+                                    addr, data_in, h_cnt, v_cnt, irq_active, vbl_disable, !addr[4]);
+                                vbl_debug_count = vbl_debug_count + 1;
+                            end
+                            // synthesis translate_on
                             ack_delay <= 3'd2;
                         end
                         // ---------------------------------------------------

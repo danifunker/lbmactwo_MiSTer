@@ -119,6 +119,10 @@ bool via_debug_prev_wr = false;
 // they produce very large logs on long headless runs.
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
+bool nubus_video_debug_enable = false;
+int nubus_video_debug_count = 0;
+const int nubus_video_debug_max = 1000;
+bool nubus_video_debug_prev_bus_control = false;
 std::string scsi_disk_files[2];
 std::string floppy_disk_files[2];
 
@@ -240,6 +244,12 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0680],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x06D3]);
+	printf("Regs: D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X\n",
+	       tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
+	       tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7));
+	printf("Regs: A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X\n",
+	       tg68_reg(8), tg68_reg(9), tg68_reg(10), tg68_reg(11),
+	       tg68_reg(12), tg68_reg(13), tg68_reg(14), tg68_reg(15));
 	printf("Timing: main_time=%llu frame=%d unique_fetches=%llu\n",
 	       (unsigned long long)main_time,
 	       video.count_frame,
@@ -471,6 +481,35 @@ int verilate() {
 					}
 				}
 				periph_debug_prev_bus_control = bus_control;
+			}
+
+			if (nubus_video_debug_enable && !*bus.ioctl_download) {
+				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
+				if (bus_control && !nubus_video_debug_prev_bus_control &&
+				    VERTOPINTERN->debug_selectNuBus &&
+				    nubus_video_debug_count < nubus_video_debug_max) {
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					uint32_t local = addr & 0x00FFFFFF;
+					bool is_vbl_status = ((local & 0x0F0000) == 0x090000) &&
+						((local & 0x0000FF) == 0x10 || (local & 0x0000FF) == 0x12);
+					bool is_vbl_control = ((local & 0x0F0000) == 0x0A0000) &&
+						((local & 0x0000FF) == 0x00 || (local & 0x0000FF) == 0x04);
+
+					if (is_vbl_status || is_vbl_control) {
+						fprintf(stderr,
+							"NUBUS_VIDEO_DBG frame=%d time=%llu pc=%08X %s addr=%08X local=%06X data_in=%04X data_out=%04X\n",
+							video.count_frame,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc,
+							VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
+							addr,
+							local,
+							VERTOPINTERN->debug_cpuDataIn,
+							VERTOPINTERN->debug_cpuDataOut);
+						nubus_video_debug_count++;
+					}
+				}
+				nubus_video_debug_prev_bus_control = bus_control;
 			}
 
 			// VIA debug - captures at VMA-synchronized timing (when VIA actually reads/writes)
@@ -1222,6 +1261,7 @@ void show_help() {
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
+	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
 	printf("  --scsi0 <file>                Mount a SCSI disk image on target 0 (ID 6)\n");
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
 	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
@@ -1312,6 +1352,8 @@ int main(int argc, char** argv, char** env) {
 			periph_debug_enable = true;
 		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
 			verbose_debug_enable = true;
+		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
+			nubus_video_debug_enable = true;
 		} else if (strcmp(argv[i], "+poll268_debug") == 0 || strcmp(argv[i], "--poll268-debug") == 0) {
 			poll268_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi0") == 0 && i + 1 < argc) {

@@ -13,7 +13,7 @@ mappings for addresses within the configured range.
 | status[5:4] | configRAMSize | RAM Size | selectRAM Range | VIA2 PA7:6 | Mirror |
 |-------------|---------------|----------|-----------------|------------|--------|
 | 00          | 2'b00         | 1MB      | $00_0000-$0F_FFFF | 00 (256K SIMMs) | No |
-| 01          | 2'b01         | 2MB      | $00_0000-$3F_FFFF | 00 (256K SIMMs) | Yes — wraps at 2MB |
+| 01          | 2'b01         | 2MB      | $00_0000-$3F_FFFF plus bank B at $80_0000-$8F_FFFF | 00 (256K SIMMs) | $00-$3F wraps at 2MB; $80-$8F maps bank B |
 | 10          | 2'b10         | 4MB      | $00_0000-$3F_FFFF | 01 (1MB SIMMs)  | No |
 | 11          | 2'b11         | 8MB      | $00_0000-$7F_FFFF | 01 (1MB SIMMs)  | No |
 
@@ -62,6 +62,12 @@ is returned instead (loopback).
 The 2MB configuration uses address mirroring to fill the 4MB selectRAM
 space. Bit 21 of the SDRAM address is forced to 0, so addresses
 $20_0000-$3F_FFFF read/write the same physical RAM as $00_0000-$1F_FFFF.
+
+MAME's default Mac II configuration is 2MB. When the ROM programs the GLUE RAM
+bank location for this layout, MAME plants bank B at $0080_0000-$008F_FFFF.
+The FPGA address path therefore also maps that 1MB window to the second 1MB RAM
+bank. This is needed because the ROM/boot path executes code in the $0082_xxxx
+window before reaching the desktop path.
 
 The ROM's sizing algorithm detects this mirror pattern:
 1. Write a test pattern at $00_0000

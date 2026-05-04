@@ -119,6 +119,9 @@ module addrController_top(
 	// video always addresses ram
 	wire ram_access = (cpuBusControl && selectRAM) || videoBusControl;
 	wire rom_access = (cpuBusControl && selectROM);
+	wire ram2m_bank_b_8m = cpuBusControl && selectRAM &&
+	                       configRAMSize == 2'b01 &&
+	                       cpuAddr[23:20] == 4'h8;
 	
 	// ROM address clamping (simulate smaller ROM sizes)
 	// RAM address mirroring: 2MB mirrors within 4MB space (bit 21 forced to 0)
@@ -143,9 +146,10 @@ module addrController_top(
 	assign dskReadAckInt = (extraBusControl == 1'b1) && (extra_slot_count == 0);
 	assign dskReadAckExt = (extraBusControl == 1'b1) && (extra_slot_count == 1);
 
-	assign memoryAddr = 
+	assign memoryAddr =
 		dskReadAckInt ? dskReadAddrInt + 22'h100000:   // first dsk image at 1MB
 		dskReadAckExt ? dskReadAddrExt + 22'h200000:   // second dsk image at 2MB
+		ram2m_bank_b_8m ? {1'b0, 1'b1, cpuAddr[19:0]}:
 		macAddr;
 
 	// address decoding

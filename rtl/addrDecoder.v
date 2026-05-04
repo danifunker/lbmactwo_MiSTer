@@ -193,6 +193,7 @@ module addrDecoder(
 		// RAM ranges (with mirroring for ROM detection):
 		//   1MB: $00-$0F only (no mirror)
 		//   2MB: $00-$3F (mirrored in 4MB space, addr wraps at 2MB)
+		//        plus bank B at $80-$8F, matching Mac II GLUE bank placement
 		//   4MB: $00-$3F (no mirror)
 		//   8MB: $00-$7F (no mirror, overrides 24-bit ROM/SCSI)
 		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF || address[31:24] == 8'h80) begin
@@ -202,6 +203,7 @@ module addrDecoder(
 			if (!memoryOverlayOn && (
 				(configRAMSize == 2'b00 && address[23:20] == 4'h0) ||                // 1MB: $00-$0F
 				(configRAMSize == 2'b01 && address[23:22] == 2'b00) ||               // 2MB: $00-$3F (mirrored)
+				(configRAMSize == 2'b01 && address[23:20] == 4'h8) ||                // 2MB: bank B at $80-$8F
 				(configRAMSize == 2'b10 && address[23:22] == 2'b00) ||               // 4MB: $00-$3F
 				(configRAMSize == 2'b11 && address[23]    == 1'b0)))                  // 8MB: $00-$7F
 			begin
