@@ -659,7 +659,7 @@ module emu
 	always @(posedge clk_sys) begin
 		reg old_down;
 		old_down <= dio_download;
-		if(old_down && ~dio_download && dio_index == 1) begin
+		if(old_down && ~dio_download && dio_index == 2) begin
 			dsk_int_ds <= (dio_addr == 409600);
 			dsk_int_ss <= (dio_addr == 204800);
 		end
@@ -672,7 +672,7 @@ module emu
 	always @(posedge clk_sys) begin
 		reg old_down;
 		old_down <= dio_download;
-		if(old_down && ~dio_download && dio_index == 2) begin
+		if(old_down && ~dio_download && dio_index == 3) begin
 			dsk_ext_ds <= (dio_addr == 409600);
 			dsk_ext_ss <= (dio_addr == 204800);
 		end
@@ -693,7 +693,7 @@ module emu
 			dio_data <= ioctl_dout;
 			// Mac II ROM (boot0.rom, 256K = 128K words) starts at 0x40_0000 in address space
 			// In sim_ram, ROM area is at bit[21]=1, so ROM goes to 0x200000+ in sim_ram
-			// Floppy disk images use index 1 and 2
+			// Floppy disk images use index 2 and 3, matching LBMacTwo.sv.
 			dio_a <= dio_index[1:0] ? {dio_index[1:0], dio_addr[18:0]} :
 				{4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words (17 bits)
 			ioctl_wait <= 1;

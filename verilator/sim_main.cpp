@@ -120,6 +120,7 @@ bool via_debug_prev_wr = false;
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
 std::string scsi_disk_files[2];
+std::string floppy_disk_files[2];
 
 // Screenshot functionality
 // ------------------------
@@ -1188,6 +1189,8 @@ void show_help() {
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
 	printf("  --scsi0 <file>                Mount a SCSI disk image on target 0 (ID 6)\n");
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
+	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
+	printf("  --floppy1 <file>              Insert a raw .dsk image in the external floppy drive\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
@@ -1277,6 +1280,12 @@ int main(int argc, char** argv, char** env) {
 			i++;
 		} else if (strcmp(argv[i], "--scsi1") == 0 && i + 1 < argc) {
 			scsi_disk_files[1] = argv[i + 1];
+			i++;
+		} else if (strcmp(argv[i], "--floppy0") == 0 && i + 1 < argc) {
+			floppy_disk_files[0] = argv[i + 1];
+			i++;
+		} else if (strcmp(argv[i], "--floppy1") == 0 && i + 1 < argc) {
+			floppy_disk_files[1] = argv[i + 1];
 			i++;
 		} else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
 			screenshot_mode = true;
@@ -1426,6 +1435,13 @@ int main(int argc, char** argv, char** env) {
 	const char* nubus_rom_file = "../releases/boot1.rom";  // Hi-Res 341-0660
 	bus.QueueDownload(nubus_rom_file, 1, 1);  // index 1 for NuBus ROM
 	fprintf(stderr, "Loading NuBus video ROM: %s\n", nubus_rom_file);
+	for (int disk_index = 0; disk_index < 2; disk_index++) {
+		if (!floppy_disk_files[disk_index].empty()) {
+			int ioctl_index = disk_index == 0 ? 2 : 3;
+			bus.QueueDownload(floppy_disk_files[disk_index], ioctl_index, 1);
+			fprintf(stderr, "Loading floppy%d image: %s\n", disk_index, floppy_disk_files[disk_index].c_str());
+		}
+	}
 
 	// Initial eval() to establish clock state for Verilator
 	// This is needed for correct rising edge detection on the first cycle

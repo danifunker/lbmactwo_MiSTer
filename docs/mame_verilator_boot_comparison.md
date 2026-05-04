@@ -275,6 +275,19 @@ the current Verilator run, but it is not an exact disk-path match because MAME
 is using the `.dsk` through IWM/floppy while Verilator is exercising it as a
 temporary SCSI target.
 
+The Verilator wrapper now supports the same floppy path:
+
+```sh
+cd verilator
+./obj_dir/Vemu --headless --no-cpu-trace --no-via-debug \
+  --floppy0 ../releases/Disk605.dsk --stop-at-frame 1200
+```
+
+The index mapping is important: index 1 is the NuBus declaration ROM, while
+indexes 2 and 3 are the internal and external floppy images. This matches
+`LBMacTwo.sv`; the older Verilator wrapper treated index 1 as the internal
+floppy and could not do a clean same-disk comparison with MAME.
+
 The ADB/VIA work is still relevant, but it is no longer the most recent observed
 terminal blocker.
 
@@ -299,7 +312,6 @@ path, and the first mounted-image SCSI READ(6). SCSI was a real blocker while
 the ROM could not write/read the NCR5380 correctly and while the headless sim
 could not mount a target, but the latest mounted run no longer dies there.
 
-The next debugging step is either to load `Disk605.dsk` through the Verilator
-floppy path for a direct MAME comparison, or to use a real MAME-compatible SCSI
-hard disk image for both simulators. Until the disk path is matched, frame
-comparisons after the first SCSI READ(6) are useful only as rough landmarks.
+The next debugging step is to use `--floppy0 ../releases/Disk605.dsk` for the
+direct MAME comparison. A real MAME-compatible SCSI hard disk image would still
+be useful later for validating the SCSI target path.
