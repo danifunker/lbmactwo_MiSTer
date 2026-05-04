@@ -40,9 +40,9 @@ end
 mem:install_read_tap(0x50f14000, 0x50f15fff, "asc_rom_probe_r", function(offset, data, mask)
 	if bus_count < max_bus then
 		local pc = cpu.state["CURPC"].value
-		print(string.format("MAME_ASC_BUS frame=%d pc=%s rw=1 addr=%s data=%04X mask=%04X d3=%s d7=%s",
+		print(string.format("MAME_ASC_BUS frame=%d pc=%s rw=1 addr=%s data=%04X mask=%04X d0=%s d3=%s d7=%s a4=%s",
 			frames, hex(pc), hex(offset), data or 0, mask or 0,
-			state("D3"), state("D7")))
+			state("D0"), state("D3"), state("D7"), state("A4")))
 		bus_count = bus_count + 1
 	end
 end)
@@ -50,9 +50,9 @@ end)
 mem:install_write_tap(0x50f14000, 0x50f15fff, "asc_rom_probe_w", function(offset, data, mask)
 	if bus_count < max_bus then
 		local pc = cpu.state["CURPC"].value
-		print(string.format("MAME_ASC_BUS frame=%d pc=%s rw=0 addr=%s data=%04X mask=%04X d3=%s d7=%s",
+		print(string.format("MAME_ASC_BUS frame=%d pc=%s rw=0 addr=%s data=%04X mask=%04X d0=%s d3=%s d7=%s a4=%s",
 			frames, hex(pc), hex(offset), data or 0, mask or 0,
-			state("D3"), state("D7")))
+			state("D0"), state("D3"), state("D7"), state("A4")))
 		bus_count = bus_count + 1
 	end
 end)

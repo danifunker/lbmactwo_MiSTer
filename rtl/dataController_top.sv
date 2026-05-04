@@ -277,7 +277,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire via2_pb7_to_via1_ca1;
 	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
 
-	assign viaDataOut[7:0] = 8'hEF;
+	// Mac II VIA reads mirror the 8-bit VIA register on both 68000 byte lanes
+	// (matching MAME's `(data & 0xff) | (data << 8)` handlers).
+	assign viaDataOut[7:0] = viaDataOut[15:8];
 
 	via6522 via(
 		.clock      (clk32),
@@ -416,7 +418,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// VIA2 CA1: NuBus IRQ aggregator (active-low when any slot asserts IRQ)
 	wire via2_ca1 = nubus_irq_n;  // directly from video card for now (Phase 1)
 
-	assign via2DataOut[7:0] = 8'hEF;
+	assign via2DataOut[7:0] = via2DataOut[15:8];
 
 	via6522 via2(
 		.clock      (clk32),

@@ -889,17 +889,36 @@ module emu
 	reg [31:0] asc_rom_dbg_prev_pc;
 	reg [31:0] asc_rom_dbg_bus_count;
 	reg [31:0] asc_rom_dbg_f5c_hits;
+	reg        asc_rom_dbg_bus_active;
+
+	function asc_rom_dbg_interesting_pc;
+		input [31:0] pc;
+		begin
+			asc_rom_dbg_interesting_pc = (pc == 32'h40805E4A ||
+			                              pc == 32'h40805E70 ||
+			                              pc == 32'h40805E74 ||
+			                              pc == 32'h40805E78 ||
+			                              pc == 32'h40805E7C ||
+			                              pc == 32'h40805E80 ||
+			                              pc == 32'h40805E82 ||
+			                              pc == 32'h40805E84 ||
+			                              pc == 32'h40805E8C ||
+			                              pc == 32'h40805E94 ||
+			                              pc == 32'h40805ED6 ||
+			                              pc == 32'h40805EE6 ||
+			                              pc == 32'h40805F14 ||
+			                              pc == 32'h40805F28 ||
+			                              pc == 32'h40805F5C ||
+			                              pc == 32'h40805F60 ||
+			                              pc == 32'h40805F78);
+		end
+	endfunction
 
 	always @(posedge clk_sys) begin
 		if ($test$plusargs("asc_rom_debug")) begin
 			if (last_fetch_pc != asc_rom_dbg_prev_pc) begin
 				asc_rom_dbg_prev_pc <= last_fetch_pc;
-				if (last_fetch_pc == 32'h40805E4A ||
-				    last_fetch_pc == 32'h40805F14 ||
-				    last_fetch_pc == 32'h40805F28 ||
-				    last_fetch_pc == 32'h40805F5C ||
-				    last_fetch_pc == 32'h40805F60 ||
-				    last_fetch_pc == 32'h40805F78) begin
+				if (asc_rom_dbg_interesting_pc(last_fetch_pc)) begin
 					$display("[ASC_ROM_PC] pc=%08h d0=%08h d1=%08h d2=%08h d3=%08h d4=%08h d7=%08h a0=%08h a3=%08h a4=%08h",
 					         last_fetch_pc,
 					         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
@@ -919,13 +938,148 @@ module emu
 				end
 			end
 
-			if (!tg68_as_n && selectASC && asc_rom_dbg_bus_count < 256) begin
+			if (tg68_as_n || !selectASC || (_cpuUDS && _cpuLDS)) begin
+				asc_rom_dbg_bus_active <= 1'b0;
+			end else if (!asc_rom_dbg_bus_active && asc_rom_dbg_bus_count < 128) begin
+				asc_rom_dbg_bus_active <= 1'b1;
 				$display("[ASC_ROM_BUS] pc=%08h rw=%b addr=%08h din=%04h dout=%04h ds=%b d3=%08h d7=%08h",
-				         last_fetch_pc, tg68_rw, cpuAddr, cpuDataOut,
+				         last_fetch_pc, _cpuRW, cpuAddr, cpuDataOut,
 				         dataControllerDataOut, {~_cpuUDS, ~_cpuLDS},
 				         tg68_dbg_reg(4'd3), tg68_dbg_reg(4'd7));
 				asc_rom_dbg_bus_count <= asc_rom_dbg_bus_count + 1'd1;
 			end
+		end
+	end
+
+	reg [31:0] asc_entry_dbg_prev_pc;
+	reg [31:0] asc_entry_dbg_hits;
+
+	function asc_entry_dbg_interesting_pc;
+		input [31:0] pc;
+		begin
+			asc_entry_dbg_interesting_pc = (pc == 32'h408000D0 ||
+			                                pc == 32'h40802CDC ||
+			                                pc == 32'h40802CE2 ||
+			                                pc == 32'h40802CE4 ||
+			                                pc == 32'h40802CEA ||
+			                                pc == 32'h40802CEE ||
+			                                pc == 32'h40805E4A ||
+			                                pc == 32'h40805E5C ||
+			                                pc == 32'h40805E62 ||
+			                                pc == 32'h40805E66 ||
+			                                pc == 32'h40805E68 ||
+			                                pc == 32'h40805E6E ||
+			                                pc == 32'h40805E70);
+		end
+	endfunction
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("asc_entry_debug") && last_fetch_pc != asc_entry_dbg_prev_pc) begin
+			asc_entry_dbg_prev_pc <= last_fetch_pc;
+			if (asc_entry_dbg_interesting_pc(last_fetch_pc) && asc_entry_dbg_hits < 128) begin
+				$display("[ASC_ENTRY] hit=%0d pc=%08h d0=%08h d7=%08h a0=%08h a3=%08h a4=%08h a6=%08h pa=%02h ira=%02h ddra=%02h",
+				         asc_entry_dbg_hits, last_fetch_pc,
+				         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd7),
+				         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd11),
+				         tg68_dbg_reg(4'd12), tg68_dbg_reg(4'd14),
+				         dc0.via.pio_i_pra, dc0.via.ira, dc0.via.pio_i_ddra);
+				asc_entry_dbg_hits <= asc_entry_dbg_hits + 1'd1;
+			end
+		end
+	end
+
+	reg [31:0] ramtest_dbg_prev_pc;
+	reg [31:0] ramtest_dbg_hits;
+	reg        ramtest_dbg_bus_active;
+	reg [31:0] ramtest_dbg_bus_hits;
+
+	function ramtest_dbg_interesting_pc;
+		input [31:0] pc;
+		begin
+			ramtest_dbg_interesting_pc = (pc == 32'h40802BBC ||
+			                              pc == 32'h40802BF0 ||
+			                              pc == 32'h40802C10 ||
+			                              pc == 32'h40802C28 ||
+			                              pc == 32'h40802C3C ||
+			                              pc == 32'h40802CDC ||
+			                              pc == 32'h40803714 ||
+			                              pc == 32'h40803734 ||
+			                              pc == 32'h40803760 ||
+			                              pc == 32'h4080378E ||
+			                              pc == 32'h40803794 ||
+			                              pc == 32'h4080379A ||
+			                              pc == 32'h4080379E ||
+			                              pc == 32'h408037A0 ||
+			                              pc == 32'h408037A2 ||
+			                              pc == 32'h408037A4 ||
+			                              pc == 32'h408037A6 ||
+			                              pc == 32'h408037A8 ||
+			                              pc == 32'h408037AA);
+		end
+	endfunction
+
+	task ramtest_dbg_state;
+		input [31:0] pc;
+		input [31:0] hit;
+		begin
+			$display("[RAMTEST] hit=%0d pc=%08h d0=%08h d1=%08h d2=%08h d3=%08h d4=%08h d5=%08h d6=%08h d7=%08h a0=%08h a1=%08h a2=%08h a3=%08h a4=%08h a6=%08h via2_pa_o=%02h via2_pa_i=%02h via2_ddra=%02h via2_ira=%02h glue=%02b m0=%04h%04h m8=%04h%04h msp=%04h%04h mtop=%04h%04h",
+			         hit, pc,
+			         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+			         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd3),
+			         tg68_dbg_reg(4'd4), tg68_dbg_reg(4'd5),
+			         tg68_dbg_reg(4'd6), tg68_dbg_reg(4'd7),
+			         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd9),
+			         tg68_dbg_reg(4'd10), tg68_dbg_reg(4'd11),
+			         tg68_dbg_reg(4'd12), tg68_dbg_reg(4'd14),
+			         dc0.via2_pa_o, dc0.via2_pa_i, dc0.via2.pio_i_ddra,
+			         dc0.via2.ira, glueRAMSize,
+			         ram.mem[22'h000000], ram.mem[22'h000001],
+			         ram.mem[22'h000004], ram.mem[22'h000005],
+			         ram.mem[22'h0ffe80], ram.mem[22'h0ffe81],
+			         ram.mem[22'h0ffffe], ram.mem[22'h0fffff]);
+		end
+	endtask
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("ramtest_debug")) begin
+			if (last_fetch_pc != ramtest_dbg_prev_pc) begin
+				ramtest_dbg_prev_pc <= last_fetch_pc;
+				if (ramtest_dbg_interesting_pc(last_fetch_pc) &&
+				    (last_fetch_pc != 32'h4080378E || tg68_dbg_reg(4'd5) <= 32'd4) &&
+				    ramtest_dbg_hits < 240) begin
+					ramtest_dbg_state(last_fetch_pc, ramtest_dbg_hits);
+					ramtest_dbg_hits <= ramtest_dbg_hits + 1'd1;
+				end
+			end
+
+			if ($test$plusargs("ramtest_bus_debug")) begin
+				if (tg68_as_n || (!selectRAM && !selectROM) || (_cpuUDS && _cpuLDS)) begin
+					ramtest_dbg_bus_active <= 1'b0;
+				end else if (!ramtest_dbg_bus_active &&
+				             last_fetch_pc >= 32'h40803710 &&
+				             last_fetch_pc <= 32'h408037AA &&
+				             ramtest_dbg_bus_hits < 96) begin
+					ramtest_dbg_bus_active <= 1'b1;
+					$display("[RAMTEST_BUS] hit=%0d pc=%08h rw=%b tg68_a=%08h cpuAddr=%08h memAddr=%06h ramAddr=%07h din=%04h dout=%04h ramdo=%04h ds=%b selRAM=%b selROM=%b overlay=%b",
+					         ramtest_dbg_bus_hits, last_fetch_pc, _cpuRW,
+					         tg68_a, cpuAddr, memoryAddr, ram_addr,
+					         cpuDataOut, dataControllerDataOut, ram_do_raw,
+					         {~_cpuUDS, ~_cpuLDS}, selectRAM, selectROM,
+					         memoryOverlayOn);
+					ramtest_dbg_bus_hits <= ramtest_dbg_bus_hits + 1'd1;
+				end
+			end
+		end
+	end
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("via2_debug") && !_cpuVMA && selectVIA2 && E_falling) begin
+			$display("[VIA2_%s] pc=%08h addr=%08h reg=%1h data=%04h ds=%b pa_o=%02h pa_i=%02h ddra=%02h ira=%02h glue=%02b",
+			         _cpuRW ? "RD" : "WR", last_fetch_pc, cpuAddr, cpuAddr[12:9],
+			         _cpuRW ? dataControllerDataOut : cpuDataOut,
+			         {~_cpuUDS, ~_cpuLDS},
+			         dc0.via2_pa_o, dc0.via2_pa_i, dc0.via2.pio_i_ddra,
+			         dc0.via2.ira, glueRAMSize);
 		end
 	end
 `endif

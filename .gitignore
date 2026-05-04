@@ -45,6 +45,9 @@ c5_pin_model_dump.txt
 imgui.ini
 cpu_trace.log
 ram_debug.log
+verilator/*.log
+verilator/*.fst
+verilator/*.vcd
 verilator/obj_dir
 verilator/*.png
 verilator/*.txt

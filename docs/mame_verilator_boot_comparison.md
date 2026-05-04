@@ -9,21 +9,29 @@ are no longer blocking progress.
 
 The first confirmed divergence was the Mac II 2MB RAM GLUE mapping, not SCC.
 MAME dynamically remaps RAM from VIA2 PA7:6 while the ROM probes `FF/BF/7F/3F`.
-Before the fix, Verilator used a static 2MB wrap and falsely accepted the `BF`
-layout; the ROM then read VIA2 as `$BF`, loaded `A2=$00800000`, wrote
-`$00200000`, and aliased that write to address zero. That branched to the ROM
-error path before the later SCC symptoms.
+Before the first RAM fix, Verilator used a static 2MB wrap and falsely accepted
+the `BF` layout; the ROM then read VIA2 as `$BF`, loaded `A2=$00800000`, wrote
+`$00200000`, and aliased that write to address zero.
 
-The RTL now exports the VIA2 PA7:6 GLUE latch into `addrDecoder` and
-`addrController`. The RAM sizing probe now matches MAME at the important point:
-VIA2 reads `$3F`, `A2=$00100000`, and address zero remains zero after the
-walking-address writes.
+The second RAM-test divergence was subtler: the VIA data bus returned the real
+8-bit VIA value on D15:8 but hardcoded D7:0 to `$EF`. MAME mirrors VIA reads
+onto both 68000 byte lanes. The ROM does a wider VIA2 ORA read at `$4080071E`;
+Verilator returned `$3FEF`, so the ROM wrote `$EF` back to VIA2 ORA at
+`$40800726`. That drove PA7:6 to `11`, made the later RAM-test orchestrator
+load the `$04000000` table entry, and sent the boot down the ASC diagnostic
+path. The RTL now mirrors VIA and VIA2 reads onto both lanes.
 
-The next blocker is ASC self-test timing/progress. Matched MAME reaches
-`PC=$40806DD8` by frame 120 after only a handful of ASC-state probe hits.
-Verilator is still in the `$40805Fxx` ASC pattern/delay loop at frame 300. The
-ASC RAM contents are evolving, so this looks like an ASC/CPU-timing or ASC test
-semantics mismatch rather than the earlier RAM-map failure.
+After this fix, the focused RAM-test probe matches MAME at the important
+checkpoint: VIA2 reads `$3F3F`, ORA stays `$3F`, the RAM-test orchestrator
+loads `A2=$00100000`, `D7=4`, and the pattern test returns with `D6=0` instead
+of entering `$40802CDC`.
+
+ASC is not the current blocker. Verilator now takes the same normal ASC entry
+path as MAME (`$408000D0 -> $40805E4A`, `D7=2`) and reaches later ROM code.
+By the current frame probes, MAME is near `$40826CA8` around frame 280 and
+Verilator is near `$40826CCA` at frame 300. The frame-300 Verilator screenshot
+is still a vertical stripe pattern with no cursor, so the next debugging focus
+should be the post-ASC video/NuBus/SCSI boot path rather than RAM or ASC.
 
 ## Runs Compared
 
@@ -117,23 +125,33 @@ MAME frame 80:  PC=40806DDE
 MAME frame 120: PC=40806DD8
 ```
 
-After the RAM GLUE fix, Verilator is still in the same ASC region at frame 120
-and frame 300 (`PC=$40805F48/$40805F40`). It is no longer on the RAM
-`Error1Handler` path, but it has not caught up to MAME's frame-120
-post-ASC position.
+After the VIA read-lane fix, Verilator leaves the ASC region. At frame 180,
+`+asc_entry_debug` reports the normal path:
+
+```text
+[ASC_ENTRY] hit=0 pc=408000d0 ... d7=00000002 ...
+[ASC_ENTRY] hit=1 pc=40805e4a ... d7=00000002 ...
+[ASC_ENTRY] hit=2 pc=40805e70 ... a4=40805f78 ...
+```
+
+At frame 300, Verilator stops at `PC=$40826CCA`; matched MAME reaches the same
+ROM neighborhood around frame 280 (`PC=$40826CA8`) and then enters slot/video
+declaration code again by frame 296.
 
 ## Current Observations
 
 | Checkpoint | MAME `macii` | Verilator |
 | --- | --- | --- |
-| 1200-frame progress | Default `mdc824`: reaches `PC=40826CC6`; matched `nbe m2hires`: reaches `PC=408061F2` | Reaches frame 1200; final PCs seen around `40812E98`/`40812F5E` in the prior quiet run |
-| ASC | Leaves ASC self-test by frame 120 (`PC=40806DD8`) | Still in `$40805Fxx` ASC self-test at frame 300 |
+| 300-frame progress | Matched `nbe m2hires`: reaches `PC=40826CA8` around frame 280 and `PC=00004606` by frame 300 | Reaches `PC=40826CCA` at frame 300 |
+| RAM test | VIA2 reads `$3F3F`, `A2=$00100000`, `D7=4`, `D6=0` | Matches after VIA read-lane fix |
+| ASC | Normal path `$408000D0 -> $40805E4A`, `D7=2`, `A4=$40805F78` | Matches normal path; no longer enters `$40802CDC -> $40805E66` diagnostic path |
 | SCC | Early SCC status loop reads `0x54` at `PC=408005D2`; no long `408032xx` poll | The previous `408032AC` SCC-style stall was a downstream symptom of earlier error paths |
-| Video | Default `macii` uses `mdc824` in slot 9; matched run uses `m2hires` in slot E with the same `341-0660.bin` ROM | Verilator models an `m2hires`-like card in slot E; screenshot at frame 1000 is still flat gray, with no cursor |
+| Video | Matched run uses `m2hires` in slot E with the same `341-0660.bin` ROM | Verilator models an `m2hires`-like card in slot E; screenshot at frame 300 is vertical stripes, with no cursor |
 | MAME SCC poll window | `40803280-40803310` was never entered in the 1200-frame MAME probe | If Verilator returns to this window, that is a real divergence from the MAME boot path |
 
-The current evidence says SCC is not the first blocker. The active divergence is
-ASC self-test progress after RAM GLUE mapping was corrected.
+The current evidence says SCC, RAM sizing, and ASC are not the first remaining
+blockers. The active question is why the visible boot has not reached a cursor
+despite the ROM reaching the same later neighborhood as matched MAME.
 
 ## Important Comparison Mismatch
 
@@ -339,9 +357,8 @@ card and `Disk605.dsk` as a floppy in both emulators.
 
 Early IWM behavior matches closely. Both runs perform the same ROM IWM probe:
 reads from `$50F17C00/$50F17A00`, write IWM mode `$17` at `$50F17E00`, then
-read encoded floppy byte `$97`. MAME later reaches loaded low-memory code by
-frame 300 and sees additional IWM bytes around frame 294 (`$37`, `$B7`), while
-Verilator is still in ROM code at frame 300.
+read encoded floppy byte `$97`. Earlier notes below describe intermediate
+failures from before the NuBus lane, RAM banking, and VIA read-lane fixes.
 
 The SCSI-looking MAME frame-280 PC is misleading. A focused MAME SCSI tap shows
 no SCSI register accesses after the early frame-67 polling window; the ROM PCs
@@ -349,18 +366,15 @@ around `$40826Cxx` are delay/helper code, not live NCR5380 traffic. Verilator's
 frame-300 stop at `$40801656` is also in ROM delay code that compares against
 the low-memory tick counter at `$016A`.
 
-Low-memory timing at frame 300:
+Old low-memory timing at frame 300 before later fixes:
 
 | Run | PC | long `$016A` | word `$0D00` | word `$0DA6` |
 | --- | --- | --- | --- | --- |
 | MAME | `$00004606` | `$00000075` | `$0A3B` | `$0417` |
 | Verilator | `$40801656` | `$000000AA` | `$051B` | `$0188` |
 
-The tick counter is advancing in Verilator, and it is actually higher than
-MAME's at the same nominal frame. The CPU has nevertheless made much less boot
-progress. That makes ASC, early IWM, and live SCSI less likely as the immediate
-blocker. The current leading suspect is the ratio of CPU progress to video/VIA
-time, likely in clock enables, DTACK/wait-state behavior, or bus-slot timing.
+This timing mismatch was useful for that debug stage but is no longer the
+current failure shape.
 
 There is also a frame-counter caveat: Verilator's stop frame currently follows
 the internal `videoTimer` path, which is roughly 60 Hz. The matched MAME run's
@@ -437,6 +451,44 @@ PC=40803288 Op=062A VBR=40802806
 SCC_RX_FIFO_EMPTY: ch=A read from empty FIFO
 ```
 
-That puts the current blocker back in the SCC receive/status path, not ASC,
-NuBus VBL, or the SCSI no-target timeout. The earlier `408032xx` SCC loop is
-again the next comparison target.
+That put the blocker back in the SCC receive/status path at that time, not ASC,
+NuBus VBL, or the SCSI no-target timeout. This section is superseded by the VIA
+read-lane update below.
+
+## 2026-05-04 VIA Read-Lane Update
+
+The latest focused comparison found that the SCC/ASC-looking failure was caused
+by byte-lane behavior on VIA reads. MAME's Mac II handlers return the same
+8-bit VIA register value on both 68000 byte lanes:
+
+```cpp
+return (data & 0xff) | (data << 8);
+```
+
+The RTL returned the VIA byte on D15:8 but hardcoded D7:0 to `$EF`. That made a
+wide ROM read of VIA2 ORA return `$3FEF` instead of `$3F3F`; the ROM then wrote
+`$EF` back to ORA, leaving VIA2 PA7:6 at `11`. The later RAM-test orchestrator
+read that as index `$0C`, loaded the `$04000000` table entry, failed the pattern
+test, and entered the ASC diagnostic path.
+
+After mirroring VIA/VIA2 reads onto both lanes, Verilator matches the MAME RAM
+test checkpoint:
+
+```text
+VIA2 ORA read: $3F3F
+VIA2 ORA latch: $3F
+RAM test: A2=$00100000 D7=4 D6=0
+ASC entry: $408000D0 -> $40805E4A, D7=2
+```
+
+Frame probes are now close again around the later ROM delay/helper region:
+
+```text
+MAME frame 280:      PC=40826CA8
+Verilator frame 300: PC=40826CCA
+```
+
+The visible frame-300 Verilator screenshot is still vertical stripes with no
+cursor. The next comparison should start after the fixed RAM and ASC milestones
+and focus on why the post-ASC video/NuBus/SCSI path has not produced the normal
+cursor screen yet.

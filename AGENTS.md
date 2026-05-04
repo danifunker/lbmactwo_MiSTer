@@ -64,15 +64,19 @@ The local MAME ROM setup expected for the matched card is:
 
 ## Current Debug Focus
 
-The latest fixed divergence is Mac II RAM banking. MAME dynamically remaps the
-2MB layout from the VIA2 PA7:6 GLUE latch while the ROM probes `FF/BF/7F/3F`.
-The RTL now exports that VIA2 latch into the address decoder/controller instead
-of using a static `$00800000` bank-B window or forcing all 2MB accesses to wrap
-at bit 21. The RAM sizing probe should read VIA2 as `$3F`, load `A2=$00100000`,
-and avoid the old `$00200000 -> $00000000` alias failure.
+The latest fixed divergence is VIA read-lane mirroring during the Mac II RAM
+banking probe. MAME mirrors byte-wide VIA/VIA2 reads onto both 68000 byte lanes.
+The FPGA now does the same; otherwise the ROM reads VIA2 ORA as `$3FEF`, writes
+`$EF` back, drives PA7:6 to `11`, and later selects the invalid `$04000000`
+RAM-test table entry.
 
-After the RAM fix, the current blocker is ASC self-test progress. Matched MAME
-leaves the ASC region by about frame 120 (`PC=$40806DD8`), while Verilator is
-still in the `$40805Fxx` ASC pattern/delay loop at frame 300. Use
-`tools/mame/macii_asc_state_probe.lua` and Verilator `+asc_state_debug` for the
-next comparison. SCC, SCSI, and NuBus video are not the first current blockers.
+The RAM sizing probe should now read VIA2 as `$3F3F`, leave ORA at `$3F`, load
+`A2=$00100000`, set `D7=4`, and return from the pattern test with `D6=0`.
+Verilator also takes the normal ASC path (`$408000D0 -> $40805E4A`, `D7=2`),
+so ASC is not the current blocker.
+
+The current focus is post-ASC visible boot progress. Matched MAME reaches the
+`$40826Cxx` neighborhood around frame 280; Verilator reaches `$40826CCA` at
+frame 300, but the screenshot is still vertical stripes with no cursor. Next
+comparisons should focus on the video/NuBus/SCSI path after the fixed RAM and
+ASC milestones.

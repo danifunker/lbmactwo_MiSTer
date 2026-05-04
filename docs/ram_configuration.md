@@ -57,6 +57,12 @@ The FPGA sets PA7:6 as hardware input pins when VIA2 DDR is input mode. When
 the ROM sets DDR to output, the output latch value is returned and also drives
 the GLUE RAM bank-placement input to the address decoder.
 
+Mac II VIA registers are byte-wide, but MAME mirrors VIA reads onto both 68000
+byte lanes. The FPGA must do the same for VIA and VIA2 reads. Returning a
+constant low byte corrupts ROM read-modify-write sequences: one observed failure
+was a VIA2 ORA read of `$3FEF` instead of `$3F3F`, followed by the ROM writing
+`$EF` back to ORA and selecting the unsupported PA7:6=`11` RAM layout.
+
 ## RAM Mirroring
 
 The 2MB configuration follows MAME's dynamic Mac II GLUE behavior. During ROM
@@ -113,6 +119,6 @@ the ROM writes the correct PA7:6 value, then expands to full size.
 - `LBMacTwo.sv` — OSD menu (`O45,Memory,...`), configRAMSize wiring, SDRAM address mux
 - `rtl/addrDecoder.v` — selectRAM range gating by configRAMSize and GLUE latch
 - `rtl/addrController_top.v` — ROM address clamping and dynamic 2MB bank-A mirror
-- `rtl/dataController_top.sv` — VIA2 PA7:6 hardware RAM sizing pins and GLUE latch export
+- `rtl/dataController_top.sv` — VIA read-lane mirroring, VIA2 PA7:6 hardware RAM sizing pins, and GLUE latch export
 - `verilator/sim.v` — Verilator sim wrapper (mirrors FPGA changes)
 - `verilator/sim_ram.v` — Verilator RAM model (independent range checking)
