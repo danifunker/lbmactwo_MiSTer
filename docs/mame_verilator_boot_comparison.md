@@ -254,6 +254,27 @@ and released BSY (`t0_phase=0`, `tbsy=00`); by frame 760 the CPU has left the
 SCSI path and is at `PC=40801652`. This rules out SCSI as the current terminal
 blocker in the mounted-image run.
 
+By frame 1200, Verilator is back in the SCSI selection helper at
+`PC=40826CC6`, but it is selecting `odr=81`, which is initiator ID 7 plus target
+ID 0. No RTL target exists at ID 0, so this is the ROM paying a no-device
+timeout, not target 6 holding BSY. The SCSI state at that stop is idle:
+`t0_phase=0`, `tbsy=00`, `req=0`.
+
+MAME with the same video card and `Disk605.dsk` mounted as a floppy:
+
+```sh
+MAME_FRAME_INTERVAL=100 MAME_STOP_FRAME=1200 SDL_VIDEODRIVER=dummy ./mame macii \
+  -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
+  -nb9 "" -nbe m2hires -flop ../releases/Disk605.dsk \
+  -autoboot_script ../tools/mame/macii_frame_probe.lua
+```
+
+reaches NuBus declaration ROM access around frames 70 and 296, then alternates
+through `PC=408061F2` and `PC=4080DE3E` by frame 1200. That is still ahead of
+the current Verilator run, but it is not an exact disk-path match because MAME
+is using the `.dsk` through IWM/floppy while Verilator is exercising it as a
+temporary SCSI target.
+
 The ADB/VIA work is still relevant, but it is no longer the most recent observed
 terminal blocker.
 
@@ -278,8 +299,7 @@ path, and the first mounted-image SCSI READ(6). SCSI was a real blocker while
 the ROM could not write/read the NCR5380 correctly and while the headless sim
 could not mount a target, but the latest mounted run no longer dies there.
 
-The next debugging step is to run farther with the same mounted target and
-compare the new post-SCSI location (`PC=40801652` at frame 760) against MAME's
-matched-card frame landmarks. If the run returns to an ADB/VIA timer loop,
-continue with the VIA/ADB probes; if it reaches NuBus, switch back to the video
-card register/VRAM probes.
+The next debugging step is either to load `Disk605.dsk` through the Verilator
+floppy path for a direct MAME comparison, or to use a real MAME-compatible SCSI
+hard disk image for both simulators. Until the disk path is matched, frame
+comparisons after the first SCSI READ(6) are useful only as rough landmarks.

@@ -35,7 +35,7 @@ QData* img_size=NULL;
 
 
 void SimBlockDevice::MountDisk( std::string file, int index) {
-        disk[index].open(file.c_str(), std::ios::out | std::ios::in | std::ios::binary | std::ios::ate);
+        disk[index].open(file.c_str(), std::ios::in | std::ios::binary | std::ios::ate);
         if (disk[index]) {
                 fprintf(stderr,"we are here\n");
            // we shouldn't do the actual mount here..
@@ -113,7 +113,7 @@ void SimBlockDevice::BeforeEval(int cycles)
 fprintf(stderr,"mounting.. %d\n",i);
            mountQueue[i]=0;
            *img_size = disk_size[i];
-           if (img_readonly) *img_readonly=0;
+           if (img_readonly) *img_readonly=1;
 fprintf(stderr,"img_size .. %llu\n",(unsigned long long)*img_size);
            disk[i].seekg(0);
            bitset(*img_mounted,i);
