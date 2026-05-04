@@ -76,6 +76,32 @@ High Resolution Video Card placed in slot E:
 SDL_VIDEODRIVER=dummy ./mame macii -rompath roms -video none -sound none -nothrottle -skip_gameinfo -nb9 "" -nbe m2hires -autoboot_script macii_scc_probe.lua
 ```
 
+For frame-to-frame comparison, use the generic frame probe. It prints the
+current ROM PC at a fixed interval and exits at the selected frame:
+
+```sh
+MAME_FRAME_INTERVAL=20 MAME_STOP_FRAME=120 SDL_VIDEODRIVER=dummy ./mame macii \
+  -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
+  -seconds_to_run 999 -nb9 "" -nbe m2hires \
+  -autoboot_script ../tools/mame/macii_frame_probe.lua
+```
+
+Current matched-card frame landmarks:
+
+```text
+MAME frame 9:   PC=40805F48  ASC self-test
+MAME frame 40:  PC=40805F44  ASC self-test
+MAME frame 60:  PC=40803778  ASC test completed
+MAME frame 70:  PC=40804340  NuBus declaration ROM scan
+MAME frame 80:  PC=40806DDE
+MAME frame 120: PC=40806DD8
+```
+
+Verilator, by contrast, was still at `PC=40805F2A` at frame 80 and
+`PC=4080DE3E` at frame 120 in the current run. That means the useful comparison
+point is no longer just "wait longer"; the boot path is already behind MAME
+before the NuBus card should be initialized.
+
 ## Current Observations
 
 | Checkpoint | MAME `macii` | Verilator |

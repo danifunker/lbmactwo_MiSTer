@@ -411,22 +411,24 @@ module nubus_video_highres (
                     // (MAME: mirror_all_mb=true mirrors ROM across entire 16MB slot space)
                     if (select && in_our_slot && ack_n && ack_delay == 3'd0) begin
                         // synthesis translate_off
-                        if (addr_is_regs && !rw_n)
-                            $display("NUBUS: WR REG[%0d] addr=%h data_in=%h addr[1]=%b",
-                                addr[5:2], addr, data_in, addr[1]);
-                        else if (addr_is_ramdac && !rw_n)
-                            $display("NUBUS: WR RAMDAC addr=%h addr[2]=%b data=%h rgb=%0d clut_addr=%0d",
-                                addr, addr[2], data_in, ramdac_rgb, ramdac_addr);
-                        else if (addr_is_vblctl)
-                            $display("NUBUS: WR VBL_CTL addr=%h addr[4]=%b", addr, addr[4]);
-                        else if (addr_is_vram && !rw_n)
-                            ; // too noisy — uncomment if needed
-                        else if (addr_is_ramdac && rw_n)
-                            $display("NUBUS: RD RAMDAC/VBL addr=%h", addr);
-                        else if (rw_n)
-                            $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h raw=%h out=%h lane=%0d data_out=%h",
-                                addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
-                                addr[1:0], rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
+                        if ($test$plusargs("nubus_debug")) begin
+                            if (addr_is_regs && !rw_n)
+                                $display("NUBUS: WR REG[%0d] addr=%h data_in=%h addr[1]=%b",
+                                    addr[5:2], addr, data_in, addr[1]);
+                            else if (addr_is_ramdac && !rw_n)
+                                $display("NUBUS: WR RAMDAC addr=%h addr[2]=%b data=%h rgb=%0d clut_addr=%0d",
+                                    addr, addr[2], data_in, ramdac_rgb, ramdac_addr);
+                            else if (addr_is_vblctl)
+                                $display("NUBUS: WR VBL_CTL addr=%h addr[4]=%b", addr, addr[4]);
+                            else if (addr_is_vram && !rw_n)
+                                ; // too noisy - uncomment if needed
+                            else if (addr_is_ramdac && rw_n)
+                                $display("NUBUS: RD RAMDAC/VBL addr=%h", addr);
+                            else if (rw_n)
+                                $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h raw=%h out=%h lane=%0d data_out=%h",
+                                    addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
+                                    addr[1:0], rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
+                        end
                         // synthesis translate_on
                         // ---------------------------------------------------
                         // VRAM write ($x0_0000 - $x7_FFFF)
