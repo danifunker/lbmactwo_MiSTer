@@ -131,6 +131,10 @@ bool screenshot_mode = false;
 // ---------------------------
 int stop_at_frame = -1;
 bool stop_at_frame_enabled = false;
+uint32_t stop_at_tick = 0;
+bool stop_at_tick_enabled = false;
+uint64_t unique_fetch_count = 0;
+uint32_t unique_fetch_last_pc = 0xFFFFFFFF;
 
 // Headless mode (no GUI)
 // ----------------------
@@ -195,6 +199,19 @@ static inline uint32_t tg68_reg(int idx) {
 		VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n1[idx];
 }
 
+static inline uint32_t lowmem_tick_016a() {
+	return ((uint32_t)VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B5] << 16) |
+		VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6];
+}
+
+static inline bool lowmem_tick_reached() {
+	uint32_t tick = lowmem_tick_016a();
+	if (stop_at_tick <= 0xFFFF && (tick & 0xFFFF0000) != 0) {
+		return false;
+	}
+	return tick >= stop_at_tick;
+}
+
 static void print_scsi_stop_state() {
 	printf("SCSI state: mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
 	       "sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X "
@@ -223,6 +240,10 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0680],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x06D3]);
+	printf("Timing: main_time=%llu frame=%d unique_fetches=%llu\n",
+	       (unsigned long long)main_time,
+	       video.count_frame,
+	       (unsigned long long)unique_fetch_count);
 }
 
 // 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
@@ -272,6 +293,14 @@ int verilate() {
 			}
 			top->eval();
 			if (clk_sys.clk) { bus.AfterEval(); blockdevice.AfterEval(); }
+
+			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (pc != unique_fetch_last_pc) {
+					unique_fetch_last_pc = pc;
+					unique_fetch_count++;
+				}
+			}
 
 			// Vector table write watchpoint - log any write to $0-$3FF
 			if (VERTOPINTERN->debug_write_valid && !*bus.ioctl_download && cpu_trace_file) {
@@ -1200,11 +1229,13 @@ void show_help() {
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
+	printf("  --stop-at-tick <hex|dec>      Exit after low-memory tick long $016A reaches value\n");
 	printf("\n");
 	printf("Examples:\n");
 	printf("  ./Vemu                        Run simulator in windowed mode\n");
 	printf("  ./Vemu --screenshot 245       Take screenshot at frame 245\n");
 	printf("  ./Vemu --stop-at-frame 300    Stop simulation after frame 300\n");
+	printf("  ./Vemu --headless --stop-at-tick 0x75\n");
 	printf("  ./Vemu --headless --screenshot 50 --stop-at-frame 100\n");
 	printf("                                Headless, take screenshot at frame 50, stop at 100\n");
 }
@@ -1309,6 +1340,11 @@ int main(int argc, char** argv, char** env) {
 			stop_at_frame = std::stoi(argv[i + 1]);
 			stop_at_frame_enabled = true;
 			printf("Will stop at frame %d\n", stop_at_frame);
+			i++;
+		} else if (strcmp(argv[i], "--stop-at-tick") == 0 && i + 1 < argc) {
+			stop_at_tick = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
+			stop_at_tick_enabled = true;
+			printf("Will stop at low-memory tick $016A >= 0x%08X\n", stop_at_tick);
 			i++;
 		}
 	}
@@ -1478,7 +1514,12 @@ int main(int argc, char** argv, char** env) {
 			VERTOPINTERN->ps2_mouse = mouse_temp;
 
 			if (run_enable) {
-				for (int step = 0; step < batchSize; step++) { verilate(); }
+				for (int step = 0; step < batchSize; step++) {
+					verilate();
+					if (stop_at_tick_enabled && lowmem_tick_reached()) {
+						break;
+					}
+				}
 			}
 			else {
 				if (single_step) { verilate(); }
@@ -1511,6 +1552,16 @@ int main(int argc, char** argv, char** env) {
 						VERTOPINTERN->debug_opcode,
 						VERTOPINTERN->debug_vbr);
 				}
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (stop_at_tick_enabled && lowmem_tick_reached()) {
+				printf("Reached low-memory tick $016A >= 0x%08X, exiting... PC=%08X Op=%04X VBR=%08X\n",
+					stop_at_tick,
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
 				print_scsi_stop_state();
 				break;
 			}

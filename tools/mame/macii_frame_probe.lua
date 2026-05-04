@@ -1,4 +1,5 @@
 local cpu = manager.machine.devices[":maincpu"]
+local mem = cpu.spaces["program"]
 
 local frames = 0
 local interval = tonumber(os.getenv("MAME_FRAME_INTERVAL") or "10") or 10
@@ -26,6 +27,14 @@ local function machine_seconds()
 	return "?"
 end
 
+local function u16(addr)
+	return (((mem:read_u8(addr) or 0) << 8) | (mem:read_u8(addr + 1) or 0)) & 0xffff
+end
+
+local function tick_016a()
+	return ((u16(0x016a) << 16) | u16(0x016c)) & 0xffffffff
+end
+
 local function region_for_pc(pc)
 	if pc >= 0x40805e4a and pc <= 0x40805f7c then
 		return "asc_selftest"
@@ -43,14 +52,14 @@ emu.register_frame_done(function()
 	local pc = cpu.state["CURPC"].value
 	local region = region_for_pc(pc)
 	if region ~= "" and region ~= last_region then
-		print(string.format("MAME_FRAME_REGION frame=%d time=%s cycles=%s pc=%s region=%s",
-			frames, machine_seconds(), cpu_cycles(), hex(pc), region))
+		print(string.format("MAME_FRAME_REGION frame=%d time=%s cycles=%s tick016A=%s pc=%s region=%s",
+			frames, machine_seconds(), cpu_cycles(), hex(tick_016a()), hex(pc), region))
 	end
 	last_region = region
 
 	if frames == 1 or (interval > 0 and (frames % interval) == 0) or frames >= stop_frame then
-		print(string.format("MAME_FRAME frame=%d time=%s cycles=%s pc=%s region=%s",
-			frames, machine_seconds(), cpu_cycles(), hex(pc), region))
+		print(string.format("MAME_FRAME frame=%d time=%s cycles=%s tick016A=%s pc=%s region=%s",
+			frames, machine_seconds(), cpu_cycles(), hex(tick_016a()), hex(pc), region))
 	end
 
 	if frames >= stop_frame then

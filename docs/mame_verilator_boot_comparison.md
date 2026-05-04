@@ -351,3 +351,43 @@ the internal `videoTimer` path, which is roughly 60 Hz. The matched MAME run's
 active screen is the NuBus `m2hires` card at `30.24 MHz / 896 / 525`, roughly
 64.29 Hz. Direct frame numbers are useful landmarks, but they are not exact time
 alignment.
+
+## 2026-05-04 NuBus Lane Update
+
+The matched MAME `m2hires` run proved that the declaration ROM is still exposed
+on NuBus lane 0. The first MAME accesses are:
+
+```text
+MAME_VIDEO_ROM_R frame=69 pc=408043F4 addr=FEFFFFFC data=E1FFFFFF mask=000000FF
+MAME_VIDEO_ROM_R frame=69 pc=40804336 addr=FEFF8000 data=01FFFFFF mask=FF000000
+MAME_VIDEO_ROM_R frame=69 pc=40804336 addr=FEFF8004 data=00FFFFFF mask=FF000000
+```
+
+The RTL had been remapping the same ROM to lane 3 and advertising format byte
+`$78`, causing the ROM to probe `$FEFFFFFF` and then walk `$FEFF8003`,
+`$FEFF8007`, etc. That was not actually the same card layout as MAME. The card
+now keeps MAME's lane-0 format byte `$E1`; on the 16-bit CPU bus, lane 0 is
+presented as the upper byte of the even word. A `+nubus_debug` run confirmed the
+first Verilator reads now align with MAME:
+
+```text
+NUBUS: RD ROM addr=fefffffc ... out=e1 lane=0 data_out=e1ff
+NUBUS: RD ROM addr=feff8000 ... out=01 lane=0 data_out=01ff
+NUBUS: RD ROM addr=feff8004 ... out=00 lane=0 data_out=00ff
+```
+
+This changes the current failure shape. Verilator no longer lands at
+`$40801656` by frame 300; with lane 0 it reaches `$40826CC6` at frame 300 and
+`$40801658` by frame 450:
+
+| Run | PC | long `$016A` | word `$0D00` | word `$0DA6` |
+| --- | --- | --- | --- | --- |
+| Verilator frame 300 after lane fix | `$40826CC6` | `$000000A3` | `$051B` | `$0188` |
+| Verilator frame 450 after lane fix | `$40801658` | `$00000134` | `$051B` | `$0188` |
+
+The long `+nubus_debug` run also showed that the card's primary init code
+enables video and then performs repeated reads from `$FE090010/$FE090012`, the
+video VBL/RAMDAC status area. That makes NuBus video VBL status/interrupt
+behavior the current highest-value target. The declaration ROM lane mismatch was
+real and is fixed, but the boot still has not reached MAME's low-memory code
+handoff.

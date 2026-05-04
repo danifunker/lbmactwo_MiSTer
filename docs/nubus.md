@@ -41,18 +41,20 @@ Once `_cpuAS` deasserts (bus cycle ends), the counter resets.
 
 Applied in both `LBMacTwo.sv` (FPGA) and `verilator/sim.v` (simulation).
 
-## Declaration ROM Byte Lane Remapping
+## Declaration ROM Byte Lane Mapping
 
-### Problem
+### Current Behavior
 
 The 341-0660 declaration ROM file is stored **inverted** with format byte
 `$1E`. After inversion the real format byte is `$E1`, which in the Apple
 NuBus convention means **lane 0** (D31–D24 of the 32-bit NuBus). On a real
 Mac II the EPROM physically sits on lane 0 of the 32-bit NuBus.
 
-Our FPGA implementation uses TG68K with a **16-bit data bus** (D15–D0).
-NuBus lanes 0 and 1 (D31–D16) are physically inaccessible. We must serve
-the ROM on lane 3 (D7–D0) instead.
+The RTL now matches MAME and keeps the declaration ROM on lane 0. Our FPGA
+implementation uses TG68K with a **16-bit data bus** (D15-D0), so NuBus lane 0
+is represented as D15-D8 at even byte addresses. The first probe should read
+format byte `$E1` at `$FEFFFFFC`, then ROM bytes at `$FEFF8000`,
+`$FEFF8004`, etc.
 
 The Slot Manager computes a **ByteLanes** mask from the raw (potentially
 inverted) format byte using this algorithm (disassembled from Mac II ROM at
@@ -65,38 +67,29 @@ if upper != lower → error
 ByteLanes = ~upper & 0x0F
 ```
 
-For the raw inverted byte `$1E`: ByteLanes = `~$1 & $F` = `$0E` = lanes 1,2,3.
-The Slot Manager then tries to read the ROM using a 3-lane stride. Since our
-16-bit bus only provides data on one lane, the reads are garbled and the test
-pattern check (`$5A932BC7`) fails. The card is rejected.
+For the de-inverted byte `$E1`, ByteLanes = `$01` = lane 0 only.
 
-Note: MAME's `install_declaration_rom()` does **not** support format byte
-`$1E` at all — it triggers a `fatalerror()`. The only valid single-lane
-format bytes are `$E1` (lane 0), `$D2` (lane 1), `$B4` (lane 2), `$78`
-(lane 3).
+### Previous Remap
 
-### Fix
+An earlier workaround remapped the ROM from lane 0 to lane 3 and overrode the
+format byte to `$78`. That made the Slot Manager probe `$FEFFFFFF` and walk
+`$FEFF8003`, `$FEFF8007`, etc. It was internally consistent, but it did not
+match MAME's `m2hires` card and changed the Slot Manager path enough to confuse
+boot comparisons.
 
-Remap the ROM from lane 0 to lane 3 on the fly in
-`rtl/nubus/nubus_video_highres.sv`:
+The current implementation:
 
-1. **De-invert all bytes**: `rom_byte_out = rom_byte_raw ^ 0xFF`
-2. **Override format byte**: at the last ROM position, output `$78` (lane 3,
-   non-inverted) instead of the de-inverted `$E1`
-3. **Restrict lane response**: `rom_lane_valid = (addr[1:0] == 2'b11)` —
-   only lane 3 returns ROM data
+1. **De-inverts all bytes**: `rom_byte_out = rom_byte_raw ^ 0xFF`
+2. **Keeps the format byte**: `$1E ^ $FF = $E1`
+3. **Restricts lane response**: `rom_lane_valid = (addr[1:0] == 2'b00)`; ROM
+   data is returned on D15-D8.
 
-After remapping:
+MAME reference output for the matched card:
 
-| Field | Raw file | De-inverted | Served |
-|-------|----------|-------------|--------|
-| Format byte | `$1E` | `$E1` | `$78` (overridden) |
-| Inversion marker (pos −1) | `$FF` | `$00` | `$00` (non-inverted) |
-| Test pattern (pos −2..−5) | `$38 D4 6C A5` | `$C7 2B 93 5A` | `$C7 2B 93 5A` = `$5A932BC7` |
-
-The Slot Manager now reads `$78` → ByteLanes = `$08` = lane 3 only, reads
-position −1 = `$00` → non-inverted ROM, verifies test pattern → success,
-then parses the full sRsrc directory (8000+ bytes read vs 25 before the fix).
+```text
+MAME_VIDEO_ROM_R frame=69 pc=408043F4 addr=FEFFFFFC data=E1FFFFFF
+MAME_VIDEO_ROM_R frame=69 pc=40804336 addr=FEFF8000 data=01FFFFFF
+```
 
 File: `rtl/nubus/nubus_video_highres.sv`
 

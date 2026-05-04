@@ -2,6 +2,7 @@ local cpu = manager.machine.devices[":maincpu"]
 local mem = cpu.spaces["program"]
 
 local frames = 0
+local stop_frame = tonumber(os.getenv("MAME_STOP_FRAME") or "1200") or 1200
 local counts = {
 	slot_r = 0, slot_w = 0,
 	super_r = 0, super_w = 0,
@@ -78,7 +79,7 @@ end)
 
 emu.register_frame_done(function()
 	frames = frames + 1
-	if frames >= 1200 then
+	if frames >= stop_frame then
 		local pc = cpu.state["CURPC"].value
 		print(string.format(
 			"MAME_VIDEO_SUMMARY frames=%d pc=%s slot_r=%d slot_w=%d super_r=%d super_w=%d rom_r=%d vram_r=%d vram_w=%d reg_w=%d ramdac_r=%d ramdac_w=%d vbl_w=%d other_r=%d other_w=%d",

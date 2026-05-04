@@ -79,11 +79,11 @@ module nubus_video_highres (
     // Declaration ROM — 8KB (4096 x 16-bit words), on-chip
     //
     // NuBus byte-lane mapping: 341-0660 ROM file is an inverted single-lane
-    // ROM originally on NuBus lane 0 (D31-D24).  Format byte $1E (inverted
-    // $E1 = MAME lane 0).  Since our FPGA uses a 16-bit data bus, lane 0
-    // is inaccessible.  We remap to lane 3 (D7-D0) by de-inverting all
-    // bytes and overriding the format byte to $78 (lane 3, non-inverted).
-    // Each ROM byte occupies one lane-3 position per 4-byte NuBus word,
+    // ROM originally on NuBus lane 0 (D31-D24).  Format byte $1E de-inverts
+    // to $E1, which advertises lane 0.  MAME's install_declaration_rom()
+    // keeps that lane; on our 16-bit CPU bus, lane 0 is represented by the
+    // upper byte of the even 16-bit word.
+    // Each ROM byte occupies one lane-0 position per 4-byte NuBus word,
     // so 8KB ROM → 32KB address space at top of slot: $FF8000-$FFFFFF.
     //
     // MAME mirrors the ROM across all 16MB of slot space (mirror_all_mb=true).
@@ -102,29 +102,18 @@ module nubus_video_highres (
     always @(posedge clk)
         rom_rdata <= rom[addr[14:3]];
 
-    // ROM byte-lane remapping for 16-bit bus
+    // ROM byte-lane mapping for the 16-bit CPU bus
     //
     // The 341-0660 ROM file is stored INVERTED (format byte $1E at pos -1,
     // inversion marker $FF at pos -2).  MAME's install_declaration_rom
-    // detects this and XORs all bytes with $FF to de-invert, then uses
-    // the de-inverted format byte $E1 to select lane 0.
-    //
-    // Our FPGA serves data on lane 3 (D7-D0 of 16-bit bus), so we:
-    //   1. De-invert all bytes (XOR $FF)
-    //   2. Override format byte to $78 (lane 3, non-inverted)
-    //      ~$78 = $87: upper=$8 (ROM size), lower=$7=0111 (lane 3 has data)
-    //
-    // After remapping, the Slot Manager sees:
-    //   - Format byte $78 at position -1
-    //   - Inversion marker $00 at position -2 (non-inverted)
-    //   - Test pattern $5A932BC7 (standard non-inverted)
+    // detects this and XORs all bytes with $FF to de-invert, then exposes the
+    // de-inverted format byte $E1 on NuBus lane 0.
     wire [7:0] rom_byte_raw = addr[2] ? rom_rdata[7:0] : rom_rdata[15:8];
     wire [7:0] rom_byte_deinv = rom_byte_raw ^ 8'hFF;  // De-invert
-    // Format byte is the last byte: ROM word 4095, low byte (addr[2]==1)
-    wire is_format_byte = (addr[14:3] == 12'hFFF) && addr[2];
-    wire [7:0] rom_byte_out = is_format_byte ? 8'h78 : rom_byte_deinv;
-    // Only lane 3 responds (addr[1:0] == 3, i.e. D7-D0 on the 16-bit bus)
-    wire rom_lane_valid = (addr[1:0] == 2'b11);
+    wire [7:0] rom_byte_out = rom_byte_deinv;
+    // Only lane 0 responds. On the 16-bit CPU bus this is D15-D8 at even
+    // byte addresses (addr[1:0] == 0).
+    wire rom_lane_valid = (addr[1:0] == 2'b00);
 
     // ROM Download — boot1.rom (ioctl_index 1), 8KB
     // No byte-swap: ioctl_data[15:8] = even file byte, [7:0] = odd file byte,
@@ -427,7 +416,7 @@ module nubus_video_highres (
                             else if (rw_n)
                                 $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h raw=%h out=%h lane=%0d data_out=%h",
                                     addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
-                                    addr[1:0], rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
+                                    addr[1:0], rom_lane_valid ? {rom_byte_out, 8'hFF} : 16'hFFFF);
                         end
                         // synthesis translate_on
                         // ---------------------------------------------------
@@ -617,10 +606,10 @@ module nubus_video_highres (
             endcase
 
             // Latch ROM read data one cycle before ack
-            // Byte lane 3: ROM data on D7-D0, $FF on D15-D8
-            // Non-lane-3 addresses return $FFFF (empty lanes)
+            // Byte lane 0: ROM data on D15-D8, $FF on D7-D0.
+            // Non-lane-0 addresses return $FFFF (empty lanes).
             if (ack_delay == 3'd2 && rom_read_pending) begin
-                data_out <= rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF;
+                data_out <= rom_lane_valid ? {rom_byte_out, 8'hFF} : 16'hFFFF;
                 rom_read_pending <= 1'b0;
             end
         end
@@ -710,7 +699,7 @@ module nubus_video_highres (
 
     always @(posedge clk) begin
         // Print register state once when video_en first goes high
-        if (video_en && !debug_printed_regs) begin
+        if ($test$plusargs("video_debug") && video_en && !debug_printed_regs) begin
             debug_printed_regs <= 1;
             $display("VIDEO_EN: video enabled! mode_raw=%0d mode=%0d base=%0d stride=%0d",
                 mode_raw, mode, vram_base_offset, vram_stride);
@@ -719,7 +708,7 @@ module nubus_video_highres (
         end
 
         // Print first few pixels of each new frame (v_cnt==0, h_cnt < 16)
-        if (clk_video_en && video_en && v_cnt == 0 && h_cnt < 16 && debug_prev_v_cnt != 0) begin
+        if ($test$plusargs("video_debug") && clk_video_en && video_en && v_cnt == 0 && h_cnt < 16 && debug_prev_v_cnt != 0) begin
             $display("VIDEO_PIX: h=%0d v=%0d cache=%h cache_valid=%b byte_sel=%b vram_byte=%h pixel_idx=%0d rgb=%h%h%h",
                 h_cnt, v_cnt, vram_cache, vram_cache_valid, byte_sel_d,
                 vram_byte, pixel_idx, vga_r, vga_g, vga_b);

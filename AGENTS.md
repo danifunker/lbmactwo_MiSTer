@@ -64,12 +64,13 @@ The local MAME ROM setup expected for the matched card is:
 
 ## Current Debug Focus
 
-ASC and the first IWM/floppy handshake are not the leading suspects. With the
-matched `m2hires` card, MAME reaches low-memory/OS code by its frame 300, while
-Verilator is still in ROM delay/probe code at its frame 300. Direct frame numbers
-are only landmarks because the Verilator stop frame follows the internal video
-timer and MAME's visible screen is the NuBus card.
+ASC, early IWM/floppy, and live SCSI are not the leading suspects. The current
+NuBus declaration ROM path has been changed back to MAME's lane-0 layout: MAME
+and Verilator should both probe `$FEFFFFFC` and read declaration bytes from
+`$FEFF8000`, `$FEFF8004`, etc.
 
-The current leading suspect is CPU progress versus VIA/video time: clock enables,
-DTACK/wait-state behavior, or bus-slot timing. Prefer comparing PC and low-memory
-tick `$016A` at the same tick value instead of only at the same nominal frame.
+After that lane fix, Verilator reaches the slot/video init path and is still in
+ROM Slot Manager delay code by frame 450 (`PC=$40801658`, `$016A=$00000134`).
+The noisy probe showed heavy reads of the video card VBL status registers
+`$FE090010/$FE090012`, so the next suspect is NuBus video VBL/status/IRQ
+behavior rather than ASC, IWM, or SCSI.

@@ -5,7 +5,9 @@
 The NuBus High Resolution Video Card (TFB 2.2 / 341-0660) declaration ROM handling is functional:
 
 - **Declaration ROM**: Fully read by Slot Manager (8210 byte reads on lane 3)
-- **Byte-lane format**: De-inverted (XOR $FF) + format byte overridden to `$78` (lane 3, non-inverted). This matches MAME's `install_declaration_rom()` behavior.
+- **Byte-lane format**: De-inverted (XOR $FF) with MAME's lane-0 format byte
+  `$E1`. On the 16-bit CPU bus, lane 0 is presented as the upper byte of the
+  even word.
 - **sResource directory**: Parses correctly. First 16 de-inverted bytes = `01 00 00 2C 80 00 04 58 81 00 04 F4 83 00 04 A4` — valid sResource IDs ($01=board, $80-$83=functional resources).
 - **Monitor ID**: Vblank status register at `$x9_0010` returns `(vblank<<16) | (1<<17)` — correct for Hi-Res 640x480 color monitor.
 - **No built-in video**: Confirmed. Mac II has no built-in framebuffer. All video output is NuBus-only (`VGA_R/G/B` driven exclusively from `nubus_video_highres`). The gray screenshot is from the default CLUT grayscale ramp with uninitialized VRAM.
