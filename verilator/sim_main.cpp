@@ -218,6 +218,11 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din);
+	printf("LowMem: long[$016A]=%04X%04X word[$0D00]=%04X word[$0DA6]=%04X\n",
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B5],
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6],
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0680],
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x06D3]);
 }
 
 // 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)

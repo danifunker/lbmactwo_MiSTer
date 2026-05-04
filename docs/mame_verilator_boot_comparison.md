@@ -315,3 +315,33 @@ could not mount a target, but the latest mounted run no longer dies there.
 The next debugging step is to use `--floppy0 ../releases/Disk605.dsk` for the
 direct MAME comparison. A real MAME-compatible SCSI hard disk image would still
 be useful later for validating the SCSI target path.
+
+## 2026-05-04 Direct-Floppy Update
+
+The direct MAME/Verilator floppy comparison now uses the same slot-E `m2hires`
+card and `Disk605.dsk` as a floppy in both emulators.
+
+Early IWM behavior matches closely. Both runs perform the same ROM IWM probe:
+reads from `$50F17C00/$50F17A00`, write IWM mode `$17` at `$50F17E00`, then
+read encoded floppy byte `$97`. MAME later reaches loaded low-memory code by
+frame 300 and sees additional IWM bytes around frame 294 (`$37`, `$B7`), while
+Verilator is still in ROM code at frame 300.
+
+The SCSI-looking MAME frame-280 PC is misleading. A focused MAME SCSI tap shows
+no SCSI register accesses after the early frame-67 polling window; the ROM PCs
+around `$40826Cxx` are delay/helper code, not live NCR5380 traffic. Verilator's
+frame-300 stop at `$40801656` is also in ROM delay code that compares against
+the low-memory tick counter at `$016A`.
+
+Low-memory timing at frame 300:
+
+| Run | PC | long `$016A` | word `$0D00` | word `$0DA6` |
+| --- | --- | --- | --- | --- |
+| MAME | `$00004606` | `$00000075` | `$0A3B` | `$0417` |
+| Verilator | `$40801656` | `$000000AA` | `$051B` | `$0188` |
+
+The tick counter is advancing in Verilator, and it is actually higher than
+MAME's at the same nominal frame. The CPU has nevertheless made much less boot
+progress. That makes ASC, early IWM, and live SCSI less likely as the immediate
+blocker. The current leading suspect is the ratio of CPU progress to video/VIA
+time, likely in clock enables, DTACK/wait-state behavior, or bus-slot timing.
