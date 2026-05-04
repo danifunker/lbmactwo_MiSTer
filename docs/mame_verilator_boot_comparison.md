@@ -345,3 +345,9 @@ MAME's at the same nominal frame. The CPU has nevertheless made much less boot
 progress. That makes ASC, early IWM, and live SCSI less likely as the immediate
 blocker. The current leading suspect is the ratio of CPU progress to video/VIA
 time, likely in clock enables, DTACK/wait-state behavior, or bus-slot timing.
+
+There is also a frame-counter caveat: Verilator's stop frame currently follows
+the internal `videoTimer` path, which is roughly 60 Hz. The matched MAME run's
+active screen is the NuBus `m2hires` card at `30.24 MHz / 896 / 525`, roughly
+64.29 Hz. Direct frame numbers are useful landmarks, but they are not exact time
+alignment.

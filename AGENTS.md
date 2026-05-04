@@ -64,7 +64,12 @@ The local MAME ROM setup expected for the matched card is:
 
 ## Current Debug Focus
 
-The current direct-floppy divergence is around the IWM/floppy path. MAME reaches
-later ROM boot points from the same `.dsk`, while Verilator reaches IWM, sees at
-least one encoded floppy byte, and then falls through to SCSI probing. ASC is not
-the leading suspect for the current failure.
+ASC and the first IWM/floppy handshake are not the leading suspects. With the
+matched `m2hires` card, MAME reaches low-memory/OS code by its frame 300, while
+Verilator is still in ROM delay/probe code at its frame 300. Direct frame numbers
+are only landmarks because the Verilator stop frame follows the internal video
+timer and MAME's visible screen is the NuBus card.
+
+The current leading suspect is CPU progress versus VIA/video time: clock enables,
+DTACK/wait-state behavior, or bus-slot timing. Prefer comparing PC and low-memory
+tick `$016A` at the same tick value instead of only at the same nominal frame.
