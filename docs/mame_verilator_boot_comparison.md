@@ -115,9 +115,37 @@ milestone comparison.
 
 ## Device Model Gaps That Still Matter
 
-### NuBus Video Card
+### VIA1 / ADB Port B Divergence
 
 This is the strongest current suspect for "no cursor yet".
+
+With the matched MAME run using the `nbe:m2hires` card, MAME reaches its first
+slot-E declaration ROM access at frame 69, PC `$408043F4`, address
+`$FEFFFFFC`. The current Verilator run to frame 120 does not issue NuBus video
+accesses and stops at PC `$4080DE3E`, in the ADB/VIA1 bit-bang loop.
+
+The generic `via6522.sv` port-B read path matches MAME's important behavior:
+external input bits are selected where DDRB=0, ORB output bits are selected
+where DDRB=1, and PB7 is overridden by Timer 1 when ACR enables it. The mismatch
+was in Mac II VIA1 glue:
+
+- MAME `macii_state::via_in_b()` only supplies PB3 (`!m_adb_irq_pending`) and
+  PB0 (RTC data); other external PB bits are zero.
+- The old FPGA glue forced PB7 high and forced PB6-PB4 high for `machineType`,
+  so ORB reads in the ADB loop returned high-nibble values around `$70`.
+- The corrected FPGA glue supplies only PB3 and PB0 as external inputs for
+  Mac II. Output pins PB1/PB2/PB4/PB5 still read back through the VIA DDR/ORB
+  mux, which is the FPGA equivalent of the real pin-level behavior.
+
+After that fix, the high-nibble mismatch is gone, but the boot still stops at
+`$4080DE3E`. That leaves the ADB HLE/PIC semantics, not the generic VIA core, as
+the next likely source of divergence. A test that removed the Data1 completion
+assertion from the ADB HLE did not improve the final PC and was reverted.
+
+### NuBus Video Card
+
+This remains important once the boot reaches the Slot Manager probe path, but it
+is no longer the first blocker.
 
 MAME's `nubus_m2hires.cpp` maps the High Resolution Video Card like this:
 
@@ -180,16 +208,16 @@ path should verify whether `0x500xxxxx` aliases also need to be accepted.
 ## Current Conclusion
 
 The boot has moved past the earlier ASC failure and does not currently look stuck
-at the SCC poll loop. The next real target is the NuBus video path: either the
-declaration/card comparison is not matched to MAME, or the Verilog high-res card
-is acknowledging enough to be discovered but not enough to produce initialized
-video.
+at the SCC poll loop. The current divergence is earlier than video: MAME reaches
+the Slot Manager's `nbe:m2hires` declaration ROM probe around frame 69, while
+Verilator is still in the VIA1/ADB loop at `$4080DE3E` by frame 120.
 
-The next debugging step should be a matched-card video trace:
+The next debugging step should be a tighter matched ADB/VIA trace:
 
-1. Add bounded MAME logging for `nbe:m2hires` declaration ROM, TFB register,
-   RAMDAC, VBL, and VRAM accesses.
-2. Add bounded Verilator logging for the same NuBus video access categories.
-3. Compare the first Slot Manager card accesses and the final TFB register values.
-4. Fix any halfword, inversion, VBL, or RAMDAC divergence before spending more
-   time on SCSI/ADB.
+1. In MAME, log VIA1 ORB, DDRB, ACR, SR, CB1/CB2, and `m_adb_irq_pending` around
+   PCs `$4080DDxx-$4080DExx`.
+2. In Verilator, log the same logical values after the Mac II PB input correction.
+3. Compare the ADB state transitions, shifted bytes, SR completion events, and
+   PB3 line level at the first divergence.
+4. Return to the NuBus video trace only after Verilator reaches MAME's first
+   slot-E declaration ROM access at PC `$408043F4`.

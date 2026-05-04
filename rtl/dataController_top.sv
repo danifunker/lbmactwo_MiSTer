@@ -267,7 +267,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign vid_alt = ~via_pa_oe[6] | via_pa_o[6];
 
 	//port B
-	assign via_pb_i = {1'b1, {3{machineType}} | {_hblank, mouseY2, mouseX2}, machineType ? _ADBint : mouseButton, 2'b11, rtcdat_o};
+	// Mac II VIA1 PB external inputs match MAME macii_state::via_in_b():
+	//   PB3 = 1 when no ADB interrupt is pending, PB0 = RTC data, other bits 0.
+	// Output bits still read back via via6522's DDR/output mux.
+	assign via_pb_i = machineType ? {4'b0000, _ADBint, 2'b00, rtcdat_o}
+	                              : {1'b1, _hblank, mouseY2, mouseX2, mouseButton, 2'b11, rtcdat_o};
 
 	// VIA2 PB7 output chains to VIA1 CA1 (60.15 Hz timer → 1-second interrupt)
 	wire via2_pb7_to_via1_ca1;
