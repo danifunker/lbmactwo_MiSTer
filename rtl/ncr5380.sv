@@ -82,6 +82,8 @@ module ncr5380
 	reg  [7:0] icr;       /* Initiator Command Register */
 	reg  [3:0] tcr;       /* Target Command Register */
 	wire [7:0] csr;       /* SCSI bus status register */
+	reg        arb_active;
+	reg  [7:0] arb_count;
 
 	/* Data in and out latches and associated
 	* control logic for DMA
@@ -134,14 +136,12 @@ module ncr5380
 	*/
 	always@(posedge clk) if((reg_wr && bus_rs == `WREG_ODR) || dma_wr) dout <= wdata;
 
-	/* Current data register. Simplified logic: We loop back the
-	* output data if we are asserting the bus, else we get the
-	* input latch
-    */
-	wire [7:0] cur_data = out_en ? dout : din;
-
-	/* Logic for "asserting the bus" simplified */
+	/* Current data register. Approximate MAME's nscsi bus: reads see the
+	 * wired-OR of active initiator and target data drivers.
+	 */
 	wire       out_en = icr[`ICR_A_DATA] | mr[`MR_ARB];
+	wire [7:0] scsi_bus_data = (out_en ? dout : 8'h00) | din;
+	wire [7:0] cur_data = scsi_bus_data;
 
 	/* ICR read wires */
 	wire [7:0] icr_read = { icr[`ICR_A_RST],
@@ -159,6 +159,8 @@ module ncr5380
 			icr <= 0;
 		end else if (reg_wr && (bus_rs == `WREG_ICR)) begin
 			icr <= wdata;
+		end else if (arb_active && arb_count == 8'd0) begin
+			icr[`ICR_A_BSY] <= 1'b1;
 		end
 	end
    
@@ -166,6 +168,33 @@ module ncr5380
 	always@(posedge clk or posedge reset) begin
 		if (reset) mr <= 8'b0;
 		else if (reg_wr && (bus_rs == `WREG_MR)) mr <= wdata;
+	end
+
+	/* Minimal initiator arbitration. The Mac II ROM writes MR.ARB and then
+	 * polls ICR.AIP until arbitration completes. Treat a free bus as won
+	 * after a short delay and assert BSY for the initiator.
+	 */
+	always@(posedge clk or posedge reset) begin
+		if (reset) begin
+			arb_active <= 1'b0;
+			arb_count <= 8'd0;
+		end else begin
+			if (reg_wr && (bus_rs == `WREG_MR)) begin
+				if (wdata[`MR_ARB] && !mr[`MR_ARB]) begin
+					arb_active <= 1'b1;
+					arb_count <= 8'd64;
+				end else if (!wdata[`MR_ARB]) begin
+					arb_active <= 1'b0;
+					arb_count <= 8'd0;
+				end
+			end else if (arb_active) begin
+				if (arb_count != 8'd0) begin
+					arb_count <= arb_count - 8'd1;
+				end else begin
+					arb_active <= 1'b0;
+				end
+			end
+		end
 	end
    
 	/* TCR write */
@@ -220,7 +249,7 @@ module ncr5380
 	    //scsi6_bsy |
 	    mr[`MR_ARB];
 
-	/* Remains of simplified arbitration logic */
+	/* Keep AIP visible while the ROM is requesting arbitration. */
 	wire icr_aip = mr[`MR_ARB];
 	wire icr_la = 0;
 
@@ -239,7 +268,7 @@ module ncr5380
 		scsi_io = 0;
 		scsi_msg = 0;
 		scsi_req = 0;
-		din = 8'h55;
+		din = 8'h00;
 
 		for (i = 0; i < DEVS; i = i + 1) begin
 			if (target_bsy[i]) begin
@@ -280,7 +309,7 @@ module ncr5380
 				.req    ( target_req[i]  ),
 				.dout   ( target_dout[i] ),
 
-				.din    ( dout ),
+				.din    ( scsi_bus_data ),
 
 				// connection to io controller to read and write sectors
 				// to sd card

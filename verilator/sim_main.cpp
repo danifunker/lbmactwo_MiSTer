@@ -118,6 +118,7 @@ bool via_debug_prev_wr = false;
 // Ad-hoc boot diagnostics are useful when chasing a specific failure, but
 // they produce very large logs on long headless runs.
 bool verbose_debug_enable = false;
+bool poll268_debug_enable = false;
 
 // Screenshot functionality
 // ------------------------
@@ -185,6 +186,11 @@ Vemu* top = NULL;
 vluint64_t main_time = 0;	// Current simulation time.
 double sc_time_stamp() {	// Called by $time in Verilog.
 	return main_time;
+}
+
+static inline uint32_t tg68_reg(int idx) {
+	return ((uint32_t)VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n2[idx] << 8) |
+		VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n1[idx];
 }
 
 // 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
@@ -485,6 +491,46 @@ int verilate() {
 
 		if (clk_sys.IsRising()) {
 			main_time++;
+			if (poll268_debug_enable && !*bus.ioctl_download) {
+				static int poll268_log_count = 0;
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				bool scsi_cycle = VERTOPINTERN->debug_cpuBusControl && VERTOPINTERN->debug_selectSCSI;
+				if (poll268_log_count < 500 && pc >= 0x408268D0 && pc <= 0x40826920 && scsi_cycle) {
+					uint32_t d1 = tg68_reg(1);
+					uint32_t d5 = tg68_reg(5);
+					uint32_t d7 = tg68_reg(7);
+					uint32_t a3 = tg68_reg(11);
+					uint32_t a4 = tg68_reg(12);
+					fprintf(stderr,
+						"POLL268 @%llu pc=%08X op=%04X addr=%08X rw=%d fc=%d din=%04X dout=%04X "
+						"bc=%d via=%d via2=%d scsi=%d scc=%d iwm=%d nubus=%d ram=%d rom=%d "
+						"mr=%02X icr=%02X arb=%d arb_count=%02X "
+						"d1=%08X d5=%08X d7=%08X a3=%08X a4=%08X a3+10=%08X a3+20=%08X\n",
+						(unsigned long long)main_time,
+						pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut,
+						VERTOPINTERN->debug_cpuBusControl ? 1 : 0,
+						VERTOPINTERN->debug_selectVIA ? 1 : 0,
+						VERTOPINTERN->debug_selectVIA2 ? 1 : 0,
+						VERTOPINTERN->debug_selectSCSI ? 1 : 0,
+						VERTOPINTERN->debug_selectSCC ? 1 : 0,
+						VERTOPINTERN->debug_selectIWM ? 1 : 0,
+						VERTOPINTERN->debug_selectNuBus ? 1 : 0,
+						VERTOPINTERN->debug_selectRAM ? 1 : 0,
+						VERTOPINTERN->debug_selectROM ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_active ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_count,
+						d1, d5, d7, a3, a4, a3 + 0x10, a3 + 0x20);
+					poll268_log_count++;
+				}
+			}
 			if (verbose_debug_enable) {
 			// Print progress every 10 million cycles (~308ms of simulated time at 32.5MHz)
 			if ((main_time % 10000000) == 0) {
@@ -1084,6 +1130,8 @@ void show_help() {
 	printf("  --no-cpu-trace                Disable CPU trace logging\n");
 	printf("  --no-via-debug                Disable VIA debug logging\n");
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
+	printf("  +poll268_debug, --poll268-debug\n");
+	printf("                                Trace the ROM wait loop around PC 408268F8\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
@@ -1166,6 +1214,8 @@ int main(int argc, char** argv, char** env) {
 			via_debug_enable = false;
 		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
 			verbose_debug_enable = true;
+		} else if (strcmp(argv[i], "+poll268_debug") == 0 || strcmp(argv[i], "--poll268-debug") == 0) {
+			poll268_debug_enable = true;
 		} else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
 			screenshot_mode = true;
 			std::string frames_str = argv[i + 1];

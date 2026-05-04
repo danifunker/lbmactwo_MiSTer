@@ -154,7 +154,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectVIA2 ? via2DataOut :
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
-							  selectSCSI ? { scsiDataOut, 8'hEF } :
+							  selectSCSI ? { scsiDataOut, scsiDataOut } :
 							  (cpuBusControl && memoryLatch) ? memoryDataIn : cpu_data;
 
 	// Memory-side
@@ -167,7 +167,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.bus_cs(selectSCSI),
 		.bus_rs(cpuAddrRegMid),
 		.ior(!_cpuUDS),
-		.iow(!_cpuLDS),
+		.iow(!_cpuUDS),
 		.dack(cpuAddrRegHi[0]),   // A9
 		.wdata(cpuDataIn[15:8]),
 		.rdata(scsiDataOut),

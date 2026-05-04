@@ -213,9 +213,27 @@ video/card initialization from advancing cleanly.
 
 MAME has complete device models for NCR53C80 SCSI with the Mac SCSI helper,
 ADB modem/microcontroller behavior, and RTC/IWM details. Our models are simpler.
-These are likely to matter after the display appears, especially for disk boot
-and input, but they are less likely than NuBus video to explain a flat gray
-framebuffer before cursor display.
+
+The current Verilator divergence is in the ROM's NCR5380 probe around
+`$408268D8-$40826920`. The matched-card MAME run did not enter this ROM path in
+the same frame window, while Verilator repeatedly arbitrates on the NCR5380:
+
+- `move.b #$01,$50F10020` must be a high-byte write to NCR5380 mode register 2.
+  The FPGA bus adapter was incorrectly using `_cpuLDS` for SCSI writes, so the
+  ROM's MR.ARB write was ignored.
+- SCSI byte reads are high-lane reads like MAME's `scsi_r() << 8`; mirroring the
+  returned byte on both 68000 lanes avoids stale low-lane filler confusing TG68K
+  byte read timing.
+- MAME's NCR5380 only drives the SCSI data bus when DBUS is asserted or
+  arbitration is active. The Verilog now models the current data register as an
+  OR of active initiator and target drivers instead of a default `0x55` value.
+- With those fixes, the ROM sees ICR `0x40/0x48` instead of `0x00` and gets past
+  the original tight `btst #6,$50F10010` loop. It still spends too long retrying
+  the SCSI probe, so target selection/no-device timeout behavior is the next
+  focus.
+
+The ADB/VIA work is still relevant, but it is no longer the most recent observed
+terminal blocker.
 
 ### RAM Size / GLU Behavior
 
@@ -233,17 +251,22 @@ path should verify whether `0x500xxxxx` aliases also need to be accepted.
 
 ## Current Conclusion
 
-The boot has moved past the earlier ASC failure and does not currently look stuck
-at the SCC poll loop. The current divergence is earlier than video: MAME reaches
-the Slot Manager's `nbe:m2hires` declaration ROM probe around frame 69, while
-Verilator is still in the VIA1/ADB loop at `$4080DE3E` by frame 120.
+The boot has moved past the earlier ASC failure and the old SCC diagnostic/BERR
+path. The latest evidence points at NCR5380/SCSI behavior: Verilator reaches the
+ROM probe at `$408268D8`, MAME with the matched NuBus video card does not, and
+Verilator spends excessive simulated time in the SCSI retry sequence before a
+cursor would appear.
 
-The next debugging step should be a tighter matched ADB/VIA trace:
+The next debugging step should be a tighter matched SCSI trace:
 
-1. In MAME, log VIA1 ORB, DDRB, ACR, SR, CB1/CB2, and `m_adb_irq_pending` around
-   PCs `$4080DDxx-$4080DExx`.
-2. In Verilator, log the same logical values after the Mac II PB input correction.
-3. Compare the ADB state transitions, shifted bytes, SR completion events, and
-   PB3 line level at the first divergence.
-4. Return to the NuBus video trace only after Verilator reaches MAME's first
-   slot-E declaration ROM access at PC `$408043F4`.
+1. In MAME, keep using `tools/mame/macii_scsi_probe.lua` with the matched
+   `-nb9 "" -nbe m2hires` command so future comparisons use the same video card.
+2. In Verilator, log NCR5380 ODR/ICR/MR/TCR/CSR/BSR plus target `phase`,
+   `mounted`, `sel`, `bsy`, `req`, `ack`, and `din` around
+   `$40826932-$40826986`.
+3. Compare MAME's NCR5380 arbitration timing from
+   `mame/src/devices/machine/ncr5380.cpp` with `rtl/ncr5380.sv`, especially
+   when AIP clears, when BSY is asserted, and whether no-device selection should
+   return quickly or depend on a bus-error timeout.
+4. Re-run the frame/cursor check only after the SCSI probe stops dominating the
+   headless run.
