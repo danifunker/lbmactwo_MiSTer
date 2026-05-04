@@ -119,6 +119,7 @@ bool via_debug_prev_wr = false;
 // they produce very large logs on long headless runs.
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
+std::string scsi_disk_files[2];
 
 // Screenshot functionality
 // ------------------------
@@ -191,6 +192,31 @@ double sc_time_stamp() {	// Called by $time in Verilog.
 static inline uint32_t tg68_reg(int idx) {
 	return ((uint32_t)VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n2[idx] << 8) |
 		VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n1[idx];
+}
+
+static void print_scsi_stop_state() {
+	printf("SCSI state: mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
+	       "sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X "
+	       "t0_phase=%d t0_mnt=%d t0_cnt=%u t0_done=%d t0_ack=%d t0_cmd=%d t0_din=%02X\n",
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+	       VERTOPINTERN->sd_rd,
+	       VERTOPINTERN->sd_ack,
+	       VERTOPINTERN->sd_buff_wr ? 1 : 0,
+	       VERTOPINTERN->sd_buff_addr,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__mounted ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din);
 }
 
 // 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
@@ -495,7 +521,9 @@ int verilate() {
 				static int poll268_log_count = 0;
 				uint32_t pc = VERTOPINTERN->debug_pc;
 				bool scsi_cycle = VERTOPINTERN->debug_cpuBusControl && VERTOPINTERN->debug_selectSCSI;
-				if (poll268_log_count < 500 && pc >= 0x408268D0 && pc <= 0x40826920 && scsi_cycle) {
+				bool scsi_rom_window = (pc >= 0x408268D0 && pc <= 0x40826990) ||
+				                       (pc >= 0x40826CB6 && pc <= 0x40826D1C);
+				if (poll268_log_count < 1200 && scsi_rom_window && scsi_cycle) {
 					uint32_t d1 = tg68_reg(1);
 					uint32_t d5 = tg68_reg(5);
 					uint32_t d7 = tg68_reg(7);
@@ -504,7 +532,11 @@ int verilate() {
 					fprintf(stderr,
 						"POLL268 @%llu pc=%08X op=%04X addr=%08X rw=%d fc=%d din=%04X dout=%04X "
 						"bc=%d via=%d via2=%d scsi=%d scc=%d iwm=%d nubus=%d ram=%d rom=%d "
-						"mr=%02X icr=%02X arb=%d arb_count=%02X "
+						"mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
+						"sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X "
+						"t0_phase=%d t0_mnt=%d t0_din=%02X t0_ack=%d t0_cmd=%d t0_cnt=%u t0_done=%d t0_sel=%d t0_reqrd=%d "
+						"t1_phase=%d t1_mnt=%d t1_cmd=%d "
+						"arb=%d arb_count=%02X "
 						"d1=%08X d5=%08X d7=%08X a3=%08X a4=%08X a3+10=%08X a3+20=%08X\n",
 						(unsigned long long)main_time,
 						pc,
@@ -525,6 +557,28 @@ int verilate() {
 						VERTOPINTERN->debug_selectROM ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+						VERTOPINTERN->sd_rd,
+						VERTOPINTERN->sd_ack,
+						VERTOPINTERN->sd_buff_wr ? 1 : 0,
+						VERTOPINTERN->sd_buff_addr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__mounted ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__phase,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__mounted ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__cmd_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_active ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_count,
 						d1, d5, d7, a3, a4, a3 + 0x10, a3 + 0x20);
@@ -1132,6 +1186,8 @@ void show_help() {
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
+	printf("  --scsi0 <file>                Mount a SCSI disk image on target 0 (ID 6)\n");
+	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
@@ -1216,6 +1272,12 @@ int main(int argc, char** argv, char** env) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "+poll268_debug") == 0 || strcmp(argv[i], "--poll268-debug") == 0) {
 			poll268_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi0") == 0 && i + 1 < argc) {
+			scsi_disk_files[0] = argv[i + 1];
+			i++;
+		} else if (strcmp(argv[i], "--scsi1") == 0 && i + 1 < argc) {
+			scsi_disk_files[1] = argv[i + 1];
+			i++;
 		} else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
 			screenshot_mode = true;
 			std::string frames_str = argv[i + 1];
@@ -1261,6 +1323,11 @@ int main(int argc, char** argv, char** env) {
 	blockdevice.sd_buff_wr = &VERTOPINTERN->sd_buff_wr;
 	blockdevice.img_mounted = &VERTOPINTERN->img_mounted;
 	blockdevice.img_size = &VERTOPINTERN->img_size;
+	for (int disk_index = 0; disk_index < 2; disk_index++) {
+		if (!scsi_disk_files[disk_index].empty()) {
+			blockdevice.MountDisk(scsi_disk_files[disk_index], disk_index);
+		}
+	}
 
 #ifndef DISABLE_AUDIO
 	audio.Initialise();
@@ -1420,6 +1487,7 @@ int main(int argc, char** argv, char** env) {
 						VERTOPINTERN->debug_opcode,
 						VERTOPINTERN->debug_vbr);
 				}
+				print_scsi_stop_state();
 				break;
 			}
 
@@ -1589,6 +1657,7 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
 			}
+			print_scsi_stop_state();
 			break;
 		}
 

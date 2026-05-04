@@ -156,7 +156,7 @@ always @(posedge clk) begin
 	if (img_mounted) begin
 		if (|img_blocks) begin
 			capacity <= img_blocks;
-			$display("Image mounted on target %d, size: %d", ID, img_blocks);
+			if (!mounted) $display("Image mounted on target %d, size: %d", ID, img_blocks);
 			mounted <= 1;
 		end else
 			mounted <= 0;

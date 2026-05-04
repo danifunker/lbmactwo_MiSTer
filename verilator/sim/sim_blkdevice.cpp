@@ -113,8 +113,8 @@ void SimBlockDevice::BeforeEval(int cycles)
 fprintf(stderr,"mounting.. %d\n",i);
            mountQueue[i]=0;
            *img_size = disk_size[i];
-           *img_readonly=0;
-fprintf(stderr,"img_size .. %ld\n",*img_size);
+           if (img_readonly) *img_readonly=0;
+fprintf(stderr,"img_size .. %llu\n",(unsigned long long)*img_size);
            disk[i].seekg(0);
            bitset(*img_mounted,i);
            ack_delay=1200;

@@ -228,9 +228,31 @@ the same frame window, while Verilator repeatedly arbitrates on the NCR5380:
   arbitration is active. The Verilog now models the current data register as an
   OR of active initiator and target drivers instead of a default `0x55` value.
 - With those fixes, the ROM sees ICR `0x40/0x48` instead of `0x00` and gets past
-  the original tight `btst #6,$50F10010` loop. It still spends too long retrying
-  the SCSI probe, so target selection/no-device timeout behavior is the next
-  focus.
+  the original tight `btst #6,$50F10010` loop.
+
+Headless Verilator can now mount a SCSI image explicitly:
+
+```sh
+cd verilator
+./obj_dir/Vemu --headless --no-cpu-trace --no-via-debug \
+  --scsi0 ../releases/Disk605.dsk --stop-at-frame 760
+```
+
+Target index 0 is SCSI ID 6, matching MAME's default Mac II hard disk connector
+(`scsi:6`). `Disk605.dsk` is an 800 KiB image and MAME does not accept `.dsk`
+as a SCSI hard disk image, so this is useful for exercising the RTL SCSI target
+but is not yet a perfect MAME hard-disk comparison.
+
+With `--scsi0 ../releases/Disk605.dsk`, the ROM selects target 6 and issues:
+
+```text
+New command on target 6: 08 00 00 00 01 00 00 00 00 00
+```
+
+That is READ(6), LBA 0, length 1 block. By frame 650 the target has completed
+and released BSY (`t0_phase=0`, `tbsy=00`); by frame 760 the CPU has left the
+SCSI path and is at `PC=40801652`. This rules out SCSI as the current terminal
+blocker in the mounted-image run.
 
 The ADB/VIA work is still relevant, but it is no longer the most recent observed
 terminal blocker.
@@ -251,22 +273,13 @@ path should verify whether `0x500xxxxx` aliases also need to be accepted.
 
 ## Current Conclusion
 
-The boot has moved past the earlier ASC failure and the old SCC diagnostic/BERR
-path. The latest evidence points at NCR5380/SCSI behavior: Verilator reaches the
-ROM probe at `$408268D8`, MAME with the matched NuBus video card does not, and
-Verilator spends excessive simulated time in the SCSI retry sequence before a
-cursor would appear.
+The boot has moved past the earlier ASC failure, the old SCC diagnostic/BERR
+path, and the first mounted-image SCSI READ(6). SCSI was a real blocker while
+the ROM could not write/read the NCR5380 correctly and while the headless sim
+could not mount a target, but the latest mounted run no longer dies there.
 
-The next debugging step should be a tighter matched SCSI trace:
-
-1. In MAME, keep using `tools/mame/macii_scsi_probe.lua` with the matched
-   `-nb9 "" -nbe m2hires` command so future comparisons use the same video card.
-2. In Verilator, log NCR5380 ODR/ICR/MR/TCR/CSR/BSR plus target `phase`,
-   `mounted`, `sel`, `bsy`, `req`, `ack`, and `din` around
-   `$40826932-$40826986`.
-3. Compare MAME's NCR5380 arbitration timing from
-   `mame/src/devices/machine/ncr5380.cpp` with `rtl/ncr5380.sv`, especially
-   when AIP clears, when BSY is asserted, and whether no-device selection should
-   return quickly or depend on a bus-error timeout.
-4. Re-run the frame/cursor check only after the SCSI probe stops dominating the
-   headless run.
+The next debugging step is to run farther with the same mounted target and
+compare the new post-SCSI location (`PC=40801652` at frame 760) against MAME's
+matched-card frame landmarks. If the run returns to an ADB/VIA timer loop,
+continue with the VIA/ADB probes; if it reaches NuBus, switch back to the video
+card register/VRAM probes.
