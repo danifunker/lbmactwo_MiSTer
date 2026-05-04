@@ -921,9 +921,9 @@ always @(posedge clk_sys) begin
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
 			dio_a <= {3'b000, dio_addr[17:0]}; // Map to 0 (Slot 0 offset 0)
 		else if (dio_index == 1) // boot1.rom - NuBus video ROM (passed directly to nubus_video)
-			dio_a <= dio_addr[20:0]; // Pass through to ioctl interface
-		else if (dio_index[1:0] == 2 || dio_index[1:0] == 3) // Floppy disk images at index 2,3
-			dio_a <= {dio_index[1:0], dio_addr[18:0]};
+			dio_a <= {2'b11, dio_addr[18:0]}; // Park unused SDRAM copy away from ROM/floppies
+		else if (dio_index[1:0] == 2 || dio_index[1:0] == 3) // Floppy disk images at indices 2,3
+			dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
 		else
 			dio_a <= {dio_index[6], dio_addr[17:0]};
 

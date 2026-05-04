@@ -240,27 +240,26 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	//port A
 	// VIA1 port A external input values (active when direction = input)
-	// Bits [2:0] = model sense, bit 6 = model6 sense
-	// Directly from Snow emulator via1_a_in() per model:
-	//   Mac Plus/SE:      0x7F (all pulled high)
-	//   Mac II:           0x01 (model=1, model6=0)
-	//   Mac II FDHD:      0x01 (model=1, model6=0, different ROM handles SWIM)
-	//   Mac IIx:          0x00 (model=0, model6=0)
-	//   Mac IIcx/SE30:    0x43 (model=3, model6=1)
+	// VIA1 PA external inputs. PA7 is supplied separately by SCC WReq.
+	// MAME's Mac II family reads PA as:
+	//   Mac II/FDHD/IIx:  0x81 (PA7 high, PA0 high)
+	//   Mac IIcx/SE30:   0xC1 (PA7 high, PA6 high, PA0 high)
 	reg [6:0] via_pa_ext;
 	always @(*) begin
 		case (macModel)
 			3'd0, 3'd1:  via_pa_ext = 7'h7F; // Mac Plus, SE: all pulled high
-			3'd2, 3'd3:  via_pa_ext = 7'h03; // Mac II, Mac II FDHD: model=1, bit1=1 (no dongle)
-			3'd4:         via_pa_ext = 7'h00; // Mac IIx: model=0
-			3'd5, 3'd6:  via_pa_ext = 7'h43; // Mac IIcx, SE/30: model=3, model6=1
+			3'd2, 3'd3,
+			3'd4:         via_pa_ext = 7'h01; // Mac II, Mac II FDHD, Mac IIx
+			3'd5, 3'd6:  via_pa_ext = 7'h41; // Mac IIcx, SE/30
 			default:      via_pa_ext = 7'h7F;
 		endcase
 	end
 	// For output bits (oe=1): read back the output value
 	// For input bits (oe=0): read the external hardware value
 	assign via_pa_i = {sccWReq, (via_pa_oe[6:0] & via_pa_o[6:0]) | (~via_pa_oe[6:0] & via_pa_ext)};
-	assign driveSel = machineType ? ~via_pa_oe[4] | via_pa_o[4] : 1'b1;
+	// Mac II drive selection is handled by the IWM devsel register. PA4 is
+	// memory overlay on Mac II, so it must not gate the internal floppy.
+	assign driveSel = 1'b1;
 	// Mac II uses VIA PA4 for overlay (same as Mac Plus, NOT Mac SE's SEOverlay)
 	assign memoryOverlayOn = ~via_pa_oe[4] | via_pa_o[4];
 	assign SEL = ~via_pa_oe[5] | via_pa_o[5];

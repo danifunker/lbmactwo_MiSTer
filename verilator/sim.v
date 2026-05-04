@@ -693,9 +693,16 @@ module emu
 			dio_data <= ioctl_dout;
 			// Mac II ROM (boot0.rom, 256K = 128K words) starts at 0x40_0000 in address space
 			// In sim_ram, ROM area is at bit[21]=1, so ROM goes to 0x200000+ in sim_ram
-			// Floppy disk images use index 2 and 3, matching LBMacTwo.sv.
-			dio_a <= dio_index[1:0] ? {dio_index[1:0], dio_addr[18:0]} :
-				{4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words (17 bits)
+			// Floppy disk images use indices 2 and 3, but the storage
+			// slots are word offsets 0x80000 and 0x100000.
+			if (dio_index == 8'd0)
+				dio_a <= {4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words
+			else if (dio_index == 8'd1)
+				dio_a <= {2'b11, dio_addr[18:0]};    // NuBus ROM is consumed directly
+			else if (dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3)
+				dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+			else
+				dio_a <= {dio_index[6], dio_addr[19:0]};
 			ioctl_wait <= 1;
 		end
 
@@ -716,9 +723,12 @@ module emu
 	// Combinational version of dio_a for download (avoids register latency)
 	// Mac II ROM (boot0.rom, 256K) starts at 0x40_0000 in address space
 	// ROM is 256K = 128K words, using dio_addr[16:0] (17 bits)
-	// Floppy disk images at higher offsets
-	wire [20:0] dio_a_comb = dio_index[1:0] ? {dio_index[1:0], dio_addr[18:0]} :
-	                         {4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words (17 bits)
+	// Floppy disk images at word offsets 0x80000 and 0x100000.
+	wire [20:0] dio_a_floppy = {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+	wire [20:0] dio_a_comb = (dio_index == 8'd0) ? {4'b0000, dio_addr[16:0]} :
+	                         (dio_index == 8'd1) ? {2'b11, dio_addr[18:0]} :
+	                         ((dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3) ? dio_a_floppy :
+	                          {dio_index[6], dio_addr[19:0]});
 
 	// Address mapping for sim_ram:
 	// sim_ram uses addr[21:0] for a 4M word (8MB) array

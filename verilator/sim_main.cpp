@@ -1184,6 +1184,7 @@ void show_help() {
 	printf("  --headless, --no-gui          Run without SDL/ImGui (CI/headless)\n");
 	printf("  --no-cpu-trace                Disable CPU trace logging\n");
 	printf("  --no-via-debug                Disable VIA debug logging\n");
+	printf("  --periph-debug                Enable peripheral access logging to periph_debug.log\n");
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
@@ -1271,6 +1272,8 @@ int main(int argc, char** argv, char** env) {
 			cpu_trace_enable = false;
 		} else if (strcmp(argv[i], "--no-via-debug") == 0) {
 			via_debug_enable = false;
+		} else if (strcmp(argv[i], "--periph-debug") == 0) {
+			periph_debug_enable = true;
 		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "+poll268_debug") == 0 || strcmp(argv[i], "--poll268-debug") == 0) {
