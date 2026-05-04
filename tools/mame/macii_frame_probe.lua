@@ -10,6 +10,22 @@ local function hex(v, w)
 	return string.format("%0" .. tostring(w or 8) .. "X", v or 0)
 end
 
+local function cpu_cycles()
+	local ok, value = pcall(function() return cpu:total_cycles() end)
+	if ok then
+		return tostring(value)
+	end
+	return "?"
+end
+
+local function machine_seconds()
+	local ok, value = pcall(function() return manager.machine.time:as_double() end)
+	if ok then
+		return string.format("%.9f", value)
+	end
+	return "?"
+end
+
 local function region_for_pc(pc)
 	if pc >= 0x40805e4a and pc <= 0x40805f7c then
 		return "asc_selftest"
@@ -27,12 +43,14 @@ emu.register_frame_done(function()
 	local pc = cpu.state["CURPC"].value
 	local region = region_for_pc(pc)
 	if region ~= "" and region ~= last_region then
-		print(string.format("MAME_FRAME_REGION frame=%d pc=%s region=%s", frames, hex(pc), region))
+		print(string.format("MAME_FRAME_REGION frame=%d time=%s cycles=%s pc=%s region=%s",
+			frames, machine_seconds(), cpu_cycles(), hex(pc), region))
 	end
 	last_region = region
 
 	if frames == 1 or (interval > 0 and (frames % interval) == 0) or frames >= stop_frame then
-		print(string.format("MAME_FRAME frame=%d pc=%s region=%s", frames, hex(pc), region))
+		print(string.format("MAME_FRAME frame=%d time=%s cycles=%s pc=%s region=%s",
+			frames, machine_seconds(), cpu_cycles(), hex(pc), region))
 	end
 
 	if frames >= stop_frame then

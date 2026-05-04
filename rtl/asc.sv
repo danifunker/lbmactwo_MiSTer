@@ -296,13 +296,19 @@ module asc(
 			// FIFO read — point port A at read pointer
 			ram_a_addr_a = fifo_a_rd_ptr;
 			ram_b_addr_a = fifo_b_rd_ptr;
-		end else if (cpu_access || byte_write_pending) begin
+		end else if (asc_write_strobe) begin
 			if (asc_write_addr[12:10] == 3'b000) begin
 				ram_a_addr_a = (asc_mode == 8'h01) ? fifo_a_wr_ptr : asc_write_addr[9:0];
 				ram_a_we = asc_write_strobe;
 			end else if (asc_write_addr[12:10] == 3'b001) begin
 				ram_b_addr_a = (asc_mode == 8'h01) ? fifo_b_wr_ptr : asc_write_addr[9:0];
 				ram_b_we = asc_write_strobe;
+			end
+		end else if (cpu_read) begin
+			if (addr[12:10] == 3'b000) begin
+				ram_a_addr_a = addr[9:0];
+			end else if (addr[12:10] == 3'b001) begin
+				ram_b_addr_a = addr[9:0];
 			end
 		end
 	end

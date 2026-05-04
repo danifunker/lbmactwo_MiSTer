@@ -785,6 +785,205 @@ module emu
 	assign debug_selectVIA2 = selectVIA2;
 	assign debug_cpuIPL = _cpuIPL;
 
+`ifdef SIMULATION
+	function [31:0] tg68_dbg_reg(input [3:0] idx);
+		tg68_dbg_reg = {tg68k_inst.tg68k.regfile_n2[idx], tg68k_inst.tg68k.regfile_n1[idx]};
+	endfunction
+
+	function [31:0] asc_dbg_hash_a;
+		integer idx;
+		begin
+			asc_dbg_hash_a = 32'h811c9dc5;
+			for (idx = 0; idx < 1024; idx = idx + 1)
+				asc_dbg_hash_a = (asc_dbg_hash_a ^ dc0.asc_inst.ram_a[idx]) * 32'h01000193;
+		end
+	endfunction
+
+	function [31:0] asc_dbg_hash_b;
+		integer idx;
+		begin
+			asc_dbg_hash_b = 32'h811c9dc5;
+			for (idx = 0; idx < 1024; idx = idx + 1)
+				asc_dbg_hash_b = (asc_dbg_hash_b ^ dc0.asc_inst.ram_b[idx]) * 32'h01000193;
+		end
+	endfunction
+
+	task asc_dbg_state(input [31:0] pc, input [31:0] hit);
+		begin
+			$display("[ASC_STATE] hit=%0d pc=%08h d2=%08h d3=%08h d4=%08h d7=%08h a0=%08h a3=%08h mode=%02h ctl=%02h fifo_mode=%02h fifo_irq=%02h wt=%02h vol=%02h clk=%02h fa_wp=%03h fa_rp=%03h fa_cnt=%04h fb_wp=%03h fb_rp=%03h fb_cnt=%04h hash_a=%08h hash_b=%08h a0_0f=%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h b0_0f=%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h",
+			         hit, pc,
+			         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd3),
+			         tg68_dbg_reg(4'd4), tg68_dbg_reg(4'd7),
+			         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd11),
+			         dc0.asc_inst.asc_mode,
+			         dc0.asc_inst.asc_control,
+			         dc0.asc_inst.asc_fifo_mode,
+			         dc0.asc_inst.asc_fifo_irq,
+			         dc0.asc_inst.asc_wt_control,
+			         dc0.asc_inst.asc_volume,
+			         dc0.asc_inst.asc_clock_rate,
+			         dc0.asc_inst.fifo_a_wr_ptr,
+			         dc0.asc_inst.fifo_a_rd_ptr,
+			         dc0.asc_inst.fifo_a_count,
+			         dc0.asc_inst.fifo_b_wr_ptr,
+			         dc0.asc_inst.fifo_b_rd_ptr,
+			         dc0.asc_inst.fifo_b_count,
+			         asc_dbg_hash_a(), asc_dbg_hash_b(),
+			         dc0.asc_inst.ram_a[0], dc0.asc_inst.ram_a[1],
+			         dc0.asc_inst.ram_a[2], dc0.asc_inst.ram_a[3],
+			         dc0.asc_inst.ram_a[4], dc0.asc_inst.ram_a[5],
+			         dc0.asc_inst.ram_a[6], dc0.asc_inst.ram_a[7],
+			         dc0.asc_inst.ram_a[8], dc0.asc_inst.ram_a[9],
+			         dc0.asc_inst.ram_a[10], dc0.asc_inst.ram_a[11],
+			         dc0.asc_inst.ram_a[12], dc0.asc_inst.ram_a[13],
+			         dc0.asc_inst.ram_a[14], dc0.asc_inst.ram_a[15],
+			         dc0.asc_inst.ram_b[0], dc0.asc_inst.ram_b[1],
+			         dc0.asc_inst.ram_b[2], dc0.asc_inst.ram_b[3],
+			         dc0.asc_inst.ram_b[4], dc0.asc_inst.ram_b[5],
+			         dc0.asc_inst.ram_b[6], dc0.asc_inst.ram_b[7],
+			         dc0.asc_inst.ram_b[8], dc0.asc_inst.ram_b[9],
+			         dc0.asc_inst.ram_b[10], dc0.asc_inst.ram_b[11],
+			         dc0.asc_inst.ram_b[12], dc0.asc_inst.ram_b[13],
+			         dc0.asc_inst.ram_b[14], dc0.asc_inst.ram_b[15]);
+		end
+	endtask
+
+	reg [31:0] asc_state_prev_pc;
+	reg [31:0] asc_state_hits;
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("asc_state_debug") && last_fetch_pc != asc_state_prev_pc) begin
+			asc_state_prev_pc <= last_fetch_pc;
+			if (last_fetch_pc == 32'h40805E4A ||
+			    last_fetch_pc == 32'h40805F14 ||
+			    last_fetch_pc == 32'h40805F28 ||
+			    last_fetch_pc == 32'h40805F5C ||
+			    last_fetch_pc == 32'h40805F60 ||
+			    last_fetch_pc == 32'h40805F78) begin
+				asc_state_hits <= asc_state_hits + 1'd1;
+				if (asc_state_hits < 32 ||
+				    last_fetch_pc == 32'h40805E4A ||
+				    last_fetch_pc == 32'h40805F14 ||
+				    last_fetch_pc == 32'h40805F78 ||
+				    tg68_dbg_reg(2) == 32'h00001095 ||
+				    tg68_dbg_reg(2) == 32'h00000DF1 ||
+				    asc_state_hits[10:0] == 11'h000)
+					asc_dbg_state(last_fetch_pc, asc_state_hits);
+			end
+		end
+	end
+
+	reg [31:0] asc_rom_dbg_prev_pc;
+	reg [31:0] asc_rom_dbg_bus_count;
+	reg [31:0] asc_rom_dbg_f5c_hits;
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("asc_rom_debug")) begin
+			if (last_fetch_pc != asc_rom_dbg_prev_pc) begin
+				asc_rom_dbg_prev_pc <= last_fetch_pc;
+				if (last_fetch_pc == 32'h40805E4A ||
+				    last_fetch_pc == 32'h40805F14 ||
+				    last_fetch_pc == 32'h40805F28 ||
+				    last_fetch_pc == 32'h40805F5C ||
+				    last_fetch_pc == 32'h40805F60 ||
+				    last_fetch_pc == 32'h40805F78) begin
+					$display("[ASC_ROM_PC] pc=%08h d0=%08h d1=%08h d2=%08h d3=%08h d4=%08h d7=%08h a0=%08h a3=%08h a4=%08h",
+					         last_fetch_pc,
+					         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+					         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd3),
+					         tg68_dbg_reg(4'd4), tg68_dbg_reg(4'd7),
+					         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd11),
+					         tg68_dbg_reg(4'd12));
+				end
+				if (last_fetch_pc == 32'h40805F5C) begin
+					asc_rom_dbg_f5c_hits <= asc_rom_dbg_f5c_hits + 1'd1;
+					if (asc_rom_dbg_f5c_hits[7:0] == 8'h00) begin
+						$display("[ASC_ROM_PROGRESS] f5c_hits=%0d d3=%08h d4=%08h d7=%08h a0=%08h",
+						         asc_rom_dbg_f5c_hits,
+						         tg68_dbg_reg(4'd3), tg68_dbg_reg(4'd4),
+						         tg68_dbg_reg(4'd7), tg68_dbg_reg(4'd8));
+					end
+				end
+			end
+
+			if (!tg68_as_n && selectASC && asc_rom_dbg_bus_count < 256) begin
+				$display("[ASC_ROM_BUS] pc=%08h rw=%b addr=%08h din=%04h dout=%04h ds=%b d3=%08h d7=%08h",
+				         last_fetch_pc, tg68_rw, cpuAddr, cpuDataOut,
+				         dataControllerDataOut, {~_cpuUDS, ~_cpuLDS},
+				         tg68_dbg_reg(4'd3), tg68_dbg_reg(4'd7));
+				asc_rom_dbg_bus_count <= asc_rom_dbg_bus_count + 1'd1;
+			end
+		end
+	end
+`endif
+
+`ifdef SIMULATION
+	function adb_via_pc_watch;
+		input [31:0] pc;
+		begin
+			adb_via_pc_watch = ((pc >= 32'h40806D00 && pc <= 32'h40806EFF) ||
+			                    (pc >= 32'h4080DD00 && pc <= 32'h4080DEFF));
+		end
+	endfunction
+
+	task adb_via_dbg_state;
+		input [8*12-1:0] tag;
+		begin
+			$display("[ADB_VIA_STATE] tag=%0s pc=%08h d0=%08h d1=%08h d2=%08h a0=%08h via_prb=%02h via_ddrb=%02h via_irb=%02h via_pbi=%02h acr=%02h pcr=%02h sr=%02h ifr=%02h ier=%02h irq=%b st=%b adb_int_n=%b cmd=%02h valid=%b processed=%b resp_len=%0d resp_idx=%0d sr_timer=%0d sr_dir=%b sr_shadow=%02h kbd_to_mac=%02h",
+			         tag, last_fetch_pc,
+			         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+			         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd8),
+			         dc0.via.pio_i_prb, dc0.via.pio_i_ddrb,
+			         dc0.via.irb, dc0.via.port_b_i,
+			         dc0.via.acr, dc0.via.pcr, dc0.via.shift_reg,
+			         {dc0.via.irq_out, dc0.via.irq_flags}, {1'b1, dc0.via.irq_mask}, dc0.viaIrq,
+			         {dc0.ADBST1, dc0.ADBST0}, dc0._ADBint,
+			         dc0.adb.cmd_byte, dc0.adb.cmd_valid, dc0.adb.cmd_processed,
+			         dc0.adb.resp_len, dc0.adb.resp_idx,
+			         dc0.via1_shift_timer, dc0.via1_shift_dir,
+			         dc0.via1_sr_shadow, dc0.kbd_to_mac);
+		end
+	endtask
+
+	reg [31:0] adb_via_prev_pc;
+	reg [15:0] adb_via_prints;
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("adb_via_debug")) begin
+			if (last_fetch_pc != adb_via_prev_pc) begin
+				adb_via_prev_pc <= last_fetch_pc;
+				if (adb_via_pc_watch(last_fetch_pc) && adb_via_prints < 16'd300) begin
+					adb_via_dbg_state("pc");
+					adb_via_prints <= adb_via_prints + 1'd1;
+				end
+			end
+
+			if ((dc0.via.ren || dc0.via.wen) && dc0.via.falling && adb_via_prints < 16'd900) begin
+				$display("[ADB_VIA_BUS] pc=%08h rw=%b reg=%01h addr=%08h din=%02h dout=%02h prb=%02h ddrb=%02h irb=%02h pbi=%02h acr=%02h pcr=%02h sr=%02h ifr=%02h ier=%02h st=%b adb_int_n=%b timer=%0d shadow=%02h kbd=%02h",
+				         last_fetch_pc, dc0.via.ren, dc0.via.addr, cpuAddr,
+				         dc0.via.data_in, dc0.via.data_out,
+				         dc0.via.pio_i_prb, dc0.via.pio_i_ddrb,
+				         dc0.via.irb, dc0.via.port_b_i,
+				         dc0.via.acr, dc0.via.pcr, dc0.via.shift_reg,
+				         {dc0.via.irq_out, dc0.via.irq_flags}, {1'b1, dc0.via.irq_mask},
+				         {dc0.ADBST1, dc0.ADBST0}, dc0._ADBint,
+				         dc0.via1_shift_timer, dc0.via1_sr_shadow, dc0.kbd_to_mac);
+				adb_via_prints <= adb_via_prints + 1'd1;
+			end
+
+			if ((dc0.adb_din_strobe || dc0.adb_dout_strobe || dc0.via1_sr_ext_complete) && adb_via_prints < 16'd900) begin
+				$display("[ADB_VIA_EVT] pc=%08h din_stb=%b din=%02h dout_stb=%b dout=%02h sr_done=%b sr_load=%b st=%b adb_int_n=%b cmd=%02h valid=%b processed=%b resp_len=%0d resp_idx=%0d",
+				         last_fetch_pc, dc0.adb_din_strobe, dc0.adb_din,
+				         dc0.adb_dout_strobe, dc0.adb_dout,
+				         dc0.via1_sr_ext_complete, dc0.via1_sr_ext_load,
+				         {dc0.ADBST1, dc0.ADBST0}, dc0._ADBint,
+				         dc0.adb.cmd_byte, dc0.adb.cmd_valid, dc0.adb.cmd_processed,
+				         dc0.adb.resp_len, dc0.adb.resp_idx);
+				adb_via_prints <= adb_via_prints + 1'd1;
+			end
+		end
+	end
+`endif
+
 
 `ifdef LEGACY_DEBUG
 	// Dump interrupt dispatch table when ROM enables CA1/CA2 IRQs (IER=0x03).
@@ -1053,6 +1252,26 @@ module emu
 		if ((f5c_hits - f5c_last_report) >= 256) begin
 			$display("[F5C_PROGRESS] hits=%0d f14=%0d", f5c_hits, f14_hits);
 			f5c_last_report <= f5c_hits;
+		end
+	end
+
+	// Late boot polling loop at $408268F2/$408268F8. The ROM polls bit 6 of
+	// (A3+$10); log A3 and the translated bus address/data to identify the
+	// device holding boot.
+	reg [7:0] poll268_prints = 8'd0;
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("poll268_debug") && poll268_prints < 8'd80) begin
+			if (last_fetch_pc >= 32'h408268d8 && last_fetch_pc <= 32'h40826930) begin
+				$display("[POLL268] pc=%08h op=%04h addr=%08h rw=%b din=%04h dout=%04h d0=%08h d1=%08h d5=%08h d7=%08h a3=%08h a4=%08h hmmu=%b selSCSI=%b selSCC=%b selVIA=%b selVIA2=%b selNuBus=%b selRAM=%b",
+				         last_fetch_pc, tg68k_inst.tg68k.opc_in, cpuAddr,
+				         _cpuRW, cpuDataIn, cpuDataOut,
+				         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+				         tg68_dbg_reg(4'd5), tg68_dbg_reg(4'd7),
+				         tg68_dbg_reg(4'd11), tg68_dbg_reg(4'd12),
+				         hmmu_active, selectSCSI, selectSCC, selectVIA,
+				         selectVIA2, selectNuBus, selectRAM);
+				poll268_prints <= poll268_prints + 1'd1;
+			end
 		end
 	end
 

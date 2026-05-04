@@ -69,6 +69,7 @@ V_SRC = \
 	$(RTL)/addrDecoder.v \
 	$(RTL)/hmmu.v \
 	$(RTL)/dataController_top.sv \
+	$(RTL)/asc.sv \
 	$(RTL)/videoTimer.v \
 	$(RTL)/videoShifter.v \
 	sim_vram.v \
@@ -76,6 +77,7 @@ V_SRC = \
 	$(RTL)/nubus/nubus_video_highres.sv \
 	$(RTL)/via6522.sv \
 	$(RTL)/adb.sv \
+	$(RTL)/rtc.v \
 	$(RTL)/ps2_kbd.sv \
 	$(RTL)/ps2_mouse.v \
 	$(RTL)/iwm.v \

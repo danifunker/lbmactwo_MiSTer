@@ -144,14 +144,12 @@ always @(posedge clk) begin
 		else begin
 			ck_d <= ck;
 
-			// Transmit response on falling edge of clock
-			if (ck_d & ~ck & !receiving)
-				dat_o <= dout[7 - bit_cnt];
-
-			// Receive data on rising edge of clock
-			if (~ck_d & ck) begin
-				bit_cnt <= bit_cnt + 1'd1;
-				if (receiving)
+			// The 343-0042 shifts both command input and response output on
+			// the RTC clock high-to-low transition; host reads data after it.
+			if (ck_d & ~ck) begin
+				if (!receiving)
+					dat_o <= dout[7 - bit_cnt];
+				else
 					din <= {din[6:0], dat_i};
 
 				if (bit_cnt == 7) begin
@@ -188,6 +186,16 @@ always @(posedge clk) begin
 										5'h1C, 5'h1D, 5'h1E, 5'h1F: dout <= pram[{3'b000, byte_in[6:2]}];
 										default: dout <= 8'h00;
 									endcase
+									if ($test$plusargs("rtc_debug"))
+										$display("[RTC_RD_STD] cmd=%02h scmd=%02h data=%02h",
+											byte_in, byte_in[6:2],
+											((byte_in[6:2] == 5'h00) || (byte_in[6:2] == 5'h04)) ? secs[7:0] :
+											((byte_in[6:2] == 5'h01) || (byte_in[6:2] == 5'h05)) ? secs[15:8] :
+											((byte_in[6:2] == 5'h02) || (byte_in[6:2] == 5'h06)) ? secs[23:16] :
+											((byte_in[6:2] == 5'h03) || (byte_in[6:2] == 5'h07)) ? secs[31:24] :
+											(((byte_in[6:2] >= 5'h08) && (byte_in[6:2] <= 5'h0B)) ||
+											 ((byte_in[6:2] >= 5'h10) && (byte_in[6:2] <= 5'h1F))) ? pram[{3'b000, byte_in[6:2]}] :
+											8'h00);
 								end
 							end
 
@@ -202,6 +210,10 @@ always @(posedge clk) begin
 										// Extended read - prepare response
 										receiving <= 0;
 										dout <= pram[{cmd0[2:0], byte_in[6:2]}];
+										if ($test$plusargs("rtc_debug"))
+											$display("[RTC_RD_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h",
+												cmd0, byte_in, {cmd0[2:0], byte_in[6:2]},
+												pram[{cmd0[2:0], byte_in[6:2]}]);
 									end else begin
 										// Standard write - execute it
 										if (!writeprotect) begin
@@ -239,6 +251,7 @@ always @(posedge clk) begin
 						endcase
 					end
 				end
+				bit_cnt <= bit_cnt + 1'd1;
 			end
 		end
 	end
