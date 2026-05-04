@@ -47,6 +47,7 @@ integer    vram_rd_count = 0;
 
 integer vram_wr_count = 0;
 integer testrd_count = 0;
+integer ram_size_dbg_count = 0;
 
 always @(posedge clk) begin
 	// Writes are allowed even during reset (needed for ROM loading)
@@ -95,6 +96,12 @@ always @(posedge clk) begin
 		        && din != 16'hffff && din != 16'h0000))
 			$display("WATCH BERR_VEC: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
+		if ($test$plusargs("ram_size_debug") && debug_pc >= 32'h408039aa && debug_pc <= 32'h408039fc
+		    && addr[21:0] < 22'h002000 && ram_size_dbg_count < 120) begin
+			$display("RAM_SIZE_WR[%0d]: PC=%h addr=%h eff=%h din=%h ds=%b",
+				ram_size_dbg_count, debug_pc, addr[21:0], effective_addr, din, ds);
+			ram_size_dbg_count <= ram_size_dbg_count + 1;
+		end
 		// WLCS marker at byte $0CFC = word addr $067E/$067F
 			if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
 				$display("WATCH WLCS: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
@@ -122,6 +129,12 @@ always @(posedge clk) begin
 			$display("TEST_RD[%0d]: PC=%h addr=%h dout=%h",
 				testrd_count, debug_pc, addr[21:0], mem[effective_addr]);
 			testrd_count <= testrd_count + 1;
+		end
+		if ($test$plusargs("ram_size_debug") && oe && debug_pc >= 32'h408039aa && debug_pc <= 32'h408039fc
+		    && addr[21:0] < 22'h002000 && ram_size_dbg_count < 120) begin
+			$display("RAM_SIZE_RD[%0d]: PC=%h addr=%h eff=%h dout=%h",
+				ram_size_dbg_count, debug_pc, addr[21:0], effective_addr, mem[effective_addr]);
+			ram_size_dbg_count <= ram_size_dbg_count + 1;
 		end
 		// Debug video reads (VRAM is at 0x1A0000 = 0x340000 >> 1 in word address)
 		if (oe && addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin

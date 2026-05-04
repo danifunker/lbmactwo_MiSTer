@@ -76,6 +76,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// misc
 	output memoryOverlayOn,
+	output [1:0] glueRAMSize,
 
 	// Mac II HMMU enable (VIA2 PB3 low → 24-bit translated mode)
 	output hmmu_active,
@@ -394,6 +395,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// When DDR is output, loopback the output latch; when input, return HW config.
 	// PA[5:0] are NuBus slot IRQ state (active-low, directly from video card slot E = bit 5)
 	wire [1:0] ram_size_via = configRAMSize[1] ? 2'b01 : 2'b00; // 4MB/8MB->01, 1MB/2MB->00
+	assign glueRAMSize = via2_pa_o[7:6];
 	assign via2_pa_i = {(via2_pa_oe[7] ? via2_pa_o[7] : ram_size_via[1]),
 	                    (via2_pa_oe[6] ? via2_pa_o[6] : ram_size_via[0]),
 	                    (via2_pa_o[5] & via2_pa_oe[5]) | (nubus_irq_n & ~via2_pa_oe[5]),

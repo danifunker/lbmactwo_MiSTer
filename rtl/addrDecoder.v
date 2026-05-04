@@ -98,6 +98,7 @@
 module addrDecoder(
 	input [1:0] configROMSize,
 	input [1:0] configRAMSize,	// 0=1MB, 1=2MB, 2+=4MB
+	input [1:0] glueRAMSize,
 	input [31:0] address,
 	input _cpuAS,
 	input memoryOverlayOn,
@@ -190,10 +191,11 @@ module addrDecoder(
 		// Peripherals remain accessible via 32-bit addresses ($40000000 ROM,
 		// $50F00000 I/O) which are decoded in the 32-bit section above.
 		//
-		// RAM ranges (with mirroring for ROM detection):
+		// RAM ranges:
 		//   1MB: $00-$0F only (no mirror)
-		//   2MB: $00-$3F (mirrored in 4MB space, addr wraps at 2MB)
-		//        plus bank B at $80-$8F, matching Mac II GLUE bank placement
+		//   2MB: dynamic Mac II GLUE layout from VIA2 PA7:6:
+		//        00/01 = $00-$2F (2MB physical plus 1MB bank-A mirror)
+		//        10/11 = $00-$0F only while ROM probes invalid bank-B placements
 		//   4MB: $00-$3F (no mirror)
 		//   8MB: $00-$7F (no mirror, overrides 24-bit ROM/SCSI)
 		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF || address[31:24] == 8'h80) begin
@@ -202,8 +204,8 @@ module addrDecoder(
 			// Overlay mode is handled separately below
 			if (!memoryOverlayOn && (
 				(configRAMSize == 2'b00 && address[23:20] == 4'h0) ||                // 1MB: $00-$0F
-				(configRAMSize == 2'b01 && address[23:22] == 2'b00) ||               // 2MB: $00-$3F (mirrored)
-				(configRAMSize == 2'b01 && address[23:20] == 4'h8) ||                // 2MB: bank B at $80-$8F
+				(configRAMSize == 2'b01 && (glueRAMSize == 2'b00 || glueRAMSize == 2'b01) && address[23:20] <= 4'h2) ||
+				(configRAMSize == 2'b01 && (glueRAMSize == 2'b10 || glueRAMSize == 2'b11) && address[23:20] == 4'h0) ||
 				(configRAMSize == 2'b10 && address[23:22] == 2'b00) ||               // 4MB: $00-$3F
 				(configRAMSize == 2'b11 && address[23]    == 1'b0)))                  // 8MB: $00-$7F
 			begin

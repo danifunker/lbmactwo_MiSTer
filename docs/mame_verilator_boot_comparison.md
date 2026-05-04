@@ -5,6 +5,26 @@ run and the Verilator simulation. The goal is to keep the remaining boot work
 focused on the first real divergence instead of chasing earlier devices that
 are no longer blocking progress.
 
+## Current Status: 2026-05-04
+
+The first confirmed divergence was the Mac II 2MB RAM GLUE mapping, not SCC.
+MAME dynamically remaps RAM from VIA2 PA7:6 while the ROM probes `FF/BF/7F/3F`.
+Before the fix, Verilator used a static 2MB wrap and falsely accepted the `BF`
+layout; the ROM then read VIA2 as `$BF`, loaded `A2=$00800000`, wrote
+`$00200000`, and aliased that write to address zero. That branched to the ROM
+error path before the later SCC symptoms.
+
+The RTL now exports the VIA2 PA7:6 GLUE latch into `addrDecoder` and
+`addrController`. The RAM sizing probe now matches MAME at the important point:
+VIA2 reads `$3F`, `A2=$00100000`, and address zero remains zero after the
+walking-address writes.
+
+The next blocker is ASC self-test timing/progress. Matched MAME reaches
+`PC=$40806DD8` by frame 120 after only a handful of ASC-state probe hits.
+Verilator is still in the `$40805Fxx` ASC pattern/delay loop at frame 300. The
+ASC RAM contents are evolving, so this looks like an ASC/CPU-timing or ASC test
+semantics mismatch rather than the earlier RAM-map failure.
+
 ## Runs Compared
 
 MAME was first run from the local checkout with the working Mac II ROM and its
@@ -47,10 +67,10 @@ cd mame
 SDL_VIDEODRIVER=dummy ./mame macii -rompath roms -video none -sound none -nothrottle -skip_gameinfo -nb9 "" -nbe m2hires -autoboot_script ../tools/mame/macii_scc_probe.lua
 ```
 
-Expected matched-card probe summary at 1200 frames:
+Expected matched-card SCC probe summary at 1200 frames:
 
 ```text
-MAME_SCC_SUMMARY frames=1200 reads=1159 writes=71 poll_hits=0 pc=408061F2
+MAME_SCC_SUMMARY frames=1200 reads=1159 writes=71 poll_hits=0
 ```
 
 The important part is `poll_hits=0`: the matched MAME run does not enter the
@@ -97,27 +117,23 @@ MAME frame 80:  PC=40806DDE
 MAME frame 120: PC=40806DD8
 ```
 
-Verilator, by contrast, was still at `PC=40805F2A` at frame 80 and
-`PC=4080DE3E` at frame 120 in the current run. That means the useful comparison
-point is no longer just "wait longer"; the boot path is already behind MAME
-before the NuBus card should be initialized.
+After the RAM GLUE fix, Verilator is still in the same ASC region at frame 120
+and frame 300 (`PC=$40805F48/$40805F40`). It is no longer on the RAM
+`Error1Handler` path, but it has not caught up to MAME's frame-120
+post-ASC position.
 
 ## Current Observations
 
 | Checkpoint | MAME `macii` | Verilator |
 | --- | --- | --- |
 | 1200-frame progress | Default `mdc824`: reaches `PC=40826CC6`; matched `nbe m2hires`: reaches `PC=408061F2` | Reaches frame 1200; final PCs seen around `40812E98`/`40812F5E` in the prior quiet run |
-| ASC | Passes ROM ASC probing | No longer appears to be the current blocker after the ASC byte-lane/register fixes |
-| SCC | Early SCC status loop reads `0x54` at `PC=408005D2`; no long `408032xx` poll | The previous `408032AC` SCC-style stall is not present in the latest quiet run |
+| ASC | Leaves ASC self-test by frame 120 (`PC=40806DD8`) | Still in `$40805Fxx` ASC self-test at frame 300 |
+| SCC | Early SCC status loop reads `0x54` at `PC=408005D2`; no long `408032xx` poll | The previous `408032AC` SCC-style stall was a downstream symptom of earlier error paths |
 | Video | Default `macii` uses `mdc824` in slot 9; matched run uses `m2hires` in slot E with the same `341-0660.bin` ROM | Verilator models an `m2hires`-like card in slot E; screenshot at frame 1000 is still flat gray, with no cursor |
 | MAME SCC poll window | `40803280-40803310` was never entered in the 1200-frame MAME probe | If Verilator returns to this window, that is a real divergence from the MAME boot path |
 
-The current evidence says we are not dying at ASC. SCC also does not look like
-the current terminal failure in the latest run. The matched-card MAME run still
-does not enter the `408032xx` SCC poll window, which makes that old Verilator
-stall a real divergence if it reappears. The remaining visible symptom is that
-the Verilator machine gets far enough into ROM initialization / Slot Manager
-activity but still does not produce the expected initialized display or cursor.
+The current evidence says SCC is not the first blocker. The active divergence is
+ASC self-test progress after RAM GLUE mapping was corrected.
 
 ## Important Comparison Mismatch
 

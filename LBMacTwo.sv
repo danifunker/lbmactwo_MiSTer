@@ -463,6 +463,7 @@ wire memoryLatch;
 
 // peripherals
 wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+wire [1:0] glueRAMSize;
 wire [15:0] dataControllerDataOut;
 
 // MC68881 FPU
@@ -679,6 +680,7 @@ addrController_top ac0
 	.turbo(status_turbo),
 	.configROMSize(2'b10), // Mac II always uses 256K ROM
 	.configRAMSize(configRAMSize),
+	.glueRAMSize(glueRAMSize),
 	.memoryAddr(memoryAddr),
 	.memoryLatch(memoryLatch),
 	._memoryUDS(_memoryUDS),
@@ -813,6 +815,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.vid_alt(vid_alt),
 
 	.memoryOverlayOn(memoryOverlayOn),
+	.glueRAMSize(glueRAMSize),
 	.hmmu_active(hmmu_active),
 
 	.ascAudioLeft(asc_audio_l),

@@ -119,6 +119,14 @@ bool via_debug_prev_wr = false;
 // they produce very large logs on long headless runs.
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
+bool scc_bus_debug_enable = false;
+bool ram_size_cpu_debug_enable = false;
+int scc_bus_debug_count = 0;
+const int scc_bus_debug_max = 800;
+bool scc_bus_debug_prev_bus_control = false;
+int ram_size_cpu_debug_count = 0;
+const int ram_size_cpu_debug_max = 500;
+uint32_t ram_size_cpu_debug_last_pc = 0xFFFFFFFF;
 bool nubus_video_debug_enable = false;
 int nubus_video_debug_count = 0;
 const int nubus_video_debug_max = 1000;
@@ -657,6 +665,75 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_count,
 						d1, d5, d7, a3, a4, a3 + 0x10, a3 + 0x20);
 					poll268_log_count++;
+				}
+			}
+			if (scc_bus_debug_enable && !*bus.ioctl_download) {
+				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
+				bool select_scc = VERTOPINTERN->debug_selectSCC;
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				bool focused_pc = (pc >= 0x40800540 && pc <= 0x40800820) ||
+				                  (pc >= 0x40803280 && pc <= 0x40803310);
+				if (bus_control && !scc_bus_debug_prev_bus_control && select_scc &&
+				    (scc_bus_debug_count < 220 || focused_pc) &&
+				    scc_bus_debug_count < scc_bus_debug_max) {
+					fprintf(stderr,
+						"SCC_BUS @%llu pc=%08X op=%04X addr=%08X rw=%d din=%04X dout=%04X "
+						"rs=%u rr0a=%02X rr0b=%02X rpa=%X rpb=%X sta=%u stb=%u "
+						"wr1a=%02X wr3a=%02X wr5a=%02X wr14a=%02X rxpa=%u txea=%u\n",
+						(unsigned long long)main_time,
+						pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut,
+						VERTOPINTERN->debug_cpuAddr & 3,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rr0_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rr0_b,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rindex_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rindex_b,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__scc_state_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__scc_state_b,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr1_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr3_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr5_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__wr14_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__rx_queue_pos_a,
+						VERTOPINTERN->emu__DOT__dc0__DOT__s__DOT__tx_empty_latch_a);
+					scc_bus_debug_count++;
+				}
+				scc_bus_debug_prev_bus_control = bus_control;
+			}
+			if (ram_size_cpu_debug_enable && !*bus.ioctl_download) {
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (VERTOPINTERN->debug_fetch_valid &&
+				    pc >= 0x40803944 && pc <= 0x408039ff &&
+				    pc != ram_size_cpu_debug_last_pc &&
+				    ram_size_cpu_debug_count < ram_size_cpu_debug_max) {
+					ram_size_cpu_debug_last_pc = pc;
+					fprintf(stderr,
+						"RAM_SIZE_CPU[%03d] t=%llu pc=%08X op=%04X addr=%08X rw=%d "
+						"D0=%08X D5=%08X D6=%08X A2=%08X A3=%08X "
+						"MEM0=%04X%04X MEM200000=%04X%04X VIA2_PRA=%02X DDRA=%02X IRA=%02X\n",
+						ram_size_cpu_debug_count,
+						(unsigned long long)main_time,
+						pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						tg68_reg(0),
+						tg68_reg(5),
+						tg68_reg(6),
+						tg68_reg(10),
+						tg68_reg(11),
+						VERTOPINTERN->emu__DOT__ram__DOT__mem[0],
+						VERTOPINTERN->emu__DOT__ram__DOT__mem[1],
+						VERTOPINTERN->emu__DOT__ram__DOT__mem[0x100000],
+						VERTOPINTERN->emu__DOT__ram__DOT__mem[0x100001],
+						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__pio_i_pra,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__pio_i_ddra,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__ira);
+					ram_size_cpu_debug_count++;
 				}
 			}
 			if (verbose_debug_enable) {
@@ -1261,6 +1338,8 @@ void show_help() {
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
+	printf("  --scc-bus-debug              Trace focused CPU SCC bus transactions\n");
+	printf("  --ram-size-cpu-debug          Trace CPU state through ROM RAM sizing\n");
 	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
 	printf("  --scsi0 <file>                Mount a SCSI disk image on target 0 (ID 6)\n");
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
@@ -1354,6 +1433,10 @@ int main(int argc, char** argv, char** env) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
 			nubus_video_debug_enable = true;
+		} else if (strcmp(argv[i], "--scc-bus-debug") == 0) {
+			scc_bus_debug_enable = true;
+		} else if (strcmp(argv[i], "--ram-size-cpu-debug") == 0) {
+			ram_size_cpu_debug_enable = true;
 		} else if (strcmp(argv[i], "+poll268_debug") == 0 || strcmp(argv[i], "--poll268-debug") == 0) {
 			poll268_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi0") == 0 && i + 1 < argc) {

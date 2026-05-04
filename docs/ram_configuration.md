@@ -13,7 +13,7 @@ mappings for addresses within the configured range.
 | status[5:4] | configRAMSize | RAM Size | selectRAM Range | VIA2 PA7:6 | Mirror |
 |-------------|---------------|----------|-----------------|------------|--------|
 | 00          | 2'b00         | 1MB      | $00_0000-$0F_FFFF | 00 (256K SIMMs) | No |
-| 01          | 2'b01         | 2MB      | $00_0000-$3F_FFFF plus bank B at $80_0000-$8F_FFFF | 00 (256K SIMMs) | $00-$3F wraps at 2MB; $80-$8F maps bank B |
+| 01          | 2'b01         | 2MB      | Dynamic GLUE layout from VIA2 PA7:6 | 00 (256K SIMMs) | `$20_0000-$2F_FFFF` mirrors bank A only after ROM selects the valid 2MB layout |
 | 10          | 2'b10         | 4MB      | $00_0000-$3F_FFFF | 01 (1MB SIMMs)  | No |
 | 11          | 2'b11         | 8MB      | $00_0000-$7F_FFFF | 01 (1MB SIMMs)  | No |
 
@@ -53,26 +53,23 @@ Values (matching Snow emulator's `expected_sz`):
 | 10    | 4MB       | 32MB (not supported on original Mac II ROM) |
 | 11    | 16MB      | 128MB (not supported on original Mac II ROM) |
 
-The FPGA sets PA7:6 as hardware input pins (active when VIA2 DDR is
-input mode). When the ROM sets DDR to output, the output latch value
-is returned instead (loopback).
+The FPGA sets PA7:6 as hardware input pins when VIA2 DDR is input mode. When
+the ROM sets DDR to output, the output latch value is returned and also drives
+the GLUE RAM bank-placement input to the address decoder.
 
 ## RAM Mirroring
 
-The 2MB configuration uses address mirroring to fill the 4MB selectRAM
-space. Bit 21 of the SDRAM address is forced to 0, so addresses
-$20_0000-$3F_FFFF read/write the same physical RAM as $00_0000-$1F_FFFF.
+The 2MB configuration follows MAME's dynamic Mac II GLUE behavior. During ROM
+startup, the ROM writes candidate VIA2 PA7:6 values (`FF`, `BF`, `7F`, `3F`)
+and probes the resulting memory layout. The invalid high bank-placement values
+must expose only the first 1MB. When the valid 2MB layout is selected, the base
+`$00_0000-$1F_FFFF` range remains unique and `$20_0000-$2F_FFFF` mirrors bank A.
 
-MAME's default Mac II configuration is 2MB. When the ROM programs the GLUE RAM
-bank location for this layout, MAME plants bank B at $0080_0000-$008F_FFFF.
-The FPGA address path therefore also maps that 1MB window to the second 1MB RAM
-bank. This is needed because the ROM/boot path executes code in the $0082_xxxx
-window before reaching the desktop path.
-
-The ROM's sizing algorithm detects this mirror pattern:
-1. Write a test pattern at $00_0000
-2. Read at $20_0000 — sees the same pattern (mirror)
-3. Concludes: 2MB physical RAM with mirroring
+The important constraint is that `$20_0000` must not always alias `$00_0000`.
+If bit 21 is forced low for every 2MB RAM access, the ROM's later RAM sizing
+loop writes the test value `$00200000` through the mirror to address zero and
+branches to `Error1Handler`. The current RTL only mirrors the dynamic bank-A
+window selected by the VIA2 GLUE latch.
 
 Other configurations do not mirror — out-of-range accesses produce
 bus errors, which the ROM's sizing algorithm also handles correctly.
@@ -114,8 +111,8 @@ the ROM writes the correct PA7:6 value, then expands to full size.
 ## Files Involved
 
 - `LBMacTwo.sv` — OSD menu (`O45,Memory,...`), configRAMSize wiring, SDRAM address mux
-- `rtl/addrDecoder.v` — selectRAM range gating by configRAMSize
-- `rtl/addrController_top.v` — ROM address clamping, 2MB RAM mirror (bit 21)
-- `rtl/dataController_top.sv` — VIA2 PA7:6 hardware RAM sizing pins
+- `rtl/addrDecoder.v` — selectRAM range gating by configRAMSize and GLUE latch
+- `rtl/addrController_top.v` — ROM address clamping and dynamic 2MB bank-A mirror
+- `rtl/dataController_top.sv` — VIA2 PA7:6 hardware RAM sizing pins and GLUE latch export
 - `verilator/sim.v` — Verilator sim wrapper (mirrors FPGA changes)
 - `verilator/sim_ram.v` — Verilator RAM model (independent range checking)

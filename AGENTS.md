@@ -64,18 +64,15 @@ The local MAME ROM setup expected for the matched card is:
 
 ## Current Debug Focus
 
-ASC, early IWM/floppy, and live SCSI are not the leading suspects. The current
-NuBus declaration ROM path has been changed back to MAME's lane-0 layout: MAME
-and Verilator should both probe `$FEFFFFFC` and read declaration bytes from
-`$FEFF8000`, `$FEFF8004`, etc.
+The latest fixed divergence is Mac II RAM banking. MAME dynamically remaps the
+2MB layout from the VIA2 PA7:6 GLUE latch while the ROM probes `FF/BF/7F/3F`.
+The RTL now exports that VIA2 latch into the address decoder/controller instead
+of using a static `$00800000` bank-B window or forcing all 2MB accesses to wrap
+at bit 21. The RAM sizing probe should read VIA2 as `$3F`, load `A2=$00100000`,
+and avoid the old `$00200000 -> $00000000` alias failure.
 
-After that lane fix, focused VBL probes showed Verilator and MAME enter the
-same low-memory VBL polling path, so NuBus VBL status is not the current
-blocker. The next real divergence was RAM banking: MAME's default 2MB Mac II
-layout maps bank B at `$00800000-$008FFFFF`, and the boot path executes code
-there. The RTL now maps that 2MB bank-B window and the Verilator wrapper uses
-2MB RAM to match MAME.
-
-With that RAM-bank fix, Verilator gets past the SCSI fallback and reaches the
-old SCC loop at `PC=$40803288` with `VBR=$40802806`. The next suspect is SCC
-receive/status behavior, not ASC, NuBus VBL, or SCSI.
+After the RAM fix, the current blocker is ASC self-test progress. Matched MAME
+leaves the ASC region by about frame 120 (`PC=$40806DD8`), while Verilator is
+still in the `$40805Fxx` ASC pattern/delay loop at frame 300. Use
+`tools/mame/macii_asc_state_probe.lua` and Verilator `+asc_state_debug` for the
+next comparison. SCC, SCSI, and NuBus video are not the first current blockers.

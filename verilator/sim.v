@@ -249,6 +249,7 @@ module emu
 	// peripherals
 	wire vid_alt, loadPixels, pixelOut, _hblank, _vblank, hsync, vsync;
 	wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+	wire [1:0] glueRAMSize;
 	wire [15:0] dataControllerDataOut;
 
 
@@ -467,6 +468,7 @@ module emu
 		.turbo(status_turbo),
 		.configROMSize(configROMSize),
 		.configRAMSize(configRAMSize),
+		.glueRAMSize(glueRAMSize),
 		.memoryAddr(memoryAddr),
 		.memoryLatch(memoryLatch),
 		._memoryUDS(_memoryUDS),
@@ -616,6 +618,7 @@ module emu
 		.vid_alt(vid_alt),
 
 		.memoryOverlayOn(memoryOverlayOn),
+		.glueRAMSize(glueRAMSize),
 		.hmmu_active(hmmu_active),
 
 		.ascAudioLeft(asc_audio_l),
