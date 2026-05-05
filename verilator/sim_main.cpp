@@ -59,9 +59,9 @@ int multi_step_amount = 1024;
 
 // Machine configuration
 // ---------------------
-// Mac II only (uses TG68K 68030)
-// cfg_cpuType=2  -> cpu="11" (68030 - required for Mac II)
-int cfg_cpuType = 2;       // 68030 mode via TG68K (required)
+// Mac II only (uses TG68K 68020 mode)
+// TG68K documents cpu=2'b11 as 68020 mode. The Mac II ROM depends on it.
+int cfg_cpuType = 3;
 int cfg_memSize = 0;       // 0=1MB, 1=4MB
 
 // CPU trace
@@ -122,6 +122,7 @@ bool poll268_debug_enable = false;
 bool scsi_debug_enable = false;
 bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
+bool calib_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 int scsi_debug_count = 0;
@@ -169,6 +170,14 @@ int wait_debug_count = 0;
 const int wait_debug_max = 600;
 uint32_t wait_debug_last_pc = 0xFFFFFFFF;
 uint32_t wait_debug_last_tick = 0xFFFFFFFF;
+int calib_debug_count = 0;
+const int calib_debug_max = 1200;
+bool calib_debug_prev_via_rd = false;
+bool calib_debug_prev_via_wr = false;
+bool calib_debug_prev_write_valid = false;
+bool calib_debug_prev_via1_t1 = false;
+bool calib_debug_prev_via2_t1 = false;
+uint32_t calib_debug_last_lowmem_tick = 0xFFFFFFFF;
 
 // Headless mode (no GUI)
 // ----------------------
@@ -272,6 +281,46 @@ static inline uint8_t scsi_debug_csr() {
 	       ((icr & 0x04) ? 0x02 : 0x00);
 }
 
+static void print_via_timer_state(FILE* out, const char* prefix) {
+	fprintf(out,
+		"%s via_tick=%u via_acc=%u "
+		"VIA1 t1c=%04X t1l=%04X acr=%02X prb=%02X ddrb=%02X pb_i=%02X ifr=%02X ier=%02X "
+		"ev=%u reload=%u may=%u pb7=%u ca1=%u ca2=%u "
+		"VIA2 t1c=%04X t1l=%04X acr=%02X prb=%02X ddrb=%02X pb_o=%02X pb_i=%02X ifr=%02X ier=%02X "
+		"ev=%u reload=%u may=%u pb7=%u ca1=%u\n",
+		prefix,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via_timer_tick ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via_timer_acc,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_count,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_latch,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__acr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_prb,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_ddrb,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via_pb_i,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_event ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_reload ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_may_interrupt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_toggle ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__ca1_c ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__ca2_c ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_count,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_latch,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__acr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__pio_i_prb,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__pio_i_ddrb,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2_pb_o,
+		0xCF,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_event ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_reload ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_may_interrupt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_toggle ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__ca1_c ? 1 : 0);
+}
+
 static void print_scsi_stop_state() {
 	printf("SCSI state: mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
 	       "sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X "
@@ -325,6 +374,7 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask);
+	print_via_timer_state(stdout, "VIA timers:");
 	printf("Profile: irq_changes=%llu irq1=%llu irq2=%llu irq4=%llu irq7=%llu "
 	       "fetch_scsi_timeout=%llu fetch_tick_wait=%llu fetch_vbl=%llu fetch_lowmem=%llu\n",
 	       (unsigned long long)profile_irq_change_count,
@@ -458,6 +508,93 @@ int verilate() {
 					}
 					profile_last_ipl = cur_ipl;
 				}
+			}
+
+			if (calib_debug_enable && !*bus.ioctl_download && calib_debug_count < calib_debug_max) {
+				uint32_t tick = lowmem_tick_016a();
+				bool via1_t1 = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_event;
+				bool via2_t1 = VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_event;
+				bool tick_initialized = ram_word(0x0D28) == 0x4080 && (tick >> 16) == 0;
+				if (tick_initialized && tick != calib_debug_last_lowmem_tick) {
+					fprintf(stderr,
+						"CALIB_TICK frame=%d tick=%08X time=%llu pc=%08X W0D00=%04X W0DA6=%04X\n",
+						video.count_frame,
+						tick,
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						ram_word(0x0D00),
+						ram_word(0x0DA6));
+					calib_debug_count++;
+					calib_debug_last_lowmem_tick = tick;
+				}
+
+				if ((via1_t1 && !calib_debug_prev_via1_t1) ||
+				    (via2_t1 && !calib_debug_prev_via2_t1)) {
+					char prefix[128];
+					snprintf(prefix, sizeof(prefix),
+						"CALIB_T1 frame=%d tick=%08X time=%llu pc=%08X",
+						video.count_frame,
+						tick,
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc);
+					print_via_timer_state(stderr, prefix);
+					calib_debug_count++;
+				}
+				calib_debug_prev_via1_t1 = via1_t1;
+				calib_debug_prev_via2_t1 = via2_t1;
+
+				if (VERTOPINTERN->debug_write_valid && !calib_debug_prev_write_valid) {
+					uint32_t waddr = VERTOPINTERN->debug_write_addr;
+					if (waddr == 0x00000D00 || waddr == 0x00000DA6 ||
+					    waddr == 0x00000D24 || waddr == 0x00000D28 ||
+					    waddr == 0x0000016A || waddr == 0x0000016C) {
+						fprintf(stderr,
+							"CALIB_LM_WR frame=%d tick=%08X time=%llu pc=%08X addr=%08X data=%04X W0D00=%04X W0DA6=%04X W0D24=%04X W0D28=%04X\n",
+							video.count_frame,
+							tick,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc,
+							waddr,
+							VERTOPINTERN->debug_write_data,
+							ram_word(0x0D00),
+							ram_word(0x0DA6),
+							ram_word(0x0D24),
+							ram_word(0x0D28));
+						calib_debug_count++;
+					}
+				}
+				calib_debug_prev_write_valid = VERTOPINTERN->debug_write_valid;
+
+				bool via_rd = VERTOPINTERN->debug_viaRd;
+				bool via_wr = VERTOPINTERN->debug_viaWr;
+				if (((via_rd && !calib_debug_prev_via_rd) ||
+				     (via_wr && !calib_debug_prev_via_wr)) &&
+				    (VERTOPINTERN->debug_selectVIA || VERTOPINTERN->debug_selectVIA2)) {
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					uint8_t reg = (addr >> 9) & 0x0F;
+					bool interesting_reg = (reg >= 4 && reg <= 7) || reg == 0x0B ||
+					                       reg == 0x0D || reg == 0x0E;
+					if (interesting_reg) {
+						fprintf(stderr,
+							"CALIB_VIA frame=%d tick=%08X time=%llu pc=%08X %s %s reg=%X addr=%08X din=%04X dout=%04X W0D00=%04X W0DA6=%04X\n",
+							video.count_frame,
+							tick,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc,
+							VERTOPINTERN->debug_selectVIA2 ? "VIA2" : "VIA1",
+							VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
+							reg,
+							addr,
+							VERTOPINTERN->debug_cpuDataIn,
+							VERTOPINTERN->debug_cpuDataOut,
+							ram_word(0x0D00),
+							ram_word(0x0DA6));
+						print_via_timer_state(stderr, "CALIB_VIA_STATE");
+						calib_debug_count++;
+					}
+				}
+				calib_debug_prev_via_rd = via_rd;
+				calib_debug_prev_via_wr = via_wr;
 			}
 
 			// Vector table write watchpoint - log any write to $0-$3FF
@@ -1575,6 +1712,7 @@ void show_help() {
 	printf("  --scsi-debug                  Trace focused NCR5380 bus transactions\n");
 	printf("  --iwm-debug                   Trace focused IWM/floppy bus transactions\n");
 	printf("  --wait-debug                  Trace ROM wait helper around PC 40801610\n");
+	printf("  --calib-debug                 Trace VIA timers and low-memory delay calibration\n");
 	printf("  --scc-bus-debug              Trace focused CPU SCC bus transactions\n");
 	printf("  --ram-size-cpu-debug          Trace CPU state through ROM RAM sizing\n");
 	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
@@ -1675,6 +1813,8 @@ int main(int argc, char** argv, char** env) {
 			iwm_debug_enable = true;
 		} else if (strcmp(argv[i], "--wait-debug") == 0) {
 			wait_debug_enable = true;
+		} else if (strcmp(argv[i], "--calib-debug") == 0) {
+			calib_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
 			nubus_video_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-full-debug") == 0) {

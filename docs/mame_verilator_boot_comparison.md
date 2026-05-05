@@ -665,3 +665,42 @@ wait scheduling do not match MAME closely enough. Next useful probes should
 log the VIA Timer 1 count/latch/ACR/PB7 state and the writes that establish
 low-memory `$0D00` and `$0DA6`, then compare those values against MAME's
 `via6522_device` behavior.
+
+## 2026-05-05 Calibration Probe Update
+
+The next probe confirms that MAME and Verilator program the same VIA2 Timer 1
+setup, but they do not compute the same delay constants before that setup.
+This makes the divergence earlier than the later SCSI/no-target wait.
+
+MAME reaches the calibration setup at frame 67:
+
+```text
+MAME_CALIB_VIA_W frame=67 pc=40800626 VIA1 reg=E data=20202020 W0D00=0A3B W0DA6=0417
+MAME_CALIB_VIA_W frame=67 pc=40800752 VIA2 reg=B data=C0C0C0C0 W0D00=0A3B W0DA6=0417
+MAME_CALIB_VIA_W frame=67 pc=40800762 VIA2 reg=4 data=6E6E6E6E W0D00=0A3B W0DA6=0417
+MAME_CALIB_VIA_W frame=67 pc=40800768 VIA2 reg=5 data=19191919 W0D00=0A3B W0DA6=0417
+```
+
+Verilator executes the equivalent sequence, but the low-memory constants are
+already much smaller:
+
+```text
+CALIB_LM_WR frame=115 pc=408005AE addr=00000D00 data=054D
+CALIB_LM_WR frame=115 pc=40800624 addr=00000DA6 data=0196
+CALIB_VIA frame=115 pc=40800758 VIA2 WR reg=B din=C0C0 W0D00=054D W0DA6=0196
+CALIB_VIA frame=115 pc=40800766 VIA2 WR reg=4 din=6E6E W0D00=054D W0DA6=0196
+CALIB_VIA frame=115 pc=4080076C VIA2 WR reg=5 din=1919 W0D00=054D W0DA6=0196
+```
+
+So VIA2 Timer 1 is not being programmed with the wrong latch. Both runs use
+`ACR=$C0` and latch `$196E`. The problem is the earlier ROM calibration loop
+around `$40800572-$40800624`: Verilator completes about half as many iterations
+before the VIA event as MAME. That stores `$054D/$0196` instead of
+`$0A3B/$0417`.
+
+Changing the simulator's TG68K CPU mode input from `2'b10` to the documented
+68020 mode `2'b11` did not change the measured constants. The remaining likely
+cause is effective timing of the VIA-heavy calibration loop, especially the
+TG68K VPA/VMA/E-cycle handshake and its interaction with repeated VIA accesses,
+rather than a wrong ASC state, SCSI target state, NuBus card selection, or VIA2
+T1 latch value.

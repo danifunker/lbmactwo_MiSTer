@@ -77,6 +77,15 @@ MAME_STOP_FRAME=900 MAME_FRAME_INTERVAL=80 MAME_MAX_PRINT=160 SDL_VIDEODRIVER=du
   -autoboot_script ../tools/mame/macii_wait_probe.lua
 ```
 
+For the low-memory delay calibration setup, use:
+
+```sh
+MAME_STOP_FRAME=120 MAME_FRAME_INTERVAL=20 MAME_MAX_PRINT=300 SDL_VIDEODRIVER=dummy ./mame macii \
+  -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
+  -nb9 "" -nbe m2hires -scsi:6 "" -flop ../releases/Disk605.dsk \
+  -autoboot_script ../tools/mame/macii_calib_probe.lua
+```
+
 The local MAME ROM setup expected for the matched card is:
 
 - Mac II system ROM in `mame/roms/macii.zip`.
