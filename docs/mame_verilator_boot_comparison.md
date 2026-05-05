@@ -604,3 +604,64 @@ So the current blocker has moved: it is no longer ASC, early SCSI BSY, or the
 first IWM motor-on value. The next suspect is the ROM wait/VBL scheduling path
 around `$40801610-$40801658` and why Verilator keeps taking the longer wait
 path after the SCSI helper returns.
+
+## 2026-05-05 Wait Path / Calibration Update
+
+The latest focused probes narrow the divergence again. Verilator reaches the
+ROM wait helper at `$408015EA` around frame 299 and then enters the long
+absolute-tick timeout path at `$40801600`. The ROM itself sets up the long
+timeout there:
+
+```text
+WAIT_DBG frame=299 tick=0000009C pc=40801600 op=303C D5=0000012C
+WAIT_DBG frame=299 tick=0000009C pc=4080160A op=41F8 D0=000004B0
+WAIT_DBG frame=299 tick=0000009C pc=4080160C op=2A00 D5=0000012C
+WAIT_DBG frame=299 tick=0000009C pc=40801610 op=A07F D5=000004B0
+```
+
+So the observed `D5=$000004B0` spin is not a corrupted caller register. It is
+the 20 second ROM timeout path:
+
+```text
+move.w  #$0014,d0
+mulu.w  #$003c,d0
+move.l  d0,d5
+```
+
+Matched MAME, using `-nb9 "" -nbe m2hires -scsi:6 ""` and the same floppy
+image, does not hit the `$408015EA/$408016xx` wait path in the same window. A
+debugger trace command that starts tracing at `$408015EA` produced no trace file
+by frame 360, and the Lua wait probe reported zero hits by frame 900:
+
+```text
+MAME_WAIT_FRAME frame=300 pc=00004606 tick016A=00000074 D5=0000012C W0D24=0000 W0D28=4080
+MAME_WAIT_FRAME frame=320 pc=408061F2 tick016A=00000088 D5=0000012C W0D24=0000 W0D28=4080
+MAME_WAIT_SUMMARY frames=900 hits=0 pc=408061F2 tick016A=00000289 D5=0000002D W0D24=0000 W0D28=4080
+```
+
+The frame counters are not an exact timebase match, but the low-memory
+calibration words still show a large real difference:
+
+| Run | Approx frame | long `$016A` | word `$0D00` | word `$0DA6` |
+| --- | --- | --- | --- | --- |
+| MAME matched card | 320 | `$00000088` | `$0A3B` | `$0417` |
+| Verilator current | 330 | `$000000B8` | `$054D` | `$0196` |
+
+`$0DA6` is the ROM's calibrated DBNE/SCSI delay constant. Verilator's value is
+still much lower than MAME's even after moving VIA timer countdowns to the
+Mac II `C7M/10` rate. That points at CPU/VIA timing calibration or effective
+instruction throughput, not ASC.
+
+The current SCSI stop state also does not look like a stuck target or asserted
+BSY problem:
+
+```text
+SCSI state: mr=00 icr=05 tcr=00 odr=81 busdin=00 req=0 tbsy=00 treq=00
+```
+
+The ROM is still paying no-target timeout costs, but the bus itself is idle.
+The leading theory is now that the ROM's calibrated delay constants and tick
+wait scheduling do not match MAME closely enough. Next useful probes should
+log the VIA Timer 1 count/latch/ACR/PB7 state and the writes that establish
+low-memory `$0D00` and `$0DA6`, then compare those values against MAME's
+`via6522_device` behavior.

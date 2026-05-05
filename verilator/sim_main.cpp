@@ -121,6 +121,7 @@ bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
 bool scsi_debug_enable = false;
 bool iwm_debug_enable = false;
+bool wait_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 int scsi_debug_count = 0;
@@ -164,6 +165,10 @@ uint64_t profile_vbl_handler_fetches = 0;
 uint64_t profile_lowmem_fetches = 0;
 uint32_t profile_last_fetch_pc = 0xFFFFFFFF;
 uint8_t profile_last_ipl = 7;
+int wait_debug_count = 0;
+const int wait_debug_max = 600;
+uint32_t wait_debug_last_pc = 0xFFFFFFFF;
+uint32_t wait_debug_last_tick = 0xFFFFFFFF;
 
 // Headless mode (no GUI)
 // ----------------------
@@ -221,6 +226,17 @@ Vemu* top = NULL;
 vluint64_t main_time = 0;	// Current simulation time.
 double sc_time_stamp() {	// Called by $time in Verilog.
 	return main_time;
+}
+
+static inline uint16_t ram_word(uint32_t addr) {
+	if (addr >= 0x01000000) {
+		return 0xFFFF;
+	}
+	return VERTOPINTERN->emu__DOT__ram__DOT__mem[(addr >> 1) & 0x7FFFFF];
+}
+
+static inline uint32_t ram_long(uint32_t addr) {
+	return ((uint32_t)ram_word(addr) << 16) | ram_word(addr + 2);
 }
 
 static inline uint32_t tg68_reg(int idx) {
@@ -380,7 +396,7 @@ int verilate() {
 					if (pc >= 0x40826CB6 && pc <= 0x40826CD4) {
 						profile_scsi_timeout_fetches++;
 					}
-					if (pc >= 0x40801610 && pc <= 0x40801658) {
+					if (pc >= 0x40801500 && pc <= 0x40801658) {
 						profile_tick_wait_fetches++;
 					}
 					if (pc >= 0x4080612E && pc <= 0x408061F2) {
@@ -390,6 +406,46 @@ int verilate() {
 						profile_lowmem_fetches++;
 					}
 					profile_last_fetch_pc = pc;
+				}
+				if (wait_debug_enable &&
+				    pc >= 0x40801500 && pc <= 0x40801666 &&
+				    wait_debug_count < wait_debug_max) {
+					uint32_t tick = lowmem_tick_016a();
+					bool spin_pc = (pc >= 0x40801652 && pc <= 0x40801658);
+					bool should_log = spin_pc ? (tick != wait_debug_last_tick) : (pc != wait_debug_last_pc);
+					if (should_log) {
+						uint32_t sp = tg68_reg(15);
+						uint32_t a2 = tg68_reg(10);
+						fprintf(stderr,
+							"WAIT_DBG frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+							"D0=%08X D1=%08X D2=%08X D5=%08X D7=%08X "
+							"A0=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X "
+							"W017A=%04X B0C2F=%02X W0D24=%04X W0D28=%04X A2W8=%04X\n",
+							video.count_frame,
+							tick,
+							(unsigned long long)main_time,
+							pc,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0),
+							tg68_reg(1),
+							tg68_reg(2),
+							tg68_reg(5),
+							tg68_reg(7),
+							tg68_reg(8),
+							tg68_reg(10),
+							tg68_reg(11),
+							tg68_reg(12),
+							sp,
+							ram_long(sp),
+							ram_word(0x017A),
+							ram_word(0x0C2E) & 0x00FF,
+							ram_word(0x0D24),
+							ram_word(0x0D28),
+							ram_word(a2 + 8));
+						wait_debug_count++;
+						wait_debug_last_pc = pc;
+						wait_debug_last_tick = tick;
+					}
 				}
 			}
 
@@ -1518,6 +1574,7 @@ void show_help() {
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
 	printf("  --scsi-debug                  Trace focused NCR5380 bus transactions\n");
 	printf("  --iwm-debug                   Trace focused IWM/floppy bus transactions\n");
+	printf("  --wait-debug                  Trace ROM wait helper around PC 40801610\n");
 	printf("  --scc-bus-debug              Trace focused CPU SCC bus transactions\n");
 	printf("  --ram-size-cpu-debug          Trace CPU state through ROM RAM sizing\n");
 	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
@@ -1616,6 +1673,8 @@ int main(int argc, char** argv, char** env) {
 			scsi_debug_enable = true;
 		} else if (strcmp(argv[i], "--iwm-debug") == 0) {
 			iwm_debug_enable = true;
+		} else if (strcmp(argv[i], "--wait-debug") == 0) {
+			wait_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
 			nubus_video_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-full-debug") == 0) {
