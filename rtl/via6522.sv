@@ -17,6 +17,7 @@ module via6522 (
     input  wire        clock,
     input  wire        rising,
     input  wire        falling,
+    input  wire        timer_tick,
     input  wire        reset,
     
     input  wire [3:0]  addr,
@@ -519,7 +520,7 @@ module via6522 (
     reg        timer_a_toggle = 1'b1;
     reg        timer_a_may_interrupt = 1'b0;
     always @(posedge clock) begin
-        if (falling == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             // always count, or load
                 
             if (timer_a_reload == 1'b1) begin
@@ -539,7 +540,7 @@ module via6522 (
             end
         end
         
-        if (rising == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             if (timer_a_event == 1'b1 && tmr_a_output_en == 1'b1) begin
                 timer_a_toggle <= ~timer_a_toggle;
             end
@@ -561,7 +562,7 @@ module via6522 (
     end
 
     assign timer_a_out = timer_a_toggle;
-    assign timer_a_event = rising & timer_a_reload & timer_a_may_interrupt;
+    assign timer_a_event = timer_tick & timer_a_reload & timer_a_may_interrupt;
 
     // Timer B
     reg        timer_b_reload_lo = 1'b0;
@@ -573,12 +574,12 @@ module via6522 (
         reg timer_b_decrement;
         
         timer_b_decrement = 1'b0;
-        if (rising == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             pb6_c <= port_b_i[6];
             pb6_d <= pb6_c;
         end
                         
-        if (falling == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             timer_b_timeout <= 1'b0;
             timer_b_tick <= 1'b0;
 
@@ -630,7 +631,7 @@ module via6522 (
         end
     end
 
-    assign timer_b_event = rising & timer_b_timeout;
+    assign timer_b_event = timer_tick & timer_b_timeout;
     // Serial port
     reg        trigger_serial;
     reg        shift_clock_d = 1'b1;

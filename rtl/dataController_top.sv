@@ -277,6 +277,26 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire via2_pb7_to_via1_ca1;
 	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
 
+	// Mac II VIAs run at C7M/10 ~= 783.36 kHz in MAME and hardware, not at
+	// the 32.5 MHz system clock. Keep register access on the CPU/E strobes,
+	// but gate VIA timer countdowns with this average-rate enable.
+	localparam [31:0] VIA_TIMER_HZ = 32'd783360;
+	localparam [31:0] SYS_CLK_HZ = 32'd32500000;
+	reg [31:0] via_timer_acc = 32'd0;
+	reg via_timer_tick = 1'b0;
+	always @(posedge clk32) begin
+		if (!_cpuReset) begin
+			via_timer_acc <= 32'd0;
+			via_timer_tick <= 1'b0;
+		end else if (via_timer_acc >= (SYS_CLK_HZ - VIA_TIMER_HZ)) begin
+			via_timer_acc <= via_timer_acc + VIA_TIMER_HZ - SYS_CLK_HZ;
+			via_timer_tick <= 1'b1;
+		end else begin
+			via_timer_acc <= via_timer_acc + VIA_TIMER_HZ;
+			via_timer_tick <= 1'b0;
+		end
+	end
+
 	// Mac II VIA reads mirror the 8-bit VIA register on both 68000 byte lanes
 	// (matching MAME's `(data & 0xff) | (data << 8)` handlers).
 	assign viaDataOut[7:0] = viaDataOut[15:8];
@@ -285,6 +305,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.clock      (clk32),
 		.rising     (E_rising),
 		.falling    (E_falling),
+		.timer_tick (via_timer_tick),
 		.reset      (!_cpuReset),
 
 		.addr       (cpuAddrRegHi),
@@ -424,6 +445,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.clock      (clk32),
 		.rising     (E_rising),
 		.falling    (E_falling),
+		.timer_tick (via_timer_tick),
 		.reset      (!_cpuReset),
 
 		.addr       (cpuAddrRegHi),

@@ -146,6 +146,9 @@ module iwm
 	
 	wire [7:0] readData = selectExternalDrive ? readDataExt : readDataInt;
 	wire newByteReady = selectExternalDrive ? newByteReadyExt : newByteReadyInt;
+	wire anyDiskEnable = diskEnableExt | diskEnableInt;
+	wire selectedDiskEnableNext = selectExternalDriveNext ? diskEnableExtNext : diskEnableIntNext;
+	wire anyDiskEnableNext = diskEnableExtNext | diskEnableIntNext;
 	
 	reg [4:0] iwmMode;
 	/* IWM mode register: S C M H L
@@ -240,11 +243,11 @@ module iwm
 		dataOutLo = 8'hEF;
 		
 		// reading any IWM address returns state as selected by Q7 and Q6
-		case ({q7Next,q6Next}) 
+		case ({q7Next,q6Next})
 			2'b00: // data-in register (from disk drive) - MSB is 1 when data is valid
-				dataOutLo <= readDataLatch;
+				dataOutLo <= anyDiskEnableNext ? (anyDiskEnable ? readDataLatch : 8'h00) : 8'hFF;
 			2'b01: // IWM status register - read only
-				dataOutLo <= { (selectExternalDriveNext ? senseExt : senseInt), 1'b0, diskEnableExt & diskEnableInt, iwmMode }; 
+				dataOutLo <= { (selectExternalDriveNext ? senseExt : senseInt), 1'b0, selectedDiskEnableNext, iwmMode };
 			2'b10: // handshake - read only
 				dataOutLo <= { _iwmBusy, _writeUnderrun, 6'b000000 };
 			2'b11: // IWM mode register when not enabled (write-only), or (write?) data register when enabled
@@ -287,14 +290,21 @@ module iwm
 				readLatchClearTimer <= readLatchClearTimer - 1'b1;
 			end
 
+			// MAME clears the IWM data register when the controller enters active
+			// read mode. Avoid exposing stale idle-drive data on the motor-on access.
+			if (!anyDiskEnable && anyDiskEnableNext) begin
+				readDataLatch <= 0;
+				readLatchClearTimer <= 0;
+			end
+
 			// the conclusion of a valid CPU read from the IWM will start the timer to clear the latch
-			if (iwmRead && readDataLatch[7]) begin
+			else if (iwmRead && readDataLatch[7]) begin
 				readLatchClearTimer <= 4'hD; // clear latch 14 clocks after the conclusion of a valid read
 			end
 
 			// when the drive indicates that a new byte is ready, latch it
 			// NOTE: the real IWM must self-synchronize with the incoming data to determine when to latch it
-			if (newByteReady) begin
+			if (anyDiskEnable && newByteReady) begin
 				readDataLatch <= readData;
 			end
 			else if (readLatchClearTimer == 1'b1) begin

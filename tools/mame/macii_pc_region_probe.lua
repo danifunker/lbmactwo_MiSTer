@@ -31,6 +31,10 @@ local function u32(addr)
 	return ((u16(addr) << 16) | u16(addr + 2)) & 0xffffffff
 end
 
+local function u8(addr)
+	return mem:read_u8(addr) or 0
+end
+
 local function fetch_probe(offset, data, mask)
 	local pc = reg("CURPC")
 	if frames < min_frame or hits >= max_hits or pc < start_pc or pc > end_pc then
@@ -53,16 +57,17 @@ mem:install_read_tap(start_pc, end_pc, "pc_region_fetch", fetch_probe)
 emu.register_frame_done(function()
 	frames = frames + 1
 	if frame_interval > 0 and frames >= min_frame and (frames % frame_interval) == 0 then
-		print(string.format("MAME_PC_FRAME frame=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D7=%s A0=%s A3=%s A4=%s",
+		print(string.format("MAME_PC_FRAME frame=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D7=%s A0=%s A3=%s A4=%s W017A=%04X B0C2F=%02X W0D24=%04X W0D28=%04X",
 			frames, hex(reg("CURPC")), hex(u32(0x016a)), hex(reg("D0")),
 			hex(reg("D1")), hex(reg("D5")), hex(reg("D7")), hex(reg("A0")),
-			hex(reg("A3")), hex(reg("A4"))))
+			hex(reg("A3")), hex(reg("A4")), u16(0x017a), u8(0x0c2f),
+			u16(0x0d24), u16(0x0d28)))
 	end
 	if frames >= stop_frame then
-		print(string.format("MAME_PC_REGION_SUMMARY frames=%d hits=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D7=%s A3=%s A4=%s",
+		print(string.format("MAME_PC_REGION_SUMMARY frames=%d hits=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D7=%s A3=%s A4=%s W017A=%04X B0C2F=%02X W0D24=%04X W0D28=%04X",
 			frames, hits, hex(reg("CURPC")), hex(u32(0x016a)), hex(reg("D0")),
 			hex(reg("D1")), hex(reg("D5")), hex(reg("D7")), hex(reg("A3")),
-			hex(reg("A4"))))
+			hex(reg("A4")), u16(0x017a), u8(0x0c2f), u16(0x0d24), u16(0x0d28)))
 		manager.machine:exit()
 	end
 end, "macii_pc_region_probe")

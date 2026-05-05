@@ -6,6 +6,7 @@ local reads = 0
 local writes = 0
 local printed = 0
 local stop_frame = tonumber(os.getenv("MAME_STOP_FRAME") or "300") or 300
+local min_frame = tonumber(os.getenv("MAME_MIN_FRAME") or "0") or 0
 local max_print = tonumber(os.getenv("MAME_MAX_PRINT") or "5000") or 5000
 
 local function hex(v, w)
@@ -18,6 +19,9 @@ end
 
 local function log(kind, addr, data, mask)
 	if printed >= max_print then
+		return
+	end
+	if frames < min_frame then
 		return
 	end
 

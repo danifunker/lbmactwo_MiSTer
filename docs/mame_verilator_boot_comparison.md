@@ -543,3 +543,64 @@ SCSI bus signal. The ROM delay constants still differ substantially from MAME
 (`$0D00/$0DA6`: Verilator `$051B/$0188`, MAME `$0A3B/$0417`), and the no-target
 DBNE loop is consuming too much frame time even with the smaller Verilator
 timeout constant.
+
+## 2026-05-05 IWM and VIA Timer Update
+
+A focused IWM comparison found an early low-memory floppy mismatch. In MAME,
+when the ROM enables the IWM motor/active bit, the controller enters active read
+mode and clears `m_data`, so the second access in this sequence returns zero:
+
+```text
+MAME frame 294:
+  pc=0082E1F8 addr=50017400 data=FFFF
+  pc=0082E1FC addr=50017200 data=0000
+```
+
+Before the fix, Verilator could return stale idle-drive `$FF` on the
+`$50F17200` motor-on access. The IWM model now returns `$FF` only while no drive
+is enabled, returns `$00` on the inactive-to-active read transition, and clears
+the read latch when the controller becomes active. A focused `--iwm-debug`
+run confirms the first low-memory sequence now matches MAME:
+
+```text
+Verilator frame 158:
+  pc=0082E1FC addr=50F17400 dout=FFFF
+  pc=0082E200 addr=50F17200 dout=0000
+```
+
+This did not by itself boot to the cursor. The remaining SCSI-looking stall was
+then traced to ROM delay timing, not to an asserted SCSI bus signal. The helper
+at `$40826CB6` multiplies a timeout argument by low-memory word `$0DA6`, swaps
+the high word into `D5`, and uses nested `DBcc` loops. With the bad calibration,
+the outer loop can hit zero and underflow to `$FFFF`, stretching the no-target
+timeout path.
+
+MAME clocks the Mac II VIAs at `C7M/10` (about 783.36 kHz) and synchronizes CPU
+VIA accesses to that slower device clock. The FPGA core had the VIA timers
+counting on the faster CPU/E-side timing. The VIA core now has a separate
+average-rate `timer_tick` for Timer 1/Timer 2 countdowns while keeping register
+accesses on the existing CPU/E strobes.
+
+After the VIA timer tick change, Verilator no longer stops in the SCSI timeout
+at frame 320:
+
+```text
+Verilator frame 320:
+  pc=40801658
+  SCSI state: mr=00 icr=00 tcr=00 odr=81 req=0 tbsy=00 treq=00
+  LowMem: long[$016A]=000000AF word[$0D00]=054D word[$0DA6]=0196
+```
+
+A longer frame-820 run still has not reached MAME's low-memory floppy loop. It
+is spending most time in the ROM tick-wait helper at `$40801656` with
+`D5=$000004B0`, while matched MAME has already returned to the floppy driver:
+
+```text
+MAME frame 820:      pc=0082E7F8 tick=00000242 A4=50F17800
+Verilator frame 820: pc=40801656 tick=00000283 A3=40801800 A4=00000032
+```
+
+So the current blocker has moved: it is no longer ASC, early SCSI BSY, or the
+first IWM motor-on value. The next suspect is the ROM wait/VBL scheduling path
+around `$40801610-$40801658` and why Verilator keeps taking the longer wait
+path after the SCSI helper returns.

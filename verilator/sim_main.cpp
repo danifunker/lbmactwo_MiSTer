@@ -120,11 +120,15 @@ bool via_debug_prev_wr = false;
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
 bool scsi_debug_enable = false;
+bool iwm_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 int scsi_debug_count = 0;
 const int scsi_debug_max = 2000;
 bool scsi_debug_prev_bus_control = false;
+int iwm_debug_count = 0;
+const int iwm_debug_max = 2000;
+bool iwm_debug_prev_bus_control = false;
 int scc_bus_debug_count = 0;
 const int scc_bus_debug_max = 800;
 bool scc_bus_debug_prev_bus_control = false;
@@ -152,6 +156,14 @@ uint32_t stop_at_tick = 0;
 bool stop_at_tick_enabled = false;
 uint64_t unique_fetch_count = 0;
 uint32_t unique_fetch_last_pc = 0xFFFFFFFF;
+uint64_t profile_irq_assert_count[8] = {0};
+uint64_t profile_irq_change_count = 0;
+uint64_t profile_scsi_timeout_fetches = 0;
+uint64_t profile_tick_wait_fetches = 0;
+uint64_t profile_vbl_handler_fetches = 0;
+uint64_t profile_lowmem_fetches = 0;
+uint32_t profile_last_fetch_pc = 0xFFFFFFFF;
+uint8_t profile_last_ipl = 7;
 
 // Headless mode (no GUI)
 // ----------------------
@@ -272,6 +284,11 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0680],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x06D3]);
+	printf("LowMem boot: word[$017A]=%04X byte[$0C2F]=%02X word[$0D24]=%04X word[$0D28]=%04X\n",
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00BD],
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0617] & 0x00FF,
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0692],
+	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0694]);
 	printf("Regs: D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X\n",
 	       tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
 	       tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7));
@@ -282,6 +299,27 @@ static void print_scsi_stop_state() {
 	       (unsigned long long)main_time,
 	       video.count_frame,
 	       (unsigned long long)unique_fetch_count);
+	printf("IRQ: ipl=%u nubus_irq_n=%u vbl_irq=%u vbl_disable=%u "
+	       "via1_ifr=%02X via1_ier=%02X via2_ifr=%02X via2_ier=%02X\n",
+	       VERTOPINTERN->debug_cpuIPL,
+	       VERTOPINTERN->emu__DOT__nubus_irq_n,
+	       VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
+	       VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask);
+	printf("Profile: irq_changes=%llu irq1=%llu irq2=%llu irq4=%llu irq7=%llu "
+	       "fetch_scsi_timeout=%llu fetch_tick_wait=%llu fetch_vbl=%llu fetch_lowmem=%llu\n",
+	       (unsigned long long)profile_irq_change_count,
+	       (unsigned long long)profile_irq_assert_count[6],
+	       (unsigned long long)profile_irq_assert_count[5],
+	       (unsigned long long)profile_irq_assert_count[3],
+	       (unsigned long long)profile_irq_assert_count[0],
+	       (unsigned long long)profile_scsi_timeout_fetches,
+	       (unsigned long long)profile_tick_wait_fetches,
+	       (unsigned long long)profile_vbl_handler_fetches,
+	       (unsigned long long)profile_lowmem_fetches);
 }
 
 // 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
@@ -337,6 +375,32 @@ int verilate() {
 				if (pc != unique_fetch_last_pc) {
 					unique_fetch_last_pc = pc;
 					unique_fetch_count++;
+				}
+				if (pc != profile_last_fetch_pc) {
+					if (pc >= 0x40826CB6 && pc <= 0x40826CD4) {
+						profile_scsi_timeout_fetches++;
+					}
+					if (pc >= 0x40801610 && pc <= 0x40801658) {
+						profile_tick_wait_fetches++;
+					}
+					if (pc >= 0x4080612E && pc <= 0x408061F2) {
+						profile_vbl_handler_fetches++;
+					}
+					if (pc >= 0x00800000 && pc <= 0x008FFFFF) {
+						profile_lowmem_fetches++;
+					}
+					profile_last_fetch_pc = pc;
+				}
+			}
+
+			if (!*bus.ioctl_download) {
+				uint8_t cur_ipl = VERTOPINTERN->debug_cpuIPL & 0x07;
+				if (cur_ipl != profile_last_ipl) {
+					profile_irq_change_count++;
+					if (cur_ipl != 7) {
+						profile_irq_assert_count[cur_ipl]++;
+					}
+					profile_last_ipl = cur_ipl;
 				}
 			}
 
@@ -562,6 +626,33 @@ int verilate() {
 					scsi_debug_count++;
 				}
 				scsi_debug_prev_bus_control = bus_control;
+			}
+
+			if (iwm_debug_enable && !*bus.ioctl_download) {
+				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
+				if (bus_control && !iwm_debug_prev_bus_control &&
+				    VERTOPINTERN->debug_selectIWM &&
+				    iwm_debug_count < iwm_debug_max) {
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					uint8_t reg = (addr >> 9) & 0x0f;
+					bool rw = VERTOPINTERN->debug_cpuRW;
+					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;
+					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;
+
+					fprintf(stderr,
+						"IWM_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%X din=%04X dout=%04X\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						rw ? "RD" : "WR",
+						addr,
+						reg,
+						data_in,
+						data_out);
+					iwm_debug_count++;
+				}
+				iwm_debug_prev_bus_control = bus_control;
 			}
 
 			if (nubus_video_debug_enable && !*bus.ioctl_download) {
@@ -1426,6 +1517,7 @@ void show_help() {
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
 	printf("  --scsi-debug                  Trace focused NCR5380 bus transactions\n");
+	printf("  --iwm-debug                   Trace focused IWM/floppy bus transactions\n");
 	printf("  --scc-bus-debug              Trace focused CPU SCC bus transactions\n");
 	printf("  --ram-size-cpu-debug          Trace CPU state through ROM RAM sizing\n");
 	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
@@ -1522,6 +1614,8 @@ int main(int argc, char** argv, char** env) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
+		} else if (strcmp(argv[i], "--iwm-debug") == 0) {
+			iwm_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
 			nubus_video_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-full-debug") == 0) {
