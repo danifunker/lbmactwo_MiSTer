@@ -492,3 +492,54 @@ The visible frame-300 Verilator screenshot is still vertical stripes with no
 cursor. The next comparison should start after the fixed RAM and ASC milestones
 and focus on why the post-ASC video/NuBus/SCSI path has not produced the normal
 cursor screen yet.
+
+## 2026-05-04 NCR5380 BSY Release Update
+
+A focused SCSI trace found a real NCR5380 model bug in the early ROM probe.
+Before the fix, the ROM wrote the mode register back to zero at `$40800688`,
+but the simplified arbitration path left `ICR_A_BSY` asserted. The next ROM
+poll at `$40800690` therefore read CSR `$40` (`BSY`) in Verilator. The matched
+MAME run reads CSR `$00` in the same early register-4 polling window.
+
+The RTL now clears the initiator-owned BSY latch when the host clears
+`MR.ARB`. A short `--scsi-debug --stop-at-frame 40` run confirms the same early
+sequence now returns CSR/data `$00` at `$40800690`, and frame 120 stops with the
+NCR idle:
+
+```text
+PC=4080DE3E
+SCSI state: mr=00 icr=00 tcr=00 odr=00 req=0 tbsy=00 treq=00
+LowMem: long[$016A]=00000000 word[$0D00]=051B word[$0DA6]=0188
+```
+
+This removes the earlier stuck-BSY divergence; ASC, VIA RAM sizing, NuBus VBL,
+and the early SCSI idle probe now all pass the focused comparisons.
+
+The remaining post-ASC mismatch is not that the ROM enters the wrong helper.
+MAME also samples the same SCSI helper with `A3=$50F10000`:
+
+```text
+MAME frame 280: pc=40826CA8 tick=00000063 A3=50F10000 A4=00002C60
+```
+
+The current difference is how long Verilator spends in the no-target timeout.
+MAME has left that path by frame 500 and is executing copied low-memory code:
+
+```text
+MAME frame 500: pc=0082E80C tick=0000012A A4=50F17800
+```
+
+Verilator is still in the DBNE timeout at frame 500:
+
+```text
+Verilator frame 500: pc=40826CCA tick=00000165
+SCSI state: mr=00 icr=05 tcr=00 odr=81 req=0 tbsy=00 treq=00
+LowMem: word[$0D00]=051B word[$0DA6]=0188
+```
+
+The SCSI state there is internally idle/no-target, so the next likely blocker is
+CPU/timer calibration or instruction throughput rather than ASC or an asserted
+SCSI bus signal. The ROM delay constants still differ substantially from MAME
+(`$0D00/$0DA6`: Verilator `$051B/$0188`, MAME `$0A3B/$0417`), and the no-target
+DBNE loop is consuming too much frame time even with the smaller Verilator
+timeout constant.

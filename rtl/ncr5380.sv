@@ -159,6 +159,8 @@ module ncr5380
 			icr <= 0;
 		end else if (reg_wr && (bus_rs == `WREG_ICR)) begin
 			icr <= wdata;
+		end else if (reg_wr && (bus_rs == `WREG_MR) && !wdata[`MR_ARB]) begin
+			icr[`ICR_A_BSY] <= 1'b0;
 		end else if (arb_active && arb_count == 8'd0) begin
 			icr[`ICR_A_BSY] <= 1'b1;
 		end

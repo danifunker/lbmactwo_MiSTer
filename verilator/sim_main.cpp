@@ -119,8 +119,12 @@ bool via_debug_prev_wr = false;
 // they produce very large logs on long headless runs.
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
+bool scsi_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
+int scsi_debug_count = 0;
+const int scsi_debug_max = 2000;
+bool scsi_debug_prev_bus_control = false;
 int scc_bus_debug_count = 0;
 const int scc_bus_debug_max = 800;
 bool scc_bus_debug_prev_bus_control = false;
@@ -128,6 +132,7 @@ int ram_size_cpu_debug_count = 0;
 const int ram_size_cpu_debug_max = 500;
 uint32_t ram_size_cpu_debug_last_pc = 0xFFFFFFFF;
 bool nubus_video_debug_enable = false;
+bool nubus_video_debug_full = false;
 int nubus_video_debug_count = 0;
 const int nubus_video_debug_max = 1000;
 bool nubus_video_debug_prev_bus_control = false;
@@ -222,6 +227,21 @@ static inline bool lowmem_tick_reached() {
 		return false;
 	}
 	return tick >= stop_at_tick;
+}
+
+static inline uint8_t scsi_debug_csr() {
+	uint8_t mr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr;
+	uint8_t icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
+	uint8_t target_bsy = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy;
+	bool scsi_bsy = (icr & 0x08) || target_bsy || (mr & 0x01);
+
+	return ((icr & 0x80) ? 0x80 : 0x00) |
+	       (scsi_bsy ? 0x40 : 0x00) |
+	       (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 0x20 : 0x00) |
+	       (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_msg ? 0x10 : 0x00) |
+	       (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_cd ? 0x08 : 0x00) |
+	       (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_io ? 0x04 : 0x00) |
+	       ((icr & 0x04) ? 0x02 : 0x00);
 }
 
 static void print_scsi_stop_state() {
@@ -491,6 +511,59 @@ int verilate() {
 				periph_debug_prev_bus_control = bus_control;
 			}
 
+			if (scsi_debug_enable && !*bus.ioctl_download) {
+				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
+				if (bus_control && !scsi_debug_prev_bus_control &&
+				    VERTOPINTERN->debug_selectSCSI &&
+				    scsi_debug_count < scsi_debug_max) {
+					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+					uint8_t reg = (addr >> 4) & 0x07;
+					bool rw = VERTOPINTERN->debug_cpuRW;
+					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;
+					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;
+					uint8_t mr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr;
+					uint8_t icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
+					uint8_t tcr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr;
+
+					fprintf(stderr,
+						"SCSI_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%u din=%04X dout=%04X "
+						"csr=%02X mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X arb=%d arb_count=%02X "
+						"req=%d tbsy=%02X treq=%02X tmsg=%02X tcd=%02X tio=%02X "
+						"t0_phase=%d t0_mnt=%d t0_ack=%d t0_cmd=%d t0_cnt=%u t0_done=%d\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						rw ? "RD" : "WR",
+						addr,
+						reg,
+						data_in,
+						data_out,
+						scsi_debug_csr(),
+						mr,
+						icr,
+						tcr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_active ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_count,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_msg,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_cd,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_io,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__mounted ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0);
+					scsi_debug_count++;
+				}
+				scsi_debug_prev_bus_control = bus_control;
+			}
+
 			if (nubus_video_debug_enable && !*bus.ioctl_download) {
 				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
 				if (bus_control && !nubus_video_debug_prev_bus_control &&
@@ -502,13 +575,27 @@ int verilate() {
 						((local & 0x0000FF) == 0x10 || (local & 0x0000FF) == 0x12);
 					bool is_vbl_control = ((local & 0x0F0000) == 0x0A0000) &&
 						((local & 0x0000FF) == 0x00 || (local & 0x0000FF) == 0x04);
+					bool is_vram_write = !VERTOPINTERN->debug_cpuRW &&
+						((local & 0x080000) == 0x000000);
+					bool is_reg_write = !VERTOPINTERN->debug_cpuRW &&
+						((local & 0x0F0000) == 0x080000);
+					bool is_ramdac_write = !VERTOPINTERN->debug_cpuRW &&
+						((local & 0x0F0000) == 0x090000);
 
-					if (is_vbl_status || is_vbl_control) {
+					if (is_vbl_status || is_vbl_control ||
+					    (nubus_video_debug_full && (is_vram_write || is_reg_write || is_ramdac_write))) {
 						fprintf(stderr,
-							"NUBUS_VIDEO_DBG frame=%d time=%llu pc=%08X %s addr=%08X local=%06X data_in=%04X data_out=%04X\n",
+							"NUBUS_VIDEO_DBG frame=%d tick=%08X time=%llu pc=%08X ipl=%u nirq=%u vbl_irq=%u vbl_dis=%u via2_ifr=%02X via2_ier=%02X %s addr=%08X local=%06X data_in=%04X data_out=%04X\n",
 							video.count_frame,
+							lowmem_tick_016a(),
 							(unsigned long long)main_time,
 							VERTOPINTERN->debug_pc,
+							VERTOPINTERN->debug_cpuIPL,
+							VERTOPINTERN->emu__DOT__nubus_irq_n,
+							VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
+							VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
 							VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
 							addr,
 							local,
@@ -1338,9 +1425,11 @@ void show_help() {
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
+	printf("  --scsi-debug                  Trace focused NCR5380 bus transactions\n");
 	printf("  --scc-bus-debug              Trace focused CPU SCC bus transactions\n");
 	printf("  --ram-size-cpu-debug          Trace CPU state through ROM RAM sizing\n");
 	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
+	printf("  --nubus-video-full-debug      Also include NuBus video VRAM/register/RAMDAC writes\n");
 	printf("  --scsi0 <file>                Mount a SCSI disk image on target 0 (ID 6)\n");
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
 	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
@@ -1431,8 +1520,13 @@ int main(int argc, char** argv, char** env) {
 			periph_debug_enable = true;
 		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
 			verbose_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
+			scsi_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
 			nubus_video_debug_enable = true;
+		} else if (strcmp(argv[i], "--nubus-video-full-debug") == 0) {
+			nubus_video_debug_enable = true;
+			nubus_video_debug_full = true;
 		} else if (strcmp(argv[i], "--scc-bus-debug") == 0) {
 			scc_bus_debug_enable = true;
 		} else if (strcmp(argv[i], "--ram-size-cpu-debug") == 0) {

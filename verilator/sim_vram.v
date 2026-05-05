@@ -20,6 +20,12 @@ module sim_vram #(
 );
 
 reg [15:0] mem [0:(1 << ADDR_BITS)-1];
+integer init_i;
+
+initial begin
+	for (init_i = 0; init_i < (1 << ADDR_BITS); init_i = init_i + 1)
+		mem[init_i] = 16'h0000;
+end
 
 // 1-cycle latency to match SDRAM arbiter handshake expectations:
 // Video card asserts rd/wr → next cycle ready goes high + data available

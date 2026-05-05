@@ -29,6 +29,9 @@ Run the current direct floppy comparison from `verilator/`:
 Use `--periph-debug` only for short focused runs; it writes `verilator/periph_debug.log`.
 Generated logs such as `cpu_trace.log`, `via_debug.log`, `periph_debug.log`,
 `ram_debug.log`, and temporary `sim_*.log` files should stay untracked.
+Use `--scsi-debug` for focused NCR5380 transaction traces and
+`--nubus-video-full-debug` only when the VRAM/register/RAMDAC write stream is
+needed; both write to stderr and can be noisy on long runs.
 
 ## MAME Reference Runs
 
@@ -53,6 +56,15 @@ MAME_FRAME_INTERVAL=20 MAME_STOP_FRAME=120 SDL_VIDEODRIVER=dummy ./mame macii \
   -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
   -nb9 "" -nbe m2hires -flop ../releases/Disk605.dsk \
   -autoboot_script ../tools/mame/macii_frame_probe.lua
+```
+
+For register snapshots around a ROM PC range, use:
+
+```sh
+MAME_MIN_FRAME=260 MAME_FRAME_INTERVAL=20 MAME_STOP_FRAME=520 SDL_VIDEODRIVER=dummy ./mame macii \
+  -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
+  -nb9 "" -nbe m2hires -scsi:6 "" -flop ../releases/Disk605.dsk \
+  -autoboot_script ../tools/mame/macii_pc_region_probe.lua
 ```
 
 The local MAME ROM setup expected for the matched card is:
