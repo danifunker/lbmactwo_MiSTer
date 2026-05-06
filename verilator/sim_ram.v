@@ -168,15 +168,6 @@ end
 initial begin
 	// Memory will be initialized by the simulation testbench
 	// via ioctl_download mechanism
-
-	// Skip RAM test: write "WLCS" marker at byte address $0CFC
-	// (same approach as Snow emulator). The Mac II ROM checks this
-	// at $E4 and $1A0 — if present, both RAM tests are skipped.
-	// Without this, the aliasing test fails because our sim wraps
-	// at 1MB instead of generating BERR like real hardware.
-	// Byte addr $0CFC = word addr $067E/$067F
-	mem[22'h00067E] = 16'h574C;  // "WL"
-	mem[22'h00067F] = 16'h5343;  // "CS"
 end
 /* verilator lint_on UNUSED */
 // verilator tracing_on

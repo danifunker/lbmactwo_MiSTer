@@ -44,7 +44,7 @@ E. Match the core by removing slot 9 and installing `m2hires` in slot E:
 cd mame
 SDL_VIDEODRIVER=dummy ./mame macii \
   -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
-  -nb9 "" -nbe m2hires -flop ../releases/Disk605.dsk \
+  -nb9 "" -nbe m2hires -scsi:6 "" -flop ../releases/Disk605.dsk \
   -autoboot_script ../tools/mame/macii_frame_probe.lua
 ```
 
@@ -95,19 +95,25 @@ The local MAME ROM setup expected for the matched card is:
 
 ## Current Debug Focus
 
-The latest fixed divergence is VIA read-lane mirroring during the Mac II RAM
-banking probe. MAME mirrors byte-wide VIA/VIA2 reads onto both 68000 byte lanes.
-The FPGA now does the same; otherwise the ROM reads VIA2 ORA as `$3FEF`, writes
-`$EF` back, drives PA7:6 to `11`, and later selects the invalid `$04000000`
-RAM-test table entry.
+RAM sizing, early ASC, and the initial IWM probe now match the matched-card MAME
+run closely enough that they are not the current blocker.
 
-The RAM sizing probe should now read VIA2 as `$3F3F`, leave ORA at `$3F`, load
-`A2=$00100000`, set `D7=4`, and return from the pattern test with `D6=0`.
-Verilator also takes the normal ASC path (`$408000D0 -> $40805E4A`, `D7=2`),
-so ASC is not the current blocker.
+The active boot failure is the first floppy `_Read`. Verilator reaches the ROM
+queue path with the expected IOParam block (`ioRefNum=$FFFB`, buffer
+`$00100000`, request `$400`, posMode `1`, pos `0`), but the call returns
+`D0=$FFFFFFBF` (`offLinErr`). Matched MAME reaches `$408017CC` with
+`D0=0` and runs copied floppy code from low memory.
 
-The current focus is post-ASC visible boot progress. Matched MAME reaches the
-`$40826Cxx` neighborhood around frame 280; Verilator reaches `$40826CCA` at
-frame 300, but the screenshot is still vertical stripes with no cursor. Next
-comparisons should focus on the video/NuBus/SCSI path after the fixed RAM and
-ASC milestones.
+SCSI is no longer the leading first-cause suspect. With the same slot-E
+`m2hires` card and `-scsi:6 ""`, MAME only touches NCR5380 registers during the
+early reset/status poll at `PC=$4080060C` before the successful floppy boot.
+Verilator sees the same early CSR value (`00`) but takes substantially longer
+in that countdown and later falls into SCSI timeout/probe paths after the
+floppy read has failed. Treat the later SCSI activity as a downstream symptom
+unless a new trace proves otherwise.
+
+The ROM delay calibration mismatch is real: MAME stores `$0D00=$0A3B` and
+`$0DA6=$0417`, while Verilator has been around `$054B/$0196`. Forcing the MAME
+constants changes the timing shape but has not made the floppy read succeed,
+so continue comparing the copied floppy/IWM read path rather than stopping at
+ASC or the fake AppleCD target.

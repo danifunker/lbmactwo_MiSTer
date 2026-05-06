@@ -120,30 +120,57 @@ bool via_debug_prev_wr = false;
 bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
 bool scsi_debug_enable = false;
+bool scsi_timeout_loop_debug_enable = false;
 bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
+bool calib_loop_debug_enable = false;
+bool ramtest_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
+bool iwm_state_debug_enable = false;
+bool boot_decision_debug_enable = false;
 int scsi_debug_count = 0;
 const int scsi_debug_max = 2000;
+int scsi_debug_min_frame = 0;
 bool scsi_debug_prev_bus_control = false;
+int scsi_timeout_loop_debug_count = 0;
+const int scsi_timeout_loop_debug_max = 2000;
+uint32_t scsi_timeout_loop_last_d5_word = 0xFFFFFFFF;
+uint32_t scsi_timeout_loop_last_entry_sp = 0xFFFFFFFF;
+uint32_t scsi_timeout_loop_last_entry_ret = 0xFFFFFFFF;
 int iwm_debug_count = 0;
 const int iwm_debug_max = 2000;
 bool iwm_debug_prev_bus_control = false;
+int iwm_debug_min_frame = 0;
 int scc_bus_debug_count = 0;
 const int scc_bus_debug_max = 800;
 bool scc_bus_debug_prev_bus_control = false;
 int ram_size_cpu_debug_count = 0;
 const int ram_size_cpu_debug_max = 500;
 uint32_t ram_size_cpu_debug_last_pc = 0xFFFFFFFF;
+int iwm_state_debug_count = 0;
+const int iwm_state_debug_max = 300;
+uint32_t iwm_state_debug_last_pc = 0xFFFFFFFF;
+int boot_decision_debug_count = 0;
+const int boot_decision_debug_max = 900;
+int boot_decision_debug_min_frame = 220;
+uint32_t boot_decision_debug_last_key = 0xFFFFFFFF;
 bool nubus_video_debug_enable = false;
 bool nubus_video_debug_full = false;
 int nubus_video_debug_count = 0;
 const int nubus_video_debug_max = 1000;
 bool nubus_video_debug_prev_bus_control = false;
+bool frame_probe_enable = false;
+int frame_probe_interval = 10;
+int frame_probe_last_frame = -1;
 std::string scsi_disk_files[2];
 std::string floppy_disk_files[2];
+bool force_calib_enable = false;
+uint16_t force_calib_0d00 = 0;
+uint16_t force_calib_0da6 = 0;
+int force_calib_min_frame = 0;
+bool force_calib_reported = false;
 
 // Screenshot functionality
 // ------------------------
@@ -170,6 +197,7 @@ int wait_debug_count = 0;
 const int wait_debug_max = 600;
 uint32_t wait_debug_last_pc = 0xFFFFFFFF;
 uint32_t wait_debug_last_tick = 0xFFFFFFFF;
+int wait_debug_min_frame = 0;
 int calib_debug_count = 0;
 const int calib_debug_max = 1200;
 bool calib_debug_prev_via_rd = false;
@@ -177,7 +205,14 @@ bool calib_debug_prev_via_wr = false;
 bool calib_debug_prev_write_valid = false;
 bool calib_debug_prev_via1_t1 = false;
 bool calib_debug_prev_via2_t1 = false;
+bool calib_debug_prev_via1_t2 = false;
 uint32_t calib_debug_last_lowmem_tick = 0xFFFFFFFF;
+uint32_t calib_loop_hits[3] = {0, 0, 0};
+int calib_loop_debug_count = 0;
+const int calib_loop_debug_max = 160;
+int ramtest_debug_count = 0;
+const int ramtest_debug_max = 260;
+uint32_t ramtest_debug_last_pc = 0xFFFFFFFF;
 
 // Headless mode (no GUI)
 // ----------------------
@@ -244,8 +279,20 @@ static inline uint16_t ram_word(uint32_t addr) {
 	return VERTOPINTERN->emu__DOT__ram__DOT__mem[(addr >> 1) & 0x7FFFFF];
 }
 
+static inline void ram_write_word(uint32_t addr, uint16_t data) {
+	if (addr >= 0x01000000) {
+		return;
+	}
+	VERTOPINTERN->emu__DOT__ram__DOT__mem[(addr >> 1) & 0x7FFFFF] = data;
+}
+
 static inline uint32_t ram_long(uint32_t addr) {
 	return ((uint32_t)ram_word(addr) << 16) | ram_word(addr + 2);
+}
+
+static inline uint8_t ram_byte(uint32_t addr) {
+	uint16_t word = ram_word(addr & ~1U);
+	return (addr & 1) ? (word & 0xFF) : (word >> 8);
 }
 
 static inline uint32_t tg68_reg(int idx) {
@@ -270,7 +317,8 @@ static inline uint8_t scsi_debug_csr() {
 	uint8_t mr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr;
 	uint8_t icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
 	uint8_t target_bsy = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy;
-	bool scsi_bsy = (icr & 0x08) || target_bsy || (mr & 0x01);
+	bool empty_cd_bsy = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__phase != 0;
+	bool scsi_bsy = (icr & 0x08) || target_bsy || empty_cd_bsy || (mr & 0x01);
 
 	return ((icr & 0x80) ? 0x80 : 0x00) |
 	       (scsi_bsy ? 0x40 : 0x00) |
@@ -281,11 +329,33 @@ static inline uint8_t scsi_debug_csr() {
 	       ((icr & 0x04) ? 0x02 : 0x00);
 }
 
+static inline bool scsi_debug_pmatch() {
+	uint8_t tcr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr;
+
+	return (((tcr >> 2) & 1) == (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_msg ? 1 : 0)) &&
+	       (((tcr >> 1) & 1) == (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_cd ? 1 : 0)) &&
+	       (((tcr >> 0) & 1) == (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_io ? 1 : 0));
+}
+
+static inline uint8_t scsi_debug_bsr() {
+	bool req = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req;
+	bool dma_en = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en;
+	bool pmatch = scsi_debug_pmatch();
+	uint8_t icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
+	bool ack = (icr & 0x10) || VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack;
+
+	return (req && dma_en ? 0x40 : 0x00) |
+	       (req && dma_en && !pmatch ? 0x10 : 0x00) |
+	       (pmatch ? 0x08 : 0x00) |
+	       ((icr & 0x02) ? 0x02 : 0x00) |
+	       (ack ? 0x01 : 0x00);
+}
+
 static void print_via_timer_state(FILE* out, const char* prefix) {
 	fprintf(out,
 		"%s via_tick=%u via_acc=%u "
-		"VIA1 t1c=%04X t1l=%04X acr=%02X prb=%02X ddrb=%02X pb_i=%02X ifr=%02X ier=%02X "
-		"ev=%u reload=%u may=%u pb7=%u ca1=%u ca2=%u "
+		"VIA1 t1c=%04X t1l=%04X t2c=%04X t2l=%04X acr=%02X prb=%02X ddrb=%02X pb_i=%02X ifr=%02X ier=%02X "
+		"t1ev=%u t1reload=%u t1may=%u t2ev=%u t2trig=%u t2to=%u pb7=%u ca1=%u ca2=%u "
 		"VIA2 t1c=%04X t1l=%04X acr=%02X prb=%02X ddrb=%02X pb_o=%02X pb_i=%02X ifr=%02X ier=%02X "
 		"ev=%u reload=%u may=%u pb7=%u ca1=%u\n",
 		prefix,
@@ -293,6 +363,8 @@ static void print_via_timer_state(FILE* out, const char* prefix) {
 		VERTOPINTERN->emu__DOT__dc0__DOT__via_timer_acc,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_count,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_latch,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_count,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_latch,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__acr,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_prb,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_ddrb,
@@ -302,6 +374,9 @@ static void print_via_timer_state(FILE* out, const char* prefix) {
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_event ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_reload ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_may_interrupt ? 1 : 0,
+		((VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_events >> 5) & 1) ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_oneshot_trig ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_timeout ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_toggle ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__ca1_c ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__ca2_c ? 1 : 0,
@@ -319,6 +394,183 @@ static void print_via_timer_state(FILE* out, const char* prefix) {
 		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_may_interrupt ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_toggle ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__ca1_c ? 1 : 0);
+}
+
+static void print_iwm_state_debug(uint32_t pc) {
+	uint32_t ptr0134 = ram_long(0x0134);
+	uint32_t a1 = tg68_reg(9);
+	uint16_t d0w = tg68_reg(0) & 0xFFFF;
+	uint16_t d1w = tg68_reg(1) & 0xFFFF;
+	uint16_t d3w = tg68_reg(3) & 0xFFFF;
+
+	fprintf(stderr,
+		"IWM_STATE_DBG hit=%03d frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D3=%08X A0=%08X A1=%08X L0134=%08X "
+		"baseW00=%04X b03=%02X b04=%02X b05=%02X b12=%02X b18=%02X b19=%02X w1A=%04X w40=%04X "
+		"bA1D0=%02X bA1D1=%02X bA1D3=%02X bA1D1p3=%02X bA1D1p4=%02X\n",
+		iwm_state_debug_count,
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(2),
+		tg68_reg(3),
+		tg68_reg(8),
+		a1,
+		ptr0134,
+		ram_word(ptr0134 + 0x00),
+		ram_byte(ptr0134 + 0x03),
+		ram_byte(ptr0134 + 0x04),
+		ram_byte(ptr0134 + 0x05),
+		ram_byte(ptr0134 + 0x12),
+		ram_byte(ptr0134 + 0x18),
+		ram_byte(ptr0134 + 0x19),
+		ram_word(ptr0134 + 0x1A),
+		ram_word(ptr0134 + 0x40),
+		ram_byte(a1 + d0w),
+		ram_byte(a1 + d1w),
+		ram_byte(a1 + d3w),
+		ram_byte(a1 + d1w + 3),
+		ram_byte(a1 + d1w + 4));
+}
+
+static bool boot_decision_pc(uint32_t pc) {
+	switch (pc) {
+	case 0x408015EA:
+	case 0x40801600:
+	case 0x4080174E:
+	case 0x408017CC:
+	case 0x40807CA4:
+	case 0x40807CB0:
+	case 0x40807CC2:
+	case 0x40807CDC:
+	case 0x40807CF2:
+	case 0x40807D18:
+	case 0x40807D1C:
+	case 0x408266A4:
+	case 0x4082672A:
+	case 0x40826756:
+	case 0x4082675E:
+	case 0x40826762:
+	case 0x40826764:
+	case 0x40826768:
+	case 0x4082682C:
+	case 0x40826832:
+	case 0x40826850:
+	case 0x40826870:
+	case 0x40826874:
+	case 0x408268CC:
+	case 0x40826970:
+	case 0x40826976:
+	case 0x40826986:
+	case 0x40826CB6:
+	case 0x40826CD4:
+	case 0x0082E80C:
+	case 0x0082E950:
+	case 0x0082E96E:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void print_boot_decision_debug(uint32_t pc) {
+	uint32_t a6 = tg68_reg(14);
+	uint32_t a7 = tg68_reg(15);
+	uint32_t a3 = tg68_reg(11);
+	uint32_t a4 = tg68_reg(12);
+	uint32_t d6 = tg68_reg(6);
+
+	fprintf(stderr,
+		"BOOT_DECISION hit=%03d frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X RET=%08X "
+		"SP00=%04X SP02=%04X SP04=%04X SP06=%04X "
+		"FP08=%04X FP0A=%04X FP0C=%04X FP0E=%04X FP14=%04X "
+		"D6W00=%04X D6W02=%04X D6W04=%04X D6W06=%04X D6W08=%04X D6W0A=%04X "
+		"W09FA=%04X W09FC=%04X W09FE=%04X W0A00=%04X W0A02=%04X "
+		"L0134=%08X W017A=%04X B0C2F=%02X W0D00=%04X W0DA6=%04X "
+		"SCSI csr=%02X bsr=%02X pmatch=%d dmaen=%d dack=%d mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
+		"cdph=%u cdcnt=%u cdcmd0=%02X cdstat=%02X "
+		"IWM q6=%d q7=%d en=%d enn=%d eni=%d ene=%d mode=%02X intRegs=%04X extRegs=%04X a4b61=%02X\n",
+		boot_decision_debug_count,
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(2),
+		tg68_reg(3),
+		tg68_reg(4),
+		tg68_reg(5),
+		tg68_reg(6),
+		tg68_reg(7),
+		tg68_reg(8),
+		tg68_reg(9),
+		tg68_reg(10),
+		a3,
+		a4,
+		tg68_reg(13),
+		a6,
+		a7,
+		ram_long(a7),
+		ram_word(a7 + 0x00),
+		ram_word(a7 + 0x02),
+		ram_word(a7 + 0x04),
+		ram_word(a7 + 0x06),
+		ram_word(a6 + 0x08),
+		ram_word(a6 + 0x0A),
+		ram_word(a6 + 0x0C),
+		ram_word(a6 + 0x0E),
+		ram_word(a6 + 0x14),
+		ram_word(d6 + 0x00),
+		ram_word(d6 + 0x02),
+		ram_word(d6 + 0x04),
+		ram_word(d6 + 0x06),
+		ram_word(d6 + 0x08),
+		ram_word(d6 + 0x0A),
+		ram_word(0x09FA),
+		ram_word(0x09FC),
+		ram_word(0x09FE),
+		ram_word(0x0A00),
+		ram_word(0x0A02),
+		ram_long(0x0134),
+		ram_word(0x017A),
+		ram_byte(0x0C2F),
+		ram_word(0x0D00),
+		ram_word(0x0DA6),
+		scsi_debug_csr(),
+		scsi_debug_bsr(),
+		scsi_debug_pmatch() ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__phase,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd_cnt,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd[0],
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableNext ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableInt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableExt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__iwmMode,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs,
+		ram_byte((a4 + 0x61) & 0x1FFFFF));
 }
 
 static void print_scsi_stop_state() {
@@ -435,6 +687,16 @@ int verilate() {
 			}
 			top->eval();
 			if (clk_sys.clk) { bus.AfterEval(); blockdevice.AfterEval(); }
+			if (force_calib_enable && !*bus.ioctl_download &&
+			    video.count_frame >= force_calib_min_frame) {
+				ram_write_word(0x0D00, force_calib_0d00);
+				ram_write_word(0x0DA6, force_calib_0da6);
+				if (!force_calib_reported) {
+					fprintf(stderr, "FORCE_CALIB frame=%d W0D00=%04X W0DA6=%04X\n",
+					        video.count_frame, force_calib_0d00, force_calib_0da6);
+					force_calib_reported = true;
+				}
+			}
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
@@ -457,20 +719,38 @@ int verilate() {
 					}
 					profile_last_fetch_pc = pc;
 				}
+				if (boot_decision_debug_enable &&
+				    VERTOPINTERN->debug_fetch_valid &&
+				    video.count_frame >= boot_decision_debug_min_frame &&
+				    boot_decision_pc(pc) &&
+				    boot_decision_debug_count < boot_decision_debug_max) {
+					uint32_t key = (pc & 0xFFFFFFFEU) ^
+					               (lowmem_tick_016a() << 1) ^
+					               (tg68_reg(5) & 0xFFFFU) ^
+					               ((tg68_reg(15) & 0xFFFFU) << 16);
+					if (key != boot_decision_debug_last_key) {
+						print_boot_decision_debug(pc);
+						boot_decision_debug_count++;
+						boot_decision_debug_last_key = key;
+					}
+				}
 				if (wait_debug_enable &&
-				    pc >= 0x40801500 && pc <= 0x40801666 &&
+				    video.count_frame >= wait_debug_min_frame &&
+				    pc >= 0x40801500 && pc <= 0x408017CC &&
 				    wait_debug_count < wait_debug_max) {
 					uint32_t tick = lowmem_tick_016a();
 					bool spin_pc = (pc >= 0x40801652 && pc <= 0x40801658);
 					bool should_log = spin_pc ? (tick != wait_debug_last_tick) : (pc != wait_debug_last_pc);
 					if (should_log) {
 						uint32_t sp = tg68_reg(15);
+						uint32_t a0 = tg68_reg(8);
 						uint32_t a2 = tg68_reg(10);
 						fprintf(stderr,
 							"WAIT_DBG frame=%d tick=%08X time=%llu pc=%08X op=%04X "
 							"D0=%08X D1=%08X D2=%08X D5=%08X D7=%08X "
-							"A0=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X "
-							"W017A=%04X B0C2F=%02X W0D24=%04X W0D28=%04X A2W8=%04X\n",
+							"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X SP=%08X RET=%08X "
+							"W017A=%04X B0C2F=%02X W0D24=%04X W0D28=%04X A2W8=%04X "
+							"PB_REF=%04X PB_BUF=%08X PB_REQ=%08X PB_POSMODE=%04X PB_POS=%08X\n",
 							video.count_frame,
 							tick,
 							(unsigned long long)main_time,
@@ -481,21 +761,117 @@ int verilate() {
 							tg68_reg(2),
 							tg68_reg(5),
 							tg68_reg(7),
-							tg68_reg(8),
+							a0,
+							tg68_reg(9),
 							tg68_reg(10),
 							tg68_reg(11),
 							tg68_reg(12),
+							tg68_reg(13),
+							tg68_reg(14),
 							sp,
 							ram_long(sp),
 							ram_word(0x017A),
 							ram_word(0x0C2E) & 0x00FF,
 							ram_word(0x0D24),
 							ram_word(0x0D28),
-							ram_word(a2 + 8));
+							ram_word(a2 + 8),
+							ram_word(a0 + 24),
+							ram_long(a0 + 32),
+							ram_long(a0 + 36),
+							ram_word(a0 + 44),
+							ram_long(a0 + 46));
 						wait_debug_count++;
 						wait_debug_last_pc = pc;
 						wait_debug_last_tick = tick;
 					}
+				}
+
+				if (scsi_timeout_loop_debug_enable &&
+				    pc >= 0x40826CB6 && pc <= 0x40826CD4 &&
+				    scsi_timeout_loop_debug_count < scsi_timeout_loop_debug_max) {
+					uint32_t d1 = tg68_reg(1);
+					uint32_t d5 = tg68_reg(5);
+					uint16_t d1_word = d1 & 0xffff;
+					uint16_t d5_word = d5 & 0xffff;
+					uint8_t scsi_mr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr;
+					uint8_t scsi_icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
+					uint8_t scsi_tcr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr;
+					bool scsi_bsy = (scsi_icr & 0x08) || VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy || (scsi_mr & 0x01);
+					bool scsi_req = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req;
+					bool scsi_msg = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_msg;
+					bool scsi_cd = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_cd;
+					bool scsi_io = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_io;
+					bool phase_match = ((scsi_tcr & 0x07) == ((scsi_msg ? 4 : 0) | (scsi_cd ? 2 : 0) | (scsi_io ? 1 : 0)));
+					uint8_t bsr = ((scsi_req && VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en) ? 0x40 : 0x00) |
+					              (phase_match ? 0x08 : 0x00) |
+					              ((scsi_icr & 0x02) ? 0x02 : 0x00) |
+					              ((scsi_icr & 0x10) ? 0x01 : 0x00);
+					uint8_t csr = ((scsi_icr & 0x80) ? 0x80 : 0x00) |
+					              (scsi_bsy ? 0x40 : 0x00) |
+					              (scsi_req ? 0x20 : 0x00) |
+					              (scsi_msg ? 0x10 : 0x00) |
+					              (scsi_cd ? 0x08 : 0x00) |
+					              (scsi_io ? 0x04 : 0x00) |
+					              ((scsi_icr & 0x04) ? 0x02 : 0x00);
+					bool d1_near_rollover = d1_word <= 4 || d1_word >= 0xfffc;
+					bool d5_changed = d5_word != (scsi_timeout_loop_last_d5_word & 0xffff);
+					bool log_loop_state =
+						pc == 0x40826CB4 ||
+						pc == 0x40826CB6 ||
+						pc == 0x40826CD0 ||
+						pc == 0x40826CD2 ||
+						pc == 0x40826CD4 ||
+						(pc == 0x40826CC6 && (d1_near_rollover || (d1_word == 0x8000 && d5_word <= 8))) ||
+						(pc == 0x40826CCA && (d1_near_rollover || d5_changed));
+					uint32_t sp = tg68_reg(15);
+					uint32_t ret = ram_long(sp);
+					bool new_entry = (pc == 0x40826CB4 || pc == 0x40826CB6) &&
+					                 (sp != scsi_timeout_loop_last_entry_sp ||
+					                  ret != scsi_timeout_loop_last_entry_ret);
+					log_loop_state = log_loop_state || new_entry;
+					if (log_loop_state) {
+						fprintf(stderr,
+							"SCSI_TIMEOUT_LOOP hit=%04d frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+							"D0=%08X D1=%08X D5=%08X D6=%08X A3=%08X SP=%08X RET=%08X "
+							"W0D00=%04X W0DA6=%04X bsr=%02X csr=%02X icr=%02X mr=%02X odr=%02X\n",
+							scsi_timeout_loop_debug_count,
+							video.count_frame,
+							lowmem_tick_016a(),
+							(unsigned long long)main_time,
+							pc,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0),
+							d1,
+							d5,
+							tg68_reg(6),
+							tg68_reg(11),
+							sp,
+							ret,
+							ram_word(0x0D00),
+							ram_word(0x0DA6),
+							bsr,
+							csr,
+							scsi_icr,
+							scsi_mr,
+							VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout);
+						scsi_timeout_loop_debug_count++;
+						if (new_entry) {
+							scsi_timeout_loop_last_entry_sp = sp;
+							scsi_timeout_loop_last_entry_ret = ret;
+						}
+						if (pc == 0x40826CCA) {
+							scsi_timeout_loop_last_d5_word = d5_word;
+						}
+					}
+				}
+
+				if (iwm_state_debug_enable &&
+				    pc >= 0x0082E220 && pc <= 0x0082E2DF &&
+				    iwm_state_debug_count < iwm_state_debug_max &&
+				    pc != iwm_state_debug_last_pc) {
+					print_iwm_state_debug(pc);
+					iwm_state_debug_count++;
+					iwm_state_debug_last_pc = pc;
 				}
 			}
 
@@ -513,6 +889,7 @@ int verilate() {
 			if (calib_debug_enable && !*bus.ioctl_download && calib_debug_count < calib_debug_max) {
 				uint32_t tick = lowmem_tick_016a();
 				bool via1_t1 = VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_a_event;
+				bool via1_t2 = ((VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_events >> 5) & 1) != 0;
 				bool via2_t1 = VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__timer_a_event;
 				bool tick_initialized = ram_word(0x0D28) == 0x4080 && (tick >> 16) == 0;
 				if (tick_initialized && tick != calib_debug_last_lowmem_tick) {
@@ -542,6 +919,20 @@ int verilate() {
 				}
 				calib_debug_prev_via1_t1 = via1_t1;
 				calib_debug_prev_via2_t1 = via2_t1;
+
+				if (via1_t2 && !calib_debug_prev_via1_t2) {
+					char prefix[128];
+					snprintf(prefix, sizeof(prefix),
+						"CALIB_T2 frame=%d tick=%08X time=%llu pc=%08X D0=%08X",
+						video.count_frame,
+						tick,
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						tg68_reg(0));
+					print_via_timer_state(stderr, prefix);
+					calib_debug_count++;
+				}
+				calib_debug_prev_via1_t2 = via1_t2;
 
 				if (VERTOPINTERN->debug_write_valid && !calib_debug_prev_write_valid) {
 					uint32_t waddr = VERTOPINTERN->debug_write_addr;
@@ -595,6 +986,100 @@ int verilate() {
 				}
 				calib_debug_prev_via_rd = via_rd;
 				calib_debug_prev_via_wr = via_wr;
+			}
+
+			if (calib_loop_debug_enable && !*bus.ioctl_download &&
+			    VERTOPINTERN->debug_fetch_valid &&
+			    calib_loop_debug_count < calib_loop_debug_max) {
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				int loop_idx = -1;
+				if (pc == 0x4080059C) loop_idx = 0;
+				else if (pc == 0x408005D6) loop_idx = 1;
+				else if (pc == 0x40800612) loop_idx = 2;
+
+				if (loop_idx >= 0) {
+					calib_loop_hits[loop_idx]++;
+					uint32_t hits = calib_loop_hits[loop_idx];
+					if (hits <= 8 || (hits & 0xFF) == 0) {
+						fprintf(stderr,
+							"CALIB_LOOP[%d] hit=%u frame=%d time=%llu pc=%08X op=%04X "
+							"D0=%08X D1=%08X A0=%08X A1=%08X "
+							"T2c=%04X T2l=%04X ifr=%02X ier=%02X tick=%u acc=%u\n",
+							loop_idx,
+							hits,
+							video.count_frame,
+							(unsigned long long)main_time,
+							pc,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0),
+							tg68_reg(1),
+							tg68_reg(8),
+							tg68_reg(9),
+							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_count,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_latch,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via_timer_tick ? 1 : 0,
+							VERTOPINTERN->emu__DOT__dc0__DOT__via_timer_acc);
+						calib_loop_debug_count++;
+					}
+				} else if (pc == 0x408005A4 || pc == 0x408005DE || pc == 0x4080061A) {
+					fprintf(stderr,
+						"CALIB_LOOP_EXIT frame=%d time=%llu pc=%08X op=%04X "
+						"D0=%08X loops=%u/%u/%u T2c=%04X ifr=%02X ier=%02X\n",
+						video.count_frame,
+						(unsigned long long)main_time,
+						pc,
+						VERTOPINTERN->debug_opcode,
+						tg68_reg(0),
+						calib_loop_hits[0],
+						calib_loop_hits[1],
+						calib_loop_hits[2],
+						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_count,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask);
+					calib_loop_debug_count++;
+				}
+			}
+
+			if (ramtest_debug_enable && !*bus.ioctl_download &&
+			    VERTOPINTERN->debug_fetch_valid &&
+			    ramtest_debug_count < ramtest_debug_max) {
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				bool interesting =
+					pc == 0x40802BBC || pc == 0x40802BF0 ||
+					pc == 0x40802C10 || pc == 0x40802C28 ||
+					pc == 0x40802C3C || pc == 0x40802CDC ||
+					pc == 0x40803714 || pc == 0x40803734 ||
+					pc == 0x40803760 || pc == 0x40803778 ||
+					pc == 0x4080378E || pc == 0x40803794 ||
+					pc == 0x4080379A || pc == 0x4080379E ||
+					pc == 0x408037A0 || pc == 0x408037A2 ||
+					pc == 0x408037A4 || pc == 0x408037A6 ||
+					pc == 0x408037A8 || pc == 0x408037AA;
+				if (interesting && pc != ramtest_debug_last_pc) {
+					uint32_t a0 = tg68_reg(8);
+					uint32_t a1 = tg68_reg(9);
+					fprintf(stderr,
+						"RAMTEST_DBG hit=%03d frame=%d time=%llu pc=%08X op=%04X "
+						"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+						"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A6=%08X "
+						"M0=%04X%04X M8=%04X%04X MSP=%04X%04X MTOP=%04X%04X\n",
+						ramtest_debug_count,
+						video.count_frame,
+						(unsigned long long)main_time,
+						pc,
+						VERTOPINTERN->debug_opcode,
+						tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
+						tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7),
+						a0, a1, tg68_reg(10), tg68_reg(11), tg68_reg(12), tg68_reg(14),
+						ram_word(0), ram_word(2),
+						ram_word(8), ram_word(10),
+						ram_word(0x1FFD00), ram_word(0x1FFD02),
+						ram_word(0x1FFFFC), ram_word(0x1FFFFE));
+					ramtest_debug_last_pc = pc;
+					ramtest_debug_count++;
+				}
 			}
 
 			// Vector table write watchpoint - log any write to $0-$3FF
@@ -768,7 +1253,7 @@ int verilate() {
 				periph_debug_prev_bus_control = bus_control;
 			}
 
-			if (scsi_debug_enable && !*bus.ioctl_download) {
+			if (scsi_debug_enable && !*bus.ioctl_download && video.count_frame >= scsi_debug_min_frame) {
 				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
 				if (bus_control && !scsi_debug_prev_bus_control &&
 				    VERTOPINTERN->debug_selectSCSI &&
@@ -784,9 +1269,10 @@ int verilate() {
 
 					fprintf(stderr,
 						"SCSI_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%u din=%04X dout=%04X "
-						"csr=%02X mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X arb=%d arb_count=%02X "
+						"csr=%02X bsr=%02X pmatch=%d dmaen=%d dack=%d mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X arb=%d arb_count=%02X "
 						"req=%d tbsy=%02X treq=%02X tmsg=%02X tcd=%02X tio=%02X "
-						"t0_phase=%d t0_mnt=%d t0_ack=%d t0_cmd=%d t0_cnt=%u t0_done=%d\n",
+						"t0_phase=%d t0_mnt=%d t0_ack=%d t0_cmd=%d t0_cnt=%u t0_done=%d "
+						"cdph=%u cdcnt=%u cdcmd0=%02X cdstat=%02X\n",
 						video.count_frame,
 						lowmem_tick_016a(),
 						(unsigned long long)main_time,
@@ -797,6 +1283,10 @@ int verilate() {
 						data_in,
 						data_out,
 						scsi_debug_csr(),
+						scsi_debug_bsr(),
+						scsi_debug_pmatch() ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack ? 1 : 0,
 						mr,
 						icr,
 						tcr,
@@ -815,7 +1305,11 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0);
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__phase,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd[0],
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status);
 					scsi_debug_count++;
 				}
 				scsi_debug_prev_bus_control = bus_control;
@@ -825,15 +1319,23 @@ int verilate() {
 				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
 				if (bus_control && !iwm_debug_prev_bus_control &&
 				    VERTOPINTERN->debug_selectIWM &&
+				    video.count_frame >= iwm_debug_min_frame &&
 				    iwm_debug_count < iwm_debug_max) {
 					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
-					uint8_t reg = (addr >> 9) & 0x0f;
+					uint8_t reg = (addr >> 8) & 0x0f;
 					bool rw = VERTOPINTERN->debug_cpuRW;
 					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;
 					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;
+					bool iwm_select_ext = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__selectExternalDrive;
+					bool iwm_select_ext_next = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__selectExternalDriveNext;
+					bool iwm_enable = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable;
+					bool iwm_enable_next = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableNext;
 
 					fprintf(stderr,
-						"IWM_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%X din=%04X dout=%04X\n",
+						"IWM_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%X din=%04X dout=%04X "
+						"ca=%d%d%d caN=%d%d%d sel=%d selN=%d enI=%d enIN=%d enE=%d enEN=%d q=%d%d qN=%d%d "
+						"SEL=%d senseI=%d senseE=%d ri=%02X re=%02X latch=%02X clr=%X nbI=%d nbE=%d "
+						"trkI=%02X sideI=%d imgI=%02X timerI=%02X readyI=%d iregs=%04X eregs=%04X\n",
 						video.count_frame,
 						lowmem_tick_016a(),
 						(unsigned long long)main_time,
@@ -842,7 +1344,39 @@ int verilate() {
 						addr,
 						reg,
 						data_in,
-						data_out);
+						data_out,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca2 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca1 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca0 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca2Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca1Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca0Next ? 1 : 0,
+						iwm_select_ext ? 1 : 0,
+						iwm_select_ext_next ? 1 : 0,
+						(iwm_enable && !iwm_select_ext) ? 1 : 0,
+						(iwm_enable_next && !iwm_select_ext_next) ? 1 : 0,
+						(iwm_enable && iwm_select_ext) ? 1 : 0,
+						(iwm_enable_next && iwm_select_ext_next) ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__SEL ? 1 : 0,
+						(VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataInt >> 7) & 1,
+						(VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt >> 7) & 1,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataInt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataLatch,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readLatchClearTimer,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyInt ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyExt ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveTrack,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveSide ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__diskImageData,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__diskDataByteTimer,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__readyToAdvanceHead ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs);
 					iwm_debug_count++;
 				}
 				iwm_debug_prev_bus_control = bus_control;
@@ -850,45 +1384,127 @@ int verilate() {
 
 			if (nubus_video_debug_enable && !*bus.ioctl_download) {
 				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
+				static bool nubus_video_debug_prev_ack = false;
+				static bool nubus_video_debug_read_pending = false;
+				static uint32_t nubus_video_debug_addr = 0;
+				static uint32_t nubus_video_debug_local = 0;
+				static uint32_t nubus_video_debug_pc = 0;
+				static const char* nubus_video_debug_cat = "OTHER";
+				static int nubus_video_debug_pending_cat_id = 0;
+				static int nubus_video_debug_rom_count = 0;
+				static int nubus_video_debug_vram_r_count = 0;
+				static int nubus_video_debug_vram_w_count = 0;
+				static int nubus_video_debug_reg_w_count = 0;
+				static int nubus_video_debug_ramdac_w_count = 0;
+				static int nubus_video_debug_vbl_count = 0;
+				bool ack_now = !VERTOPINTERN->emu__DOT__nubusAck_card;
 				if (bus_control && !nubus_video_debug_prev_bus_control &&
 				    VERTOPINTERN->debug_selectNuBus &&
 				    nubus_video_debug_count < nubus_video_debug_max) {
 					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
 					uint32_t local = addr & 0x00FFFFFF;
+					uint32_t low = local & 0x0FFFFF;
 					bool is_vbl_status = ((local & 0x0F0000) == 0x090000) &&
 						((local & 0x0000FF) == 0x10 || (local & 0x0000FF) == 0x12);
 					bool is_vbl_control = ((local & 0x0F0000) == 0x0A0000) &&
 						((local & 0x0000FF) == 0x00 || (local & 0x0000FF) == 0x04);
 					bool is_vram_write = !VERTOPINTERN->debug_cpuRW &&
-						((local & 0x080000) == 0x000000);
+						(low < 0x080000);
+					bool is_vram_read = VERTOPINTERN->debug_cpuRW &&
+						(low < 0x080000);
 					bool is_reg_write = !VERTOPINTERN->debug_cpuRW &&
-						((local & 0x0F0000) == 0x080000);
+						(low >= 0x080000 && low <= 0x08FFFF);
 					bool is_ramdac_write = !VERTOPINTERN->debug_cpuRW &&
-						((local & 0x0F0000) == 0x090000);
+						(low >= 0x090000 && low <= 0x09FFFF);
+					bool is_declrom_read = VERTOPINTERN->debug_cpuRW &&
+						!(low < 0x080000 ||
+						  (low >= 0x080000 && low <= 0x08FFFF) ||
+						  (low >= 0x090000 && low <= 0x09FFFF) ||
+						  (low >= 0x0A0000 && low <= 0x0AFFFF));
 
 					if (is_vbl_status || is_vbl_control ||
-					    (nubus_video_debug_full && (is_vram_write || is_reg_write || is_ramdac_write))) {
-						fprintf(stderr,
-							"NUBUS_VIDEO_DBG frame=%d tick=%08X time=%llu pc=%08X ipl=%u nirq=%u vbl_irq=%u vbl_dis=%u via2_ifr=%02X via2_ier=%02X %s addr=%08X local=%06X data_in=%04X data_out=%04X\n",
-							video.count_frame,
-							lowmem_tick_016a(),
-							(unsigned long long)main_time,
-							VERTOPINTERN->debug_pc,
-							VERTOPINTERN->debug_cpuIPL,
-							VERTOPINTERN->emu__DOT__nubus_irq_n,
-							VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
-							VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
-							VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
-							VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
-							VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
-							addr,
-							local,
-							VERTOPINTERN->debug_cpuDataIn,
-							VERTOPINTERN->debug_cpuDataOut);
-						nubus_video_debug_count++;
+					    (nubus_video_debug_full &&
+					     (is_vram_write || is_vram_read || is_reg_write || is_ramdac_write || is_declrom_read))) {
+						const char* cat = is_declrom_read ? "ROM" :
+							is_vram_write ? "VRAM_W" :
+							is_vram_read ? "VRAM_R" :
+							is_reg_write ? "REG_W" :
+							is_ramdac_write ? "RAMDAC_W" :
+							is_vbl_control ? "VBL_CTL" :
+							is_vbl_status ? "VBL_STAT" : "OTHER";
+						int cat_id = is_declrom_read ? 1 :
+							is_vram_read ? 2 :
+							is_vram_write ? 3 :
+							is_reg_write ? 4 :
+							is_ramdac_write ? 5 :
+							(is_vbl_control || is_vbl_status) ? 6 : 0;
+						bool can_log_cat =
+							(cat_id == 1) ? (nubus_video_debug_rom_count < 160) :
+							(cat_id == 2) ? (nubus_video_debug_vram_r_count < 64) :
+							(cat_id == 3) ? (nubus_video_debug_vram_w_count < 160) :
+							(cat_id == 4) ? (nubus_video_debug_reg_w_count < 128) :
+							(cat_id == 5) ? (nubus_video_debug_ramdac_w_count < 256) :
+							(cat_id == 6) ? (nubus_video_debug_vbl_count < 160) : true;
+						if (can_log_cat && VERTOPINTERN->debug_cpuRW) {
+							nubus_video_debug_read_pending = true;
+							nubus_video_debug_addr = addr;
+							nubus_video_debug_local = local;
+							nubus_video_debug_pc = VERTOPINTERN->debug_pc;
+							nubus_video_debug_cat = cat;
+							nubus_video_debug_pending_cat_id = cat_id;
+						} else if (can_log_cat) {
+							fprintf(stderr,
+								"NUBUS_VIDEO_DBG frame=%d tick=%08X time=%llu pc=%08X ipl=%u nirq=%u vbl_irq=%u vbl_dis=%u via2_ifr=%02X via2_ier=%02X %s WR addr=%08X local=%06X data_in=%04X data_out=%04X\n",
+								video.count_frame,
+								lowmem_tick_016a(),
+								(unsigned long long)main_time,
+								VERTOPINTERN->debug_pc,
+								VERTOPINTERN->debug_cpuIPL,
+								VERTOPINTERN->emu__DOT__nubus_irq_n,
+								VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
+								VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+								VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
+								VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
+								cat,
+								addr,
+								local,
+								VERTOPINTERN->debug_cpuDataIn,
+								VERTOPINTERN->debug_cpuDataOut);
+							nubus_video_debug_count++;
+							if (cat_id == 3) nubus_video_debug_vram_w_count++;
+							else if (cat_id == 4) nubus_video_debug_reg_w_count++;
+							else if (cat_id == 5) nubus_video_debug_ramdac_w_count++;
+							else if (cat_id == 6) nubus_video_debug_vbl_count++;
+						}
 					}
 				}
+				if (nubus_video_debug_read_pending && ack_now && !nubus_video_debug_prev_ack &&
+				    nubus_video_debug_count < nubus_video_debug_max) {
+					fprintf(stderr,
+						"NUBUS_VIDEO_DBG frame=%d tick=%08X time=%llu pc=%08X ipl=%u nirq=%u vbl_irq=%u vbl_dis=%u via2_ifr=%02X via2_ier=%02X %s RD addr=%08X local=%06X data_in=%04X data_out=%04X\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						nubus_video_debug_pc,
+						VERTOPINTERN->debug_cpuIPL,
+						VERTOPINTERN->emu__DOT__nubus_irq_n,
+						VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
+						VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
+						nubus_video_debug_cat,
+						nubus_video_debug_addr,
+						nubus_video_debug_local,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut);
+					nubus_video_debug_count++;
+					if (nubus_video_debug_pending_cat_id == 1) nubus_video_debug_rom_count++;
+					else if (nubus_video_debug_pending_cat_id == 2) nubus_video_debug_vram_r_count++;
+					else if (nubus_video_debug_pending_cat_id == 6) nubus_video_debug_vbl_count++;
+					nubus_video_debug_read_pending = false;
+				}
 				nubus_video_debug_prev_bus_control = bus_control;
+				nubus_video_debug_prev_ack = ack_now;
 			}
 
 			// VIA debug - captures at VMA-synchronized timing (when VIA actually reads/writes)
@@ -972,26 +1588,103 @@ int verilate() {
 			main_time++;
 			if (poll268_debug_enable && !*bus.ioctl_download) {
 				static int poll268_log_count = 0;
+				static uint32_t poll268_last_pc = 0xFFFFFFFF;
+				static uint32_t poll268_hist[32] = {0};
+				static int poll268_hist_pos = 0;
+				static uint32_t poll268_hist_last_pc = 0xFFFFFFFF;
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (VERTOPINTERN->debug_fetch_valid && pc != poll268_hist_last_pc) {
+					poll268_hist[poll268_hist_pos & 31] = pc;
+					poll268_hist_pos++;
+					poll268_hist_last_pc = pc;
+				}
 				bool scsi_cycle = VERTOPINTERN->debug_cpuBusControl && VERTOPINTERN->debug_selectSCSI;
 				bool scsi_rom_window = (pc >= 0x408268D0 && pc <= 0x40826990) ||
 				                       (pc >= 0x40826CB6 && pc <= 0x40826D1C);
-				if (poll268_log_count < 1200 && scsi_rom_window && scsi_cycle) {
+				bool scsi_dispatch_window = (video.count_frame >= 180 && pc >= 0x408064BA && pc <= 0x40806566) ||
+				                            (pc >= 0x40826680 && pc <= 0x408268D8);
+				bool log_dispatch_fetch = scsi_dispatch_window &&
+				                          VERTOPINTERN->debug_fetch_valid &&
+				                          pc != poll268_last_pc &&
+				                          pc != 0x40826CA8 &&
+				                          pc != 0x40826CAC;
+				bool log_scsi_cycle = scsi_rom_window && scsi_cycle;
+				if (poll268_log_count < 1600 && (log_scsi_cycle || log_dispatch_fetch)) {
+					poll268_last_pc = pc;
 					uint32_t d1 = tg68_reg(1);
 					uint32_t d5 = tg68_reg(5);
 					uint32_t d7 = tg68_reg(7);
 					uint32_t a3 = tg68_reg(11);
 					uint32_t a4 = tg68_reg(12);
+					uint32_t a6 = tg68_reg(14);
+					uint32_t a7 = tg68_reg(15);
+					if (log_dispatch_fetch &&
+					    (pc == 0x408064BA || pc == 0x408266A4 || pc == 0x4082672A)) {
+						fprintf(stderr,
+							"POLL268_HISTORY frame=%d tick=%08X pc=%08X hist=%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X "
+							"%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X "
+							"a6=%08X a7=%08X stack=%04X,%04X,%04X,%04X,%04X,%04X,%04X,%04X\n",
+							video.count_frame,
+							lowmem_tick_016a(),
+							pc,
+							poll268_hist[(poll268_hist_pos - 32) & 31],
+							poll268_hist[(poll268_hist_pos - 31) & 31],
+							poll268_hist[(poll268_hist_pos - 30) & 31],
+							poll268_hist[(poll268_hist_pos - 29) & 31],
+							poll268_hist[(poll268_hist_pos - 28) & 31],
+							poll268_hist[(poll268_hist_pos - 27) & 31],
+							poll268_hist[(poll268_hist_pos - 26) & 31],
+							poll268_hist[(poll268_hist_pos - 25) & 31],
+							poll268_hist[(poll268_hist_pos - 24) & 31],
+							poll268_hist[(poll268_hist_pos - 23) & 31],
+							poll268_hist[(poll268_hist_pos - 22) & 31],
+							poll268_hist[(poll268_hist_pos - 21) & 31],
+							poll268_hist[(poll268_hist_pos - 20) & 31],
+							poll268_hist[(poll268_hist_pos - 19) & 31],
+							poll268_hist[(poll268_hist_pos - 18) & 31],
+							poll268_hist[(poll268_hist_pos - 17) & 31],
+							poll268_hist[(poll268_hist_pos - 16) & 31],
+							poll268_hist[(poll268_hist_pos - 15) & 31],
+							poll268_hist[(poll268_hist_pos - 14) & 31],
+							poll268_hist[(poll268_hist_pos - 13) & 31],
+							poll268_hist[(poll268_hist_pos - 12) & 31],
+							poll268_hist[(poll268_hist_pos - 11) & 31],
+							poll268_hist[(poll268_hist_pos - 10) & 31],
+							poll268_hist[(poll268_hist_pos - 9) & 31],
+							poll268_hist[(poll268_hist_pos - 8) & 31],
+							poll268_hist[(poll268_hist_pos - 7) & 31],
+							poll268_hist[(poll268_hist_pos - 6) & 31],
+							poll268_hist[(poll268_hist_pos - 5) & 31],
+							poll268_hist[(poll268_hist_pos - 4) & 31],
+							poll268_hist[(poll268_hist_pos - 3) & 31],
+							poll268_hist[(poll268_hist_pos - 2) & 31],
+							poll268_hist[(poll268_hist_pos - 1) & 31],
+							a6,
+							a7,
+							ram_word(a7 & 0x1FFFFF),
+							ram_word((a7 + 2) & 0x1FFFFF),
+							ram_word((a7 + 4) & 0x1FFFFF),
+							ram_word((a7 + 6) & 0x1FFFFF),
+							ram_word((a7 + 8) & 0x1FFFFF),
+							ram_word((a7 + 10) & 0x1FFFFF),
+							ram_word((a7 + 12) & 0x1FFFFF),
+							ram_word((a7 + 14) & 0x1FFFFF));
+					}
 					fprintf(stderr,
-						"POLL268 @%llu pc=%08X op=%04X addr=%08X rw=%d fc=%d din=%04X dout=%04X "
+						"POLL268 %s @%llu frame=%d tick=%08X pc=%08X op=%04X addr=%08X rw=%d fc=%d din=%04X dout=%04X "
 						"bc=%d via=%d via2=%d scsi=%d scc=%d iwm=%d nubus=%d ram=%d rom=%d "
 						"mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
 						"sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X "
 						"t0_phase=%d t0_mnt=%d t0_din=%02X t0_ack=%d t0_cmd=%d t0_cnt=%u t0_done=%d t0_sel=%d t0_reqrd=%d "
 						"t1_phase=%d t1_mnt=%d t1_cmd=%d "
 						"arb=%d arb_count=%02X "
-						"d1=%08X d5=%08X d7=%08X a3=%08X a4=%08X a3+10=%08X a3+20=%08X\n",
+						"d0=%08X d1=%08X d2=%08X d5=%08X d6=%08X d7=%08X "
+						"a0=%08X a1=%08X a2=%08X a3=%08X a4=%08X a6=%08X a3+10=%08X a3+20=%08X "
+						"m_a4_61=%02X m_a6_08=%04X m_a6_0a=%04X m_a6_0c=%04X m_a6_14=%04X\n",
+						log_scsi_cycle ? "BUS" : "FETCH",
 						(unsigned long long)main_time,
+						video.count_frame,
+						lowmem_tick_016a(),
 						pc,
 						VERTOPINTERN->debug_opcode,
 						VERTOPINTERN->debug_cpuAddr,
@@ -1034,7 +1727,14 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__cmd_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_active ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__arb_count,
-						d1, d5, d7, a3, a4, a3 + 0x10, a3 + 0x20);
+						tg68_reg(0), d1, tg68_reg(2), d5, tg68_reg(6), d7,
+						tg68_reg(8), tg68_reg(9), tg68_reg(10), a3, a4, tg68_reg(14),
+						a3 + 0x10, a3 + 0x20,
+						ram_byte((a4 + 0x61) & 0x1FFFFF),
+						ram_word((tg68_reg(14) + 0x08) & 0x1FFFFF),
+						ram_word((tg68_reg(14) + 0x0A) & 0x1FFFFF),
+						ram_word((tg68_reg(14) + 0x0C) & 0x1FFFFF),
+						ram_word((tg68_reg(14) + 0x14) & 0x1FFFFF));
 					poll268_log_count++;
 				}
 			}
@@ -1710,11 +2410,25 @@ void show_help() {
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
 	printf("  --scsi-debug                  Trace focused NCR5380 bus transactions\n");
+	printf("  --scsi-debug-min-frame <n>    Start SCSI debug logging at frame n\n");
+	printf("  --scsi-timeout-loop-debug     Trace ROM SCSI timeout DBNE loop state\n");
 	printf("  --iwm-debug                   Trace focused IWM/floppy bus transactions\n");
+	printf("  --iwm-debug-min-frame <n>     Delay IWM tracing until frame n\n");
+	printf("  --iwm-state-debug             Trace ROM floppy drive queue state near PC 0082E220\n");
+	printf("  --boot-decision-debug         Trace SCSI/floppy boot-decision ROM PCs\n");
+	printf("  --boot-decision-debug-min-frame <n>\n");
 	printf("  --wait-debug                  Trace ROM wait helper around PC 40801610\n");
+	printf("  --wait-debug-min-frame <n>    Delay wait-helper tracing until frame n\n");
 	printf("  --calib-debug                 Trace VIA timers and low-memory delay calibration\n");
+	printf("  --calib-loop-debug            Trace delay calibration DBF loop counts and VIA1 T2 state\n");
+	printf("  --force-mame-calib            Force MAME delay words $0D00/$0DA6 for timing diagnosis\n");
+	printf("  --force-calib <0d00> <0da6>   Force custom delay words for timing diagnosis\n");
+	printf("  --force-calib-min-frame <n>   Delay forced calibration writes until frame n\n");
+	printf("  --ramtest-debug               Trace ROM RAM-test pass/fail PCs and register state\n");
 	printf("  --scc-bus-debug              Trace focused CPU SCC bus transactions\n");
 	printf("  --ram-size-cpu-debug          Trace CPU state through ROM RAM sizing\n");
+	printf("  --frame-probe                 Print one-line PC/register summaries at frame boundaries\n");
+	printf("  --frame-interval <n>          Frame-probe print interval (default 10)\n");
 	printf("  --nubus-video-debug           Trace focused NuBus video VBL/control accesses\n");
 	printf("  --nubus-video-full-debug      Also include NuBus video VRAM/register/RAMDAC writes\n");
 	printf("  --scsi0 <file>                Mount a SCSI disk image on target 0 (ID 6)\n");
@@ -1785,6 +2499,54 @@ void save_screenshot(int frame_number) {
 	}
 }
 
+static const char* frame_region_for_pc(uint32_t pc) {
+	if (pc >= 0x40805e4a && pc <= 0x40805f7c) {
+		return "asc_selftest";
+	}
+	if (pc >= 0x4080dde0 && pc <= 0x4080de70) {
+		return "via_adb_rtc";
+	}
+	if (pc >= 0x40803d00 && pc <= 0x40804400) {
+		return "nubus_declrom";
+	}
+	if (pc >= 0x4080151c && pc <= 0x408017cc) {
+		return "wait_helper";
+	}
+	return "";
+}
+
+static void maybe_print_frame_probe() {
+	if (!frame_probe_enable || video.count_frame == frame_probe_last_frame) {
+		return;
+	}
+
+	frame_probe_last_frame = video.count_frame;
+	if (video.count_frame != 1 &&
+	    frame_probe_interval > 0 &&
+	    (video.count_frame % frame_probe_interval) != 0 &&
+	    (!stop_at_frame_enabled || video.count_frame < stop_at_frame)) {
+		return;
+	}
+
+	uint32_t tick = (uint32_t(VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B5]) << 16) |
+	                uint32_t(VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6]);
+	uint32_t pc = VERTOPINTERN->debug_pc;
+	fprintf(stderr, "FRAME_PROBE frame=%d time=%llu tick016A=%08X pc=%08X op=%04X region=%s "
+	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X\n",
+	        video.count_frame,
+	        (unsigned long long)main_time,
+	        tick,
+	        pc,
+	        VERTOPINTERN->debug_opcode,
+	        frame_region_for_pc(pc),
+	        tg68_reg(0),
+	        tg68_reg(5),
+	        tg68_reg(6),
+	        tg68_reg(8),
+	        tg68_reg(11));
+	fflush(stderr);
+}
+
 unsigned char mouse_clock = 0;
 unsigned char mouse_buttons = 0;
 unsigned char mouse_x = 0;
@@ -1809,12 +2571,43 @@ int main(int argc, char** argv, char** env) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-timeout-loop-debug") == 0) {
+			scsi_timeout_loop_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-debug-min-frame") == 0 && i + 1 < argc) {
+			scsi_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "--iwm-debug") == 0) {
 			iwm_debug_enable = true;
+		} else if (strcmp(argv[i], "--iwm-debug-min-frame") == 0 && i + 1 < argc) {
+			iwm_debug_min_frame = atoi(argv[++i]);
+		} else if (strcmp(argv[i], "--iwm-state-debug") == 0) {
+			iwm_state_debug_enable = true;
+		} else if (strcmp(argv[i], "--boot-decision-debug") == 0) {
+			boot_decision_debug_enable = true;
+		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
+			boot_decision_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "--wait-debug") == 0) {
 			wait_debug_enable = true;
+		} else if (strcmp(argv[i], "--wait-debug-min-frame") == 0 && i + 1 < argc) {
+			wait_debug_min_frame = atoi(argv[++i]);
 		} else if (strcmp(argv[i], "--calib-debug") == 0) {
 			calib_debug_enable = true;
+		} else if (strcmp(argv[i], "--calib-loop-debug") == 0) {
+			calib_loop_debug_enable = true;
+		} else if (strcmp(argv[i], "--force-mame-calib") == 0) {
+			force_calib_enable = true;
+			force_calib_0d00 = 0x0A3B;
+			force_calib_0da6 = 0x0417;
+			force_calib_min_frame = 120;
+		} else if (strcmp(argv[i], "--force-calib") == 0 && i + 2 < argc) {
+			force_calib_enable = true;
+			force_calib_0d00 = (uint16_t)strtoul(argv[++i], nullptr, 0);
+			force_calib_0da6 = (uint16_t)strtoul(argv[++i], nullptr, 0);
+		} else if (strcmp(argv[i], "--force-calib-min-frame") == 0 && i + 1 < argc) {
+			force_calib_min_frame = std::stoi(argv[++i]);
+		} else if (strcmp(argv[i], "--ramtest-debug") == 0) {
+			ramtest_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
 			nubus_video_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-full-debug") == 0) {
@@ -1824,6 +2617,11 @@ int main(int argc, char** argv, char** env) {
 			scc_bus_debug_enable = true;
 		} else if (strcmp(argv[i], "--ram-size-cpu-debug") == 0) {
 			ram_size_cpu_debug_enable = true;
+		} else if (strcmp(argv[i], "--frame-probe") == 0) {
+			frame_probe_enable = true;
+		} else if (strcmp(argv[i], "--frame-interval") == 0 && i + 1 < argc) {
+			frame_probe_interval = std::stoi(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "+poll268_debug") == 0 || strcmp(argv[i], "--poll268-debug") == 0) {
 			poll268_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi0") == 0 && i + 1 < argc) {
@@ -2039,6 +2837,8 @@ int main(int argc, char** argv, char** env) {
 					for (int step = 0; step < multi_step_amount; step++) { verilate(); }
 				}
 			}
+
+			maybe_print_frame_probe();
 
 			bool took_screenshot_this_frame = false;
 			if (screenshot_mode) {

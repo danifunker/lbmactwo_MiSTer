@@ -76,9 +76,16 @@ module iwm
 	assign _iwmBusy = 1'b1; // for writes, a value of 1 here indicates the IWM write buffer is empty
 	assign _writeUnderrun = 1'b1;
 
-	// floppy disk drives 
-	reg diskEnableExt, diskEnableInt;
-	reg diskEnableExtNext, diskEnableIntNext;
+	// floppy disk drives
+	// The IWM has one active/motor latch and one drive-select latch. MAME's
+	// iwm_device switches the active drive when SELECT changes while active,
+	// rather than keeping separate enables latched per drive.
+	reg diskEnable;
+	reg diskEnableNext;
+	wire diskEnableInt = diskEnable & ~selectExternalDrive;
+	wire diskEnableExt = diskEnable & selectExternalDrive;
+	wire diskEnableIntNext = diskEnableNext & ~selectExternalDriveNext;
+	wire diskEnableExtNext = diskEnableNext & selectExternalDriveNext;
 	wire newByteReadyInt;
 	wire [7:0] readDataInt;
 	wire senseInt = readDataInt[7]; // bit 7 doubles as the sense line here
@@ -103,6 +110,7 @@ module iwm
 		.readData(readDataInt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyInt),
+		.drivePresent(1'b1),
 		.insertDisk(insertDisk[0]),
 		.diskSides(diskSides[0]),
 		.diskEject(diskEject[0]),	
@@ -132,6 +140,7 @@ module iwm
 		.readData(readDataExt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyExt),
+		.drivePresent(insertDisk[1]),
 		.insertDisk(insertDisk[1]),
 		.diskSides(diskSides[1]),
 		.diskEject(diskEject[1]),
@@ -146,9 +155,9 @@ module iwm
 	
 	wire [7:0] readData = selectExternalDrive ? readDataExt : readDataInt;
 	wire newByteReady = selectExternalDrive ? newByteReadyExt : newByteReadyInt;
-	wire anyDiskEnable = diskEnableExt | diskEnableInt;
-	wire selectedDiskEnableNext = selectExternalDriveNext ? diskEnableExtNext : diskEnableIntNext;
-	wire anyDiskEnableNext = diskEnableExtNext | diskEnableIntNext;
+	wire anyDiskEnable = diskEnable;
+	wire selectedDiskEnableNext = diskEnableNext;
+	wire anyDiskEnableNext = diskEnableNext;
 	
 	reg [4:0] iwmMode;
 	/* IWM mode register: S C M H L
@@ -181,8 +190,7 @@ module iwm
 		ca1Next <= ca1;
 		ca2Next <= ca2;
 		lstrbNext <= lstrb;
-		diskEnableExtNext <= diskEnableExt;
-		diskEnableIntNext <= diskEnableInt;
+		diskEnableNext <= diskEnable;
 		selectExternalDriveNext <= selectExternalDrive;
 		q6Next <= q6;
 		q7Next <= q7;
@@ -198,10 +206,7 @@ module iwm
 				3'h3: // lstrb
 					lstrbNext <= cpuAddrRegHi[0];
 				3'h4: // disk enable
-					if (selectExternalDrive)
-						diskEnableExtNext <= cpuAddrRegHi[0];
-					else
-						diskEnableIntNext <= cpuAddrRegHi[0];
+					diskEnableNext <= cpuAddrRegHi[0];
 				3'h5: // external drive
 					selectExternalDriveNext <= cpuAddrRegHi[0];
 				3'h6: // Q6 
@@ -219,8 +224,7 @@ module iwm
 			ca1 <= 0;
 			ca2 <= 0;
 			lstrb <= 0;
-			diskEnableExt <= 0;
-			diskEnableInt <= 0;
+			diskEnable <= 0;
 			selectExternalDrive <= 0;
 			q6 <= 0;
 			q7 <= 0;
@@ -230,8 +234,7 @@ module iwm
 			ca1 <= ca1Next;
 			ca2 <= ca2Next;
 			lstrb <= lstrbNext;
-			diskEnableExt <= diskEnableExtNext;
-			diskEnableInt <= diskEnableIntNext;
+			diskEnable <= diskEnableNext;
 			selectExternalDrive <= selectExternalDriveNext;
 			q6 <= q6Next;
 			q7 <= q7Next;
@@ -266,7 +269,7 @@ module iwm
 				// writing to any IWM address modifies state as selected by Q7 and Q6
 				case ({q7Next,q6Next})
 					2'b11: begin
-						if (diskEnableExt | diskEnableInt)
+						if (diskEnable)
 							writeData <= dataInByte;
 						else
 							iwmMode <= dataInByte[4:0];

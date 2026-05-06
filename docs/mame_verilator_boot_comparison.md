@@ -5,7 +5,33 @@ run and the Verilator simulation. The goal is to keep the remaining boot work
 focused on the first real divergence instead of chasing earlier devices that
 are no longer blocking progress.
 
-## Current Status: 2026-05-04
+## Current Status: 2026-05-06
+
+The current first failing user-visible operation is the boot floppy `_Read`,
+not ASC. Verilator reaches the ROM queue path with the expected IOParam block:
+`ioRefNum=$FFFB`, buffer `$00100000`, request count `$400`, `posMode=1`, and
+position `0`. The call returns `D0=$FFFFFFBF` (`offLinErr`). The matched MAME
+run reaches the same queue handoff and continues at `$408017CC` with `D0=0`,
+then executes copied floppy code from low memory.
+
+Matched MAME with `-nb9 "" -nbe m2hires -scsi:6 ""` does not enter the later
+ROM SCSI timeout/probe paths during the successful floppy boot. Its NCR5380
+activity is limited to the early reset/status poll: 1048 reads from SCSI CSR at
+`PC=$4080060C`, all returning `00`, plus the reset writes around
+`$40800680-$4080068C`. Verilator sees the same early CSR value but is still in
+that countdown much later in frame time, and later reaches SCSI timeout helper
+code after the floppy read has failed. That makes the later SCSI activity a
+downstream symptom unless a tighter trace says otherwise.
+
+The delay calibration mismatch remains important but is not a complete fix by
+itself. MAME stores `$0D00=$0A3B` and `$0DA6=$0417`; Verilator has been around
+`$054B/$0196`. A diagnostic `--force-mame-calib` path changes the ROM wait-loop
+shape but did not make the floppy `_Read` succeed. The next useful comparison
+is the copied floppy/IWM read transaction stream around MAME frame 295 versus
+the Verilator `_Read` failure window, using the IWM probes rather than treating
+ASC or the AppleCD target as the primary blocker.
+
+## Previous Milestones: 2026-05-04
 
 The first confirmed divergence was the Mac II 2MB RAM GLUE mapping, not SCC.
 MAME dynamically remaps RAM from VIA2 PA7:6 while the ROM probes `FF/BF/7F/3F`.
@@ -73,6 +99,13 @@ mkdir -p mame/roms/nb_m2hr
 cp releases/341-0660.bin mame/roms/nb_m2hr/341-0660.bin
 cd mame
 SDL_VIDEODRIVER=dummy ./mame macii -rompath roms -video none -sound none -nothrottle -skip_gameinfo -nb9 "" -nbe m2hires -autoboot_script ../tools/mame/macii_scc_probe.lua
+```
+
+For current boot debugging, also remove MAME's default SCSI disk at ID 6 so the
+reference run matches a direct-floppy Verilator boot:
+
+```sh
+SDL_VIDEODRIVER=dummy ./mame macii -rompath roms -video none -sound none -nothrottle -skip_gameinfo -nb9 "" -nbe m2hires -scsi:6 "" -flop ../releases/Disk605.dsk -autoboot_script ../tools/mame/macii_frame_probe.lua
 ```
 
 Expected matched-card SCC probe summary at 1200 frames:

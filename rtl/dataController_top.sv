@@ -167,8 +167,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
 		.bus_rs(cpuAddrRegMid),
-		.ior(!_cpuUDS),
-		.iow(!_cpuUDS),
+		.ior(_cpuRW && !_cpuUDS),
+		.iow(!_cpuRW && !_cpuUDS),
 		.dack(cpuAddrRegHi[0]),   // A9
 		.wdata(cpuDataIn[15:8]),
 		.rdata(scsiDataOut),

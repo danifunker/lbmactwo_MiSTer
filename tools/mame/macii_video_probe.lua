@@ -3,6 +3,7 @@ local mem = cpu.spaces["program"]
 
 local frames = 0
 local stop_frame = tonumber(os.getenv("MAME_STOP_FRAME") or "1200") or 1200
+local min_frame = tonumber(os.getenv("MAME_MIN_FRAME") or "0") or 0
 local counts = {
 	slot_r = 0, slot_w = 0,
 	super_r = 0, super_w = 0,
@@ -46,6 +47,10 @@ local function should_print(cat, count)
 end
 
 local function log_access(kind, addr, data, mask)
+	if frames < min_frame then
+		return
+	end
+
 	local pc = cpu.state["CURPC"].value
 	local cat = category(addr, kind)
 	local key = string.lower(cat)

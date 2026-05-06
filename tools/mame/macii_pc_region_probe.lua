@@ -9,6 +9,8 @@ local min_frame = tonumber(os.getenv("MAME_MIN_FRAME") or "0") or 0
 local frame_interval = tonumber(os.getenv("MAME_FRAME_INTERVAL") or "0") or 0
 local start_pc = tonumber(os.getenv("MAME_PC_START") or "40826C70", 16) or 0x40826c70
 local end_pc = tonumber(os.getenv("MAME_PC_END") or "40826CDF", 16) or 0x40826cdf
+local tap_start = tonumber(os.getenv("MAME_TAP_START") or "", 16) or start_pc
+local tap_end = tonumber(os.getenv("MAME_TAP_END") or "", 16) or end_pc
 local last_pc = 0xffffffff
 
 local function hex(v, w)
@@ -52,7 +54,7 @@ local function fetch_probe(offset, data, mask)
 	hits = hits + 1
 end
 
-mem:install_read_tap(start_pc, end_pc, "pc_region_fetch", fetch_probe)
+mem:install_read_tap(tap_start, tap_end, "pc_region_fetch", fetch_probe)
 
 emu.register_frame_done(function()
 	frames = frames + 1

@@ -71,11 +71,12 @@ module floppy
 	input SEL, 				// HDSEL from VIA
 	input lstrb,			// aka PH3
 	input _enable, 			
-	input [7:0] writeData,		
+	input [7:0] writeData,
 	output [7:0] readData,
-	
+
 	input advanceDriveHead,  // prevents overrun when debugging, does not exist on a real Mac!
 	output reg newByteReady,
+	input drivePresent,
 	input insertDisk,
 	input diskSides,
 	output diskEject,
@@ -148,9 +149,34 @@ module floppy
 	
 	// TODO: auto-detect doubleSidedDisk from image file size
 	wire doubleSidedDisk = diskSides;
-	
+
 	wire [3:0] driveReadAddr = {ca2,ca1,ca0,SEL};
-	
+	wire [3:0] driveSenseAddr = {SEL,ca2,ca1,ca0};
+	wire driveReadDataSelected = (driveReadAddr == `DRIVE_REG_RDDATA0) ||
+	                             (driveReadAddr == `DRIVE_REG_RDDATA1);
+
+	// MAME's Mac/Sony floppy model reports sense as {VIA PA5, CA2, CA1, CA0}.
+	// Keep the legacy read-data selector above for the local byte-stream model,
+	// but use the Mac sense ordering for IWM status bit 7.
+	wire [15:0] driveSenseAsRead = {
+		drivePresent, // HD / new interface: 800K Sony drives report the new interface
+		~drivePresent, // NoReady: ready
+		1'b0, // MFMModeOn: GCR mode
+		1'b0, // RdData1 / index pulse
+		driveRegs[`DRIVE_REG_TACH], // NoTachPulse
+		~(driveTrack == 7'h00), // NotTrack0
+		1'b1, // NoWrProtect
+		drivePresent ? driveRegs[`DRIVE_REG_CSTIN] : 1'b1, // NoDiskInPl
+		~drivePresent, // NoDrive
+		drivePresent, // DoubleSide
+		1'b0, // Superdrive
+		1'b0, // RdData0 / index pulse
+		1'b0, // Disk change
+		driveRegs[`DRIVE_REG_MOTORON], // Motor off
+		1'b1, // Step complete
+		driveRegs[`DRIVE_REG_DIRTN] // Direction
+	};
+
 	// a byte is read or written every 128 clocks (2 us per bit * 8 bits = 16 us, @ 8 MHz = 128 clocks)
 	// The CPU must poll for data at least this often, or else an overrun will occur.
 	reg [6:0] diskDataByteTimer; 
@@ -168,7 +194,7 @@ module floppy
 		else begin			
 			if(cep) begin
 			// at time 0, latch a new byte and advance the drive head
-			if (diskDataByteTimer == 0 && readyToAdvanceHead && diskImageData != 0) begin
+			if (diskDataByteTimer == 0 && readyToAdvanceHead && diskImageData != 0 && driveReadDataSelected) begin
 				diskDataIn <= diskImageData;
 				newByteReady <= 1;
 				diskDataByteTimer <= 1;  // make timer run again
@@ -176,8 +202,9 @@ module floppy
 				// clear diskImageData after it's used, so we can tell when we get a new one from the disk	
 				diskImageData <= 0;
 
-				// for debugging, don't advance the head until the IWM says it's ready
-				readyToAdvanceHead <= 1'b1; // TEMP: treat IWM as always ready
+				// Wait for the IWM read latch to be consumed before presenting the
+				// next encoded disk byte; otherwise slow CPU polling skips ahead.
+				readyToAdvanceHead <= 1'b0;
 			end
 
 			// extraRomReadAck comes every hsync which is every 21us. The iwm data rates
@@ -204,7 +231,7 @@ module floppy
 			if (driveReadAddr == `DRIVE_REG_RDDATA0 && lstrb == 1'b0)
 				driveSide <= 0;
 			if (driveReadAddr == `DRIVE_REG_RDDATA1 && lstrb == 1'b0)
-				driveSide <= 1;	
+				driveSide <= 1;
 		end
 	end
 	end
@@ -215,9 +242,10 @@ module floppy
 
 	wire lstrbEdge = lstrb == 1'b0 && lstrbPrev == 1'b1;
 
+	wire driveSenseBit = drivePresent ? driveSenseAsRead[driveSenseAddr] : 1'b1;
 	assign readData = _enable ? 8'hFF :
-	                  (driveReadAddr == `DRIVE_REG_RDDATA0 || driveReadAddr == `DRIVE_REG_RDDATA1) ? diskDataIn :
-							{ driveRegsAsRead[driveReadAddr], 7'h00 };
+	                  driveReadDataSelected ? diskDataIn :
+							{ driveSenseBit, 7'h00 };
 		
 	// write drive registers
 	wire [2:0] driveWriteAddr = {ca1,ca0,SEL};
@@ -260,7 +288,7 @@ module floppy
 			end
 		end
 	end									
-									
+
 	//`define DRIVE_REG_STEP		2  /* R: drive head stepping (1 = complete) */
 												/* W: 0 = step drive head */
 	always @(posedge clk or negedge _reset) begin
@@ -276,7 +304,7 @@ module floppy
 			end
 		end
 	end
-	
+
 	// DRIVE_REG_MOTORON	4  /* R/W: 0 = motor on */
 	always @(posedge clk or negedge _reset) begin
 		if (_reset == 1'b0) begin		

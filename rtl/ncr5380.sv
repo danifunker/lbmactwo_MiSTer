@@ -116,7 +116,7 @@ module ncr5380
 
 		if(~old_dma_wr & i_dma_wr) dma_wr <= 1;
 		if(~old_reg_wr & i_reg_wr) reg_wr <= 1;
-		if((old_dma_wr & ~i_dma_wr) | (old_dma_rd & ~i_dma_rd)) dma_ack <= dma_en;
+		if((old_dma_wr & ~i_dma_wr) | (old_dma_rd & ~i_dma_rd)) dma_ack <= dma_en & bsr_pmatch;
 	end
 
 	/* System bus reads */
@@ -128,7 +128,7 @@ module ncr5380
 	               bus_rs == `RREG_CSR ? csr              :
 	               bus_rs == `RREG_BSR ? bsr              :
 	               bus_rs == `RREG_IDR ? cur_data         :
-	               bus_rs == `RREG_RST ? 8'hff            :
+	               bus_rs == `RREG_RST ? 8'h00            :
 	               8'hff;
 
 	/* Data out latch (in DMA mode, this is one cycle after we've
@@ -159,8 +159,6 @@ module ncr5380
 			icr <= 0;
 		end else if (reg_wr && (bus_rs == `WREG_ICR)) begin
 			icr <= wdata;
-		end else if (reg_wr && (bus_rs == `WREG_MR) && !wdata[`MR_ARB]) begin
-			icr[`ICR_A_BSY] <= 1'b0;
 		end else if (arb_active && arb_count == 8'd0) begin
 			icr[`ICR_A_BSY] <= 1'b1;
 		end
@@ -231,7 +229,7 @@ module ncr5380
 	wire bsr_eodma = 1'b0;	/* We don't do EOP */
 	wire bsr_dmarq = scsi_req & dma_en;
 	wire bsr_perr = 1'b0;	/* We don't do parity */
-	wire bsr_irq = 1'b0;	        /* XXX ? Does MacOS use this ? */
+	wire bsr_irq = scsi_req & dma_en & ~bsr_pmatch;
 	wire bsr_pmatch = 
 	         tcr[`TCR_A_MSG] == scsi_msg &&
 	         tcr[`TCR_A_CD ] == scsi_cd  &&
@@ -247,6 +245,7 @@ module ncr5380
 	wire scsi_bsy = 
 	    icr[`ICR_A_BSY] |
 	    |target_bsy |
+	    empty_cd_bsy |
 	    //scsi2_bsy |
 	    //scsi6_bsy |
 	    mr[`MR_ARB];
@@ -281,6 +280,14 @@ module ncr5380
 				din = target_dout[i];
 			end
 		end
+
+		if (empty_cd_bsy) begin
+			scsi_cd = empty_cd_cd;
+			scsi_io = empty_cd_io;
+			scsi_msg = empty_cd_msg;
+			scsi_req = empty_cd_req;
+			din = empty_cd_dout;
+		end
 	end
 
 	// input signals from targets
@@ -290,6 +297,28 @@ module ncr5380
 	wire [DEVS-1:0] target_cd;
 	wire [DEVS-1:0] target_req;
 	wire      [7:0] target_dout[DEVS];
+
+	wire empty_cd_bsy;
+	wire empty_cd_msg;
+	wire empty_cd_io;
+	wire empty_cd_cd;
+	wire empty_cd_req;
+	wire [7:0] empty_cd_dout;
+
+	scsi_empty_cd #(.ID(3'd3)) empty_cd
+	(
+		.clk    ( clk ),
+		.rst    ( scsi_rst ),
+		.sel    ( scsi_sel ),
+		.ack    ( scsi_ack ),
+		.bsy    ( empty_cd_bsy  ),
+		.msg    ( empty_cd_msg  ),
+		.cd     ( empty_cd_cd   ),
+		.io     ( empty_cd_io   ),
+		.req    ( empty_cd_req  ),
+		.dout   ( empty_cd_dout ),
+		.din    ( scsi_bus_data )
+	);
 
 	generate
 		genvar i;
