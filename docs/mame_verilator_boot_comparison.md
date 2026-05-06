@@ -842,3 +842,43 @@ to make different foreground decisions than MAME. The next target should be the
 TG68K bus wrapper's effective instruction/bus-cycle timing and VPA/VMA/E-cycle
 interaction, especially around the ROM's VBL queue callback path
 `$40806486->$408061E4` and the foreground transition that calls the SCSI helper.
+
+## 2026-05-06 SCSI Driver Entry Finding
+
+The latest trace shows the Verilator SCSI timeout is not caused by a corrupt
+SCSI driver table. At the failing entry, the driver table at `$2C60` matches the
+MAME no-media state:
+
+```text
+MAME frame 400:      A4_00=40826714 A4_04=4082 A4_06=672A A4_60=8001 A4_61=01
+Verilator frame 457: A4_00=40826714 A4_04=4082 A4_06=672A A4_60=8001 A4_61=01
+```
+
+The bad path is the ROM boot-block reader at `$40807C78`. It pushes drive `6`
+into the SCSI trap (`A815`), enters the SCSI driver at `$40826756`, and then
+selects target ID 6 through `$40826932/$40826970`:
+
+```text
+Verilator frame 457 pc=40807CA4 A1=000FFE3E D5=00000006
+Verilator frame 457 pc=40826756 A4=00002C60 D0=00000000 D6=000FF980
+Verilator frame 457 pc=4082675E D0=00000006 D6=000FF980
+Verilator frame 457 pc=40826970 D3=00000006 odr=C0 csr=02
+```
+
+MAME, with the same no-media command line, remains in the queue walker through
+frame 2000 and does not enter this boot-block reader or the SCSI selection path:
+
+```text
+MAME frame 2000 pc=408061F2 tick016A=00000673 A4_00=40826714 A4_60=8001 A4_61=01
+```
+
+A separate RTC audit found one real mismatch against MAME: the local 343-0042
+PRAM model reset write-protected and blocked extended PRAM writes, while MAME
+resets the write-protect latch clear and accepts extended writes. That has been
+fixed in `rtl/rtc.v`. It is a correctness fix, but it did not by itself stop
+the Verilator run from entering the SCSI ID 6 selection loop by frame 900.
+
+The remaining no-media divergence is therefore higher level than the NCR target
+response: the ROM foreground boot code is deciding to issue a SCSI boot-block
+read for drive/ID 6 in Verilator, while MAME never reaches that call in the
+matched no-media baseline.

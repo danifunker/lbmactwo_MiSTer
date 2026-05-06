@@ -499,6 +499,7 @@ static bool boot_decision_pc(uint32_t pc) {
 static void print_boot_decision_debug(uint32_t pc) {
 	uint32_t a6 = tg68_reg(14);
 	uint32_t a7 = tg68_reg(15);
+	uint32_t a1 = tg68_reg(9);
 	uint32_t a3 = tg68_reg(11);
 	uint32_t a4 = tg68_reg(12);
 	uint32_t a2 = tg68_reg(10);
@@ -511,12 +512,15 @@ static void print_boot_decision_debug(uint32_t pc) {
 		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X RET=%08X "
 		"SP00=%04X SP02=%04X SP04=%04X SP06=%04X "
 		"FP08=%04X FP0A=%04X FP0C=%04X FP0E=%04X FP14=%04X "
+		"A1_00=%04X A1_02=%04X A1_04=%08X A1_08=%08X A1_0C=%04X A1_0E=%04X A1_10=%08X A1_14=%08X "
 		"D6W00=%04X D6W02=%04X D6W04=%04X D6W06=%04X D6W08=%04X D6W0A=%04X "
 		"W09FA=%04X W09FC=%04X W09FE=%04X W0A00=%04X W0A02=%04X "
 		"L0134=%08X W017A=%04X B0C2F=%02X W0D00=%04X W0DA6=%04X "
 		"L08EE=%08X L0D10=%08X L0D14=%08X L030A=%08X "
 		"Q_00=%08X Q_04=%04X Q_06=%04X Q_08=%04X Q_0A=%04X Q_0C=%08X "
 		"A2_00=%08X A2_04=%04X A2_06=%04X A2_08=%04X A2_0A=%04X "
+		"A4_00=%08X A4_04=%04X A4_06=%04X A4_08=%04X A4_0A=%04X "
+		"A4_10=%08X A4_14=%04X A4_18=%08X A4_1C=%04X A4_20=%08X A4_60=%04X A4_61=%02X "
 		"SCSI csr=%02X bsr=%02X pmatch=%d dmaen=%d dack=%d mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
 		"cdph=%u cdcnt=%u cdcmd0=%02X cdstat=%02X "
 		"IWM q6=%d q7=%d en=%d enn=%d eni=%d ene=%d mode=%02X intRegs=%04X extRegs=%04X a4b61=%02X\n",
@@ -535,7 +539,7 @@ static void print_boot_decision_debug(uint32_t pc) {
 		tg68_reg(6),
 		tg68_reg(7),
 		tg68_reg(8),
-		tg68_reg(9),
+		a1,
 		a2,
 		a3,
 		a4,
@@ -552,6 +556,14 @@ static void print_boot_decision_debug(uint32_t pc) {
 		ram_word(a6 + 0x0C),
 		ram_word(a6 + 0x0E),
 		ram_word(a6 + 0x14),
+		ram_word(a1),
+		ram_word(a1 + 0x02),
+		ram_long(a1 + 0x04),
+		ram_long(a1 + 0x08),
+		ram_word(a1 + 0x0C),
+		ram_word(a1 + 0x0E),
+		ram_long(a1 + 0x10),
+		ram_long(a1 + 0x14),
 		ram_word(d6 + 0x00),
 		ram_word(d6 + 0x02),
 		ram_word(d6 + 0x04),
@@ -583,6 +595,18 @@ static void print_boot_decision_debug(uint32_t pc) {
 		ram_word(a2 + 0x06),
 		ram_word(a2 + 0x08),
 		ram_word(a2 + 0x0A),
+		ram_long(a4),
+		ram_word(a4 + 0x04),
+		ram_word(a4 + 0x06),
+		ram_word(a4 + 0x08),
+		ram_word(a4 + 0x0A),
+		ram_long(a4 + 0x10),
+		ram_word(a4 + 0x14),
+		ram_long(a4 + 0x18),
+		ram_word(a4 + 0x1C),
+		ram_long(a4 + 0x20),
+		ram_word(a4 + 0x60),
+		ram_byte((a4 + 0x61) & 0x1FFFFF),
 		scsi_debug_csr(),
 		scsi_debug_bsr(),
 		scsi_debug_pmatch() ? 1 : 0,

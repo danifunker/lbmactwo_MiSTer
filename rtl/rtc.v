@@ -70,7 +70,7 @@ end
 
 initial begin
 	secs = 0;
-	writeprotect = 1;
+	writeprotect = 0;
 	clocktoseconds = 0;
 end
 
@@ -97,6 +97,7 @@ always @(posedge clk) begin
 		cmd_bytes <= 0;
 		cmd_len <= 1;
 		ck_d <= 0;
+		writeprotect <= 0;
 	end
 	else begin
 
@@ -221,8 +222,7 @@ always @(posedge clk) begin
 							2'd2: begin
 								// Third byte - extended write data
 								cmd_bytes <= 3;
-								if (!writeprotect)
-									pram[ext_addr] <= byte_in;
+								pram[ext_addr] <= byte_in;
 							end
 
 							default: ;
