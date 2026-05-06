@@ -14,7 +14,8 @@ local function hex(v, w)
 end
 
 local function iwm_reg(addr)
-	return (addr >> 8) & 0x0f
+	local lo = addr & 0x00ffffff
+	return ((lo - 0x016000) >> 9) & 0x0f
 end
 
 local function log(kind, addr, data, mask)

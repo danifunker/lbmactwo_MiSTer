@@ -737,3 +737,69 @@ cause is effective timing of the VIA-heavy calibration loop, especially the
 TG68K VPA/VMA/E-cycle handshake and its interaction with repeated VIA accesses,
 rather than a wrong ASC state, SCSI target state, NuBus card selection, or VIA2
 T1 latch value.
+
+## 2026-05-06 No-Media Drive Queue Update
+
+The no-media comparison now uses the matched MAME card with no default hard disk
+and no floppy image:
+
+```sh
+MAME_STOP_FRAME=800 MAME_FRAME_INTERVAL=80 SDL_VIDEODRIVER=dummy ./mame macii \
+  -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
+  -nb9 "" -nbe m2hires -scsi:6 "" \
+  -autoboot_script ../tools/mame/macii_bootvars_probe.lua
+```
+
+MAME stays in the no-media drive-queue loop through frame 800:
+
+```text
+MAME frame 320: pc=408061F2 tick016A=00000088 Q_00=00000000 W09FA=0800
+MAME frame 800: pc=408061F2 tick016A=00000239 Q_00=00000000 W09FA=0800
+```
+
+A focused Verilator probe found one real mismatch in that same loop. The drive
+queue head at `$2F70` was correct except for its next pointer:
+
+```text
+Before fix: Q_00=00002FB2 Q_06=0001 Q_08=FFFB Q_0C=00FF0000
+MAME:       Q_00=00000000 Q_06=0001 Q_08=FFFB Q_0C=00FF0000
+```
+
+This was caused by the external floppy model reporting an installed drive.
+MAME's Mac II config uses `applefdintf_device::add_35(config, m_floppy[0])` for
+the internal drive and `add_35_nc(config, m_floppy[1])` for the external
+connector; `add_35_nc` has a `nullptr` default device. The external connector is
+present, but no external drive mechanism is installed unless configured. After
+changing the external `drivePresent` input to `0`, the Verilator no-media drive
+queue matches MAME:
+
+```text
+Verilator frame 446: pc=408061F2 tick=00000039 Q_00=00000000 Q_06=0001 Q_08=FFFB
+```
+
+The optional fake AppleCD target was also gated off by default. That was not the
+source of the `$2FB2` drive-queue node, but it is still the right default for the
+matched no-media baseline: MAME's `scsi:3` connector is not populated by default,
+and this comparison explicitly removes the default SCSI hard disk with
+`-scsi:6 ""`.
+
+This does not yet produce the blinking no-media desktop icon. Verilator still
+enters the ROM SCSI selection helper around frame 457:
+
+```text
+SCSI_DBG frame=457 tick=00000042 pc=408268DC WR reg=0 odr=80
+SCSI_DBG frame=457 tick=00000042 pc=4082696C WR reg=1 icr=05 odr=C0
+SCSI_DBG frame=457 tick=00000042 pc=40826CC6 RD reg=4 csr=02
+```
+
+The matched MAME no-media run has no SCSI register accesses after the early
+frame-67 CSR polling window, even by frame 800:
+
+```text
+MAME_SCSI_DETAIL_SUMMARY frames=800 reads=1049 writes=4 printed=0 pc=408061F2
+```
+
+So the current no-media blocker is no longer ASC, fake CD, or a phantom external
+floppy queue node. The next divergence is after the corrected drive queue:
+Verilator leaves the no-media loop and enters the SCSI selection/timeout helper,
+while MAME remains in the queue loop with the same low-memory boot variables.

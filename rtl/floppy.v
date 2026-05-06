@@ -70,9 +70,10 @@ module floppy
 	input ca2,				// PH2
 	input SEL, 				// HDSEL from VIA
 	input lstrb,			// aka PH3
-	input _enable, 			
+	input _enable,
 	input [7:0] writeData,
 	output [7:0] readData,
+	output sense,
 
 	input advanceDriveHead,  // prevents overrun when debugging, does not exist on a real Mac!
 	output reg newByteReady,
@@ -150,17 +151,16 @@ module floppy
 	// TODO: auto-detect doubleSidedDisk from image file size
 	wire doubleSidedDisk = diskSides;
 
-	wire [3:0] driveReadAddr = {ca2,ca1,ca0,SEL};
 	wire [3:0] driveSenseAddr = {SEL,ca2,ca1,ca0};
-	wire driveReadDataSelected = (driveReadAddr == `DRIVE_REG_RDDATA0) ||
-	                             (driveReadAddr == `DRIVE_REG_RDDATA1);
+	wire driveReadDataSelected = (driveSenseAddr == `DRIVE_REG_RDDATA0) ||
+	                             (driveSenseAddr == `DRIVE_REG_RDDATA1);
 
 	// MAME's Mac/Sony floppy model reports sense as {VIA PA5, CA2, CA1, CA0}.
 	// Keep the legacy read-data selector above for the local byte-stream model,
 	// but use the Mac sense ordering for IWM status bit 7.
 	wire [15:0] driveSenseAsRead = {
 		drivePresent, // HD / new interface: 800K Sony drives report the new interface
-		~drivePresent, // NoReady: ready
+		drivePresent, // Ready: MAME's Mac/Sony drive returns 1 when ready
 		1'b0, // MFMModeOn: GCR mode
 		1'b0, // RdData1 / index pulse
 		driveRegs[`DRIVE_REG_TACH], // NoTachPulse
@@ -194,7 +194,8 @@ module floppy
 		else begin			
 			if(cep) begin
 			// at time 0, latch a new byte and advance the drive head
-			if (diskDataByteTimer == 0 && readyToAdvanceHead && diskImageData != 0 && driveReadDataSelected) begin
+			if (diskDataByteTimer == 0 && readyToAdvanceHead && diskImageData != 0 &&
+			    driveReadDataSelected && _enable == 1'b0) begin
 				diskDataIn <= diskImageData;
 				newByteReady <= 1;
 				diskDataByteTimer <= 1;  // make timer run again
@@ -226,11 +227,11 @@ module floppy
 			end
 
 			// switch drive sides if DRIVE_REG_RDDATA0 or DRIVE_REG_RDDATA1 are read
-			// TODO: we don't know if this is a true read, since we don't know if IWM is selected or 
+			// TODO: we don't know if this is a true read, since we don't know if IWM is selected or
 			// could be bad if we use this test to flush a cache of encoded disk data
-			if (driveReadAddr == `DRIVE_REG_RDDATA0 && lstrb == 1'b0)
+			if (_enable == 1'b0 && driveSenseAddr == `DRIVE_REG_RDDATA0 && lstrb == 1'b0)
 				driveSide <= 0;
-			if (driveReadAddr == `DRIVE_REG_RDDATA1 && lstrb == 1'b0)
+			if (_enable == 1'b0 && driveSenseAddr == `DRIVE_REG_RDDATA1 && lstrb == 1'b0)
 				driveSide <= 1;
 		end
 	end
@@ -243,6 +244,7 @@ module floppy
 	wire lstrbEdge = lstrb == 1'b0 && lstrbPrev == 1'b1;
 
 	wire driveSenseBit = drivePresent ? driveSenseAsRead[driveSenseAddr] : 1'b1;
+	assign sense = driveSenseBit;
 	assign readData = _enable ? 8'hFF :
 	                  driveReadDataSelected ? diskDataIn :
 							{ driveSenseBit, 7'h00 };

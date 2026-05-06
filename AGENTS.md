@@ -98,22 +98,30 @@ The local MAME ROM setup expected for the matched card is:
 RAM sizing, early ASC, and the initial IWM probe now match the matched-card MAME
 run closely enough that they are not the current blocker.
 
-The active boot failure is the first floppy `_Read`. Verilator reaches the ROM
-queue path with the expected IOParam block (`ioRefNum=$FFFB`, buffer
-`$00100000`, request `$400`, posMode `1`, pos `0`), but the call returns
-`D0=$FFFFFFBF` (`offLinErr`). Matched MAME reaches `$408017CC` with
-`D0=0` and runs copied floppy code from low memory.
+For the current no-media baseline, run MAME without a floppy image and with the
+same slot-E card:
 
-SCSI is no longer the leading first-cause suspect. With the same slot-E
-`m2hires` card and `-scsi:6 ""`, MAME only touches NCR5380 registers during the
-early reset/status poll at `PC=$4080060C` before the successful floppy boot.
-Verilator sees the same early CSR value (`00`) but takes substantially longer
-in that countdown and later falls into SCSI timeout/probe paths after the
-floppy read has failed. Treat the later SCSI activity as a downstream symptom
-unless a new trace proves otherwise.
+```sh
+MAME_STOP_FRAME=800 MAME_FRAME_INTERVAL=80 SDL_VIDEODRIVER=dummy ./mame macii \
+  -rompath roms -video none -sound none -nothrottle -skip_gameinfo \
+  -nb9 "" -nbe m2hires -scsi:6 "" \
+  -autoboot_script ../tools/mame/macii_bootvars_probe.lua
+```
 
-The ROM delay calibration mismatch is real: MAME stores `$0D00=$0A3B` and
+MAME stays in the no-media drive-queue loop at `PC=$408061F2` with
+`$030A=$2F70` and `$2F70.next=0`. Verilator now matches that queue after fixing
+the external floppy connector to report no installed drive by default. MAME's
+`add_35_nc` external connector uses a `nullptr` default device.
+
+The active no-media failure is after that corrected queue state. Verilator still
+leaves the no-media loop and enters the ROM SCSI selection/timeout helper around
+`PC=$408268DC-$40826CC6`, while MAME has no SCSI register accesses after the
+early frame-67 CSR polling window and remains at `PC=$408061F2` through frame
+800. Treat ASC, the fake AppleCD target, and the old phantom external-floppy
+queue node as ruled out unless a new trace contradicts that.
+
+The ROM delay calibration mismatch is still real: MAME stores `$0D00=$0A3B` and
 `$0DA6=$0417`, while Verilator has been around `$054B/$0196`. Forcing the MAME
-constants changes the timing shape but has not made the floppy read succeed,
-so continue comparing the copied floppy/IWM read path rather than stopping at
-ASC or the fake AppleCD target.
+constants changes the timing shape but has not made no-media boot match MAME, so
+continue comparing the ROM branch state after the drive-queue loop and the
+CPU/VIA/bus timing that feeds that decision.

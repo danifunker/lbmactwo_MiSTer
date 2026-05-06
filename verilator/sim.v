@@ -76,6 +76,7 @@ module emu
 	output        debug_selectSCSI,
 	output        debug_selectSCC,
 	output        debug_selectIWM,
+	output        debug_selectASC,
 	output        debug_memoryOverlayOn,
 	output [31:0] debug_cpuAddr,
 	output [15:0] debug_cpuDataIn,    // Data from CPU to peripherals
@@ -84,7 +85,12 @@ module emu
 	output        debug_cpuBusControl,
 	output        debug_viaRd,        // VIA read enable (VMA-synchronized)
 	output        debug_viaWr,        // VIA write enable (VMA-synchronized)
+	output        debug_cpuAS,        // CPU AS signal (active low)
 	output        debug_cpuVMA,       // VMA signal (active low)
+	output        debug_cpuVPA,       // VPA signal (active low)
+	output        debug_cpuDTACK,     // DTACK signal (active low)
+	output        debug_cpuUDS,       // UDS signal (active low)
+	output        debug_cpuLDS,       // LDS signal (active low)
 	output        debug_selectVIA2,
 	output        debug_berr,
 	output [31:0] debug_vbr,
@@ -786,6 +792,7 @@ module emu
 	assign debug_selectSCSI = selectSCSI;
 	assign debug_selectSCC = selectSCC;
 	assign debug_selectIWM = selectIWM;
+	assign debug_selectASC = selectASC;
 	assign debug_memoryOverlayOn = memoryOverlayOn;
 	assign debug_cpuAddr = cpuAddr;  // Full 32-bit address for Mac II
 	assign debug_cpuDataIn = cpuDataOut;  // CPU writes this to peripherals
@@ -794,7 +801,12 @@ module emu
 	assign debug_cpuBusControl = cpuBusControl;
 	assign debug_viaRd = (selectVIA || selectVIA2) && !_cpuVMA && _cpuRW;
 	assign debug_viaWr = (selectVIA || selectVIA2) && !_cpuVMA && !_cpuRW;
+	assign debug_cpuAS = _cpuAS;
 	assign debug_cpuVMA = _cpuVMA;
+	assign debug_cpuVPA = _cpuVPA;
+	assign debug_cpuDTACK = _cpuDTACK;
+	assign debug_cpuUDS = _cpuUDS;
+	assign debug_cpuLDS = _cpuLDS;
 	assign debug_selectVIA2 = selectVIA2;
 	assign debug_cpuIPL = _cpuIPL;
 

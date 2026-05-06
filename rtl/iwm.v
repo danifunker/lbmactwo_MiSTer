@@ -72,6 +72,7 @@ module iwm
 	wire advanceDriveHead; // prevents overrun when debugging, does not exit on a real Mac!
 	reg [7:0] writeData;
 	reg [7:0] readDataLatch;
+	reg [11:0] readDataArmDelay;
 	wire _iwmBusy, _writeUnderrun;
 	assign _iwmBusy = 1'b1; // for writes, a value of 1 here indicates the IWM write buffer is empty
 	assign _writeUnderrun = 1'b1;
@@ -87,11 +88,11 @@ module iwm
 	wire diskEnableIntNext = diskEnableNext & ~selectExternalDriveNext;
 	wire diskEnableExtNext = diskEnableNext & selectExternalDriveNext;
 	wire newByteReadyInt;
-	wire [7:0] readDataInt;
-	wire senseInt = readDataInt[7]; // bit 7 doubles as the sense line here
+	wire [7:0] readDataInt /*verilator public_flat_rd*/;
+	wire senseInt;
 	wire newByteReadyExt;
-	wire [7:0] readDataExt;
-	wire senseExt = readDataExt[7]; // bit 7 doubles as the sense line here
+	wire [7:0] readDataExt /*verilator public_flat_rd*/;
+	wire senseExt;
 	
 	floppy floppyInt
 	(
@@ -108,6 +109,7 @@ module iwm
 		._enable(~(diskEnableInt & driveSel)),
 		.writeData(writeData),
 		.readData(readDataInt),
+		.sense(senseInt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyInt),
 		.drivePresent(1'b1),
@@ -122,7 +124,7 @@ module iwm
 		.dskReadAck(dskReadAckInt),
 		.dskReadData(dskReadData)
 	);
-		
+
 	floppy floppyExt
 	(
 		.clk(clk),
@@ -138,9 +140,12 @@ module iwm
 		._enable(~diskEnableExt),
 		.writeData(writeData),
 		.readData(readDataExt),
+		.sense(senseExt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyExt),
-		.drivePresent(insertDisk[1]),
+		// Match MAME's add_35_nc external connector: no external drive is
+		// installed unless one is explicitly configured.
+		.drivePresent(1'b0),
 		.insertDisk(insertDisk[1]),
 		.diskSides(diskSides[1]),
 		.diskEject(diskEject[1]),
@@ -158,6 +163,7 @@ module iwm
 	wire anyDiskEnable = diskEnable;
 	wire selectedDiskEnableNext = diskEnableNext;
 	wire anyDiskEnableNext = diskEnableNext;
+	wire readDataArmed = (readDataArmDelay == 12'd0);
 	
 	reg [4:0] iwmMode;
 	/* IWM mode register: S C M H L
@@ -281,13 +287,22 @@ module iwm
 
 	// Manage incoming bytes from the disk drive
 	wire iwmRead = (_cpuRW == 1'b1 && selectIWM == 1'b1 && iwmAccess);
-	reg [3:0] readLatchClearTimer; 
+	reg [3:0] readLatchClearTimer;
+	reg diskEnableReadD;
 	always @(posedge clk or negedge _reset) begin
-		if (_reset == 1'b0) begin	
+		if (_reset == 1'b0) begin
 			readDataLatch <= 0;
 			readLatchClearTimer <= 0;
-		end 
+			readDataArmDelay <= 0;
+			diskEnableReadD <= 0;
+		end
 		else if(cen) begin
+			diskEnableReadD <= anyDiskEnable;
+
+			if (readDataArmDelay != 0) begin
+				readDataArmDelay <= readDataArmDelay - 1'b1;
+			end
+
 			// a countdown timer governs how long after a data latch read before the latch is cleared
 			if (readLatchClearTimer != 0) begin
 				readLatchClearTimer <= readLatchClearTimer - 1'b1;
@@ -295,9 +310,10 @@ module iwm
 
 			// MAME clears the IWM data register when the controller enters active
 			// read mode. Avoid exposing stale idle-drive data on the motor-on access.
-			if (!anyDiskEnable && anyDiskEnableNext) begin
+			if ((!anyDiskEnable && anyDiskEnableNext) || (!diskEnableReadD && anyDiskEnable)) begin
 				readDataLatch <= 0;
 				readLatchClearTimer <= 0;
+				readDataArmDelay <= 12'h400;
 			end
 
 			// the conclusion of a valid CPU read from the IWM will start the timer to clear the latch
@@ -307,7 +323,7 @@ module iwm
 
 			// when the drive indicates that a new byte is ready, latch it
 			// NOTE: the real IWM must self-synchronize with the incoming data to determine when to latch it
-			if (anyDiskEnable && newByteReady) begin
+			if (anyDiskEnable && readDataArmed && newByteReady) begin
 				readDataLatch <= readData;
 			end
 			else if (readLatchClearTimer == 1'b1) begin
@@ -315,5 +331,6 @@ module iwm
 			end
 		end
 	end
-	assign advanceDriveHead = readLatchClearTimer == 1'b1; // prevents overrun when debugging, does not exist on a real Mac!
+	assign advanceDriveHead = (readLatchClearTimer == 1'b1) ||
+	                          (anyDiskEnable && !readDataArmed && newByteReady); // prevents overrun when debugging, does not exist on a real Mac!
 endmodule

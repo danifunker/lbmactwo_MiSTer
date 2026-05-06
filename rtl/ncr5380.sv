@@ -75,6 +75,7 @@ module ncr5380
 	input              sd_buff_wr
 );
 	parameter DEVS = 2;
+	parameter ENABLE_EMPTY_CD = 0;
 
 	assign dreq = scsi_req & dma_en;
 
@@ -245,7 +246,7 @@ module ncr5380
 	wire scsi_bsy = 
 	    icr[`ICR_A_BSY] |
 	    |target_bsy |
-	    empty_cd_bsy |
+	    empty_cd_active |
 	    //scsi2_bsy |
 	    //scsi6_bsy |
 	    mr[`MR_ARB];
@@ -281,7 +282,7 @@ module ncr5380
 			end
 		end
 
-		if (empty_cd_bsy) begin
+		if (empty_cd_active) begin
 			scsi_cd = empty_cd_cd;
 			scsi_io = empty_cd_io;
 			scsi_msg = empty_cd_msg;
@@ -304,12 +305,13 @@ module ncr5380
 	wire empty_cd_cd;
 	wire empty_cd_req;
 	wire [7:0] empty_cd_dout;
+	wire empty_cd_active = ENABLE_EMPTY_CD && empty_cd_bsy;
 
 	scsi_empty_cd #(.ID(3'd3)) empty_cd
 	(
 		.clk    ( clk ),
 		.rst    ( scsi_rst ),
-		.sel    ( scsi_sel ),
+		.sel    ( ENABLE_EMPTY_CD ? scsi_sel : 1'b0 ),
 		.ack    ( scsi_ack ),
 		.bsy    ( empty_cd_bsy  ),
 		.msg    ( empty_cd_msg  ),

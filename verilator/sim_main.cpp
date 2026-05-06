@@ -130,6 +130,7 @@ bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 bool iwm_state_debug_enable = false;
 bool boot_decision_debug_enable = false;
+bool bus_handshake_debug_enable = false;
 int scsi_debug_count = 0;
 const int scsi_debug_max = 2000;
 int scsi_debug_min_frame = 0;
@@ -156,6 +157,14 @@ int boot_decision_debug_count = 0;
 const int boot_decision_debug_max = 900;
 int boot_decision_debug_min_frame = 220;
 uint32_t boot_decision_debug_last_key = 0xFFFFFFFF;
+int bus_handshake_debug_count = 0;
+const int bus_handshake_debug_max = 2500;
+int bus_handshake_debug_min_frame = 0;
+bool bus_handshake_debug_prev_as = true;
+bool bus_handshake_debug_prev_vpa = true;
+bool bus_handshake_debug_prev_dtack = true;
+bool bus_handshake_debug_prev_vma = true;
+bool bus_handshake_debug_prev_vpa_non_via = false;
 bool nubus_video_debug_enable = false;
 bool nubus_video_debug_full = false;
 int nubus_video_debug_count = 0;
@@ -443,6 +452,13 @@ static bool boot_decision_pc(uint32_t pc) {
 	case 0x40801600:
 	case 0x4080174E:
 	case 0x408017CC:
+	case 0x408061E4:
+	case 0x408061F2:
+	case 0x408061FA:
+	case 0x40806200:
+	case 0x40806208:
+	case 0x40806218:
+	case 0x4080622C:
 	case 0x40807CA4:
 	case 0x40807CB0:
 	case 0x40807CC2:
@@ -482,7 +498,9 @@ static void print_boot_decision_debug(uint32_t pc) {
 	uint32_t a7 = tg68_reg(15);
 	uint32_t a3 = tg68_reg(11);
 	uint32_t a4 = tg68_reg(12);
+	uint32_t a2 = tg68_reg(10);
 	uint32_t d6 = tg68_reg(6);
+	uint32_t drive_queue = ram_long(0x030A);
 
 	fprintf(stderr,
 		"BOOT_DECISION hit=%03d frame=%d tick=%08X time=%llu pc=%08X op=%04X "
@@ -493,6 +511,9 @@ static void print_boot_decision_debug(uint32_t pc) {
 		"D6W00=%04X D6W02=%04X D6W04=%04X D6W06=%04X D6W08=%04X D6W0A=%04X "
 		"W09FA=%04X W09FC=%04X W09FE=%04X W0A00=%04X W0A02=%04X "
 		"L0134=%08X W017A=%04X B0C2F=%02X W0D00=%04X W0DA6=%04X "
+		"L08EE=%08X L0D10=%08X L0D14=%08X L030A=%08X "
+		"Q_00=%08X Q_04=%04X Q_06=%04X Q_08=%04X Q_0A=%04X Q_0C=%08X "
+		"A2_00=%08X A2_04=%04X A2_06=%04X A2_08=%04X A2_0A=%04X "
 		"SCSI csr=%02X bsr=%02X pmatch=%d dmaen=%d dack=%d mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
 		"cdph=%u cdcnt=%u cdcmd0=%02X cdstat=%02X "
 		"IWM q6=%d q7=%d en=%d enn=%d eni=%d ene=%d mode=%02X intRegs=%04X extRegs=%04X a4b61=%02X\n",
@@ -512,7 +533,7 @@ static void print_boot_decision_debug(uint32_t pc) {
 		tg68_reg(7),
 		tg68_reg(8),
 		tg68_reg(9),
-		tg68_reg(10),
+		a2,
 		a3,
 		a4,
 		tg68_reg(13),
@@ -544,6 +565,21 @@ static void print_boot_decision_debug(uint32_t pc) {
 		ram_byte(0x0C2F),
 		ram_word(0x0D00),
 		ram_word(0x0DA6),
+		ram_long(0x08EE),
+		ram_long(0x0D10),
+		ram_long(0x0D14),
+		drive_queue,
+		ram_long(drive_queue),
+		ram_word(drive_queue + 0x04),
+		ram_word(drive_queue + 0x06),
+		ram_word(drive_queue + 0x08),
+		ram_word(drive_queue + 0x0A),
+		ram_long(drive_queue + 0x0C),
+		ram_long(a2),
+		ram_word(a2 + 0x04),
+		ram_word(a2 + 0x06),
+		ram_word(a2 + 0x08),
+		ram_word(a2 + 0x0A),
 		scsi_debug_csr(),
 		scsi_debug_bsr(),
 		scsi_debug_pmatch() ? 1 : 0,
@@ -1253,9 +1289,77 @@ int verilate() {
 				periph_debug_prev_bus_control = bus_control;
 			}
 
+			if (bus_handshake_debug_enable && !*bus.ioctl_download &&
+			    video.count_frame >= bus_handshake_debug_min_frame &&
+			    bus_handshake_debug_count < bus_handshake_debug_max) {
+				bool as_n = VERTOPINTERN->debug_cpuAS;
+				bool vpa_n = VERTOPINTERN->debug_cpuVPA;
+				bool dtack_n = VERTOPINTERN->debug_cpuDTACK;
+				bool vma_n = VERTOPINTERN->debug_cpuVMA;
+				bool active = !as_n;
+				bool as_edge = (as_n != bus_handshake_debug_prev_as);
+				bool ack_edge = active &&
+				                ((vpa_n != bus_handshake_debug_prev_vpa) ||
+				                 (dtack_n != bus_handshake_debug_prev_dtack) ||
+				                 (vma_n != bus_handshake_debug_prev_vma));
+				bool selectVIA = VERTOPINTERN->debug_selectVIA;
+				bool selectVIA2 = VERTOPINTERN->debug_selectVIA2;
+				bool selectSCSI = VERTOPINTERN->debug_selectSCSI;
+				bool selectSCC = VERTOPINTERN->debug_selectSCC;
+				bool selectIWM = VERTOPINTERN->debug_selectIWM;
+				bool selectASC = VERTOPINTERN->debug_selectASC;
+				bool selectNuBus = VERTOPINTERN->debug_selectNuBus;
+				bool interesting_select = selectVIA || selectVIA2 || selectSCSI || selectSCC ||
+				                          selectIWM || selectASC || selectNuBus;
+				bool vpa_non_via = active && !vpa_n && !(selectVIA || selectVIA2) && interesting_select;
+
+				if (interesting_select &&
+				    (as_edge || ack_edge || (vpa_non_via && !bus_handshake_debug_prev_vpa_non_via))) {
+					const char* dev =
+						selectVIA ? "VIA1" :
+						selectVIA2 ? "VIA2" :
+						selectSCSI ? "SCSI" :
+						selectSCC ? "SCC" :
+						selectIWM ? "IWM" :
+						selectASC ? "ASC" :
+						selectNuBus ? "NUBUS" : "IO";
+					fprintf(stderr,
+						"BUS_HS hit=%d frame=%d tick=%08X time=%llu pc=%08X fc=%u %s %s "
+						"addr=%08X din=%04X dout=%04X AS=%d VPA=%d VMA=%d DTACK=%d UDS=%d LDS=%d "
+						"BERR=%d bus=%d vpa_non_via=%d\n",
+						bus_handshake_debug_count,
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_fc,
+						VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
+						dev,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut,
+						!as_n ? 1 : 0,
+						!vpa_n ? 1 : 0,
+						!vma_n ? 1 : 0,
+						!dtack_n ? 1 : 0,
+						!VERTOPINTERN->debug_cpuUDS ? 1 : 0,
+						!VERTOPINTERN->debug_cpuLDS ? 1 : 0,
+						VERTOPINTERN->debug_berr ? 1 : 0,
+						VERTOPINTERN->debug_cpuBusControl ? 1 : 0,
+						vpa_non_via ? 1 : 0);
+					bus_handshake_debug_count++;
+				}
+
+				bus_handshake_debug_prev_as = as_n;
+				bus_handshake_debug_prev_vpa = vpa_n;
+				bus_handshake_debug_prev_dtack = dtack_n;
+				bus_handshake_debug_prev_vma = vma_n;
+				bus_handshake_debug_prev_vpa_non_via = vpa_non_via;
+			}
+
 			if (scsi_debug_enable && !*bus.ioctl_download && video.count_frame >= scsi_debug_min_frame) {
-				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
-				if (bus_control && !scsi_debug_prev_bus_control &&
+				bool bus_active = !VERTOPINTERN->debug_cpuAS;
+				if (bus_active && !scsi_debug_prev_bus_control &&
 				    VERTOPINTERN->debug_selectSCSI &&
 				    scsi_debug_count < scsi_debug_max) {
 					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
@@ -1312,17 +1416,17 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status);
 					scsi_debug_count++;
 				}
-				scsi_debug_prev_bus_control = bus_control;
+				scsi_debug_prev_bus_control = bus_active;
 			}
 
 			if (iwm_debug_enable && !*bus.ioctl_download) {
-				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
-				if (bus_control && !iwm_debug_prev_bus_control &&
+				bool bus_active = !VERTOPINTERN->debug_cpuAS;
+				if (bus_active && !iwm_debug_prev_bus_control &&
 				    VERTOPINTERN->debug_selectIWM &&
 				    video.count_frame >= iwm_debug_min_frame &&
 				    iwm_debug_count < iwm_debug_max) {
 					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
-					uint8_t reg = (addr >> 8) & 0x0f;
+					uint8_t reg = (addr >> 9) & 0x0f;
 					bool rw = VERTOPINTERN->debug_cpuRW;
 					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;
 					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;
@@ -1334,7 +1438,7 @@ int verilate() {
 					fprintf(stderr,
 						"IWM_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%X din=%04X dout=%04X "
 						"ca=%d%d%d caN=%d%d%d sel=%d selN=%d enI=%d enIN=%d enE=%d enEN=%d q=%d%d qN=%d%d "
-						"SEL=%d senseI=%d senseE=%d ri=%02X re=%02X latch=%02X clr=%X nbI=%d nbE=%d "
+						"SEL=%d senseI=%d senseE=%d ri=%02X re=%02X latch=%02X clr=%X arm=%03X nbI=%d nbE=%d "
 						"trkI=%02X sideI=%d imgI=%02X timerI=%02X readyI=%d iregs=%04X eregs=%04X\n",
 						video.count_frame,
 						lowmem_tick_016a(),
@@ -1368,6 +1472,7 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataLatch,
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readLatchClearTimer,
+						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataArmDelay,
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyInt ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyExt ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveTrack,
@@ -1379,7 +1484,7 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs);
 					iwm_debug_count++;
 				}
-				iwm_debug_prev_bus_control = bus_control;
+				iwm_debug_prev_bus_control = bus_active;
 			}
 
 			if (nubus_video_debug_enable && !*bus.ioctl_download) {
@@ -2417,6 +2522,8 @@ void show_help() {
 	printf("  --iwm-state-debug             Trace ROM floppy drive queue state near PC 0082E220\n");
 	printf("  --boot-decision-debug         Trace SCSI/floppy boot-decision ROM PCs\n");
 	printf("  --boot-decision-debug-min-frame <n>\n");
+	printf("  --bus-handshake-debug         Trace CPU AS/VPA/VMA/DTACK handshakes for I/O cycles\n");
+	printf("  --bus-handshake-debug-min-frame <n>\n");
 	printf("  --wait-debug                  Trace ROM wait helper around PC 40801610\n");
 	printf("  --wait-debug-min-frame <n>    Delay wait-helper tracing until frame n\n");
 	printf("  --calib-debug                 Trace VIA timers and low-memory delay calibration\n");
@@ -2586,6 +2693,11 @@ int main(int argc, char** argv, char** env) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
 			boot_decision_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--bus-handshake-debug") == 0) {
+			bus_handshake_debug_enable = true;
+		} else if (strcmp(argv[i], "--bus-handshake-debug-min-frame") == 0 && i + 1 < argc) {
+			bus_handshake_debug_min_frame = std::stoi(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "--wait-debug") == 0) {
 			wait_debug_enable = true;
