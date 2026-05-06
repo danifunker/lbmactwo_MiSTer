@@ -803,3 +803,42 @@ So the current no-media blocker is no longer ASC, fake CD, or a phantom external
 floppy queue node. The next divergence is after the corrected drive queue:
 Verilator leaves the no-media loop and enters the SCSI selection/timeout helper,
 while MAME remains in the queue loop with the same low-memory boot variables.
+
+## 2026-05-06 Post-Queue Timing Finding
+
+The `$408061F2` samples are not SCSI code. They are inside the ROM's
+VBL/time-manager queue walker:
+
+```text
+61ee: moveal 0xd10,%a0
+61f2: cmpal %a0,%a1
+61f6: movel 0x8ee,%d0
+61fe: jsr %a0@
+6200: moveal %sp@+,%a1
+```
+
+The stale `A3=$50F10000` value in MAME makes this look SCSI-related, but a PC
+tap over `$40826700-$408269A0` found zero MAME hits through frame 800. MAME does
+not enter the SCSI select/setup path that Verilator reaches around
+`$408268DC/$4082696C`.
+
+The register state in the queue walker otherwise matches the failing Verilator
+state: MAME also reaches `D3=6`, `D4=5`, `D5=FE760003`, `D6=000F00FA`,
+`A1=$2748`, `A2=$3108`, and `A3=$50F10000` while remaining in the no-media loop.
+That makes the remaining bug a foreground-control-flow/timing divergence before
+the SCSI setup call, not a bad ASC or NCR5380 target response.
+
+A simulation-only experiment changed the TG68K wrapper from the 16 MHz enable to
+the 8 MHz enable. That did not fix boot; it only left the ROM much earlier in
+boot at frame 800:
+
+```text
+8 MHz experiment: PC=40806DE0 tick016A=000001F4 fetch_scsi_timeout=0
+```
+
+So the answer is not simply "run the CPU at 8 MHz." The useful conclusion is
+that the 16 MHz TG68K/bus/VIA timing balance is still wrong enough for the ROM
+to make different foreground decisions than MAME. The next target should be the
+TG68K bus wrapper's effective instruction/bus-cycle timing and VPA/VMA/E-cycle
+interaction, especially around the ROM's VBL queue callback path
+`$40806486->$408061E4` and the foreground transition that calls the SCSI helper.

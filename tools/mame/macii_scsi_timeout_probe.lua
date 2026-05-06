@@ -53,10 +53,11 @@ local function log_state(kind, pc)
 	last_key = key
 
 	print(string.format(
-		"MAME_SCSI_TIMEOUT_%s hit=%03d frame=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D6=%s A3=%s SP=%s RET=%s W0D00=%04X W0DA6=%04X",
+		"MAME_SCSI_TIMEOUT_%s hit=%03d frame=%d pc=%s tick016A=%s D0=%s D1=%s D3=%s D4=%s D5=%s D6=%s A1=%s A3=%s SP=%s RET=%s W0D00=%04X W0DA6=%04X",
 		kind, hits, frames, hex(pc), hex(u32(0x016a)), hex(reg("D0")),
-		hex(reg("D1")), hex(reg("D5")), hex(reg("D6")), hex(reg("A3")),
-		hex(sp), hex(ret), u16(0x0d00), u16(0x0da6)))
+		hex(reg("D1")), hex(reg("D3")), hex(reg("D4")), hex(reg("D5")),
+		hex(reg("D6")), hex(reg("A1")), hex(reg("A3")), hex(sp), hex(ret),
+		u16(0x0d00), u16(0x0da6)))
 	hits = hits + 1
 end
 

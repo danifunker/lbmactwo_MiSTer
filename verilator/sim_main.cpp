@@ -453,7 +453,10 @@ static bool boot_decision_pc(uint32_t pc) {
 	case 0x4080174E:
 	case 0x408017CC:
 	case 0x408061E4:
+	case 0x408061EE:
 	case 0x408061F2:
+	case 0x408061F4:
+	case 0x408061F6:
 	case 0x408061FA:
 	case 0x40806200:
 	case 0x40806208:
