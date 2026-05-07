@@ -368,9 +368,11 @@ module via6522 (
                 
                 4'hF: begin // ORA no handshake
                     pio_i_pra <= data_in;
+`ifdef SIMULATION
                     if ($test$plusargs("via_debug"))
                         $display("VIA1 ORA_NH WRITE: addr=%h data_in=%h old_pra=%h",
                             addr, data_in, pio_i_pra);
+`endif
                 end
                 
                 default: begin
@@ -390,9 +392,11 @@ module via6522 (
             end
             4'h1: begin // ORA
                 data_out <= ira;
+`ifdef SIMULATION
                 if (ren && $test$plusargs("via_debug"))
                     $display("VIA1 ORA READ: addr=%h ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
                         addr, ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
+`endif
             end
             4'h2: begin // DDRB
                 data_out <= pio_i_ddrb;
@@ -435,9 +439,11 @@ module via6522 (
             end
             4'hF: begin // ORA
                 data_out <= ira;
+`ifdef SIMULATION
                 if (ren && $test$plusargs("via_debug"))
                     $display("VIA1 ORA_NH READ: ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
                         ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
+`endif
             end
             default: begin
             end
