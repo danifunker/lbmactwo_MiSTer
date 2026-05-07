@@ -110,9 +110,9 @@ module emu
 	// Configuration - directly from inputs (Mac II)
 	wire      status_mem = cfg_memSize;      // 0=1MB, 1=4MB
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
-	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables
-	// status_turbo=1 selects clk16 enables (16 MHz CPU), =0 selects clk8 (8 MHz)
-	wire      status_turbo = 1'b1;           // 16 MHz CPU for Mac II
+	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables.
+	// Sim plusarg +cpu8 lets us test whether boot divergence is CPU/bus pacing.
+	wire      status_turbo = !$test$plusargs("cpu8");
 	////////////////////   CLOCKS   ///////////////////
 
 	// Clock generation (clk_sys is 32.5 MHz from testbench, matching FPGA PLL)
@@ -254,7 +254,7 @@ module emu
 	
 	// peripherals
 	wire vid_alt, loadPixels, pixelOut, _hblank, _vblank, hsync, vsync;
-	wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+	wire memoryOverlayOn, selectSCSI, selectSCSIDMA, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 	wire [1:0] glueRAMSize;
 	wire [15:0] dataControllerDataOut;
 
@@ -486,6 +486,7 @@ module emu
 		.dioBusControl(dioBusControl),
 		.cpuBusControl(cpuBusControl),
 		.selectSCSI(selectSCSI),
+		.selectSCSIDMA(selectSCSIDMA),
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),
@@ -594,6 +595,7 @@ module emu
 		.cpuAddrRegMid(cpuAddr[6:4]),
 		.cpuAddrRegLo(cpuAddr[2:1]),
 		.selectSCSI(selectSCSI),
+		.selectSCSIDMA(selectSCSIDMA),
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),
@@ -811,6 +813,105 @@ module emu
 	assign debug_cpuIPL = _cpuIPL;
 
 `ifdef SIMULATION
+	integer lowmem_bit_raw_dbg_hits = 0;
+	integer lowmem_bset_raw_window = 0;
+	integer lowmem_bset_raw_hits = 0;
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("lowmem_bset_raw_debug") && lowmem_bset_raw_hits < 96) begin
+			if (last_fetch_pc >= 32'h4080DC84 && last_fetch_pc <= 32'h4080DC90)
+				lowmem_bset_raw_window <= 48;
+			else if (lowmem_bset_raw_window != 0)
+				lowmem_bset_raw_window <= lowmem_bset_raw_window - 1;
+
+			if (lowmem_bset_raw_window != 0 ||
+			    (last_fetch_pc >= 32'h4080DC84 && last_fetch_pc <= 32'h4080DC90)) begin
+				$display("LOWMEM_BSET_RAW[%0d] pc=%08h op=%04h k_op=%04h k_exe=%04h k_snd=%04h ms=%0d nms=%0d dec=%b exec=%b setexec=%b np=%b setnp=%b wb=%b ewb=%b eabn=%b set_eab=%b exe_eab=%b set_2nd=%b exe_2nd=%b set_bits=%b exe_bits=%b set_eaop1=%b exe_eaop1=%b phi1=%b phi2=%b core_state=%b wrap_state=%0d core_rw=%b core_addr=%08h core_dout=%04h core_uds=%b core_lds=%b bus_rw=%b bus_as=%b bus_addr=%08h bus_dout=%04h bus_uds=%b bus_lds=%b dtack=%b selRAM=%b ram_we=%b ram_addr=%07h ram_ds=%b ram_din=%04h B0B22=%02h",
+				         lowmem_bset_raw_hits,
+				         last_fetch_pc,
+				         last_fetch_opcode,
+				         tg68k_inst.tg68k.opcode,
+				         tg68k_inst.tg68k.exe_opcode,
+				         tg68k_inst.tg68k.sndopc,
+				         tg68k_inst.tg68k.micro_state,
+				         tg68k_inst.tg68k.next_micro_state,
+				         tg68k_inst.tg68k.decodeopc,
+				         tg68k_inst.tg68k.execopc,
+				         tg68k_inst.tg68k.setexecopc,
+				         tg68k_inst.tg68k.nextpass,
+				         tg68k_inst.tg68k.setnextpass,
+				         tg68k_inst.tg68k.write_back,
+				         tg68k_inst.tg68k.exec_write_back,
+				         tg68k_inst.tg68k.ea_build_now,
+				         tg68k_inst.tg68k.set[42],
+				         tg68k_inst.tg68k.set_exec[42],
+				         tg68k_inst.tg68k.set[71],
+				         tg68k_inst.tg68k.set_exec[71],
+				         tg68k_inst.tg68k.set[14],
+				         tg68k_inst.tg68k.set_exec[14],
+				         tg68k_inst.tg68k.set[26],
+				         tg68k_inst.tg68k.set_exec[26],
+				         cpu_en_p,
+				         cpu_en_n,
+				         tg68k_inst.tg68_busstate,
+				         tg68k_inst.s_state,
+				         tg68k_inst.tg68_rw,
+				         tg68k_inst.tg68_addr,
+				         tg68_dout,
+				         tg68k_inst.tg68_uds_n,
+				         tg68k_inst.tg68_lds_n,
+				         _cpuRW,
+				         _cpuAS,
+				         cpuAddr,
+				         cpuDataOut,
+				         _cpuUDS,
+				         _cpuLDS,
+				         _cpuDTACK,
+				         selectRAM,
+				         ram_we,
+				         ram_addr,
+				         ram_ds,
+				         ram_din,
+				         ram_do_raw[15:8]);
+				lowmem_bset_raw_hits <= lowmem_bset_raw_hits + 1;
+			end
+		end
+
+		if ($test$plusargs("lowmem_bit_raw_debug") && lowmem_bit_raw_dbg_hits < 256) begin
+			if ((last_fetch_pc >= 32'h4080DC80 && last_fetch_pc <= 32'h4080DC92) ||
+			    (tg68k_inst.tg68_addr[31:1] == 31'h00000591) ||
+			    (tg68_a[31:1] == 31'h00000591) ||
+			    (ram_addr[21:0] == 22'h000591 && ram_we)) begin
+				$display("LOWMEM_RAW[%0d] pc=%08h op=%04h phi1=%b phi2=%b core_state=%b wrap_state=%0d core_rw=%b core_addr=%08h core_dout=%04h core_uds=%b core_lds=%b bus_rw=%b bus_as=%b bus_addr=%08h bus_dout=%04h bus_uds=%b bus_lds=%b dtack=%b selRAM=%b ram_we=%b ram_addr=%07h ram_ds=%b ram_din=%04h B0B22=%02h",
+				         lowmem_bit_raw_dbg_hits,
+				         last_fetch_pc,
+				         last_fetch_opcode,
+				         cpu_en_p,
+				         cpu_en_n,
+				         tg68k_inst.tg68_busstate,
+				         tg68k_inst.s_state,
+				         tg68k_inst.tg68_rw,
+				         tg68k_inst.tg68_addr,
+				         tg68_dout,
+				         tg68k_inst.tg68_uds_n,
+				         tg68k_inst.tg68_lds_n,
+				         _cpuRW,
+				         _cpuAS,
+				         cpuAddr,
+				         cpuDataOut,
+				         _cpuUDS,
+				         _cpuLDS,
+				         _cpuDTACK,
+				         selectRAM,
+				         ram_we,
+				         ram_addr,
+				         ram_ds,
+				         ram_din,
+				         ram_do_raw[15:8]);
+				lowmem_bit_raw_dbg_hits <= lowmem_bit_raw_dbg_hits + 1;
+			end
+		end
+	end
+
 	function [31:0] tg68_dbg_reg(input [3:0] idx);
 		tg68_dbg_reg = {tg68k_inst.tg68k.regfile_n2[idx], tg68k_inst.tg68k.regfile_n1[idx]};
 	endfunction

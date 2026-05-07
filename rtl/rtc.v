@@ -35,7 +35,8 @@ module rtc (
 	input         _cs,
 	input         ck,
 	input         dat_i,
-	output reg    dat_o
+	output reg    dat_o,
+	output reg    cko
 );
 
 reg   [2:0] bit_cnt;
@@ -64,14 +65,41 @@ initial begin
 	for (i = 0; i < 256; i = i + 1)
 		pram[i] = 8'h00;
 
-	// Match MAME's 343-0042 default NVRAM image: all PRAM/XPRAM bytes start at
-	// zero and the ROM builds defaults when it finds invalid PRAM.
-end
+		// Seed the Mac II PRAM/XPRAM image to the same initialized state used by
+		// the local MAME no-media baseline (mame/nvram/macii/rtc).  The ROM can
+		// rebuild this from blank PRAM, but matching MAME's persistent RTC state
+		// keeps the Verilator and MAME boot paths comparable.
+		pram[8'h01] = 8'h80;
+		pram[8'h02] = 8'h4f;
+		pram[8'h03] = 8'h48;
+		pram[8'h08] = 8'h03;
+		pram[8'h09] = 8'h88;
+		pram[8'h0b] = 8'h4c;
+		pram[8'h0c] = 8'h4e;
+		pram[8'h0d] = 8'h75;
+		pram[8'h0e] = 8'h4d;
+		pram[8'h0f] = 8'h63;
+		pram[8'h10] = 8'ha8;
+		pram[8'h14] = 8'hcc;
+		pram[8'h15] = 8'h0a;
+		pram[8'h16] = 8'hcc;
+		pram[8'h17] = 8'h0a;
+		pram[8'h1d] = 8'h02;
+		pram[8'h1e] = 8'h63;
+		pram[8'h6f] = 8'h13;
+		pram[8'h70] = 8'h80;
+		pram[8'h77] = 8'h01;
+		pram[8'h78] = 8'hff;
+		pram[8'h79] = 8'hff;
+		pram[8'h7a] = 8'hff;
+		pram[8'h7b] = 8'hdf;
+	end
 
 initial begin
 	secs = 0;
 	writeprotect = 0;
 	clocktoseconds = 0;
+	cko = 1;
 end
 
 // The full incoming byte (din shift register + current bit)
@@ -94,6 +122,7 @@ always @(posedge clk) begin
 		bit_cnt <= 0;
 		receiving <= 1;
 		dat_o <= 1;
+		cko <= 1;
 		cmd_bytes <= 0;
 		cmd_len <= 1;
 		ck_d <= 0;
@@ -105,11 +134,14 @@ always @(posedge clk) begin
 		if (secs == 0)
 			secs <= timestamp[31:0] + 32'd2082844800;
 
-		// Seconds counter: increment every second at 32.5 MHz
+		// RTC CKO toggles every half-second. MAME wires this line to VIA1
+		// CA2 and increments the seconds register on the CKO rising edge.
 		clocktoseconds <= clocktoseconds + 1'd1;
-		if (clocktoseconds == 25'd32499999) begin
+		if (clocktoseconds == 25'd16249999) begin
 			clocktoseconds <= 0;
-			secs <= secs + 1'd1;
+			cko <= ~cko;
+			if (!cko)
+				secs <= secs + 1'd1;
 		end
 
 		if (_cs) begin
@@ -193,9 +225,12 @@ always @(posedge clk) begin
 											$display("[RTC_RD_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h",
 												cmd0, byte_in, {cmd0[2:0], byte_in[6:2]},
 												pram[{cmd0[2:0], byte_in[6:2]}]);
-									end else begin
-										// Standard write - execute it
-										if (!writeprotect) begin
+										end else begin
+											// Standard write - execute it
+											if ($test$plusargs("rtc_debug"))
+												$display("[RTC_WR_STD] cmd=%02h scmd=%02h data=%02h wp=%b",
+													cmd0, scmd, byte_in, writeprotect);
+											if (!writeprotect) begin
 											case (scmd)
 												5'h00, 5'h04: secs[7:0]   <= byte_in;
 												5'h01, 5'h05: secs[15:8]  <= byte_in;
@@ -219,11 +254,14 @@ always @(posedge clk) begin
 								end
 							end
 
-							2'd2: begin
-								// Third byte - extended write data
-								cmd_bytes <= 3;
-								pram[ext_addr] <= byte_in;
-							end
+								2'd2: begin
+									// Third byte - extended write data
+									cmd_bytes <= 3;
+									pram[ext_addr] <= byte_in;
+									if ($test$plusargs("rtc_debug"))
+										$display("[RTC_WR_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h wp=%b",
+											cmd0, cmd1, ext_addr, byte_in, writeprotect);
+								end
 
 							default: ;
 						endcase

@@ -95,8 +95,9 @@ The local MAME ROM setup expected for the matched card is:
 
 ## Current Debug Focus
 
-RAM sizing, early ASC, and the initial IWM probe now match the matched-card MAME
-run closely enough that they are not the current blocker.
+RAM sizing, early ASC, the initial IWM probe, and the no-media drive-queue node
+now match the matched-card MAME run closely enough that they are not the current
+blocker.
 
 For the current no-media baseline, run MAME without a floppy image and with the
 same slot-E card:
@@ -109,19 +110,55 @@ MAME_STOP_FRAME=800 MAME_FRAME_INTERVAL=80 SDL_VIDEODRIVER=dummy ./mame macii \
 ```
 
 MAME stays in the no-media drive-queue loop at `PC=$408061F2` with
-`$030A=$2F70` and `$2F70.next=0`. Verilator now matches that queue after fixing
-the external floppy connector to report no installed drive by default. MAME's
-`add_35_nc` external connector uses a `nullptr` default device.
+`$030A=$2F70`, `$2F70.next=0`, `$2F70+$06=0001`, and `$2F70+$08=FFFB`.
+Verilator now reaches the same queue state after fixing the external floppy
+connector to report no installed drive by default. MAME's `add_35_nc` external
+connector uses a `nullptr` default device.
 
-The active no-media failure is after that corrected queue state. Verilator still
-leaves the no-media loop and enters the ROM SCSI selection/timeout helper around
-`PC=$408268DC-$40826CC6`, while MAME has no SCSI register accesses after the
-early frame-67 CSR polling window and remains at `PC=$408061F2` through frame
-800. Treat ASC, the fake AppleCD target, and the old phantom external-floppy
-queue node as ruled out unless a new trace contradicts that.
+The `$09FA-$0A02` low-memory words are `TempRect`/`OneOne` QuickDraw scratch
+state, not a SCSI boot variable. A short Verilator sample showed
+`$09FA/$09FC/$09FE=FFFD/FFFD/01E3`, but a longer run to the actual SCSI timeout
+shows the same final values as MAME:
+
+```text
+$09FA=0800 $09FC=0000 $09FE=0100 $0A00=0283 $0A02=0001
+```
+
+The current no-media comparison needs one important caveat. Verilator executes
+the ROM SCSI trap/timeout path at:
+
+```text
+PC=$408266A4/$4082672A/$40826CB6-$40826CC6
+```
+
+while non-debugger MAME PC taps over `$40807AD4-$40807D20`,
+`$408266A4-$40826990`, and `$40826CB4-$40826CD4` produce zero hits through frame
+450 and MAME remains at `PC=$408061F2`. However, the first Verilator hit is now
+known to be early SCSI-manager/PRAM setup, not a proven later no-media failure:
+the caller is `$40826660`, it reads the same PRAM image as MAME
+(`mame/nvram/macii/rtc` begins `00 80 4F 48`), stores `$0C2F=00` and
+`$0B2E=80`, executes trap `$A815` with selector 0, and spends many frames in the
+ROM timeout loop. The Lua `-autoboot_script` probe attaches after this early
+path, so "zero MAME hits" only proves that MAME does not re-enter those SCSI ROM
+ranges after the script starts. At the later Verilator timeout frame the drive
+queue, `$0B22/$0B2E/$0C2F`, `TempRect`, and SCSI driver table match MAME. Treat
+ASC, the fake AppleCD target, the NCR target state, the old phantom
+external-floppy queue node, and the transient `TempRect` mismatch as ruled out
+unless a new trace contradicts that.
 
 The ROM delay calibration mismatch is still real: MAME stores `$0D00=$0A3B` and
 `$0DA6=$0417`, while Verilator has been around `$054B/$0196`. Forcing the MAME
 constants changes the timing shape but has not made no-media boot match MAME, so
-continue comparing the ROM branch state after the drive-queue loop and the
+continue comparing post-initialization control flow: the Time Manager /
+foreground callback path around `$408061E4-$4080622C`, whether Verilator reaches
+the no-media queue loop after the early SCSI-manager timeout returns, and the
 CPU/VIA/bus timing that feeds that decision.
+
+Latest no-media trace caveat: split the slot-VBL paths. `$408061E4-$4080622C`
+is the Slot VBL queue walker; MAME at `PC=$408061F2` has queue pointer `$2748`
+on the stack and return `$4080649A` back to caller `$40806486`, with `D0=14`
+for slot `$E` / `m2hires`. `$4080622E-$40806282` is the interrupt service path;
+in Verilator, `RTE` at `$40806282` resumes foreground execution at `$40826CC6`
+in the SCSI timeout loop. The RTL m2hires VBL IRQ was one scanline later than
+MAME (`V_RES` instead of `V_RES - 1`); `rtl/nubus/nubus_video_highres.sv` now
+matches MAME's `(m_vres - 1, 0)` IRQ timing. Rebuild before the next boot check.

@@ -44,6 +44,10 @@
 #include <algorithm>
 using namespace std;
 
+#ifndef _MSC_VER
+extern SDL_Window* window;
+#endif
+
 // stb_image_write for PNG screenshots
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "sim/stb_image_write.h"
@@ -130,6 +134,14 @@ bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 bool iwm_state_debug_enable = false;
 bool boot_decision_debug_enable = false;
+bool bootmask_once_debug_enable = false;
+bool bootmask_once_stop_requested = false;
+bool scsi_transition_debug_enable = false;
+bool scsi_transition_stop_requested = false;
+int scsi_transition_debug_min_frame = 430;
+bool late_adb_debug_enable = false;
+bool late_adb_stop_requested = false;
+int late_adb_debug_min_frame = 420;
 bool bus_handshake_debug_enable = false;
 int scsi_debug_count = 0;
 const int scsi_debug_max = 2000;
@@ -157,6 +169,35 @@ int boot_decision_debug_count = 0;
 const int boot_decision_debug_max = 900;
 int boot_decision_debug_min_frame = 220;
 uint32_t boot_decision_debug_last_key = 0xFFFFFFFF;
+const int BOOTMASK_HISTORY_SIZE = 512;
+struct BootmaskHistoryEntry {
+	uint32_t pc;
+	uint16_t op;
+	int frame;
+	uint32_t tick;
+	uint32_t d0;
+	uint32_t d1;
+	uint32_t d2;
+	uint32_t d3;
+	uint32_t d4;
+	uint32_t d5;
+	uint32_t d6;
+	uint32_t a0;
+	uint32_t a1;
+	uint32_t a2;
+	uint32_t a3;
+	uint32_t a4;
+	uint32_t sp;
+	uint32_t ret;
+};
+BootmaskHistoryEntry bootmask_history[BOOTMASK_HISTORY_SIZE];
+int bootmask_history_pos = 0;
+int bootmask_history_count = 0;
+uint32_t bootmask_history_last_pc = 0xFFFFFFFF;
+int lowmem_bit_debug_count = 0;
+const int lowmem_bit_debug_max = 80;
+uint64_t lowmem_bit_debug_last_time = 0;
+bool lowmem_bit_debug_prev_write_valid = false;
 int bus_handshake_debug_count = 0;
 const int bus_handshake_debug_max = 2500;
 int bus_handshake_debug_min_frame = 0;
@@ -462,13 +503,51 @@ static bool boot_decision_pc(uint32_t pc) {
 	case 0x40806208:
 	case 0x40806218:
 	case 0x4080622C:
+	case 0x40806260:
+	case 0x40806274:
+	case 0x40806278:
+	case 0x40806282:
+	case 0x40806284:
+	case 0x40807AD4:
+	case 0x40807ADC:
+	case 0x40807AE0:
+	case 0x40807AE6:
+	case 0x40807AE8:
+	case 0x40807AEC:
+	case 0x40807AF2:
+	case 0x40807AF4:
+	case 0x40807AF6:
+	case 0x40807AF8:
+	case 0x40807B08:
+	case 0x40807B22:
+	case 0x40807B26:
+	case 0x40807B76:
+	case 0x40807B7A:
+	case 0x40807B8A:
+	case 0x40807B8E:
+	case 0x40807C20:
+	case 0x40807C26:
+	case 0x40807C28:
+	case 0x40807C48:
+	case 0x40807C4E:
+	case 0x40807C50:
+	case 0x40807C78:
+	case 0x40807CA2:
 	case 0x40807CA4:
+	case 0x40807CAE:
 	case 0x40807CB0:
+	case 0x40807CC0:
 	case 0x40807CC2:
 	case 0x40807CDC:
 	case 0x40807CF2:
 	case 0x40807D18:
 	case 0x40807D1C:
+	case 0x4080DBE8:
+	case 0x4080DC00:
+	case 0x4080DC20:
+	case 0x4080DC84:
+	case 0x4080DC88:
+	case 0x4080DC8E:
 	case 0x408266A4:
 	case 0x4082672A:
 	case 0x40826756:
@@ -496,6 +575,312 @@ static bool boot_decision_pc(uint32_t pc) {
 	}
 }
 
+static bool bootmask_once_pc(uint32_t pc) {
+	uint32_t ret = ram_long(tg68_reg(15));
+	return (pc >= 0x40807AD4 && pc <= 0x40807D20) ||
+	       (pc >= 0x408266A4 && pc <= 0x408266CC) ||
+	       (pc >= 0x40826756 && pc <= 0x40826990) ||
+	       ((pc >= 0x40826CB6 && pc <= 0x40826CD4) && ret == 0x40826976);
+}
+
+static bool scsi_transition_pc(uint32_t pc) {
+	uint32_t ret = ram_long(tg68_reg(15));
+	return video.count_frame >= scsi_transition_debug_min_frame &&
+	       ((pc >= 0x408266A4 && pc <= 0x408266CC) ||
+	        (pc >= 0x4082682C && pc <= 0x40826990) ||
+	        ((pc >= 0x40826CB6 && pc <= 0x40826CD4) && ret == 0x40826976));
+}
+
+static bool late_adb_pc(uint32_t pc) {
+	return video.count_frame >= late_adb_debug_min_frame &&
+	       (pc == 0x4080DD52 || pc == 0x4080DD78 || pc == 0x4080DD82 ||
+	        pc == 0x4080DD8E || pc == 0x4080DDD6 || pc == 0x4080DE32);
+}
+
+static void record_bootmask_history(uint32_t pc) {
+	if (pc == bootmask_history_last_pc) {
+		return;
+	}
+	bootmask_history_last_pc = pc;
+
+	uint32_t sp = tg68_reg(15);
+	BootmaskHistoryEntry& entry = bootmask_history[bootmask_history_pos];
+	entry.pc = pc;
+	entry.op = VERTOPINTERN->debug_opcode;
+	entry.frame = video.count_frame;
+	entry.tick = lowmem_tick_016a();
+	entry.d0 = tg68_reg(0);
+	entry.d1 = tg68_reg(1);
+	entry.d2 = tg68_reg(2);
+	entry.d3 = tg68_reg(3);
+	entry.d4 = tg68_reg(4);
+	entry.d5 = tg68_reg(5);
+	entry.d6 = tg68_reg(6);
+	entry.a0 = tg68_reg(8);
+	entry.a1 = tg68_reg(9);
+	entry.a2 = tg68_reg(10);
+	entry.a3 = tg68_reg(11);
+	entry.a4 = tg68_reg(12);
+	entry.sp = sp;
+	entry.ret = ram_long(sp);
+
+	bootmask_history_pos = (bootmask_history_pos + 1) % BOOTMASK_HISTORY_SIZE;
+	if (bootmask_history_count < BOOTMASK_HISTORY_SIZE) {
+		bootmask_history_count++;
+	}
+}
+
+static void print_bootmask_once_debug(uint32_t pc) {
+	fprintf(stderr,
+		"BOOTMASK_ONCE trigger frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X RET=%08X "
+		"B0B22=%02X B0B2E=%02X B0C2F=%02X W017A=%04X W0D00=%04X W0DA6=%04X "
+		"L08EE=%08X L0D10=%08X L0D14=%08X L030A=%08X\n",
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(2),
+		tg68_reg(3),
+		tg68_reg(4),
+		tg68_reg(5),
+		tg68_reg(6),
+		tg68_reg(7),
+		tg68_reg(8),
+		tg68_reg(9),
+		tg68_reg(10),
+		tg68_reg(11),
+		tg68_reg(12),
+		tg68_reg(13),
+		tg68_reg(14),
+		tg68_reg(15),
+		ram_long(tg68_reg(15)),
+		ram_byte(0x0B22),
+		ram_byte(0x0B2E),
+		ram_byte(0x0C2F),
+		ram_word(0x017A),
+		ram_word(0x0D00),
+		ram_word(0x0DA6),
+		ram_long(0x08EE),
+		ram_long(0x0D10),
+		ram_long(0x0D14),
+		ram_long(0x030A));
+
+	fprintf(stderr, "BOOTMASK_ONCE history count=%d newest_last=1\n", bootmask_history_count);
+	int first = bootmask_history_pos - bootmask_history_count;
+	if (first < 0) {
+		first += BOOTMASK_HISTORY_SIZE;
+	}
+	for (int i = 0; i < bootmask_history_count; i++) {
+		int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
+		const BootmaskHistoryEntry& entry = bootmask_history[idx];
+		fprintf(stderr,
+			"BOOTMASK_HIST %03d frame=%d tick=%08X pc=%08X op=%04X "
+			"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X "
+			"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+			i,
+			entry.frame,
+			entry.tick,
+			entry.pc,
+			entry.op,
+			entry.d0,
+			entry.d1,
+			entry.d2,
+			entry.d3,
+			entry.d4,
+			entry.d5,
+			entry.d6,
+			entry.a0,
+			entry.a1,
+			entry.a2,
+			entry.a3,
+			entry.a4,
+			entry.sp,
+			entry.ret);
+	}
+}
+
+static void print_scsi_transition_debug(uint32_t pc) {
+	fprintf(stderr,
+		"SCSI_TRANSITION trigger frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X RET=%08X "
+		"W017A=%04X B0B22=%02X B0B2E=%02X B0C2F=%02X W0D00=%04X W0DA6=%04X "
+		"L08EE=%08X L0D10=%08X L0D14=%08X L030A=%08X "
+		"Q_00=%08X Q_04=%04X Q_06=%04X Q_08=%04X Q_0A=%04X Q_0C=%08X "
+		"SCSI mr=%02X icr=%02X tcr=%02X odr=%02X din=%02X req=%d tbsy=%02X treq=%02X\n",
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(2),
+		tg68_reg(3),
+		tg68_reg(4),
+		tg68_reg(5),
+		tg68_reg(6),
+		tg68_reg(7),
+		tg68_reg(8),
+		tg68_reg(9),
+		tg68_reg(10),
+		tg68_reg(11),
+		tg68_reg(12),
+		tg68_reg(13),
+		tg68_reg(14),
+		tg68_reg(15),
+		ram_long(tg68_reg(15)),
+		ram_word(0x017A),
+		ram_byte(0x0B22),
+		ram_byte(0x0B2E),
+		ram_byte(0x0C2F),
+		ram_word(0x0D00),
+		ram_word(0x0DA6),
+		ram_long(0x08EE),
+		ram_long(0x0D10),
+		ram_long(0x0D14),
+		ram_long(0x030A),
+		ram_long(ram_long(0x030A)),
+		ram_word(ram_long(0x030A) + 0x04),
+		ram_word(ram_long(0x030A) + 0x06),
+		ram_word(ram_long(0x030A) + 0x08),
+		ram_word(ram_long(0x030A) + 0x0A),
+		ram_long(ram_long(0x030A) + 0x0C),
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req);
+
+	fprintf(stderr, "SCSI_TRANSITION history count=%d newest_last=1\n", bootmask_history_count);
+	int first = bootmask_history_pos - bootmask_history_count;
+	if (first < 0) {
+		first += BOOTMASK_HISTORY_SIZE;
+	}
+	for (int i = 0; i < bootmask_history_count; i++) {
+		int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
+		const BootmaskHistoryEntry& entry = bootmask_history[idx];
+		fprintf(stderr,
+			"SCSI_TRANSITION_HIST %03d frame=%d tick=%08X pc=%08X op=%04X "
+			"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X "
+			"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+			i,
+			entry.frame,
+			entry.tick,
+			entry.pc,
+			entry.op,
+			entry.d0,
+			entry.d1,
+			entry.d2,
+			entry.d3,
+			entry.d4,
+			entry.d5,
+			entry.d6,
+			entry.a0,
+			entry.a1,
+			entry.a2,
+			entry.a3,
+			entry.a4,
+			entry.sp,
+			entry.ret);
+	}
+}
+
+static void print_late_adb_debug(uint32_t pc) {
+	uint32_t sp = tg68_reg(15);
+	fprintf(stderr,
+		"LATE_ADB trigger frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X "
+		"RET=%08X SP00=%04X SP02=%04X SP04=%04X SP06=%04X "
+		"L054C=%08X B0B22=%02X B0B2E=%02X B0C2F=%02X W017A=%04X "
+		"L030A=%08X L0D10=%08X L0D14=%08X "
+		"VIA1_PRB=%02X VIA1_DDRB=%02X VIA1_IFR=%02X VIA1_IER=%02X "
+		"VIA1_ACR=%02X VIA1_PCR=%02X VIA1_SR=%02X\n",
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(2),
+		tg68_reg(3),
+		tg68_reg(4),
+		tg68_reg(5),
+		tg68_reg(6),
+		tg68_reg(7),
+		tg68_reg(8),
+		tg68_reg(9),
+		tg68_reg(10),
+		tg68_reg(11),
+		tg68_reg(12),
+		tg68_reg(13),
+		tg68_reg(14),
+		sp,
+		ram_long(sp),
+		ram_word(sp + 0x00),
+		ram_word(sp + 0x02),
+		ram_word(sp + 0x04),
+		ram_word(sp + 0x06),
+		ram_long(0x054C),
+		ram_byte(0x0B22),
+		ram_byte(0x0B2E),
+		ram_byte(0x0C2F),
+		ram_word(0x017A),
+		ram_long(0x030A),
+		ram_long(0x0D10),
+		ram_long(0x0D14),
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_prb,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pio_i_ddrb,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__acr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__pcr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__shift_reg);
+
+	fprintf(stderr, "LATE_ADB history count=%d newest_last=1\n", bootmask_history_count);
+	int first = bootmask_history_pos - bootmask_history_count;
+	if (first < 0) {
+		first += BOOTMASK_HISTORY_SIZE;
+	}
+	for (int i = 0; i < bootmask_history_count; i++) {
+		int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
+		const BootmaskHistoryEntry& entry = bootmask_history[idx];
+		fprintf(stderr,
+			"LATE_ADB_HIST %03d frame=%d tick=%08X pc=%08X op=%04X "
+			"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X "
+			"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+			i,
+			entry.frame,
+			entry.tick,
+			entry.pc,
+			entry.op,
+			entry.d0,
+			entry.d1,
+			entry.d2,
+			entry.d3,
+			entry.d4,
+			entry.d5,
+			entry.d6,
+			entry.a0,
+			entry.a1,
+			entry.a2,
+			entry.a3,
+			entry.a4,
+			entry.sp,
+			entry.ret);
+	}
+}
+
 static void print_boot_decision_debug(uint32_t pc) {
 	uint32_t a6 = tg68_reg(14);
 	uint32_t a7 = tg68_reg(15);
@@ -510,12 +895,13 @@ static void print_boot_decision_debug(uint32_t pc) {
 		"BOOT_DECISION hit=%03d frame=%d tick=%08X time=%llu pc=%08X op=%04X "
 		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
 		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X RET=%08X "
-		"SP00=%04X SP02=%04X SP04=%04X SP06=%04X "
+		"EXCPC=%08X SP00=%04X SP02=%04X SP04=%04X SP06=%04X "
+		"SP08=%04X SP0A=%04X SP0C=%04X SP0E=%04X SP10=%04X SP12=%04X SP14=%04X SP16=%04X "
 		"FP08=%04X FP0A=%04X FP0C=%04X FP0E=%04X FP14=%04X "
 		"A1_00=%04X A1_02=%04X A1_04=%08X A1_08=%08X A1_0C=%04X A1_0E=%04X A1_10=%08X A1_14=%08X "
 		"D6W00=%04X D6W02=%04X D6W04=%04X D6W06=%04X D6W08=%04X D6W0A=%04X "
 		"W09FA=%04X W09FC=%04X W09FE=%04X W0A00=%04X W0A02=%04X "
-		"L0134=%08X W017A=%04X B0C2F=%02X W0D00=%04X W0DA6=%04X "
+		"L0134=%08X W017A=%04X B0B22=%02X B0B2E=%02X B0C2F=%02X W0D00=%04X W0DA6=%04X "
 		"L08EE=%08X L0D10=%08X L0D14=%08X L030A=%08X "
 		"Q_00=%08X Q_04=%04X Q_06=%04X Q_08=%04X Q_0A=%04X Q_0C=%08X "
 		"A2_00=%08X A2_04=%04X A2_06=%04X A2_08=%04X A2_0A=%04X "
@@ -547,10 +933,19 @@ static void print_boot_decision_debug(uint32_t pc) {
 		a6,
 		a7,
 		ram_long(a7),
+		ram_long(a7 + 0x02),
 		ram_word(a7 + 0x00),
 		ram_word(a7 + 0x02),
 		ram_word(a7 + 0x04),
 		ram_word(a7 + 0x06),
+		ram_word(a7 + 0x08),
+		ram_word(a7 + 0x0A),
+		ram_word(a7 + 0x0C),
+		ram_word(a7 + 0x0E),
+		ram_word(a7 + 0x10),
+		ram_word(a7 + 0x12),
+		ram_word(a7 + 0x14),
+		ram_word(a7 + 0x16),
 		ram_word(a6 + 0x08),
 		ram_word(a6 + 0x0A),
 		ram_word(a6 + 0x0C),
@@ -577,6 +972,8 @@ static void print_boot_decision_debug(uint32_t pc) {
 		ram_word(0x0A02),
 		ram_long(0x0134),
 		ram_word(0x017A),
+		ram_byte(0x0B22),
+		ram_byte(0x0B2E),
 		ram_byte(0x0C2F),
 		ram_word(0x0D00),
 		ram_word(0x0DA6),
@@ -669,6 +1066,17 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0617] & 0x00FF,
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0692],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0694]);
+	printf("TM nodes: L0D10=%08X L0D14=%08X L030A=%08X "
+	       "N2748=%08X/%04X/%04X/%04X/%08X "
+	       "N33C4=%08X/%04X/%04X/%04X/%08X "
+	       "N47A8=%08X/%04X/%04X/%04X/%08X\n",
+	       ram_long(0x0D10), ram_long(0x0D14), ram_long(0x030A),
+	       ram_long(0x2748), ram_word(0x274C), ram_word(0x274E),
+	       ram_word(0x2750), ram_long(0x2754),
+	       ram_long(0x33C4), ram_word(0x33C8), ram_word(0x33CA),
+	       ram_word(0x33CC), ram_long(0x33D0),
+	       ram_long(0x47A8), ram_word(0x47AC), ram_word(0x47AE),
+	       ram_word(0x47B0), ram_long(0x47B4));
 	printf("Regs: D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X\n",
 	       tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
 	       tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7));
@@ -689,6 +1097,11 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask);
+	printf("VIA edge counters: rtc_cko=%u via2_pb7=%u via1_ca1=%u via1_ca2=%u\n",
+	       VERTOPINTERN->emu__DOT__dc0__DOT__onesec_edges,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__pb7_edges,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__ca1_edges,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__ca2_edges);
 	print_via_timer_state(stdout, "VIA timers:");
 	printf("Profile: irq_changes=%llu irq1=%llu irq2=%llu irq4=%llu irq7=%llu "
 	       "fetch_scsi_timeout=%llu fetch_tick_wait=%llu fetch_vbl=%llu fetch_lowmem=%llu\n",
@@ -763,6 +1176,27 @@ int verilate() {
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
+					record_bootmask_history(pc);
+					if (bootmask_once_pc(pc)) {
+						print_bootmask_once_debug(pc);
+						bootmask_once_stop_requested = true;
+					}
+				}
+				if (scsi_transition_debug_enable && !scsi_transition_stop_requested) {
+					record_bootmask_history(pc);
+					if (scsi_transition_pc(pc)) {
+						print_scsi_transition_debug(pc);
+						scsi_transition_stop_requested = true;
+					}
+				}
+				if (late_adb_debug_enable && !late_adb_stop_requested) {
+					record_bootmask_history(pc);
+					if (late_adb_pc(pc)) {
+						print_late_adb_debug(pc);
+						late_adb_stop_requested = true;
+					}
+				}
 				if (pc != unique_fetch_last_pc) {
 					unique_fetch_last_pc = pc;
 					unique_fetch_count++;
@@ -797,6 +1231,55 @@ int verilate() {
 						boot_decision_debug_last_key = key;
 					}
 				}
+
+				if (boot_decision_debug_enable &&
+				    lowmem_bit_debug_count < lowmem_bit_debug_max &&
+				    main_time != lowmem_bit_debug_last_time) {
+					bool active_bus = !VERTOPINTERN->debug_cpuAS;
+					bool active_write = active_bus && !VERTOPINTERN->debug_cpuRW;
+					bool completed_write = VERTOPINTERN->debug_write_valid && !lowmem_bit_debug_prev_write_valid;
+					uint32_t addr = (completed_write ? VERTOPINTERN->debug_write_addr : VERTOPINTERN->debug_cpuAddr) & 0x1FFFFF;
+					uint32_t ram_byte_addr = ((uint32_t)VERTOPINTERN->debug_ram_addr & 0x1FFFFF) << 1;
+					bool watched_cpu_addr = (addr >= 0x09F8 && addr <= 0x0A07) ||
+					                        (addr >= 0x0B20 && addr <= 0x0B2F);
+					bool watched_ram_write = VERTOPINTERN->debug_ram_we &&
+					                         (ram_byte_addr >= 0x09F8 && ram_byte_addr <= 0x0A07);
+					if (((active_bus || completed_write) && watched_cpu_addr) ||
+					    watched_ram_write) {
+						lowmem_bit_debug_last_time = main_time;
+						fprintf(stderr,
+							"LOWMEM_BIT_WR hit=%03d kind=%s frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+							"addr=%08X data=%04X UDS=%d LDS=%d selRAM=%d ram_we=%d ram_ds=%d%d ram_addr=%07X ram_din=%04X "
+							"RAM_BYTE=%08X W09FA=%04X W09FC=%04X W09FE=%04X W0A00=%04X W0A02=%04X B0B22=%02X B0B2E=%02X\n",
+							lowmem_bit_debug_count,
+							watched_ram_write ? "ram_we" : (completed_write ? "complete" : (active_write ? "active_wr" : "active_rd")),
+							video.count_frame,
+							lowmem_tick_016a(),
+							(unsigned long long)main_time,
+							pc,
+							VERTOPINTERN->debug_opcode,
+							completed_write ? VERTOPINTERN->debug_write_addr : VERTOPINTERN->debug_cpuAddr,
+							completed_write ? VERTOPINTERN->debug_write_data : VERTOPINTERN->debug_cpuDataIn,
+							!VERTOPINTERN->debug_cpuUDS ? 1 : 0,
+							!VERTOPINTERN->debug_cpuLDS ? 1 : 0,
+							VERTOPINTERN->debug_selectRAM ? 1 : 0,
+							VERTOPINTERN->debug_ram_we ? 1 : 0,
+							(VERTOPINTERN->debug_ram_ds >> 1) & 1,
+							VERTOPINTERN->debug_ram_ds & 1,
+							VERTOPINTERN->debug_ram_addr,
+							VERTOPINTERN->debug_ram_din,
+							ram_byte_addr,
+							ram_word(0x09FA),
+							ram_word(0x09FC),
+							ram_word(0x09FE),
+							ram_word(0x0A00),
+							ram_word(0x0A02),
+							ram_byte(0x0B22),
+							ram_byte(0x0B2E));
+						lowmem_bit_debug_count++;
+					}
+				}
+				lowmem_bit_debug_prev_write_valid = VERTOPINTERN->debug_write_valid;
 				if (wait_debug_enable &&
 				    video.count_frame >= wait_debug_min_frame &&
 				    pc >= 0x40801500 && pc <= 0x408017CC &&
@@ -2549,6 +3032,11 @@ void show_help() {
 	printf("  --iwm-state-debug             Trace ROM floppy drive queue state near PC 0082E220\n");
 	printf("  --boot-decision-debug         Trace SCSI/floppy boot-decision ROM PCs\n");
 	printf("  --boot-decision-debug-min-frame <n>\n");
+	printf("  --bootmask-once-debug         Stop at the first boot-device scan/SCSI ROM PC and dump PC history\n");
+	printf("  --scsi-transition-debug       Stop at the late no-media-to-SCSI transition and dump PC history\n");
+	printf("  --scsi-transition-debug-min-frame <n>\n");
+	printf("  --late-adb-debug              Stop at the late ADB/VIA bit-bang ROM path and dump PC history\n");
+	printf("  --late-adb-debug-min-frame <n>\n");
 	printf("  --bus-handshake-debug         Trace CPU AS/VPA/VMA/DTACK handshakes for I/O cycles\n");
 	printf("  --bus-handshake-debug-min-frame <n>\n");
 	printf("  --wait-debug                  Trace ROM wait helper around PC 40801610\n");
@@ -2569,6 +3057,8 @@ void show_help() {
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
 	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
 	printf("  --floppy1 <file>              Insert a raw .dsk image in the external floppy drive\n");
+	printf("  --send-mouse <frame>:<dx>,<dy>[,<btn>[,<dur>]]\n");
+	printf("                                Send headless mouse input at specified frame\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
@@ -2581,6 +3071,7 @@ void show_help() {
 	printf("  ./Vemu --headless --stop-at-tick 0x75\n");
 	printf("  ./Vemu --headless --screenshot 50 --stop-at-frame 100\n");
 	printf("                                Headless, take screenshot at frame 50, stop at 100\n");
+	printf("  ./Vemu --headless --send-mouse 500:20,0 --stop-at-frame 520\n");
 }
 
 void save_screenshot(int frame_number) {
@@ -2683,8 +3174,79 @@ static void maybe_print_frame_probe() {
 
 unsigned char mouse_clock = 0;
 unsigned char mouse_buttons = 0;
-unsigned char mouse_x = 0;
-unsigned char mouse_y = 0;
+signed char mouse_x = 0;
+signed char mouse_y = 0;
+int prev_mouse_buttons = 0;
+bool mouse_captured = false;
+
+struct MouseInjection {
+	int frame;
+	int dx;
+	int dy;
+	int buttons;
+	int duration;
+};
+std::vector<MouseInjection> mouse_injections;
+int mouse_injection_frames_remaining = 0;
+static signed char injected_mouse_x = 0;
+static signed char injected_mouse_y = 0;
+static int injected_mouse_buttons = 0;
+static bool mouse_injection_active = false;
+
+static unsigned long build_mouse_packet(signed char dx, signed char dy, int buttons) {
+	unsigned char status_byte = (buttons & 0x07) | 0x08;
+	if (dx < 0) status_byte |= 0x10;
+	if (dy < 0) status_byte |= 0x20;
+
+	unsigned long mouse_temp = status_byte;
+	mouse_temp |= ((unsigned char)dx << 8);
+	mouse_temp |= ((unsigned char)dy << 16);
+	if (mouse_clock) mouse_temp |= (1UL << 24);
+	return mouse_temp;
+}
+
+static void apply_mouse_packet(signed char dx, signed char dy, int buttons) {
+	if (dx != 0 || dy != 0 || buttons != prev_mouse_buttons) {
+		mouse_clock = !mouse_clock;
+	}
+	prev_mouse_buttons = buttons;
+	VERTOPINTERN->ps2_mouse = build_mouse_packet(dx, dy, buttons);
+}
+
+static bool process_mouse_injections(int current_frame) {
+	static int last_processed_frame = -1;
+	bool new_injection_started = false;
+
+	auto it = mouse_injections.begin();
+	while (it != mouse_injections.end()) {
+		if (it->frame == current_frame) {
+			injected_mouse_x = (signed char)std::max(-127, std::min(127, it->dx));
+			injected_mouse_y = (signed char)std::max(-127, std::min(127, it->dy));
+			injected_mouse_buttons = it->buttons;
+			mouse_injection_frames_remaining = std::max(1, it->duration);
+			mouse_injection_active = true;
+			new_injection_started = true;
+			printf("Injecting mouse at frame %d: dx=%d dy=%d btn=%d dur=%d\n",
+			       current_frame, it->dx, it->dy, it->buttons, mouse_injection_frames_remaining);
+			it = mouse_injections.erase(it);
+		} else {
+			++it;
+		}
+	}
+
+	if (mouse_injection_active && !new_injection_started && current_frame != last_processed_frame) {
+		mouse_injection_frames_remaining--;
+		if (mouse_injection_frames_remaining <= 0) {
+			injected_mouse_x = 0;
+			injected_mouse_y = 0;
+			injected_mouse_buttons = 0;
+			mouse_injection_active = false;
+		}
+	}
+
+	last_processed_frame = current_frame;
+	return new_injection_started;
+}
 
 int main(int argc, char** argv, char** env) {
 
@@ -2720,6 +3282,18 @@ int main(int argc, char** argv, char** env) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
 			boot_decision_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--bootmask-once-debug") == 0) {
+			bootmask_once_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-transition-debug") == 0) {
+			scsi_transition_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-transition-debug-min-frame") == 0 && i + 1 < argc) {
+			scsi_transition_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--late-adb-debug") == 0) {
+			late_adb_debug_enable = true;
+		} else if (strcmp(argv[i], "--late-adb-debug-min-frame") == 0 && i + 1 < argc) {
+			late_adb_debug_min_frame = std::stoi(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "--bus-handshake-debug") == 0) {
 			bus_handshake_debug_enable = true;
@@ -2775,6 +3349,31 @@ int main(int argc, char** argv, char** env) {
 		} else if (strcmp(argv[i], "--floppy1") == 0 && i + 1 < argc) {
 			floppy_disk_files[1] = argv[i + 1];
 			i++;
+		} else if (strcmp(argv[i], "--send-mouse") == 0 && i + 1 < argc) {
+			std::string arg = argv[++i];
+			size_t colon = arg.find(':');
+			if (colon == std::string::npos) {
+				fprintf(stderr, "Error: --send-mouse requires <frame>:<dx>,<dy>[,<btn>[,<dur>]]\n");
+				return 1;
+			}
+
+			int frame = std::stoi(arg.substr(0, colon));
+			std::string values = arg.substr(colon + 1);
+			std::stringstream ss(values);
+			std::string part;
+			std::vector<int> nums;
+			while (std::getline(ss, part, ',')) {
+				nums.push_back(std::stoi(part));
+			}
+			if (nums.size() < 2) {
+				fprintf(stderr, "Error: --send-mouse requires at least dx,dy values\n");
+				return 1;
+			}
+			int btn = nums.size() >= 3 ? nums[2] : 0;
+			int dur = nums.size() >= 4 ? nums[3] : 1;
+			mouse_injections.push_back({frame, nums[0], nums[1], btn, dur});
+			printf("Will send mouse at frame %d: dx=%d dy=%d btn=%d dur=%d\n",
+			       frame, nums[0], nums[1], btn, dur);
 		} else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
 			screenshot_mode = true;
 			std::string frames_str = argv[i + 1];
@@ -2958,13 +3557,13 @@ int main(int argc, char** argv, char** env) {
 	while (!done)
 	{
 		if (headless) {
-			unsigned long mouse_temp = mouse_clock ? (1UL << 24) : 0;
-			mouse_clock = !mouse_clock;
-			VERTOPINTERN->ps2_mouse = mouse_temp;
-
 			if (run_enable) {
 				for (int step = 0; step < batchSize; step++) {
 					verilate();
+					if (bootmask_once_stop_requested || scsi_transition_stop_requested ||
+					    late_adb_stop_requested) {
+						break;
+					}
 					if (stop_at_tick_enabled && lowmem_tick_reached()) {
 						break;
 					}
@@ -2978,6 +3577,46 @@ int main(int argc, char** argv, char** env) {
 			}
 
 			maybe_print_frame_probe();
+
+			if (bootmask_once_stop_requested) {
+				printf("Bootmask one-shot probe complete, exiting... PC=%08X Op=%04X VBR=%08X\n",
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (scsi_transition_stop_requested) {
+				printf("SCSI transition probe complete, exiting... PC=%08X Op=%04X VBR=%08X\n",
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (late_adb_stop_requested) {
+				printf("Late ADB probe complete, exiting... PC=%08X Op=%04X VBR=%08X\n",
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
+				print_scsi_stop_state();
+				break;
+			}
+
+			static int headless_mouse_frame = -1;
+			if (video.count_frame != headless_mouse_frame) {
+				headless_mouse_frame = video.count_frame;
+				if (!mouse_injections.empty() || mouse_injection_active) {
+					process_mouse_injections(video.count_frame);
+				}
+				if (mouse_injection_active) {
+					apply_mouse_packet(injected_mouse_x, (signed char)-injected_mouse_y, injected_mouse_buttons);
+				} else {
+					apply_mouse_packet(0, 0, 0);
+				}
+			}
 
 			bool took_screenshot_this_frame = false;
 			if (screenshot_mode) {
@@ -3020,13 +3659,45 @@ int main(int argc, char** argv, char** env) {
 			continue;
 		}
 
+		mouse_x = 0;
+		mouse_y = 0;
 		SDL_Event event;
 		while (SDL_PollEvent(&event))
 		{
 			ImGui_ImplSDL2_ProcessEvent(&event);
 			if (event.type == SDL_QUIT)
 				done = true;
+			if (event.type == SDL_MOUSEMOTION && mouse_captured) {
+				int win_w, win_h;
+				SDL_GetWindowSize(window, &win_w, &win_h);
+				int center_x = win_w / 2;
+				int center_y = win_h / 2;
+				int dx = event.motion.x - center_x;
+				int dy = event.motion.y - center_y;
+
+				if (dx != 0 || dy != 0) {
+					mouse_x += dx;
+					mouse_y -= dy;
+					SDL_WarpMouseInWindow(window, center_x, center_y);
+				}
+			}
+			if (mouse_captured) {
+				if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
+					mouse_buttons |= 0x01;
+				}
+				if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
+					mouse_buttons &= ~0x01;
+				}
+			}
+			if (event.type == SDL_KEYDOWN && mouse_captured &&
+			    (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_F1)) {
+				mouse_captured = false;
+			}
 		}
+		if (mouse_x > 127) mouse_x = 127;
+		if (mouse_x < -127) mouse_x = -127;
+		if (mouse_y > 127) mouse_y = 127;
+		if (mouse_y < -127) mouse_y = -127;
 #endif
 		video.StartFrame();
 
@@ -3112,8 +3783,21 @@ int main(int argc, char** argv, char** env) {
 		ImGui::Checkbox("Flip V", &video.output_vflip);
 		ImGui::Text("main_time: %llu frame_count: %d sim FPS: %f", main_time, video.count_frame, video.stats_fps);
 
-		// Draw VGA output
-		ImGui::Image(video.texture_id, ImVec2(video.output_width * VGA_SCALE_X, video.output_height * VGA_SCALE_Y));
+		// Draw VGA output and capture mouse clicks on the display.
+		ImVec2 vga_size(video.output_width * VGA_SCALE_X, video.output_height * VGA_SCALE_Y);
+		ImVec2 cursor_pos = ImGui::GetCursorPos();
+		ImGui::Image(video.texture_id, vga_size);
+		ImGui::SetCursorPos(cursor_pos);
+		ImGui::InvisibleButton("##vga_capture", vga_size);
+		if (ImGui::IsItemClicked(0)) {
+			mouse_captured = true;
+#ifndef _MSC_VER
+			int win_w, win_h;
+			SDL_GetWindowSize(window, &win_w, &win_h);
+			SDL_WarpMouseInWindow(window, win_w / 2, win_h / 2);
+#endif
+		}
+		ImGui::Text("%s", mouse_captured ? "Mouse captured - press Esc or F1 to release" : "Click display to capture mouse");
 		ImGui::End();
 
 		if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey"))
@@ -3187,25 +3871,27 @@ int main(int argc, char** argv, char** env) {
 			break;
 		}
 
-		// Pass inputs to sim - PS2 mouse for Mac
-		mouse_buttons = 0;
-		mouse_x = 0;
-		mouse_y = 0;
-		if (input.inputs[input_left]) { mouse_x = -2; }
-		if (input.inputs[input_right]) { mouse_x = 2; }
-		if (input.inputs[input_up]) { mouse_y = 2; }
-		if (input.inputs[input_down]) { mouse_y = -2; }
+		if (!mouse_injections.empty() || mouse_injection_active) {
+			process_mouse_injections(video.count_frame);
+		}
 
-		if (input.inputs[input_a]) { mouse_buttons |= (1UL << 0); }  // Left click
-		if (input.inputs[input_b]) { mouse_buttons |= (1UL << 1); }  // Right click
+		if (mouse_injection_active) {
+			mouse_x = injected_mouse_x;
+			mouse_y = (signed char)-injected_mouse_y;
+			mouse_buttons = injected_mouse_buttons;
+		} else if (!mouse_captured) {
+			mouse_buttons = 0;
+			mouse_x = 0;
+			mouse_y = 0;
+			if (input.inputs[input_left]) { mouse_x = -2; }
+			if (input.inputs[input_right]) { mouse_x = 2; }
+			if (input.inputs[input_up]) { mouse_y = 2; }
+			if (input.inputs[input_down]) { mouse_y = -2; }
+			if (input.inputs[input_a]) { mouse_buttons |= 0x01; }
+			if (input.inputs[input_b]) { mouse_buttons |= 0x02; }
+		}
 
-		unsigned long mouse_temp = mouse_buttons;
-		mouse_temp += (mouse_x << 8);
-		mouse_temp += (mouse_y << 16);
-		if (mouse_clock) { mouse_temp |= (1UL << 24); }
-		mouse_clock = !mouse_clock;
-
-		VERTOPINTERN->ps2_mouse = mouse_temp;
+		apply_mouse_packet(mouse_x, mouse_y, mouse_buttons);
 
 		// Run simulation
 		if (run_enable) {

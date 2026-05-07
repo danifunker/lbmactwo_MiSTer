@@ -28,6 +28,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// peripherals:
 	input selectSCSI,
+	input selectSCSIDMA,
 	input selectSCC,
 	input selectIWM,
 	input selectVIA,
@@ -169,7 +170,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.bus_rs(cpuAddrRegMid),
 		.ior(_cpuRW && !_cpuUDS),
 		.iow(!_cpuRW && !_cpuUDS),
-		.dack(cpuAddrRegHi[0]),   // A9
+		.dack(selectSCSIDMA),
 		.wdata(cpuDataIn[15:8]),
 		.rdata(scsiDataOut),
 
@@ -270,6 +271,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// Mac II VIA1 PB external inputs match MAME macii_state::via_in_b():
 	//   PB3 = 1 when no ADB interrupt is pending, PB0 = RTC data, other bits 0.
 	// Output bits still read back via via6522's DDR/output mux.
+	wire rtcdat_o;
+	wire rtc_cko;
 	assign via_pb_i = machineType ? {4'b0000, _ADBint, 2'b00, rtcdat_o}
 	                              : {1'b1, _hblank, mouseY2, mouseX2, mouseButton, 2'b11, rtcdat_o};
 
@@ -282,17 +285,28 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// but gate VIA timer countdowns with this average-rate enable.
 	localparam [31:0] VIA_TIMER_HZ = 32'd783360;
 	localparam [31:0] SYS_CLK_HZ = 32'd32500000;
+`ifdef SIMULATION
+	reg [31:0] via_timer_hz = VIA_TIMER_HZ;
+	initial begin
+		integer hz;
+		if ($value$plusargs("via_timer_hz=%d", hz) && hz > 0)
+			via_timer_hz = hz[31:0];
+	end
+	wire [31:0] via_timer_step = via_timer_hz;
+`else
+	wire [31:0] via_timer_step = VIA_TIMER_HZ;
+`endif
 	reg [31:0] via_timer_acc = 32'd0;
 	reg via_timer_tick = 1'b0;
 	always @(posedge clk32) begin
 		if (!_cpuReset) begin
 			via_timer_acc <= 32'd0;
 			via_timer_tick <= 1'b0;
-		end else if (via_timer_acc >= (SYS_CLK_HZ - VIA_TIMER_HZ)) begin
-			via_timer_acc <= via_timer_acc + VIA_TIMER_HZ - SYS_CLK_HZ;
+		end else if (via_timer_acc >= (SYS_CLK_HZ - via_timer_step)) begin
+			via_timer_acc <= via_timer_acc + via_timer_step - SYS_CLK_HZ;
 			via_timer_tick <= 1'b1;
 		end else begin
-			via_timer_acc <= via_timer_acc + VIA_TIMER_HZ;
+			via_timer_acc <= via_timer_acc + via_timer_step;
 			via_timer_tick <= 1'b0;
 		end
 	end
@@ -327,7 +341,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via1_ca1),
-		.ca2_i      (onesec),
+		.ca2_i      (rtc_cko),
 
 		.cb1_i      (kbdclk),
 		.cb2_i      (cb2_i),
@@ -358,17 +372,17 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		via1_ifr_d <= via.irq_flags;
 		via1_ier_d <= via.irq_mask;
 		via1_irq_d <= viaIrq;
-		onesec_d   <= onesec;
+		onesec_d   <= rtc_cko;
 		pb7_d      <= via2_pb_o[7];
 		ca1_c_d    <= via.ca1_c;
 		ca2_c_d    <= via.ca2_c;
 
 		// Edge counters — Mac II expectations at 32.5 MHz:
-		//   onesec:        1 Hz  → edge every ~32.5M cycles
+		//   RTC CKO:       1 Hz square wave edges every ~16.25M cycles
 		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~540K cycles
 		//   ca1_c (=PB7):  same as PB7
-		//   ca2_c (=onesec): same as onesec
-		if (onesec && !onesec_d)         onesec_edges <= onesec_edges + 1;
+		//   ca2_c (=RTC CKO): same as RTC CKO
+		if (rtc_cko && !onesec_d)        onesec_edges <= onesec_edges + 1;
 		if (via2_pb_o[7] !== pb7_d)      pb7_edges    <= pb7_edges    + 1;
 		if (via.ca1_c && !ca1_c_d)       ca1_edges    <= ca1_edges    + 1;
 		if (via.ca2_c && !ca2_c_d)       ca2_edges    <= ca2_edges    + 1;
@@ -485,7 +499,6 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire _rtccs   = ~via_pb_oe[2] | via_pb_o[2];
 	wire rtcck    = ~via_pb_oe[1] | via_pb_o[1];
 	wire rtcdat_i = ~via_pb_oe[0] | via_pb_o[0];
-	wire rtcdat_o;
 
 	rtc pram (
 		.clk        (clk32),
@@ -494,7 +507,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		._cs        (_rtccs),
 		.ck         (rtcck),
 		.dat_i      (rtcdat_i),
-		.dat_o      (rtcdat_o)
+		.dat_o      (rtcdat_o),
+		.cko        (rtc_cko)
 	);
 
 	wire _ADBint;

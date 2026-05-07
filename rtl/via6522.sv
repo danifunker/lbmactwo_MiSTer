@@ -168,9 +168,9 @@ module via6522 (
 
     always @(*) begin
         irq_events[1] = (ca1_c ^ ca1_d) & (ca1_d ^ ca1_edge_select);
-        irq_events[0] = (ca2_c ^ ca2_d) & (ca2_d ^ ca2_edge_select);
+        irq_events[0] = !ca2_is_output & (ca2_c ^ ca2_d) & (ca2_d ^ ca2_edge_select);
         irq_events[4] = (cb1_c ^ cb1_d) & (cb1_d ^ cb1_edge_select);
-        irq_events[3] = (cb2_c ^ cb2_d) & (cb2_d ^ cb2_edge_select);
+        irq_events[3] = !cb2_is_output & (cb2_c ^ cb2_d) & (cb2_d ^ cb2_edge_select);
         
         // FIXED: Added assignments here to drive irq_events from the wires
         irq_events[2] = serial_event;

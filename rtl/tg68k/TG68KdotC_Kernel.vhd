@@ -1931,7 +1931,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						END IF;
 						IF opcode(8)='0' THEN
 							IF decodeOPC='1' THEN
-								next_micro_state <= nop;
+								next_micro_state <= andi;
 								set(get_2ndOPC) <= '1';
 								set(ea_build) <= '1';
 							END IF;

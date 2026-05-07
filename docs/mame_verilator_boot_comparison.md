@@ -882,3 +882,202 @@ The remaining no-media divergence is therefore higher level than the NCR target
 response: the ROM foreground boot code is deciding to issue a SCSI boot-block
 read for drive/ID 6 in Verilator, while MAME never reaches that call in the
 matched no-media baseline.
+
+## 2026-05-07 SCSI Map and Timing Recheck
+
+MAME and Snow both decode two Mac II NCR5380 pseudo-DMA windows:
+
+```text
+$006000-$006fff  SCSI pseudo-DMA
++$010000-$011fff  SCSI registers
++$012000-$013fff  SCSI pseudo-DMA
+```
+
+The RTL only selected SCSI for `+$010000-$013fff`, and `ncr5380.dack` was tied
+to A9.  That missed the `+$006000` pseudo-DMA window and made DMA/register
+selection depend on an address bit rather than the decoded bus window.  The RTL
+now carries a separate `selectSCSIDMA` decode into `dataController_top` and uses
+that as NCR `dack`.
+
+This is a real map fix, but it does not fix no-media boot.  With no floppy or
+SCSI media, Verilator still reaches the SCSI select timeout helper:
+
+```text
+Verilator frame 500: pc=40826CC6 tick016A=00000070
+SCSI: mr=00 icr=05 tcr=00 odr=84 req=0 target_bsy=0
+```
+
+The matched MAME run with the same no-media command line is already idle in the
+time-manager queue walker by frame 350 and remains there:
+
+```text
+MAME frame 350: pc=408061F2 tick016A=000000A3
+MAME frame 500: pc=408061F2 tick016A=0000012A
+```
+
+The frame-by-frame comparison shows the larger issue is not ASC or a stuck SCSI
+target.  Verilator is simply doing much less useful ROM work per video frame:
+
+```text
+MAME frame 250:      pc=4080377A A0=00100000 D5=0003FF3F tick016A=0000005F
+Verilator frame 250: pc=4080378A A0=00040000 D5=0000F928 tick016A=00000008
+```
+
+A simulation-only VIA timer-rate override confirmed the relative timing problem:
+running with `+via_timer_hz=391680` moved the first calibration word from
+`$054B` to `$0A98`, near MAME's `$0A3B`.  It did not boot, because it also slows
+the timer interrupt path and leaves the ROM stuck in earlier foreground work.
+
+Two simple attempts to reclaim the legacy compact-Mac video RAM slot for Mac II
+were also tested.  Both failed early in ASC self-test, which means the current
+RAM/ROM data-valid and DTACK path is coupled to the old four-slot memory
+arbiter.  The likely next fix is not a one-line slot change; it needs a proper
+Mac II RAM/ROM bus path where:
+
+- NuBus video does not steal system RAM bandwidth.
+- RAM/ROM DTACK is asserted only after the memory data mux is valid.
+- Floppy/IWM extra slots remain available when disk emulation needs them.
+
+Until that bus path is fixed, the no-media boot divergence should be treated as
+a CPU/bus throughput problem.  The SCSI select timeout is a symptom of the ROM
+foreground path running with the wrong timing, not evidence that ASC is failing
+or that an NCR target is asserting the wrong phase.
+
+## 2026-05-07 Boot Decision Recheck
+
+A fresh matched-card no-media MAME run shows the first drive-queue node is not
+the remaining mismatch:
+
+```text
+MAME frame 350:      pc=408061F2 tick016A=000000A3 L030A=00002F70 Q_00=00000000 Q_06=0001 Q_08=FFFB
+Verilator frame 424: pc=408061F2 tick016A=00000029 L030A=00002F70 Q_00=00000000 Q_06=0001 Q_08=FFFB
+```
+
+The apparent `$09FA-$09FE` mismatch was transient.  The low-memory global table
+identifies `$09FA` as `TempRect` and `$0A02` as `OneOne`; the downloaded copy is
+`docs/external/mac_lowmem_osdata.html`.  A short Verilator sample caught
+QuickDraw scratch state before it settled, but the later timeout frame matches
+MAME:
+
+```text
+W09FA=0800 W09FC=0000 W09FE=0100 W0A00=0283 W0A02=0001
+```
+
+The active divergence is control flow.  A no-debugger MAME tap over the ROM
+ranges that Verilator enters:
+
+```text
+$40807AD4-$40807D20
+$408266A4-$40826990
+$40826CB4-$40826CD4
+```
+
+reported zero hits through frame 450:
+
+```text
+MAME_BOOT_DECISION_SUMMARY frames=450 pc=408061F2 tick016A=000000FD
+```
+
+The matching Verilator run enters those ranges before the final timeout:
+
+```text
+frame 408 pc=40826CB6 tick=0000001A L030A=00000000
+frame 459 pc=408061F2 tick=0000004A L030A=00002F70 W09FA=0800 B0B22=FC B0B2E=80 A4_60=8001
+stop frame 460 pc=40826CC6 tick=0000004A
+```
+
+At the stop frame, the no-media queue, `$0B22/$0B2E/$0C2F`, `TempRect`, and the
+SCSI driver table match MAME.  The remaining bug is therefore not ASC, NCR
+target state, the drive queue, or `TempRect`; it is the ROM caller/control path
+that reaches trap `$A815` / the SCSI driver in Verilator while MAME stays in the
+Time Manager no-media loop.
+
+## 2026-05-07 SCSI Trap Reclassification
+
+A later one-shot trace showed that the first Verilator `$408266A4` hit is the
+ROM's early SCSI-manager/PRAM setup, not necessarily the final no-media failure:
+
+```text
+BOOTMASK_ONCE trigger frame=390 tick=00000009 pc=408266A4 op=205F
+caller history: 40826660 ... 4082669E(A815) -> 408064BA trap dispatch -> 408266A4
+D0=00000007 D1=00000080 A0=00002C60 B0B22=FC B0B2E=80 B0C2F=00
+```
+
+The disassembly around `$40826660` reads two PRAM bytes via trap `$A051`,
+extracts the boot-device fields, stores `$0C2F` and `$0B2E`, and calls `_SCSI`
+selector 0 when bit 15 of the boot word is clear. Verilator reads boot word
+`$4F48`. MAME's persistent RTC image has the same bytes:
+
+```text
+mame/nvram/macii/rtc: 00 80 4F 48 ...
+```
+
+So the `$4F48` value itself is not a Verilator-only mismatch. The existing MAME
+Lua tap is installed with `-autoboot_script`, which starts after early ROM setup;
+its zero-hit result through frame 450 means only that MAME does not enter those
+SCSI ROM ranges after the Lua probe attaches. It does not prove MAME skipped the
+initial SCSI-manager setup call.
+
+Running the Verilator SCSI-transition one-shot with
+`--scsi-transition-debug-min-frame 400` confirms the frame-408 event is still the
+same early SCSI reset path spending time in the ROM delay/timeout helper:
+
+```text
+SCSI_TRANSITION trigger frame=408 tick=0000001A pc=408268CC
+RET chain preserved by history: 40826CA8/40826CAC delay loop -> 40826718 -> 4082672A -> 408268CC
+SCSI state: mr=00 icr=00 tcr=00 odr=00 req=0 tbsy=00 treq=00
+```
+
+This changes the next debugging target. The question is no longer simply "why
+does Verilator call `_SCSI`?" because the ROM does that during normal
+SCSI-manager initialization with the same PRAM image. The useful comparison is:
+after that early timeout returns, does Verilator reach the same no-media
+Time Manager queue loop as MAME, and are the relative CPU/VIA/timer rates close
+enough that we are comparing the same boot phase?
+
+## 2026-05-07 Time Manager Context Finding
+
+The Time Manager range has two relevant paths that should not be conflated:
+`$408061E4-$4080622C` is the queue walker subroutine, while
+`$4080622E-$40806282` is the interrupt service path that ends in `RTE`. A later
+Verilator one-shot with `--scsi-transition-debug-min-frame 502` shows the ROM
+interrupt service path walking through `$40806260-$40806282`; the instruction at
+`$40806282` is `RTE`. After that return, execution resumes in the foreground
+SCSI timeout loop:
+
+```text
+SCSI_TRANSITION trigger frame=502 tick=00000071 pc=40826CC6 op=56C9
+RET=40826976
+SCSI mr=00 icr=05 tcr=00 odr=84 req=0 tbsy=00 treq=00
+history: 40806260 ... 40806278 -> 40806282(RTE) -> 40826CC6
+```
+
+MAME's no-media summary at `PC=$408061F2` is instead in the queue walker
+subroutine. The stack at frame 600 has the saved queue pointer at `SP+0` and the
+return address at `SP+4`:
+
+```text
+MAME frame 600 pc=408061F2 A7=000FF8F2
+SP00=0000 SP02=2748 SP04=4080 SP06=649A
+return=4080649A caller=40806486
+```
+
+Low-memory names from the saved OS data table make this more specific:
+`$0D0C=SlotVBLQ`, `$0D10=ScrnVBLPtr`, `$0D14=SlotTICKS`, and
+`$0D28=JVBLTask`. MAME is servicing slot `$E` (`D0=14`) for the matched
+`m2hires` card. That means MAME is executing the slot-VBL trap/caller path
+`$40806486 -> $408061E4 -> $4080649A` while Verilator's later foreground
+sample is in the SCSI timeout loop at `$40826CC6`.
+
+This pointed to one concrete video-card timing mismatch: MAME's m2hires device
+schedules its slot IRQ at screen position `(m_vres - 1, 0)`, which is line 479
+for the 640x480 mode. The RTL was raising `nmrq_n` at `v_cnt == V_RES`, line
+480. `rtl/nubus/nubus_video_highres.sv` now raises the slot VBL IRQ at
+`V_RES - 1` to match MAME. The next apples-to-apples comparison is whether
+Verilator reaches `$408061E4` with the same `$4080649A` return and queue pointer
+after this card-VBL alignment, or whether it still leaves that caller path and
+enters the SCSI timeout loop instead.
+
+Build status: `make` in `verilator/` passed after the VBL alignment change. A
+post-change `--stop-at-frame 520` run timed out after 300 seconds before
+reaching the stop frame, so the boot-behavior impact is not yet verified.

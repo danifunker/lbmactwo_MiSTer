@@ -3,6 +3,9 @@ local mem = cpu.spaces["program"]
 
 local frames = 0
 local stop_frame = tonumber(os.getenv("MAME_STOP_FRAME") or "900") or 900
+local max_hits = tonumber(os.getenv("MAME_MAX_PRINT") or "200") or 200
+local hits = 0
+local last_key = ""
 
 local pcs = {
 	0x408015ea,
@@ -15,6 +18,16 @@ local pcs = {
 	0x40807d18,
 	0x40807d1c,
 	0x408266a4,
+	0x40826660,
+	0x4082667a,
+	0x4082669e,
+	0x408061e4,
+	0x408061f2,
+	0x40806260,
+	0x40806274,
+	0x40806278,
+	0x40806282,
+	0x40806284,
 	0x4082672a,
 	0x40826756,
 	0x4082675e,
@@ -70,15 +83,71 @@ local function u32(addr)
 	return (((u16(addr) << 16) | u16(addr + 2)) & 0xffffffff)
 end
 
+local function log_hit(kind, pc)
+	if hits >= max_hits then
+		return
+	end
+	if not ((pc >= 0x408061e4 and pc <= 0x40806284) or
+	        (pc >= 0x40807ad4 and pc <= 0x40807d20) or
+	        (pc >= 0x40826636 and pc <= 0x408266a2) or
+	        (pc >= 0x408266a4 and pc <= 0x40826990) or
+	        (pc >= 0x40826cb4 and pc <= 0x40826cd4)) then
+		return
+	end
+
+	local sp = reg("A7")
+	local drive_queue = u32(0x030a)
+	local key = kind .. ":" .. hex(pc) .. ":" .. hex(u32(0x016a)) .. ":" ..
+		hex(sp) .. ":" .. hex(reg("D5")) .. ":" .. hex(reg("A4"))
+	if key == last_key then
+		return
+	end
+	last_key = key
+
+	print(string.format(
+		"MAME_BOOT_DECISION_%s hit=%03d frame=%d pc=%s tick016A=%s D0=%s D1=%s D2=%s D3=%s D4=%s D5=%s D6=%s D7=%s A0=%s A1=%s A2=%s A3=%s A4=%s A6=%s A7=%s RET=%s EXCPC=%s SP00=%04X SP02=%04X SP04=%04X SP06=%04X SP08=%04X SP0A=%04X SP0C=%04X SP0E=%04X SP10=%04X SP12=%04X SP14=%04X SP16=%04X W09FA=%04X W09FC=%04X W09FE=%04X W0A00=%04X W0A02=%04X L0134=%s W017A=%04X B0B22=%02X B0B2E=%02X B0C2F=%02X W0D00=%04X W0DA6=%04X L08EE=%s L0D10=%s L0D14=%s L030A=%s Q_00=%s Q_06=%04X Q_08=%04X A4_60=%04X A4_61=%02X",
+		kind, hits, frames, hex(pc), hex(u32(0x016a)), hex(reg("D0")),
+		hex(reg("D1")), hex(reg("D2")), hex(reg("D3")), hex(reg("D4")),
+		hex(reg("D5")), hex(reg("D6")), hex(reg("D7")), hex(reg("A0")),
+		hex(reg("A1")), hex(reg("A2")), hex(reg("A3")), hex(reg("A4")),
+		hex(reg("A6")), hex(sp), hex(u32(sp)), hex(u32(sp + 2)),
+		u16(sp), u16(sp + 2), u16(sp + 4), u16(sp + 6),
+		u16(sp + 8), u16(sp + 10), u16(sp + 12), u16(sp + 14),
+		u16(sp + 16), u16(sp + 18), u16(sp + 20), u16(sp + 22),
+		u16(0x09fa), u16(0x09fc), u16(0x09fe), u16(0x0a00), u16(0x0a02), hex(u32(0x0134)),
+		u16(0x017a), u8(0x0b22), u8(0x0b2e), u8(0x0c2f), u16(0x0d00),
+		u16(0x0da6), hex(u32(0x08ee)), hex(u32(0x0d10)), hex(u32(0x0d14)),
+		hex(drive_queue), hex(u32(drive_queue)), u16(drive_queue + 0x06),
+		u16(drive_queue + 0x08), u16(reg("A4") + 0x60), u8(reg("A4") + 0x61)))
+	hits = hits + 1
+end
+
+local tap_ranges = {
+	{ 0x408061e4, 0x40806284, "tm_service" },
+	{ 0x40807ad4, 0x40807d20, "boot_scan" },
+	{ 0x40826634, 0x408266a2, "scsi_pram_boot" },
+	{ 0x408266a4, 0x40826990, "scsi_driver" },
+	{ 0x40826cb4, 0x40826cd4, "scsi_timeout" },
+}
+
+for _, range in ipairs(tap_ranges) do
+	mem:install_read_tap(range[1], range[2] | 3, range[3] .. "_fetch", function(offset, data, mask)
+		log_hit("TAP", reg("CURPC"))
+	end)
+end
+
 emu.register_frame_done(function()
 	frames = frames + 1
 	if frames >= stop_frame then
+		local sp = reg("A7")
 		print(string.format(
-			"MAME_BOOT_DECISION_SUMMARY frames=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D6=%s A3=%s A4=%s A6=%s A7=%s L0134=%s W0D00=%04X W0DA6=%04X",
+			"MAME_BOOT_DECISION_SUMMARY frames=%d pc=%s tick016A=%s D0=%s D1=%s D5=%s D6=%s A3=%s A4=%s A6=%s A7=%s RET=%s EXCPC=%s SP00=%04X SP02=%04X SP04=%04X SP06=%04X SP08=%04X SP0A=%04X SP0C=%04X SP0E=%04X L0134=%s W0D00=%04X W0DA6=%04X",
 			frames, hex(reg("CURPC")), hex(u32(0x016a)), hex(reg("D0")),
 			hex(reg("D1")), hex(reg("D5")), hex(reg("D6")), hex(reg("A3")),
-			hex(reg("A4")), hex(reg("A6")), hex(reg("A7")), hex(u32(0x0134)),
-			u16(0x0d00), u16(0x0da6)))
+			hex(reg("A4")), hex(reg("A6")), hex(sp), hex(u32(sp)),
+			hex(u32(sp + 2)), u16(sp), u16(sp + 2), u16(sp + 4),
+			u16(sp + 6), u16(sp + 8), u16(sp + 10), u16(sp + 12),
+			u16(sp + 14), hex(u32(0x0134)), u16(0x0d00), u16(0x0da6)))
 		manager.machine:exit()
 	end
 end, "macii_boot_decision_probe")

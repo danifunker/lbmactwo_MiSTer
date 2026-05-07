@@ -264,7 +264,9 @@ module nubus_video_highres (
     // ========================================================================
     // VBL interrupt generation
     // ========================================================================
-    wire vbl_pulse = clk_video_en && (h_cnt == 0) && (v_cnt == V_RES);
+    // MAME schedules the m2hires slot IRQ at screen position (m_vres - 1, 0),
+    // one scanline before screen().vblank() becomes true.
+    wire vbl_pulse = clk_video_en && (h_cnt == 0) && (v_cnt == V_RES - 1);
 
     always @(posedge clk) begin
         if (reset) begin
@@ -314,18 +316,26 @@ module nubus_video_highres (
     // ========================================================================
     // SDRAM state machine — video fetch + CPU access
     // ========================================================================
-    localparam S_IDLE           = 3'd0;
-    localparam S_VIDEO_FETCH    = 3'd1;
-    localparam S_VIDEO_WAIT     = 3'd2;
-    localparam S_CPU_WRITE      = 3'd3;
-    localparam S_CPU_WRITE_WAIT = 3'd4;
-    localparam S_CPU_READ       = 3'd5;
-    localparam S_CPU_READ_WAIT  = 3'd6;
+    localparam S_IDLE               = 4'd0;
+    localparam S_VIDEO_FETCH        = 4'd1;
+    localparam S_VIDEO_WAIT         = 4'd2;
+    localparam S_CPU_WRITE          = 4'd3;
+    localparam S_CPU_WRITE_WAIT     = 4'd4;
+    localparam S_CPU_READ           = 4'd5;
+    localparam S_CPU_READ_WAIT      = 4'd6;
+    localparam S_CPU_RMW_READ       = 4'd7;
+    localparam S_CPU_RMW_READ_WAIT  = 4'd8;
+    localparam S_CPU_RMW_WRITE      = 4'd9;
 
-    reg [2:0] state;
+    reg [3:0] state;
     reg [15:0] vram_cache;
     reg vram_cache_valid;
     reg [18:0] last_fetch_word;
+
+    reg [18:0] cpu_write_word;
+    reg [15:0] cpu_write_data;
+    reg [15:0] cpu_write_merged;
+    reg [1:0] cpu_write_strobes;
 
     wire [18:0] cpu_vram_word = addr[19:1];  // CPU byte addr → word addr
 
@@ -362,6 +372,10 @@ module nubus_video_highres (
             vram_cache <= 16'd0;
             vram_cache_valid <= 1'b0;
             last_fetch_word <= 19'h7FFFF;
+            cpu_write_word <= 19'd0;
+            cpu_write_data <= 16'd0;
+            cpu_write_merged <= 16'd0;
+            cpu_write_strobes <= 2'b00;
             ack_n <= 1'b1;
             ack_delay <= 3'd0;
             rom_read_pending <= 1'b0;
@@ -426,8 +440,18 @@ module nubus_video_highres (
                         if (!rw_n && addr_is_vram) begin
                             if (cpu_vram_word < VRAM_SIZE) begin
                                 vram_addr <= VRAM_BASE + {6'd0, cpu_vram_word};
-                                vram_dout <= ~data_in;  // Invert on write (MAME: data ^= 0xFFFFFFFF)
-                                state <= S_CPU_WRITE;
+                                cpu_write_word <= cpu_vram_word;
+                                cpu_write_data <= ~data_in;  // Invert on write (MAME: data ^= 0xFFFFFFFF)
+                                cpu_write_strobes <= uds_lds;
+                                if (uds_lds == 2'b11) begin
+                                    cpu_write_merged <= ~data_in;
+                                    vram_dout <= ~data_in;
+                                    state <= S_CPU_WRITE;
+                                end else if (uds_lds != 2'b00) begin
+                                    state <= S_CPU_RMW_READ;
+                                end else begin
+                                    ack_delay <= 3'd2;
+                                end
                             end else begin
                                 ack_delay <= 3'd2;
                             end
@@ -586,7 +610,6 @@ module nubus_video_highres (
                         // Video prefetch during active display
                         vram_addr <= VRAM_BASE + {6'd0, fetch_word_addr};
                         last_fetch_word <= fetch_word_addr;
-                        vram_cache_valid <= 1'b0;
                         vram_rd <= 1'b1;
                         state <= S_VIDEO_FETCH;
                     end
@@ -599,6 +622,8 @@ module nubus_video_highres (
 
                 S_CPU_WRITE_WAIT: begin
                     if (vram_ready) begin
+                        if (vram_cache_valid && last_fetch_word == cpu_write_word)
+                            vram_cache <= cpu_write_merged;
                         vram_wr <= 1'b0;
                         ack_delay <= 3'd2;
                         state <= S_IDLE;
@@ -617,6 +642,28 @@ module nubus_video_highres (
                         ack_delay <= 3'd2;
                         state <= S_IDLE;
                     end
+                end
+
+                S_CPU_RMW_READ: begin
+                    vram_rd <= 1'b1;
+                    state <= S_CPU_RMW_READ_WAIT;
+                end
+
+                S_CPU_RMW_READ_WAIT: begin
+                    if (vram_ready) begin
+                        vram_rd <= 1'b0;
+                        cpu_write_merged <= {
+                            cpu_write_strobes[1] ? cpu_write_data[15:8] : vram_din[15:8],
+                            cpu_write_strobes[0] ? cpu_write_data[7:0]  : vram_din[7:0]
+                        };
+                        state <= S_CPU_RMW_WRITE;
+                    end
+                end
+
+                S_CPU_RMW_WRITE: begin
+                    vram_dout <= cpu_write_merged;
+                    vram_wr <= 1'b1;
+                    state <= S_CPU_WRITE_WAIT;
                 end
 
                 default: state <= S_IDLE;

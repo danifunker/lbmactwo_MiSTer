@@ -462,7 +462,7 @@ wire [15:0] memoryDataOut;
 wire memoryLatch;
 
 // peripherals
-wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+wire memoryOverlayOn, selectSCSI, selectSCSIDMA, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 wire [1:0] glueRAMSize;
 wire [15:0] dataControllerDataOut;
 
@@ -692,6 +692,7 @@ addrController_top ac0
 	.dioBusControl(dioBusControl),
 	.cpuBusControl(cpuBusControl),
 	.selectSCSI(selectSCSI),
+	.selectSCSIDMA(selectSCSIDMA),
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),
@@ -781,6 +782,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.cpuAddrRegMid(cpuAddr[6:4]),  // for SCSI
 	.cpuAddrRegLo(cpuAddr[2:1]),
 	.selectSCSI(selectSCSI),
+	.selectSCSIDMA(selectSCSIDMA),
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),

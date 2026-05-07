@@ -1,0 +1,1419 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+
+<!--FILE NAME lowmem.htm-->
+
+<head><title>low memory</title>
+<meta HTTP-EQUIV="Content-Type" content="text/html; charset=ISO-8859-1"></meta>
+<meta name="revisit-after" content="15 days"></meta>
+<meta name="robots" content="all"></meta>
+<meta name="description" content="Low lemory from various operating systems."></meta>
+<meta name="keywords" content="hardware, low memory variables"></meta>
+<meta name="creation" content="2001-03-28"></meta>
+<meta name="last-modified" content="2001-04-11"></meta>
+<meta name="MSSmartTagsPreventParsing" content="TRUE"></meta>
+<link rel="stylesheet" type="text/css" href="../../style.css">
+</head>
+
+<body bgcolor="#ffdddd" text="#000000" leftmargin="20" topmargin="10" marginwidth="20" marginheight="10">
+
+<table align="right"><tr><td align="center"><a href="http://www.ThisSideofSanity.com/tshirt/osdata.html" onMouseOver="window.status='sponsored by ThisSideofSanity.com';return true" style="background:transparent"><img src="../../ads/tsosdragon.jpg" width="82" height="128" border="2"></a><br><small>sponsored by</small></td></tr></table>
+
+<table border="0">
+<tr><td><a href="../../index.htm" onMouseOver="window.status='Operating Systems home page';return true" style="background:transparent"><img src="../../pict/oslogo.gif" width="72" height="72" border="0" alt="OSdata.com: low memory" name="Image1"></a></td><td width="10">&nbsp;</td><td align="center" valign="middle"><h1 align="center"><font color="#cc44cc">OSdata.com</font></h1></td></tr>
+</table>
+
+<h1 align="center">Low memory</h1>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;<b>Summary:</b> Low memory is the memory at the beginning of the address space. Some processors use designated low memory addresses during power on, exception processing, interrupt processing, and other hardware conditions. Some operating systems use designated low memory addresses for global system variables, global system structures, jump tables, and other system purposes.</p>
+
+<!-- Search Google -->
+<center>
+<table bgcolor="#ffffff" border="2">
+<tr><td nowrap="nowrap" valign="top" align="left" height="32">
+<form method=GET action="http://www.google.com/custom">
+<a href="http://www.google.com/">
+<img src="http://www.google.com/logos/Logo_25wht.gif" border="0" alt="Google" align="center"></img></a>
+<br>
+<input type="text" name="q" size="31" maxlength="255" value=""></input>
+<br>
+<input type="submit" name="sa" value="Search"></input>
+<input type="hidden" name="client" value="pub-4677813635044438"></input>
+<input type="hidden" name="forid" value="1"></input>
+<input type="hidden" name="channel" value="0911992725"></input>
+<input type="hidden" name="ie" value="ISO-8859-1"></input>
+<input type="hidden" name="oe" value="ISO-8859-1"></input>
+<input type="hidden" name="cof" value="GALT:#008000;GL:1;DIV:#336699;VLC:663399;AH:center;BGC:FFFFFF;LBGC:336699;ALC:0000FF;LC:0000FF;T:000000;GFNT:0000FF;GIMP:0000FF;FORID:1;"></input>
+<input type="hidden" name="hl" value="en"></input>
+</form>
+</td>
+<td>
+<script type="text/javascript"><!--
+google_ad_client = "ca-pub-1242330569396958";
+/* TSOS */
+google_ad_slot = "9456247029";
+google_ad_width = 728;
+google_ad_height = 90;
+//-->
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</td></tr></table>
+</center>
+<!-- Search Google -->
+
+<br><table align="center" border="4" cellpadding="10" width="80%">
+<tr><td align="center"><h2 align="center">OSdata.com is used in more than 300 colleges and universities around the world</h2>
+<p align="center">Find out how to get similar high <a href="http://www.OSdata.com//1/webtraffic.html">web traffic</a> and search engine placement.</p></td></tr>
+</table>
+
+<ul>
+   <li><a href="#MSDOS">PC-DOS and MS-DOS low memory</a></li>
+   <ul>
+      <li><a href="#BIOScommo">BIOS Communication Area</a></li>
+      <li><a href="#reserved">Reserved</a></li>
+      <li><a href="#usercommo">Inter-Application (User) Communication Area</a></li>
+      <li><a href="#doscommo">DOS Communication Area</a></li>
+   </ul>
+   <li><a href="#Mac">Macintosh low memory</a></li>
+</ul>
+
+<a name="MSDOS"></a>
+<h3 align="center">PC-DOS and MS-DOS low memory</h3>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Addresses are hexadecimal in segment:offset form.</p>
+
+<a name="BIOScommo"></a>
+<h4 align="center">BIOS Communication Area</h4>
+
+<p align="center">0000:0400h-0000:04ABh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0400h-000:0407h&nbsp;&nbsp;&nbsp;addresses of RS232 adaptors</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0408h-0000:040Fh&nbsp;&nbsp;&nbsp;addresses of printers</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0410h-0000:0411h&nbsp;&nbsp;&nbsp;equipment flag: Also returned by interrupt 11h. MS-DOS only sets this value at startup. Programs that switch video adapters or switch modes in mulitadapter video cards should correctly set bit pair 5:4 &#151; 00=not used, 01=CGA card 40 columns, 10=CGA card 80 columns, 11=monochrome card</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0412h&nbsp;&nbsp;&nbsp;initialization flag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0413h-0000:0414h&nbsp;&nbsp;&nbsp;memory size: normally accessed via interrupt 12h.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0415h-0000:0416h&nbsp;&nbsp;&nbsp;amount of memory in I/O channel</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0417h-0000:043Dh&nbsp;&nbsp;&nbsp;keyboard data area 1: keyboard status flags and 15-byte keyboard buffer. Normally read via interrupt 16h.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:043Eh-0000:0448h&nbsp;&nbsp;&nbsp;diskette data</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0449h-0000:0466h&nbsp;&nbsp;&nbsp;video control data area 1: normally accessed via interrupt 10h.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:00467h--0000:046Bh&nbsp;&nbsp;&nbsp;cassette data; in some models of PS/2 this contains the far (doubleword) address of the code that resets the computer while preserving memory.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:046Ch-0000:0470h&nbsp;&nbsp;&nbsp;time data: normally accessed via interrupt 1Ah.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0471h&nbsp;&nbsp;&nbsp;break flag: set to 1 if the break key has been pressed.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0472h-0000:0473h&nbsp;&nbsp;&nbsp;reset flag: if set to 1234h, the BIOS initialization routine (starting at segment FFFFh) will bypass the memory check normally performed during a cold boot. In many models of the PS/2, if the flag is set to 4321h, the system will perform a reset operation without erasing memory.</p>
+
+<a name="reserved"></a>
+<h4 align="center">Reserved</h4>
+
+<p align="center">0000:04ACh-0000:04EFh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Reserved for BIOS.</p>
+
+<a name="usercommo"></a>
+<h4 align="center">Inter-Application (User) Communication Area</h4>
+
+<p align="center">0000:04F0h-0000:04FFh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;May be used by any program in any way. Originally intended for communications and exchange of data between programs, but because Microsoft couldn&#146;t figure out a standard, the area is in complete anarchy and programs should assume that other programs will act destructively on any attempts to use the area.</p>
+
+<a name="doscommo"></a>
+<h4 align="center">DOS Communication Area</h4>
+
+<p align="center">0000:0500h-0000:05FFh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Reserved for use by DOS and BASIC.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0000:0500&nbsp;&nbsp;&nbsp;print screen status flag: one byte value &#151; 0=print screen not active or successful termination, 1=print screen in progress, 255=error occurred during print screen.</p>
+
+<a name="Mac"></a>
+<h3 align="center">Macintosh low memory</h3>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0000&nbsp;&nbsp;&nbsp;unassigned</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0004&nbsp;&nbsp;&nbsp;ResetSPPC</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0008&nbsp;&nbsp;&nbsp;BusError</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x000C&nbsp;&nbsp;&nbsp;AddrErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0010&nbsp;&nbsp;&nbsp;Illegal</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0014&nbsp;&nbsp;&nbsp;ZeroDiv</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0018&nbsp;&nbsp;&nbsp;ChkError</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x001C&nbsp;&nbsp;&nbsp;TrapVErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0020&nbsp;&nbsp;&nbsp;Privileg</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0024&nbsp;&nbsp;&nbsp;Trace</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0028&nbsp;&nbsp;&nbsp;Line1010</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x002C&nbsp;&nbsp;&nbsp;Line 1111</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0030&nbsp;&nbsp;&nbsp;unassigned</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0034&nbsp;&nbsp;&nbsp;Coproces</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0038&nbsp;&nbsp;&nbsp;FmtErrVect</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x003C&nbsp;&nbsp;&nbsp;Uninited</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0040&nbsp;&nbsp;&nbsp;Unassig2</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0060&nbsp;&nbsp;&nbsp;Spurious</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0064&nbsp;&nbsp;&nbsp;AutoInt1</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0068&nbsp;&nbsp;&nbsp;AutoInt2</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x006C&nbsp;&nbsp;&nbsp;AutoInt3</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0070&nbsp;&nbsp;&nbsp;AutoInt4</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0074&nbsp;&nbsp;&nbsp;AutoInt5</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0078&nbsp;&nbsp;&nbsp;AutoInt6</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x007C&nbsp;&nbsp;&nbsp;AutoInt7</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0080&nbsp;&nbsp;&nbsp;TRAPtble</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x00C0&nbsp;&nbsp;&nbsp;FP-68881</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x00DC&nbsp;&nbsp;&nbsp;reserved</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x00E0&nbsp;&nbsp;&nbsp;PMMU</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x00E0&nbsp;&nbsp;&nbsp;SMgrOldCore</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x00EC&nbsp;&nbsp;&nbsp;reserved</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0100&nbsp;&nbsp;&nbsp;MonkeyLives</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0100&nbsp;&nbsp;&nbsp;SysCom</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0102&nbsp;&nbsp;&nbsp;ScrVRes</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0104&nbsp;&nbsp;&nbsp;ScrHRes</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0106&nbsp;&nbsp;&nbsp;ScreenRow</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0108&nbsp;&nbsp;&nbsp;MemTop</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x010C&nbsp;&nbsp;&nbsp;BufPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0110&nbsp;&nbsp;&nbsp;StkLowPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0114&nbsp;&nbsp;&nbsp;HeapEnd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0118&nbsp;&nbsp;&nbsp;TheZone</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x011C&nbsp;&nbsp;&nbsp;UTableBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0120&nbsp;&nbsp;&nbsp;MacJmp</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0124&nbsp;&nbsp;&nbsp;DskRtnAdr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0128&nbsp;&nbsp;&nbsp;PollRtnAdr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x012C&nbsp;&nbsp;&nbsp;DskVerify</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x012D&nbsp;&nbsp;&nbsp;LoadTrap</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x012E&nbsp;&nbsp;&nbsp;MmInOK</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x012F&nbsp;&nbsp;&nbsp;CPUFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x012F&nbsp;&nbsp;&nbsp;DskWr11</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0130&nbsp;&nbsp;&nbsp;ApplLimit</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0134&nbsp;&nbsp;&nbsp;SonyVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0138&nbsp;&nbsp;&nbsp;PWMValue</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x013A&nbsp;&nbsp;&nbsp;PollStack</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x013E&nbsp;&nbsp;&nbsp;PollProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0142&nbsp;&nbsp;&nbsp;DskErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0144&nbsp;&nbsp;&nbsp;SysEvtMask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0146&nbsp;&nbsp;&nbsp;SysEvtBuf</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x014A&nbsp;&nbsp;&nbsp;EventQueue</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0154&nbsp;&nbsp;&nbsp;EvtBufCnt</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0156&nbsp;&nbsp;&nbsp;RndSeed</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x015A&nbsp;&nbsp;&nbsp;SysVersion</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x015C&nbsp;&nbsp;&nbsp;SEvtEnb</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x015D&nbsp;&nbsp;&nbsp;DSWndUpdate</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x015E&nbsp;&nbsp;&nbsp;FontFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x015F&nbsp;&nbsp;&nbsp;IntFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0160&nbsp;&nbsp;&nbsp;VBLQueue</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x016A&nbsp;&nbsp;&nbsp;Ticks</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x016E&nbsp;&nbsp;&nbsp;MBTicks</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0172&nbsp;&nbsp;&nbsp;MBState</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0173&nbsp;&nbsp;&nbsp;Tocks</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0174&nbsp;&nbsp;&nbsp;KeyMap</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x017C&nbsp;&nbsp;&nbsp;KeyPadMap</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0180&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0184&nbsp;&nbsp;&nbsp;KeyLast</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0186&nbsp;&nbsp;&nbsp;KeyTime</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x018A&nbsp;&nbsp;&nbsp;KeyRepTime</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x018E&nbsp;&nbsp;&nbsp;KeyThresh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0190&nbsp;&nbsp;&nbsp;KeyRepThresh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0192&nbsp;&nbsp;&nbsp;Lvl1DT</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01B2&nbsp;&nbsp;&nbsp;Lvl2DT</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01D2&nbsp;&nbsp;&nbsp;UnitNtryCnt</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01D4&nbsp;&nbsp;&nbsp;VIA</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01D8&nbsp;&nbsp;&nbsp;SCCRd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01DC&nbsp;&nbsp;&nbsp;SCCWr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01E0&nbsp;&nbsp;&nbsp;IWM</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01E4&nbsp;&nbsp;&nbsp;GetParam</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01F8&nbsp;&nbsp;&nbsp;SysParam</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01F8&nbsp;&nbsp;&nbsp;SPValid</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01F9&nbsp;&nbsp;&nbsp;SPATalkA</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01FA&nbsp;&nbsp;&nbsp;SPATalkB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01FB&nbsp;&nbsp;&nbsp;SPConfig</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01FC&nbsp;&nbsp;&nbsp;SPPortA</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x01FE&nbsp;&nbsp;&nbsp;SPPortB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0200&nbsp;&nbsp;&nbsp;SPAlarm</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0204&nbsp;&nbsp;&nbsp;SPFont</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0206&nbsp;&nbsp;&nbsp;SPKbd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0207&nbsp;&nbsp;&nbsp;SPPrint</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0208&nbsp;&nbsp;&nbsp;SPVolCtl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0209&nbsp;&nbsp;&nbsp;SPClikCaret</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x020A&nbsp;&nbsp;&nbsp;SPMisc1</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x020B&nbsp;&nbsp;&nbsp;CDeskPat</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x020C&nbsp;&nbsp;&nbsp;Time</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0210&nbsp;&nbsp;&nbsp;BootDrive</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0212&nbsp;&nbsp;&nbsp;JShell</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0214&nbsp;&nbsp;&nbsp;SFSaveDisk</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0216&nbsp;&nbsp;&nbsp;KbdVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0218&nbsp;&nbsp;&nbsp;KbdLast</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x021A&nbsp;&nbsp;&nbsp;JKybdTask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x021E&nbsp;&nbsp;&nbsp;KbdType</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x021F&nbsp;&nbsp;&nbsp;AlarmState</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0220&nbsp;&nbsp;&nbsp;MemErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0222&nbsp;&nbsp;&nbsp;JFigTrkSpd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0226&nbsp;&nbsp;&nbsp;JDiskPrime</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x022A&nbsp;&nbsp;&nbsp;JRdAddr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x022E&nbsp;&nbsp;&nbsp;JRdData</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0232&nbsp;&nbsp;&nbsp;JWrData</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0236&nbsp;&nbsp;&nbsp;JSeek</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x023A&nbsp;&nbsp;&nbsp;JSetUpPoll</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x023E&nbsp;&nbsp;&nbsp;JRecal</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0242&nbsp;&nbsp;&nbsp;JControl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0246&nbsp;&nbsp;&nbsp;JWakeUp</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x024A&nbsp;&nbsp;&nbsp;JReSeek</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x024E&nbsp;&nbsp;&nbsp;JMakeSpdTbl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0252&nbsp;&nbsp;&nbsp;JAdrDisk</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0256&nbsp;&nbsp;&nbsp;JSetSpeed</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x025A&nbsp;&nbsp;&nbsp;NiblTbl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x025E&nbsp;&nbsp;&nbsp;FlEvtMask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0260&nbsp;&nbsp;&nbsp;SdVolume</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0261&nbsp;&nbsp;&nbsp;Finder</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0262&nbsp;&nbsp;&nbsp;SoundVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0262&nbsp;&nbsp;&nbsp;SoundPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0266&nbsp;&nbsp;&nbsp;SoundBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x026A&nbsp;&nbsp;&nbsp;SoundVBL</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x027A&nbsp;&nbsp;&nbsp;SoundDCE</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x027E&nbsp;&nbsp;&nbsp;SoundActive</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x027F&nbsp;&nbsp;&nbsp;SoundLevel</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0280&nbsp;&nbsp;&nbsp;CurPitch</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0282&nbsp;&nbsp;&nbsp;SoundLast</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0282&nbsp;&nbsp;&nbsp;Switcher</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0286&nbsp;&nbsp;&nbsp;SwitcherTPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x028A&nbsp;&nbsp;&nbsp;RSDHndl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x028E&nbsp;&nbsp;&nbsp;ROM85</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0290&nbsp;&nbsp;&nbsp;PortAUse</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0291&nbsp;&nbsp;&nbsp;PortBUse</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0292&nbsp;&nbsp;&nbsp;ScreenVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x029A&nbsp;&nbsp;&nbsp;JGNEFilter</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x029E&nbsp;&nbsp;&nbsp;Key1Trans</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02A2&nbsp;&nbsp;&nbsp;Key2Trans</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02A6&nbsp;&nbsp;&nbsp;SysZone</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02AA&nbsp;&nbsp;&nbsp;ApplZone</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02AE&nbsp;&nbsp;&nbsp;ROMBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02B2&nbsp;&nbsp;&nbsp;RAMBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02B6&nbsp;&nbsp;&nbsp;BasicGlob</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02B6&nbsp;&nbsp;&nbsp;ExpandMem</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02BA&nbsp;&nbsp;&nbsp;DSAlertTab</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02BE&nbsp;&nbsp;&nbsp;ExtStsDT</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02CE&nbsp;&nbsp;&nbsp;SCCASts</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02CF&nbsp;&nbsp;&nbsp;SCCBSts</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02D0&nbsp;&nbsp;&nbsp;SerialVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02D8&nbsp;&nbsp;&nbsp;ABusVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02E0&nbsp;&nbsp;&nbsp;FinderName</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02F0&nbsp;&nbsp;&nbsp;DoubleTime</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02F4&nbsp;&nbsp;&nbsp;CaretTime</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02F8&nbsp;&nbsp;&nbsp;ScrDmpEnb</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02F9&nbsp;&nbsp;&nbsp;ScrDmpType</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02FA&nbsp;&nbsp;&nbsp;TagData</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x02FC&nbsp;&nbsp;&nbsp;BufTgFNum</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0300&nbsp;&nbsp;&nbsp;BufTgFFlg</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0302&nbsp;&nbsp;&nbsp;BufTgFBkNum</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0304&nbsp;&nbsp;&nbsp;BufTgDate</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0308&nbsp;&nbsp;&nbsp;DrvQHdr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0312&nbsp;&nbsp;&nbsp;PWMBuf2</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0316&nbsp;&nbsp;&nbsp;MacPgm</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x031A&nbsp;&nbsp;&nbsp;Lo3Bytes</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x031E&nbsp;&nbsp;&nbsp;MinStack</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0322&nbsp;&nbsp;&nbsp;DefltStack</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0326&nbsp;&nbsp;&nbsp;MMDefFlags</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0328&nbsp;&nbsp;&nbsp;GZRootHnd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x032C&nbsp;&nbsp;&nbsp;GZRootPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0330&nbsp;&nbsp;&nbsp;GZMoveHnd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0334&nbsp;&nbsp;&nbsp;DSDrawProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0338&nbsp;&nbsp;&nbsp;EjectNotify</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x033C&nbsp;&nbsp;&nbsp;IAZNotify</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0340&nbsp;&nbsp;&nbsp;CkdDB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0342&nbsp;&nbsp;&nbsp;NxtDB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0344&nbsp;&nbsp;&nbsp;MaxDB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0346&nbsp;&nbsp;&nbsp;FlushOnly</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0347&nbsp;&nbsp;&nbsp;RegRscr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0348&nbsp;&nbsp;&nbsp;FLckUnlck</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0349&nbsp;&nbsp;&nbsp;FrcSync</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x034A&nbsp;&nbsp;&nbsp;NewMount</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x034C&nbsp;&nbsp;&nbsp;DrMstrBlk</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x034E&nbsp;&nbsp;&nbsp;FCBSPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0352&nbsp;&nbsp;&nbsp;DefVCBPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0356&nbsp;&nbsp;&nbsp;VCBQHdr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0360&nbsp;&nbsp;&nbsp;FSBusy</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0362&nbsp;&nbsp;&nbsp;FSQHead</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0366&nbsp;&nbsp;&nbsp;FSQTail</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x036A&nbsp;&nbsp;&nbsp;RgSvArea</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0372&nbsp;&nbsp;&nbsp;WDCBsPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0376&nbsp;&nbsp;&nbsp;HFSVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0384&nbsp;&nbsp;&nbsp;DefVRefnum</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0392&nbsp;&nbsp;&nbsp;HFSDSErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0398&nbsp;&nbsp;&nbsp;CurDirStore</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03A2&nbsp;&nbsp;&nbsp;ErCode</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03A4&nbsp;&nbsp;&nbsp;Params</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03D6&nbsp;&nbsp;&nbsp;FSTemp8</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03DE&nbsp;&nbsp;&nbsp;FSTemp4</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03E2&nbsp;&nbsp;&nbsp;FSQueueHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03E6&nbsp;&nbsp;&nbsp;ExtFSHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03EA&nbsp;&nbsp;&nbsp;DskSwtchHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03EE&nbsp;&nbsp;&nbsp;RegstVol</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03F2&nbsp;&nbsp;&nbsp;ToExtFS</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03F6&nbsp;&nbsp;&nbsp;FSFCBLen</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x03F8&nbsp;&nbsp;&nbsp;DSAlertRect</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0400&nbsp;&nbsp;&nbsp;OSTable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0800&nbsp;&nbsp;&nbsp;GrafBegin</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0800&nbsp;&nbsp;&nbsp;JHideCursor</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0804&nbsp;&nbsp;&nbsp;JShowCursor</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0808&nbsp;&nbsp;&nbsp;JShieldCursor</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x080C&nbsp;&nbsp;&nbsp;JScrnAddr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0810&nbsp;&nbsp;&nbsp;JScrnSize</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0814&nbsp;&nbsp;&nbsp;JInitCursor</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0818&nbsp;&nbsp;&nbsp;JSetCrsr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x081C&nbsp;&nbsp;&nbsp;JCrsrObscure</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0820&nbsp;&nbsp;&nbsp;JUpdateProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0824&nbsp;&nbsp;&nbsp;ScrnBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0828&nbsp;&nbsp;&nbsp;MTemp</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x082C&nbsp;&nbsp;&nbsp;RawMouse</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0830&nbsp;&nbsp;&nbsp;Mouse</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0834&nbsp;&nbsp;&nbsp;CrsrPin</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x083C&nbsp;&nbsp;&nbsp;CrsrRect</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0844&nbsp;&nbsp;&nbsp;TheCrsr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0888&nbsp;&nbsp;&nbsp;CrsrAddr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x088C&nbsp;&nbsp;&nbsp;JAllocCrsr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0890&nbsp;&nbsp;&nbsp;JSetCCrsr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0894&nbsp;&nbsp;&nbsp;JOpcodeProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0898&nbsp;&nbsp;&nbsp;CrsrBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x089C&nbsp;&nbsp;&nbsp;CrsrDevice</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08A0&nbsp;&nbsp;&nbsp;SrcDevice</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08A4&nbsp;&nbsp;&nbsp;MainDevice</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08A8&nbsp;&nbsp;&nbsp;DeviceList</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08AC&nbsp;&nbsp;&nbsp;CrsrRow</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08AE&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08B0&nbsp;&nbsp;&nbsp;QDColors</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08CC&nbsp;&nbsp;&nbsp;CrsrVis</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08CD&nbsp;&nbsp;&nbsp;CrsrBusy</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08CE&nbsp;&nbsp;&nbsp;CrsrNew</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08CF&nbsp;&nbsp;&nbsp;CrsrCouple</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08D0&nbsp;&nbsp;&nbsp;CrsrState</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08D2&nbsp;&nbsp;&nbsp;CrsrObscure</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08D3&nbsp;&nbsp;&nbsp;CrsrScale</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08D4&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08D6&nbsp;&nbsp;&nbsp;MouseMask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08DA&nbsp;&nbsp;&nbsp;MouseOffset</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08DE&nbsp;&nbsp;&nbsp;JournalFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08E0&nbsp;&nbsp;&nbsp;JSwapFont</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08E4&nbsp;&nbsp;&nbsp;WidthListHand</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08E8&nbsp;&nbsp;&nbsp;JournalRef</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08EA&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08EC&nbsp;&nbsp;&nbsp;CrsrThresh</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08EE&nbsp;&nbsp;&nbsp;JCrsrTask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08F2&nbsp;&nbsp;&nbsp;WWExist</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08F3&nbsp;&nbsp;&nbsp;QDExist</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08F4&nbsp;&nbsp;&nbsp;JFetch</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08F8&nbsp;&nbsp;&nbsp;JStash</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x08FC&nbsp;&nbsp;&nbsp;JIODone</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0900&nbsp;&nbsp;&nbsp;CurApRefNum</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0902&nbsp;&nbsp;&nbsp;LaunchFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0903&nbsp;&nbsp;&nbsp;FondState</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0904&nbsp;&nbsp;&nbsp;CurrentA5</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0908&nbsp;&nbsp;&nbsp;CurStackBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x090C&nbsp;&nbsp;&nbsp;LoadFiller</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0910&nbsp;&nbsp;&nbsp;CurApName</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0930&nbsp;&nbsp;&nbsp;SaveSegHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0934&nbsp;&nbsp;&nbsp;CurJTOffset</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0936&nbsp;&nbsp;&nbsp;CurPageOption</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0938&nbsp;&nbsp;&nbsp;HiliteMode</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0939&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x093A&nbsp;&nbsp;&nbsp;LoaderPBlock</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0944&nbsp;&nbsp;&nbsp;PrintErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0946&nbsp;&nbsp;&nbsp;ChooserBits</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0954&nbsp;&nbsp;&nbsp;CoreEditVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0960&nbsp;&nbsp;&nbsp;ScrapSize</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0964&nbsp;&nbsp;&nbsp;ScrapHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0968&nbsp;&nbsp;&nbsp;ScrapCount</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x096A&nbsp;&nbsp;&nbsp;ScrapState</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x096C&nbsp;&nbsp;&nbsp;ScrapName</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0970&nbsp;&nbsp;&nbsp;ScrapTag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0980&nbsp;&nbsp;&nbsp;RomFont0</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0984&nbsp;&nbsp;&nbsp;ApFontID</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0986&nbsp;&nbsp;&nbsp;SaveFondFlags</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0987&nbsp;&nbsp;&nbsp;FMDefaultSize</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0988&nbsp;&nbsp;&nbsp;CurFMInput</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x098A&nbsp;&nbsp;&nbsp;CurFMSize</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x098C&nbsp;&nbsp;&nbsp;CurFMFace</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x098D&nbsp;&nbsp;&nbsp;CurFMNeedBits</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x098E&nbsp;&nbsp;&nbsp;CurFMDevice</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0990&nbsp;&nbsp;&nbsp;CurFMNumer</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0994&nbsp;&nbsp;&nbsp;CurFMDenom</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0998&nbsp;&nbsp;&nbsp;FOutError</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x099A&nbsp;&nbsp;&nbsp;FOutFontHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x099E&nbsp;&nbsp;&nbsp;FOutBold</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x099F&nbsp;&nbsp;&nbsp;FOutItalic</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A0&nbsp;&nbsp;&nbsp;FOutULOffset</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A1&nbsp;&nbsp;&nbsp;FOutULShadow</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A2&nbsp;&nbsp;&nbsp;FOutULThick</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A3&nbsp;&nbsp;&nbsp;FOutShadow</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A4&nbsp;&nbsp;&nbsp;FOutExtra</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A5&nbsp;&nbsp;&nbsp;FOutAccent</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A6&nbsp;&nbsp;&nbsp;FOutDescent</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A7&nbsp;&nbsp;&nbsp;FOutWidMax</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A8&nbsp;&nbsp;&nbsp;FOutLeading</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09A9&nbsp;&nbsp;&nbsp;FOutUnused</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09AA&nbsp;&nbsp;&nbsp;FOutNumer</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09AE&nbsp;&nbsp;&nbsp;FOutDenom</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09B2&nbsp;&nbsp;&nbsp;FMDotsPerInch</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09B6&nbsp;&nbsp;&nbsp;FMStyleTab</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09CE&nbsp;&nbsp;&nbsp;ToolScratch</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09D6&nbsp;&nbsp;&nbsp;WindowList</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09DA&nbsp;&nbsp;&nbsp;SaveUpdate</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09DC&nbsp;&nbsp;&nbsp;PaintWhite</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09DE&nbsp;&nbsp;&nbsp;WMgrPort</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09E2&nbsp;&nbsp;&nbsp;DeskPort</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09E6&nbsp;&nbsp;&nbsp;OldStructure</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09EA&nbsp;&nbsp;&nbsp;OldContent</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09EE&nbsp;&nbsp;&nbsp;GrayRgn</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09F2&nbsp;&nbsp;&nbsp;SaveVisRgn</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09F6&nbsp;&nbsp;&nbsp;DragHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x09FA&nbsp;&nbsp;&nbsp;TempRect</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A02&nbsp;&nbsp;&nbsp;OneOne</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A06&nbsp;&nbsp;&nbsp;MinusOne</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A0A&nbsp;&nbsp;&nbsp;TopMenuItem</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A0C&nbsp;&nbsp;&nbsp;AtMenuBotom</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A0E&nbsp;&nbsp;&nbsp;IconBitMap</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A1C&nbsp;&nbsp;&nbsp;MenuList</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A20&nbsp;&nbsp;&nbsp;MBarEnable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A22&nbsp;&nbsp;&nbsp;CurDeKind</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A24&nbsp;&nbsp;&nbsp;MenuFlash</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A26&nbsp;&nbsp;&nbsp;TheMenu</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A28&nbsp;&nbsp;&nbsp;SavedHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A2C&nbsp;&nbsp;&nbsp;MBarHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A30&nbsp;&nbsp;&nbsp;MenuHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A34&nbsp;&nbsp;&nbsp;DragPattern</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A3C&nbsp;&nbsp;&nbsp;DeskPattern</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A44&nbsp;&nbsp;&nbsp;DragFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A46&nbsp;&nbsp;&nbsp;CurDragAction</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A4A&nbsp;&nbsp;&nbsp;FPState</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A50&nbsp;&nbsp;&nbsp;TopMapHndl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A54&nbsp;&nbsp;&nbsp;SysMapHndl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A58&nbsp;&nbsp;&nbsp;SysMap</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A5A&nbsp;&nbsp;&nbsp;CurMap</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A5C&nbsp;&nbsp;&nbsp;ResReadOnly</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A5E&nbsp;&nbsp;&nbsp;ResLoad</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A60&nbsp;&nbsp;&nbsp;ResErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A62&nbsp;&nbsp;&nbsp;TaskLock</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A63&nbsp;&nbsp;&nbsp;FScaleDisable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A64&nbsp;&nbsp;&nbsp;CurActivate</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A68&nbsp;&nbsp;&nbsp;CurDeactive</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A6C&nbsp;&nbsp;&nbsp;DeskHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A70&nbsp;&nbsp;&nbsp;TEDoText</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A74&nbsp;&nbsp;&nbsp;TERecal</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A78&nbsp;&nbsp;&nbsp;ApplScratch</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A84&nbsp;&nbsp;&nbsp;GhostWindow</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A88&nbsp;&nbsp;&nbsp;CloseOrnHook</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A8C&nbsp;&nbsp;&nbsp;ResumeProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A90&nbsp;&nbsp;&nbsp;SaveProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A94&nbsp;&nbsp;&nbsp;SaveSP</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A98&nbsp;&nbsp;&nbsp;ANumber</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A9A&nbsp;&nbsp;&nbsp;ACount</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0A9C&nbsp;&nbsp;&nbsp;DABeeper</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AA0&nbsp;&nbsp;&nbsp;DAStrings</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AB0&nbsp;&nbsp;&nbsp;TEScrpLength</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AB2&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AB4&nbsp;&nbsp;&nbsp;TEScrpHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AB8&nbsp;&nbsp;&nbsp;AppPacks</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AD8&nbsp;&nbsp;&nbsp;SysResName</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AE8&nbsp;&nbsp;&nbsp;SoundGlue</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AEC&nbsp;&nbsp;&nbsp;AppParmHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AF0&nbsp;&nbsp;&nbsp;DSErrCode</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AF2&nbsp;&nbsp;&nbsp;ResErrProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AF6&nbsp;&nbsp;&nbsp;TEWdBreak</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AFA&nbsp;&nbsp;&nbsp;DlgFont</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0AFC&nbsp;&nbsp;&nbsp;LastTGlobal</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B00&nbsp;&nbsp;&nbsp;TrapAgain</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B04&nbsp;&nbsp;&nbsp;KeyMVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B06&nbsp;&nbsp;&nbsp;ROMMapHndl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B0A&nbsp;&nbsp;&nbsp;PWMBuf1</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B0E&nbsp;&nbsp;&nbsp;BootMask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B10&nbsp;&nbsp;&nbsp;WidthPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B14&nbsp;&nbsp;&nbsp;AtalkHk1</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B18&nbsp;&nbsp;&nbsp;AtalkHk2</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B1C&nbsp;&nbsp;&nbsp;FourDHack</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B20&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B22&nbsp;&nbsp;&nbsp;HWCfgFlags</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B24&nbsp;&nbsp;&nbsp;TimeSCSIDB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B26&nbsp;&nbsp;&nbsp;TopMenuItem</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B28&nbsp;&nbsp;&nbsp;AtMenuBottom</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B2A&nbsp;&nbsp;&nbsp;WidthTabHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B2E&nbsp;&nbsp;&nbsp;SCSIDrvrs</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B30&nbsp;&nbsp;&nbsp;TimeVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B34&nbsp;&nbsp;&nbsp;BtDskRfn</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B36&nbsp;&nbsp;&nbsp;BootTmp8</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B3E&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B3F&nbsp;&nbsp;&nbsp;T1Arbitrate</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B4C&nbsp;&nbsp;&nbsp;JDiskSel</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B44&nbsp;&nbsp;&nbsp;JSendCmd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B48&nbsp;&nbsp;&nbsp;JDCDReset</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B4C&nbsp;&nbsp;&nbsp;LastSPExtra</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B50&nbsp;&nbsp;&nbsp;AppleShare</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B54&nbsp;&nbsp;&nbsp;MenuDisable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B58&nbsp;&nbsp;&nbsp;MBDFHndl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B5C&nbsp;&nbsp;&nbsp;MBSaveLoc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B60&nbsp;&nbsp;&nbsp;BNMQHd</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B64&nbsp;&nbsp;&nbsp;Twitcher1</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B68&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B7C&nbsp;&nbsp;&nbsp;Twitcher2</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B80&nbsp;&nbsp;&nbsp;RMgrHiVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B9E&nbsp;&nbsp;&nbsp;RomMapInsert</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0B9F&nbsp;&nbsp;&nbsp;TmpResLoad</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BA0&nbsp;&nbsp;&nbsp;IntlSpec</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BA0&nbsp;&nbsp;&nbsp;SMgrCore</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BA4&nbsp;&nbsp;&nbsp;RMgrPerm</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BA5&nbsp;&nbsp;&nbsp;WordRedraw</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BA6&nbsp;&nbsp;&nbsp;SysFontFam</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BA8&nbsp;&nbsp;&nbsp;SysFontSize</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BAA&nbsp;&nbsp;&nbsp;MBarHeight</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BAC&nbsp;&nbsp;&nbsp;TESysJust</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BAE&nbsp;&nbsp;&nbsp;HiHeapMask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BB2&nbsp;&nbsp;&nbsp;SegHiEnable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BB3&nbsp;&nbsp;&nbsp;FDevDisable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BB4&nbsp;&nbsp;&nbsp;CMVector</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BB8&nbsp;&nbsp;&nbsp;XFSGlobs</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BBC&nbsp;&nbsp;&nbsp;ShutDownQHdr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BC0&nbsp;&nbsp;&nbsp;NewUnused</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BC2&nbsp;&nbsp;&nbsp;LastFOND</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BC6&nbsp;&nbsp;&nbsp;FONDID</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BC8&nbsp;&nbsp;&nbsp;App2Packs</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BE8&nbsp;&nbsp;&nbsp;MAErrProc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BEC&nbsp;&nbsp;&nbsp;MASuperTab</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BF0&nbsp;&nbsp;&nbsp;MimeGlobs</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BF4&nbsp;&nbsp;&nbsp;FractEnable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BF5&nbsp;&nbsp;&nbsp;UsedWidths</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BF6&nbsp;&nbsp;&nbsp;FScaleHFact</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BFA&nbsp;&nbsp;&nbsp;FScaleVFact</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0BFE&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C00&nbsp;&nbsp;&nbsp;SCSIBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C04&nbsp;&nbsp;&nbsp;SCSIDMA</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C08&nbsp;&nbsp;&nbsp;SCSIHsk</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C0C&nbsp;&nbsp;&nbsp;SCSIGlobals</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C10&nbsp;&nbsp;&nbsp;RGBBlack</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C16&nbsp;&nbsp;&nbsp;RGBWhite</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C1C&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C20&nbsp;&nbsp;&nbsp;RowBits</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C22&nbsp;&nbsp;&nbsp;ColLines</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C24&nbsp;&nbsp;&nbsp;ScreenBytes</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C28&nbsp;&nbsp;&nbsp;IOPMgrVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C2C&nbsp;&nbsp;&nbsp;NMIFlag</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C2D&nbsp;&nbsp;&nbsp;VidType</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C2E&nbsp;&nbsp;&nbsp;VidMode</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C2F&nbsp;&nbsp;&nbsp;SCSIPoll</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0C30&nbsp;&nbsp;&nbsp;SEVarBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CB0&nbsp;&nbsp;&nbsp;MMUFlags</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CB1&nbsp;&nbsp;&nbsp;MMUType</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CB2&nbsp;&nbsp;&nbsp;MMU32bit</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CB3&nbsp;&nbsp;&nbsp;WhichBox</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CB4&nbsp;&nbsp;&nbsp;MMUTbl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CB8&nbsp;&nbsp;&nbsp;MMUTblSize</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CBC&nbsp;&nbsp;&nbsp;SInfoPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CC0&nbsp;&nbsp;&nbsp;ASCBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CC4&nbsp;&nbsp;&nbsp;SMGlobals</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CC8&nbsp;&nbsp;&nbsp;TheGDevice</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CCC&nbsp;&nbsp;&nbsp;CQDGlobals</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CD0&nbsp;&nbsp;&nbsp;AuxWinHead</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CD4&nbsp;&nbsp;&nbsp;AuxCtlHead</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CD8&nbsp;&nbsp;&nbsp;DeskCPat</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CDC&nbsp;&nbsp;&nbsp;SetOSDefKey</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CE0&nbsp;&nbsp;&nbsp;LastBinPat</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CE8&nbsp;&nbsp;&nbsp;DeskPatEnable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CEA&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CF8&nbsp;&nbsp;&nbsp;ADBBase</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0CFC&nbsp;&nbsp;&nbsp;WarmStart</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D00&nbsp;&nbsp;&nbsp;TimeDBRA</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D02&nbsp;&nbsp;&nbsp;TimeSCCDB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D04&nbsp;&nbsp;&nbsp;SlotQDT</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D08&nbsp;&nbsp;&nbsp;SlotPrTbl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D0C&nbsp;&nbsp;&nbsp;SlotVBLQ</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D10&nbsp;&nbsp;&nbsp;ScrnVBLPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D14&nbsp;&nbsp;&nbsp;SlotTICKS</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D18&nbsp;&nbsp;&nbsp;PowerMgrVars</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D1C&nbsp;&nbsp;&nbsp;AGBHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D20&nbsp;&nbsp;&nbsp;TableSeed</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D24&nbsp;&nbsp;&nbsp;SRsrcTblPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D28&nbsp;&nbsp;&nbsp;JVBLTask</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D2C&nbsp;&nbsp;&nbsp;WMgrCPort</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D30&nbsp;&nbsp;&nbsp;VertRRate</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D32&nbsp;&nbsp;&nbsp;SynListHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D36&nbsp;&nbsp;&nbsp;LastFore</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D3E&nbsp;&nbsp;&nbsp;LastMode</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D40&nbsp;&nbsp;&nbsp;LastDepth</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D42&nbsp;&nbsp;&nbsp;FMExist</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D43&nbsp;&nbsp;&nbsp;SavedHilite</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D44&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D50&nbsp;&nbsp;&nbsp;MenuCInfo</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D54&nbsp;&nbsp;&nbsp;MBProcHndl</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D58&nbsp;&nbsp;&nbsp;MBSaveLoc</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D58&nbsp;&nbsp;&nbsp;MRect</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D5C&nbsp;&nbsp;&nbsp;MBFlash</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D5C&nbsp;&nbsp;&nbsp;MenuCInfo</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D60&nbsp;&nbsp;&nbsp;ChunkyDepth</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D62&nbsp;&nbsp;&nbsp;CrsrPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D64&nbsp;&nbsp;&nbsp;unknown</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D66&nbsp;&nbsp;&nbsp;PortList</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D6A&nbsp;&nbsp;&nbsp;MickeyBytes</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D6E&nbsp;&nbsp;&nbsp;QDErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D70&nbsp;&nbsp;&nbsp;VIA2DT</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D90&nbsp;&nbsp;&nbsp;SInitFlags</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D92&nbsp;&nbsp;&nbsp;DTQFlags</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D92&nbsp;&nbsp;&nbsp;DTQueue</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D94&nbsp;&nbsp;&nbsp;DtskQHdr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D98&nbsp;&nbsp;&nbsp;DTskQTail</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0D9C&nbsp;&nbsp;&nbsp;JDTInstall</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DA0&nbsp;&nbsp;&nbsp;HiliteRGB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DA6&nbsp;&nbsp;&nbsp;TimeSCSIDB</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DA8&nbsp;&nbsp;&nbsp;DSCtrAdj</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DAC&nbsp;&nbsp;&nbsp;IconTLAddr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DB0&nbsp;&nbsp;&nbsp;VideoInfoOK</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DB4&nbsp;&nbsp;&nbsp;EndSRTPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DB8&nbsp;&nbsp;&nbsp;SDMJmpTblPtr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DBC&nbsp;&nbsp;&nbsp;JSwapMMU</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DC0&nbsp;&nbsp;&nbsp;SdmBusErr</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DC4&nbsp;&nbsp;&nbsp;LastTxGDevice</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DC8&nbsp;&nbsp;&nbsp;PmgrHandle</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0DCC&nbsp;&nbsp;&nbsp;LayerPalette</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x0E00&nbsp;&nbsp;&nbsp;ToolTable</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;0x1E00&nbsp;&nbsp;&nbsp;SystemHeap</p>
+
+<a name="books"></a>
+<h2 align="center">further reading: books:</h2>
+
+<small><p align="center">If you want your book reviewed, please send a copy to: Milo, POB 1361, Tustin, CA 92781, USA.</p></small>
+
+<small><p align="center">Price listings are for courtesy purposes only and may be changed by the referenced businesses at any time without notice.</p></small>
+
+<a name="booksgeneral"></a>
+<h3 align="center">further reading: books: general</h3>
+
+<a href="http://www.amazon.com/exec/obidos/ASIN/0130959901/operatingsystemc"><img src="../../books/book0001.gif" border="1" width="25" height="35" align="left"></a>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;<b><a href="http://www.amazon.com/exec/obidos/ASIN/0130959901/operatingsystemc">Structured Computer Organization</a></b>, 4th edition; by Andrew S. Tanenbaum; Prentice Hall; October 1998; ISBN 0130959901; Paperback; 669 pages; $95.00; used by CS 308-273A (Principles of Assembly Languages) at <a href="http://www.cim.mcgill.ca/~dudek/273.html">McGill University School of Computer Science</a></p>
+
+<br clear="all">
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;<b><a href="http://www.amazon.com/exec/obidos/ASIN/0070686742/operatingsystemc">Computers: An Introduction to Hardware and Software Design</a></b>; by Larry L. Wear, James R. Pinkert (Contributor), William G. Lane (Contributor); McGraw-Hill Higher Education; February 1991; ISBN 0070686742; Hardcover; 544 pages; $98.60; used by CS 308-273A (Principles of Assembly Languages) at <a href="http://www.cim.mcgill.ca/~dudek/273.html">McGill University School of Computer Science</a></p>
+
+<p align="center"><img src="../../pict/amazon.gif" hspace="10" vspace="10" width="90" height="40" border="0" alt="In Association with Amazon.com"></p>
+
+<small><p align="center">If you want your book reviewed, please send a copy to: Milo, POB 1361, Tustin, CA 92781, USA.</p></small>
+
+<br><table align="center" border="4" cellpadding="10">
+<tr><td align="center"><h3 align="center">OSdata.com is used in more than 300 colleges and universities around the world</h3>
+<p align="center"><a href="http://www.OSdata.com/traffic.htm">Read details here.</a></p></td></tr>
+</table>
+
+<table border="0" align="right" width="30%"><tr><td><a class="twitter-timeline"  href="https://twitter.com/osdata"  data-widget-id="342354140606894080">Tweets by @osdata</a>
+<script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0],p=/^http:/.test(d.location)?'http':'https';if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src=p+"://platform.twitter.com/widgets.js";fjs.parentNode.insertBefore(js,fjs);}}(document,"script","twitter-wjs");</script></td></tr></table>
+
+<!--start Michaelm t-shirts--><!--
+
+<table align="center" width="70%" border="0" cellspacing="0" cellpadding="0" background="http://www.osdata.com/center/pix/slicegw.jpg">
+<tr>
+<td valign="top"><img src="http://www.osdata.com/center/pix/mcurvelt.gif" width="33" height="13" border="0" alt="Curve left"></td>
+<td align="center" valign="top"><img src="http://www.osdata.com/center/pix/aapara.gif" width="416" height="20" border="0" alt="spacer"></td>
+<td align="right" valign="top"><img src="http://www.osdata.com/center/pix/mcurvert.gif" width="33" height="13" border="0"alt="Curve right"></td>
+</tr></table>
+
+<center><font face="Arial,Helvetica,sans-serif" style="font-size:10.0pt">thank you for your support.</font></center>
+
+<center><font face="Arial,Helvetica,sans-serif" color="#444444" style="font-size:8.5pt"><b>All emblems are now available on:</b>
+<br>Posters, Prints, Apparel, Baby, Housewares, Hats, Bags, Stickers, Buttons, Magnets &amp; More!</font>
+
+<br><br>
+
+<center><a href="http://www.michaelm.com/store/osdata.html" rel="nofollow"><img src="http://www.michaelm.com/store/pix/osdata3.jpg" width="72" height="72" border="0"></a> <a href="http://www.michaelm.com/store/sela.html" rel="nofollow"><img src="http://www.michaelm.com/store/pix/hselabtn.jpg" width="72" height="72" border="0"></a> <a href="http://www.michaelm.com/store/mightt.html" rel="nofollow"><img src="http://www.michaelm.com/store/pix/mightTbtn.jpg" width="97" height="72" border="0"></a> <a href="http://www.michaelm.com/store/jahlove.html" rel="nofollow"><img src="http://www.michaelm.com/store/pix/jahlovebtn.jpg" width="111" height="72" border="0"></a> <a href="http://www.michaelm.com/store/rastapeace.html" rel="nofollow"><img src="http://www.michaelm.com/store/pix/rpeacebtn.jpg" width="90" height="72" border="0"></a> <a href="http://www.michaelm.com/store/zionlion.html" rel="nofollow"><img src="http://www.michaelm.com/store/pix/zionlionbtn.jpg" width="66" height="72" border="0"></a></center>
+
+<h3 align="center">run your ad here</h3>
+
+<p align="center"><a href="http://www.kmthost.com/evaluation.htm"><img src="http://www.osdata.com/ads/webevaluation.jpg" width="640" height="116" border="0"></a></p>
+
+<!--end Michaelm t-shirts-->
+
+<hr>
+
+<!--img src="../../pict/dmousesm.jpg" width="70" height="144" align="left">
+<h2 align="center"><font color="#cc44cc">Donate now<br>
+<i>or the mouse dies!!!</i></font></h2>
+<h3 align="center"><font color="#cc44cc"><i>OSdata.com is a visitor supported educational web site</i></font></h3>
+<p align="center"><font color="#cc44cc">To donate, <a href="http://www.michaelm.com/Merchant2/merchant.mvc?Screen=PROD&Store_Code=MA&Product_Code=osdDC&Category_Code=osddc" onMouseOver="window.status='make a donation';return true">click here</a>.</font></p>
+<p align="center"><b>Note:</b> Please mail donations to: Milo, PO Box 1361, Tustin, Calif, 92781, USA. Or use the link above to donate via credit cards.</p>
+<br clear="all"-->
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;A web site on dozens of operating systems simply can&#146;t be maintained by one person. This is a cooperative effort. If you spot an error in fact, grammar, syntax, or spelling, or a broken link, or have additional information, commentary, or constructive criticism, please e-mail <a href="../../email.htm" onMouseOver="window.status='contact Milo (email)';return true">Milo</a>. If you have any extra copies of docs, manuals, or other materials that can assist in accuracy and completeness, please send them to Milo, PO Box 1361, Tustin, CA, USA, 92781.</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;<a href="../../privacy.htm" onMouseOver="window.status='privacy policy';return true">Click here for our privacy policy</a>.</p>
+
+<hr>
+
+<center>
+<table>
+
+<tr>
+
+<td align="center"><a href="./memmap.htm" onMouseOver="window.status='memory maps';return true"><img src="../../pict/larr.gif" width="29" height="30" border="0" alt="previous page"></a></td>
+
+<td align="center"><a href="./charcode.htm" onMouseOver="window.status='character codes';return true"><img src="../../pict/rarr.gif" width="29" height="30" border="0" alt="next page"></a></td>
+
+</tr>
+
+<tr>
+
+<td align="center"><a href="./memmap.htm" onMouseOver="window.status='memory maps';return true">previous page</a></td>
+
+<td align="center"><a href="./charcode.htm" onMouseOver="window.status='character codes';return true">next page</a></td>
+
+</tr>
+
+</table>
+</center>
+
+<h3 align="center"><a href="../../index.htm" onMouseOver="window.status='OSdata.com home page (table of contents)';return true">home page</a></h3>
+
+<h3 align="center">one level up</h3>
+
+<p align="left"><a href="./physical.htm">Hardware Level of Operating System</a></p>
+
+<h3 align="center">peer level</h3>
+
+<ul>
+   <li><a href="./basics.htm">basics of computer hardware</a></li>
+   <li><a href="./processr.htm">processors</a></li>
+   <li><a href="./process.htm">processes or jobs</a></li>
+   <li><a href="./bus.htm">buses</a></li>
+   <li><a href="./memory.htm">memory</a></li>
+   <li><a href="./memmap.htm">lmemory maps</a></li>
+   <li><a href="./charcode.htm">character codes</a></li>
+</ul>
+
+<hr>
+
+<p align="center"><img src="../../pict/mademac.gif" width="143" height="50" alt="Made with Macintosh"></p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;This web site handcrafted on <a href="../../kind/mac.htm">Macintosh</a> <img src="../../pict/mac.gif" width="32" height="32"> computers using <a href="http://members.aol.com/tombb/index.html">Tom Bender&#146;s Tex-Edit Plus</a> <img src="../../pict/texedit.gif" width="32" height="32"> and served using <a href="../../oses/freebsd.htm">FreeBSD</a> <img src="../../pict/freebsdm.gif" width="32" height="32">.</p>
+
+<p align="center"><a href="http://www.anybrowser.org/campaign/"> <img src="../../pict/bvbstar.gif" width="90" height="36" alt="Viewable With Any Browser" border="0"></a></p>
+
+<hr>
+
+<a name="unixinfo"></a>
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;&#134;<small><a href="../../kind/unix.htm">UNIX</a> used as a generic term unless specifically used as a trademark (such as in the phrase &#147;UNIX certified&#148;). UNIX is a registered trademark in the United States and other countries, licensed exclusively through X/Open Company Ltd.</small></p>
+
+<small><p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Names and logos of various OSs are trademarks of their respective owners.</p></small>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Copyright &#169; 2001 <a href="../../email.htm" onMouseOver="window.status='contact Milo (email)';return true">Milo</a></p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Last Updated: April 10, 2001</p>
+
+<p align="left">&nbsp;&nbsp;&nbsp;&nbsp;Created: March 28, 2001</p>
+
+<!--start support team endstub--><!--
+<hr>
+
+<table align="center" width="560" height="72" border="0">
+<tr align="center" valign="middle">
+<td rowspan="2" width="100"><a href="http://www.osdata.com/" onMouseOver="window.status='Operating Systems home page';return true" style="background:transparent"><img src="http://www.osdata.com/ads/osB2.jpg" width="100" height="100" border="0" alt="OSdata.com"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">osdata.com</font></a></td>
+
+<td colspan="8" width="75%" height="20" bgcolor="#eeeeee"><font face="Arial,Helvetica,sans-serif" color="444444" style="font-size:11pt">OSdata.com team support</font></td>
+</tr>
+
+<tr align="center">
+<td valign="middle" width="15">&nbsp;</td>
+
+<td valign="middle" width="20%"><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">logo design</font><br><a href="http://www.michaelm.com" onMouseOver="window.status='MichaelM logo design';return true" style="background:transparent"><img src="http://www.michaelm.com/mbtn/artist4.gif" width="75" height="72" border="0" alt="michaelm.com"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">michael<big>m</big>.com</font></a></td>
+
+<td width="20%"><font face="Arial,Helvetica,sans-serif" style="font-size:9pt">web hosting</font><br><a href="http://www.KMThost.com/" rel="nofollow" style="background:transparent"><img src="http://www.OSdata.com/ads/kmth1.jpg" width="88" height="72"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">KMThost.com</font></a></td>
+
+<td valign="middle" width="20%"><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">hemp clothing</font><br><a href="http://www.hempstar.com/" style="background:transparent" rel="nofollow"><img src="http://www.osdata.com/ads/hstars3.gif" width="89" height="72" border="0" alt="hempstar.com"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">hempStar.com</font></a></td>
+
+<td valign="middle" width="20%"><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">recording studio</font><br><a href="http://www.thissideofsanity.com/lesson/studio/recordingstudio.html" style="background:transparent"><img src="http://www.osdata.com/ads/logoca.jpg" width="88" height="60" border="0" alt="casoundstudios"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">casoundstudios</font></a></td>
+
+<td valign="middle" width="20%"><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">cleanse</font><br><a href="http://www.ezwaterflo.com/" style="background:transparent" rel="nofollow"><img src="http://www.osdata.com/ads/ezwfhdr1.gif" width="89" height="35" border="0" alt="hempstar.com"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">ezwaterflo.com</font></a></td>
+
+<td valign="middle" width="20%"><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">spiritual support</font><br><a href="http://www.prntrkmt.org/" style="background:transparent"><img src="http://www.osdata.com/pict/prntrkmtlogo.jpg" width="89" height="72" border="0" alt="Pr Ntr Kmt"><br><font face="Arial,Helvetica,sans-serif" style="font-size:7pt">Pr Ntr Kmt .org</font></a></td>
+
+<td valign="middle" width="15">&nbsp;</td>
+</tr>
+
+<!--tr><td align="center" colspan="8"><i>web hosting provided by:</i> <a href="http://www.osdata.com/1/webhost.html">VPSgrid.com</a--><!--
+<tr><td align="center" colspan="8"><i>web hosting provided by:</i> <a href="http://KMThost.com/">KMThost.com</a>
+<br>The author of this website can help you get <a href="http://www.osdata.com/1/webtraffic.html">high search engine placement</a>.</td></tr></table>
+
+<!--local service guide--><!--
+<small><p align="left">&nbsp;&nbsp;&nbsp;&nbsp;A few recommended <a href="http://www.thissideofsanity.com/local/local.html" rel="nofollow">local services</a>:  <a href="http://www.teenwitch.com/healing/ayurveda.html" rel="nofollow">Ayurveda healing</a>, <a href="http://www.teenwitch.com/healing/chiropractic.html" rel="nofollow">chiropractic healing</a>, <a href="http://www.thissideofsanity.com/guitar.html" rel="nofollow">guitar repair</a>, <a href="http://www.thissideofsanity.com/local/hair.html" rel="nofollow">hair cutter</a>, <a href="http://www.thissideofsanity.com/local/macrepair.html" rel="nofollow">Macintosh repair</a>, <a href="http://www.osdata.com/rawfood.html" rel="nofollow">raw food</a>, <a href="http://www.thissideofsanity.com/lesson/studio/recordingstudio.html" rel="nofollow">recording studio</a>, <a href="http://www.thissideofsanity.com/local/seo.html" rel="nofollow">search engine optimization</a>, <a href="http://www.osdata.com/sign.html" rel="nofollow">sign painting</a>, and <a href="http://www.teenwitch.com/healing/yoga.html" rel="nofollow">yoga</a>.</p></small>
+
+<p align="center"><a href="http://www.prntrkmt.org/organization/gaylesbianmarriage.html">Gay and Lesbian Marriages in California</a></p>
+<hr>
+<!--end support team endstub-->
+
+<center>
+<table>
+
+<tr>
+
+<td align="center"><a href="./memmap.htm" onMouseOver="window.status='memory maps';return true"><img src="../../pict/larr.gif" width="29" height="30" border="0" alt="previous page"></a></td>
+
+<td align="center"><a href="./charcode.htm" onMouseOver="window.status='character codes';return true"><img src="../../pict/rarr.gif" width="29" height="30" border="0" alt="next page"></a></td>
+
+</tr>
+
+<tr>
+
+<td align="center"><a href="./memmap.htm" onMouseOver="window.status='memory maps';return true">previous page</a></td>
+
+<td align="center"><a href="./charcode.htm" onMouseOver="window.status='character codes';return true">next page</a></td>
+
+</tr>
+
+</table>
+</center>
+
+<!--2001: Apr 11, 10; Mar 31, 29, 28-->
+
+<script type="text/javascript" src="http://edge.quantserve.com/quant.js"></script>
+<script type="text/javascript">
+_qacct="p-18FnPaSIi1c_c";quantserve();</script>
+<noscript>
+<img src="http://pixel.quantserve.com/pixel/p-18FnPaSIi1c_c.gif" style="display: none" height="1" width="1" alt="Quantcast"/></noscript>
+
+</body>
+</html>

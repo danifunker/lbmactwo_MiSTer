@@ -105,6 +105,7 @@ module addrDecoder(
 	output reg selectRAM,
 	output reg selectROM,
 	output reg selectSCSI,
+	output reg selectSCSIDMA,
 	output reg selectSCC,
 	output reg selectIWM,
 	output reg selectVIA,
@@ -118,6 +119,7 @@ module addrDecoder(
 		selectRAM = 0;
 		selectROM = 0;
 		selectSCSI = 0;
+		selectSCSIDMA = 0;
 		selectSCC = 0;
 		selectIWM = 0;
 		selectVIA = 0;
@@ -161,7 +163,8 @@ module addrDecoder(
 			// Mac II 32-bit I/O space: $50F0_xxxx only
 			// Real hardware confirms $5000_xxxx does NOT mirror — falls through to RAM
 			// Only $50Fx_xxxx decodes as I/O; $51E0_0000 bus errors (not periodic)
-			// VIA1: +$0000, VIA2: +$2000, SCC: +$4000, SCSI: +$10000, IWM: +$16000
+			// VIA1: +$0000, VIA2: +$2000, SCC: +$4000,
+			// SCSI pseudo-DMA: +$6000 and +$12000, SCSI regs: +$10000, IWM: +$16000
 			else if (address[31:20] == 12'h50F) begin
 				if (address[19:13] == 7'b0000_000)       // +$00_0000: VIA1
 					selectVIA = !_cpuAS;
@@ -169,8 +172,15 @@ module addrDecoder(
 					selectVIA2 = !_cpuAS;
 				else if (address[19:13] == 7'b0000_010)  // +$00_4000: SCC
 					selectSCC = !_cpuAS;
-				else if (address[19:14] == 6'b0001_00)   // +$01_0000: SCSI
+				else if (address[19:12] == 8'h06) begin  // +$00_6000: SCSI pseudo-DMA
 					selectSCSI = !_cpuAS;
+					selectSCSIDMA = !_cpuAS;
+				end
+				else if (address[19:14] == 6'b0001_00) begin // +$01_0000: SCSI
+					selectSCSI = !_cpuAS;
+					if (address[19:13] == 7'b0001_001)   // +$01_2000: SCSI pseudo-DMA
+						selectSCSIDMA = !_cpuAS;
+				end
 				else if (address[19:13] == 7'b0001_010)  // +$01_4000: ASC
 					selectASC = !_cpuAS;
 				else if (address[19:13] == 7'b0001_011)  // +$01_6000: IWM/SWIM
@@ -277,8 +287,15 @@ module addrDecoder(
 							selectVIA2 = !_cpuAS;
 						else if (address[19:13] == 7'b0000_010)  // SCC
 							selectSCC = !_cpuAS;
-						else if (address[19:14] == 6'b0001_00)   // SCSI
+						else if (address[19:12] == 8'h06) begin  // SCSI pseudo-DMA
 							selectSCSI = !_cpuAS;
+							selectSCSIDMA = !_cpuAS;
+						end
+						else if (address[19:14] == 6'b0001_00) begin // SCSI
+							selectSCSI = !_cpuAS;
+							if (address[19:13] == 7'b0001_001)   // SCSI pseudo-DMA
+								selectSCSIDMA = !_cpuAS;
+						end
 						else if (address[19:13] == 7'b0001_010)  // ASC
 							selectASC = !_cpuAS;
 						else if (address[19:13] == 7'b0001_011)  // IWM/SWIM
