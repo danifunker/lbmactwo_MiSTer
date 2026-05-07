@@ -208,8 +208,8 @@ always @(posedge clk) begin
 											(((byte_in[6:2] >= 5'h08) && (byte_in[6:2] <= 5'h0B)) ||
 											 ((byte_in[6:2] >= 5'h10) && (byte_in[6:2] <= 5'h1F))) ? pram[{3'b000, byte_in[6:2]}] :
 											8'h00);
-								end
 								`endif
+								end
 							end
 
 							2'd1: begin
