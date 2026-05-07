@@ -415,6 +415,7 @@ module nubus_video_highres (
                     // (MAME: mirror_all_mb=true mirrors ROM across entire 16MB slot space)
                     if (select && in_our_slot && ack_n && ack_delay == 3'd0) begin
                         // synthesis translate_off
+`ifdef SIMULATION
                         if ($test$plusargs("nubus_debug")) begin
                             if (addr_is_regs && !rw_n)
                                 $display("NUBUS: WR REG[%0d] addr=%h data_in=%h addr[1]=%b",
@@ -433,6 +434,7 @@ module nubus_video_highres (
                                     addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
                                     addr[1:0], rom_lane_valid ? {rom_byte_out, 8'hFF} : 16'hFFFF);
                         end
+`endif
                         // synthesis translate_on
                         // ---------------------------------------------------
                         // VRAM write ($x0_0000 - $x7_FFFF)
@@ -546,6 +548,7 @@ module nubus_video_highres (
                                 data_out <= 16'd0;
                             end
                             // synthesis translate_off
+`ifdef SIMULATION
                             if ($test$plusargs("vbl_debug") && vbl_debug_count < 240) begin
                                 $display("NUBUS_VBL_R addr=%h data=%h h=%0d v=%0d vblank=%b irq=%b dis=%b",
                                     addr,
@@ -553,6 +556,7 @@ module nubus_video_highres (
                                     h_cnt, v_cnt, (v_cnt >= V_RES), irq_active, vbl_disable);
                                 vbl_debug_count = vbl_debug_count + 1;
                             end
+`endif
                             // synthesis translate_on
                             ack_delay <= 3'd2;
                         end
@@ -571,11 +575,13 @@ module nubus_video_highres (
                                 irq_clear <= 1'b1;
                             end
                             // synthesis translate_off
+`ifdef SIMULATION
                             if ($test$plusargs("vbl_debug") && vbl_debug_count < 240) begin
                                 $display("NUBUS_VBL_W addr=%h data=%h h=%0d v=%0d irq=%b dis=%b clear=%b",
                                     addr, data_in, h_cnt, v_cnt, irq_active, vbl_disable, !addr[4]);
                                 vbl_debug_count = vbl_debug_count + 1;
                             end
+`endif
                             // synthesis translate_on
                             ack_delay <= 3'd2;
                         end
@@ -754,6 +760,7 @@ module nubus_video_highres (
     // Debug: video pipeline state (synthesis translate_off)
     // ========================================================================
     // synthesis translate_off
+`ifdef SIMULATION
     reg debug_printed_regs;
     reg [10:0] debug_prev_v_cnt;
     initial begin
@@ -781,6 +788,7 @@ module nubus_video_highres (
         if (clk_video_en)
             debug_prev_v_cnt <= v_cnt;
     end
+`endif
     // synthesis translate_on
 
 endmodule

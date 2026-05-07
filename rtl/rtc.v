@@ -197,6 +197,7 @@ always @(posedge clk) begin
 										5'h1C, 5'h1D, 5'h1E, 5'h1F: dout <= pram[{3'b000, byte_in[6:2]}];
 										default: dout <= 8'h00;
 									endcase
+									`ifdef SIMULATION
 									if ($test$plusargs("rtc_debug"))
 										$display("[RTC_RD_STD] cmd=%02h scmd=%02h data=%02h",
 											byte_in, byte_in[6:2],
@@ -208,6 +209,7 @@ always @(posedge clk) begin
 											 ((byte_in[6:2] >= 5'h10) && (byte_in[6:2] <= 5'h1F))) ? pram[{3'b000, byte_in[6:2]}] :
 											8'h00);
 								end
+								`endif
 							end
 
 							2'd1: begin
@@ -221,15 +223,19 @@ always @(posedge clk) begin
 										// Extended read - prepare response
 										receiving <= 0;
 										dout <= pram[{cmd0[2:0], byte_in[6:2]}];
+`ifdef SIMULATION
 										if ($test$plusargs("rtc_debug"))
 											$display("[RTC_RD_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h",
 												cmd0, byte_in, {cmd0[2:0], byte_in[6:2]},
 												pram[{cmd0[2:0], byte_in[6:2]}]);
+`endif
 										end else begin
 											// Standard write - execute it
+`ifdef SIMULATION
 											if ($test$plusargs("rtc_debug"))
 												$display("[RTC_WR_STD] cmd=%02h scmd=%02h data=%02h wp=%b",
 													cmd0, scmd, byte_in, writeprotect);
+`endif
 											if (!writeprotect) begin
 											case (scmd)
 												5'h00, 5'h04: secs[7:0]   <= byte_in;
@@ -258,9 +264,11 @@ always @(posedge clk) begin
 									// Third byte - extended write data
 									cmd_bytes <= 3;
 									pram[ext_addr] <= byte_in;
+`ifdef SIMULATION
 									if ($test$plusargs("rtc_debug"))
 										$display("[RTC_WR_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h wp=%b",
 											cmd0, cmd1, ext_addr, byte_in, writeprotect);
+`endif
 								end
 
 							default: ;
