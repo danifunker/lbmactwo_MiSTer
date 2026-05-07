@@ -173,7 +173,7 @@ module via6522 (
         irq_events[3] = !cb2_is_output & (cb2_c ^ cb2_d) & (cb2_d ^ cb2_edge_select);
         
         // FIXED: Added assignments here to drive irq_events from the wires
-        irq_events[2] = serial_event;
+        irq_events[2] = serial_event | sr_ext_complete;
         irq_events[5] = timer_b_event;
         irq_events[6] = timer_a_event;
     end
@@ -753,6 +753,11 @@ module via6522 (
                 shift_reg <= {shift_reg[6:0], ser_cb2_c};
             end
         end
+        // Snow-style external shift completion load (kept here to avoid
+        // multi-driver on shift_reg).
+        if (sr_ext_complete == 1'b1 && sr_ext_load == 1'b1) begin
+            shift_reg <= sr_ext_data;
+        end
     end
 
     // tell people that we're ready!
@@ -792,12 +797,11 @@ module via6522 (
         end
 
         // External shift completion (Snow-style timer-based)
+        // shift_reg and irq_flags[2] are written in their primary always blocks
+        // above to avoid Quartus multi-driver errors.
         if (sr_ext_complete == 1'b1) begin
             shift_active <= 1'b0;
             bit_cnt <= 3'd0;
-            irq_flags[2] <= 1'b1;  // SR complete interrupt
-            if (sr_ext_load)
-                shift_reg <= sr_ext_data;
         end
 
         if (reset == 1'b1) begin
