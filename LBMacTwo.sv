@@ -226,6 +226,7 @@ localparam CONF_STR = {
 	"O45,Memory,1MB,2MB,4MB,8MB;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
+	"O13,NuBus Video,Color,B&W;",
 	"-;",
 	"R0,Reset & Apply CPU+Memory;",
 	"-;",
@@ -237,6 +238,7 @@ localparam CONF_STR = {
 
 wire status_turbo = 1'b1; // Mac II always runs at 16MHz
 wire status_overlay_en = status[6];
+wire status_video_mono = status[13];
 
 ////////////////////   CLOCKS   ///////////////////
 
@@ -575,6 +577,7 @@ wire        tg68_fc2;
 wire [15:0] tg68_dout;
 wire [31:0] tg68_a;
 wire        tg68_reset_n;
+wire        tg68_longword;
 
 // Bus error timeout — undecoded addresses trigger bus error after ~8us
 reg [8:0] berr_counter;
@@ -631,10 +634,11 @@ tg68k tg68k_inst (
 
 	.ipl        ( _cpuIPL      ),
 	.berr       ( berr_inhibit_active ? 1'b0 : berr_out ),
-	.din        ( berr_inhibit_active ? berr_data_out[15:0] :
-	              (selectFPU ? fpu_data_out[15:0] : dataControllerDataOut) ),
-	.dout       ( tg68_dout    ),
-	.addr       ( tg68_a       ),
+		.din        ( berr_inhibit_active ? berr_data_out[15:0] :
+		              (selectFPU ? fpu_data_out[15:0] : dataControllerDataOut) ),
+		.dout       ( tg68_dout    ),
+		.longword   ( tg68_longword ),
+		.addr       ( tg68_a       ),
 	.berr_inhibit ( berr_inhibit_active ),
 	.berr_data    ( berr_data_out      )
 );
@@ -726,7 +730,9 @@ nubus_video_highres nubus_card (
 	.data_in(cpuDataOut),
 	.data_out(nubusDataOut_card),
 	.uds_lds({!_cpuUDS, !_cpuLDS}),
+	.cpu_longword(tg68_longword),
 	.rw_n(_cpuRW),
+	.cpu_as_n(_cpuAS),
 	.select(selectNuBus),
 	.ack_n(nubusAck_card),
 	.vga_r(nubus_r),
@@ -748,6 +754,7 @@ nubus_video_highres nubus_card (
 	.vram_ready(arb_vram_ready),
 
 	.overlay_en(status_overlay_en),
+	.monochrome(status_video_mono),
 
 	.ioctl_wr(ioctl_write),
 	.ioctl_addr(ioctl_addr),

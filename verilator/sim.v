@@ -350,6 +350,7 @@ module emu
 	wire [15:0] tg68_dout;
 	wire [31:0] tg68_a;
 	wire        tg68_reset_n;
+	wire        tg68_longword;
 
 	tg68k tg68k_inst (
 		.clk        ( clk_sys      ),
@@ -382,6 +383,7 @@ module emu
 		.cpu_halted (              ),
 		.din        ( cpu_data_in  ),
 		.dout       ( tg68_dout    ),
+		.longword   ( tg68_longword ),
 		.addr       ( tg68_a       ),
 		.VBR_out    ( debug_vbr    ),
 		.berr_inhibit ( cpu_berr_inhibit ),
@@ -540,7 +542,9 @@ module emu
 		.data_in(cpuDataOut),
 		.data_out(nubusDataOut_card),
 		.uds_lds({!_cpuUDS, !_cpuLDS}),
+		.cpu_longword(tg68_longword),
 		.rw_n(_cpuRW),
+		.cpu_as_n(_cpuAS),
 		.select(selectNuBus),
 		.ack_n(nubusAck_card),
 		.vga_r(nubus_r),
@@ -561,6 +565,7 @@ module emu
 		.vram_ready(sim_vram_ready),
 
 		.overlay_en(1'b0),
+		.monochrome(1'b0),
 
 		.ioctl_wr(ioctl_wr),
 		.ioctl_addr(ioctl_addr),

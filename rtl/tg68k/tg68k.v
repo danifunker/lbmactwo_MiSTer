@@ -33,6 +33,7 @@ module tg68k (
 	output cpu_halted,
 	input [15:0] din,
 	output [15:0] dout,
+	output longword,
 	output reg [31:0] addr,
 	output [31:0] VBR_out,
 
@@ -232,6 +233,7 @@ TG68KdotC_Kernel tg68k (
 	.nLDS           ( tg68_lds_n    ),
 	.nWr            ( tg68_rw       ),
 	.busstate       ( tg68_busstate ), // 00-> fetch code 10->read data 11->write data 01->no memaccess
+	.longword       ( longword      ),
 	.nResetOut      ( reset_n       ),
 	.FC             ( fc            ),
 	.VBR_out        ( VBR_out       )
