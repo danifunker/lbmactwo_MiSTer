@@ -24,11 +24,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input _cpuUDS,
 	input _cpuLDS,
 	input _cpuRW,
+	input cpuLongword,
 	output [15:0] cpuDataOut,
 
 	// peripherals:
 	input selectSCSI,
 	input selectSCSIDMA,
+	output scsiDREQ,
 	input selectSCC,
 	input selectIWM,
 	input selectVIA,
@@ -133,7 +135,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire [15:0] via2DataOut;
 	wire [15:0] iwmDataOut;
 	wire [7:0] sccDataOut;
-	wire [7:0] scsiDataOut;
+	wire [15:0] scsiDataOut;
 	wire [7:0] ascDataOut;
 	wire asc_irq_n;
 	wire mouseX1, mouseX2, mouseY1, mouseY2, mouseButton;
@@ -156,14 +158,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectVIA2 ? via2DataOut :
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
-							  selectSCSI ? { scsiDataOut, scsiDataOut } :
+							  selectSCSI ? scsiDataOut :
 							  (cpuBusControl && memoryLatch) ? memoryDataIn : cpu_data;
 
 	// Memory-side
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
-	ncr5380 #(SCSI_DEVS) scsi(
+	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
@@ -171,7 +173,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.ior(_cpuRW && !_cpuUDS),
 		.iow(!_cpuRW && !_cpuUDS),
 		.dack(selectSCSIDMA),
-		.wdata(cpuDataIn[15:8]),
+		.dma_word(!_cpuUDS && !_cpuLDS),
+		.dma_longword(cpuLongword),
+		.dma_second_word(cpuAddrRegLo[0]),
+		.dreq(scsiDREQ),
+		.wdata(cpuDataIn),
 		.rdata(scsiDataOut),
 
 		// connections to io controller

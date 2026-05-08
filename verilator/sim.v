@@ -254,7 +254,7 @@ module emu
 	
 	// peripherals
 	wire vid_alt, loadPixels, pixelOut, _hblank, _vblank, hsync, vsync;
-	wire memoryOverlayOn, selectSCSI, selectSCSIDMA, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+	wire memoryOverlayOn, selectSCSI, selectSCSIDMA, scsiDREQ, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 	wire [1:0] glueRAMSize;
 	wire [15:0] dataControllerDataOut;
 
@@ -285,6 +285,7 @@ module emu
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 	// DTACK: do not assert for VIA accesses (they use VPA/VMA synchronous handshake)
 	assign      _cpuDTACK = selectNuBus ? nubusAck :
+	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
 	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
@@ -292,8 +293,9 @@ module emu
 	reg [8:0] berr_counter;
 	reg berr_out;
 	wire nubus_acked = nubus_acked_arb;  // from nubus_arbiter: card or empty-slot responded
+	wire scsi_dma_wait = selectSCSIDMA && !scsiDREQ;
 	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-	                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay;
+	                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay;
 	wire is_cpu_space = (cpuFC == 3'b111);
 
 	always @(posedge clk_sys) begin
@@ -590,6 +592,7 @@ module emu
 		._cpuUDS(_cpuUDS),
 		._cpuLDS(_cpuLDS),
 		._cpuRW(_cpuRW),
+		.cpuLongword(tg68_longword),
 		._cpuVMA(_cpuVMA),
 		.selectNuBus(selectNuBus),
 		.nubusDataIn(nubusDataOut),
@@ -601,6 +604,7 @@ module emu
 		.cpuAddrRegLo(cpuAddr[2:1]),
 		.selectSCSI(selectSCSI),
 		.selectSCSIDMA(selectSCSIDMA),
+		.scsiDREQ(scsiDREQ),
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),

@@ -464,7 +464,7 @@ wire [15:0] memoryDataOut;
 wire memoryLatch;
 
 // peripherals
-wire memoryOverlayOn, selectSCSI, selectSCSIDMA, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+wire memoryOverlayOn, selectSCSI, selectSCSIDMA, scsiDREQ, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
 wire [1:0] glueRAMSize;
 wire [15:0] dataControllerDataOut;
 
@@ -520,6 +520,7 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
+                        selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
                         (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
@@ -583,8 +584,9 @@ wire        tg68_longword;
 reg [8:0] berr_counter;
 reg berr_out;
 wire nubus_acked = selectNuBus & ~nubusAck;  // NuBus card actually responding
+wire scsi_dma_wait = selectSCSIDMA && !scsiDREQ;
 wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
+                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 wire is_cpu_space = (cpuFC == 3'b111);
 
 always @(posedge clk_sys) begin
@@ -779,6 +781,7 @@ dataController_top #(SCSI_DEVS) dc0
 	._cpuUDS(_cpuUDS),
 	._cpuLDS(_cpuLDS),
 	._cpuRW(_cpuRW),
+	.cpuLongword(tg68_longword),
 	._cpuVMA(_cpuVMA),
 	.selectNuBus(selectNuBus),
 	.nubusDataIn(nubusDataOut),
@@ -790,6 +793,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.cpuAddrRegLo(cpuAddr[2:1]),
 	.selectSCSI(selectSCSI),
 	.selectSCSIDMA(selectSCSIDMA),
+	.scsiDREQ(scsiDREQ),
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),

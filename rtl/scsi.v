@@ -22,6 +22,8 @@ module scsi
 
 	input   [7:0] din, // data from initiator to target
 	output  [7:0] dout, // data from target to initiator
+	output [15:0] dout_pair,
+	output [15:0] dout_pair_next,
 
 	// interface to io controller
 	input         img_mounted,
@@ -53,23 +55,8 @@ reg [2:0]  phase;
 reg sd_buff_sel;
 
 wire [7:0] buffer0_dout;
+wire [7:0] buffer0_dout_next;
 scsi_dpram buffer0
-(
-	.clock(clk),
-
-	.address_a({sd_buff_sel, sd_buff_addr}),
-	.data_a(sd_buff_dout[7:0]),
-	.wren_a(sd_buff_wr),
-	.q_a(sd_buff_din[7:0]),
-
-	.address_b(data_cnt[9:1]),
-	.data_b(din),
-	.wren_b(buffer0_wr),
-	.q_b(buffer0_dout)
-);
-
-wire [7:0] buffer1_dout;
-scsi_dpram buffer1
 (
 	.clock(clk),
 
@@ -80,8 +67,31 @@ scsi_dpram buffer1
 
 	.address_b(data_cnt[9:1]),
 	.data_b(din),
+	.wren_b(buffer0_wr),
+	.q_b(buffer0_dout),
+
+	.address_c(data_cnt[9:1] + 9'd1),
+	.q_c(buffer0_dout_next)
+);
+
+wire [7:0] buffer1_dout;
+wire [7:0] buffer1_dout_next;
+scsi_dpram buffer1
+(
+	.clock(clk),
+
+	.address_a({sd_buff_sel, sd_buff_addr}),
+	.data_a(sd_buff_dout[7:0]),
+	.wren_a(sd_buff_wr),
+	.q_a(sd_buff_din[7:0]),
+
+	.address_b(data_cnt[9:1]),
+	.data_b(din),
 	.wren_b(buffer1_wr),
-	.q_b(buffer1_dout)
+	.q_b(buffer1_dout),
+
+	.address_c(data_cnt[9:1] + 9'd1),
+	.q_c(buffer1_dout_next)
 );
 
 reg old_io_ack;
@@ -111,7 +121,8 @@ assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase =
 wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
-assign req = (phase != PHASE_IDLE) && !ack && !io_busy;
+	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
+	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -119,6 +130,14 @@ assign dout = (phase == PHASE_STATUS_OUT)?status:
 	 (phase == PHASE_MESSAGE_OUT)?`MSG_CMD_COMPLETE:
 	 (phase == PHASE_DATA_OUT)?cmd_dout:
 	 8'h00;
+assign dout_pair = (phase == PHASE_STATUS_OUT)?{status, status}:
+	 (phase == PHASE_MESSAGE_OUT)?{`MSG_CMD_COMPLETE, `MSG_CMD_COMPLETE}:
+	 (phase == PHASE_DATA_OUT)?cmd_dout_pair:
+	 16'h0000;
+assign dout_pair_next = (phase == PHASE_STATUS_OUT)?{status, status}:
+	 (phase == PHASE_MESSAGE_OUT)?{`MSG_CMD_COMPLETE, `MSG_CMD_COMPLETE}:
+	 (phase == PHASE_DATA_OUT)?cmd_dout_pair_next:
+	 16'h0000;
 
 // de-multiplex different data sources
 wire [7:0] cmd_dout =
@@ -127,6 +146,18 @@ wire [7:0] cmd_dout =
 		cmd_read_capacity?read_capacity_dout:
 		cmd_mode_sense?mode_sense_dout:
 		8'h00;
+wire [15:0] cmd_dout_pair =
+		cmd_read?{buffer0_dout, buffer1_dout}:
+		cmd_inquiry?{inquiry_dout, inquiry_dout_next}:
+		cmd_read_capacity?{read_capacity_dout, read_capacity_dout_next}:
+		cmd_mode_sense?{mode_sense_dout, mode_sense_dout_next}:
+		16'h0000;
+wire [15:0] cmd_dout_pair_next =
+		cmd_read?{buffer0_dout_next, buffer1_dout_next}:
+		cmd_inquiry?{inquiry_dout_next2, inquiry_dout_next3}:
+		cmd_read_capacity?{read_capacity_dout_next2, read_capacity_dout_next3}:
+		cmd_mode_sense?{mode_sense_dout_next2, mode_sense_dout_next3}:
+		16'h0000;
 
 // output of inquiry command, identify as "SEAGATE ST225N"
 wire [7:0] inquiry_dout =
@@ -145,6 +176,57 @@ wire [7:0] inquiry_dout =
 		(data_cnt == 32'd26)?"S":(data_cnt == 32'd27)?"T":
 		(data_cnt == 32'd28)?"2":(data_cnt == 32'd29)?"2":
 		(data_cnt == 32'd30)?"5":(data_cnt == 32'd31)?"N" + {5'd0, ID}: // TESTING. ElectronAsh.
+		8'h00;
+wire [31:0] data_cnt_next = data_cnt + 32'd1;
+wire [31:0] data_cnt_next2 = data_cnt + 32'd2;
+wire [31:0] data_cnt_next3 = data_cnt + 32'd3;
+wire [7:0] inquiry_dout_next =
+		(data_cnt_next == 32'd4 )?8'd32:
+		(data_cnt_next == 32'd8 )?" ":(data_cnt_next == 32'd9 )?"S":
+		(data_cnt_next == 32'd10)?"E":(data_cnt_next == 32'd11)?"A":
+		(data_cnt_next == 32'd12)?"G":(data_cnt_next == 32'd13)?"A":
+		(data_cnt_next == 32'd14)?"T":(data_cnt_next == 32'd15)?"E":
+		(data_cnt_next == 32'd16)?" ":(data_cnt_next == 32'd17)?" ":
+		(data_cnt_next == 32'd18)?" ":(data_cnt_next == 32'd19)?" ":
+		(data_cnt_next == 32'd20)?" ":(data_cnt_next == 32'd21)?" ":
+		(data_cnt_next == 32'd22)?" ":(data_cnt_next == 32'd23)?" ":
+		(data_cnt_next == 32'd24)?" ":(data_cnt_next == 32'd25)?" ":
+
+		(data_cnt_next == 32'd26)?"S":(data_cnt_next == 32'd27)?"T":
+		(data_cnt_next == 32'd28)?"2":(data_cnt_next == 32'd29)?"2":
+		(data_cnt_next == 32'd30)?"5":(data_cnt_next == 32'd31)?"N" + {5'd0, ID}:
+		8'h00;
+wire [7:0] inquiry_dout_next2 =
+		(data_cnt_next2 == 32'd4 )?8'd32:
+		(data_cnt_next2 == 32'd8 )?" ":(data_cnt_next2 == 32'd9 )?"S":
+		(data_cnt_next2 == 32'd10)?"E":(data_cnt_next2 == 32'd11)?"A":
+		(data_cnt_next2 == 32'd12)?"G":(data_cnt_next2 == 32'd13)?"A":
+		(data_cnt_next2 == 32'd14)?"T":(data_cnt_next2 == 32'd15)?"E":
+		(data_cnt_next2 == 32'd16)?" ":(data_cnt_next2 == 32'd17)?" ":
+		(data_cnt_next2 == 32'd18)?" ":(data_cnt_next2 == 32'd19)?" ":
+		(data_cnt_next2 == 32'd20)?" ":(data_cnt_next2 == 32'd21)?" ":
+		(data_cnt_next2 == 32'd22)?" ":(data_cnt_next2 == 32'd23)?" ":
+		(data_cnt_next2 == 32'd24)?" ":(data_cnt_next2 == 32'd25)?" ":
+
+		(data_cnt_next2 == 32'd26)?"S":(data_cnt_next2 == 32'd27)?"T":
+		(data_cnt_next2 == 32'd28)?"2":(data_cnt_next2 == 32'd29)?"2":
+		(data_cnt_next2 == 32'd30)?"5":(data_cnt_next2 == 32'd31)?"N" + {5'd0, ID}:
+		8'h00;
+wire [7:0] inquiry_dout_next3 =
+		(data_cnt_next3 == 32'd4 )?8'd32:
+		(data_cnt_next3 == 32'd8 )?" ":(data_cnt_next3 == 32'd9 )?"S":
+		(data_cnt_next3 == 32'd10)?"E":(data_cnt_next3 == 32'd11)?"A":
+		(data_cnt_next3 == 32'd12)?"G":(data_cnt_next3 == 32'd13)?"A":
+		(data_cnt_next3 == 32'd14)?"T":(data_cnt_next3 == 32'd15)?"E":
+		(data_cnt_next3 == 32'd16)?" ":(data_cnt_next3 == 32'd17)?" ":
+		(data_cnt_next3 == 32'd18)?" ":(data_cnt_next3 == 32'd19)?" ":
+		(data_cnt_next3 == 32'd20)?" ":(data_cnt_next3 == 32'd21)?" ":
+		(data_cnt_next3 == 32'd22)?" ":(data_cnt_next3 == 32'd23)?" ":
+		(data_cnt_next3 == 32'd24)?" ":(data_cnt_next3 == 32'd25)?" ":
+
+		(data_cnt_next3 == 32'd26)?"S":(data_cnt_next3 == 32'd27)?"T":
+		(data_cnt_next3 == 32'd28)?"2":(data_cnt_next3 == 32'd29)?"2":
+		(data_cnt_next3 == 32'd30)?"5":(data_cnt_next3 == 32'd31)?"N" + {5'd0, ID}:
 		8'h00;
 
 // output of read capacity command
@@ -170,6 +252,27 @@ wire [7:0] read_capacity_dout =
 		(data_cnt == 32'd3 )?capacity[7:0]:
 		(data_cnt == 32'd6 )?8'd2:             // 512 bytes per sector
 		8'h00;
+wire [7:0] read_capacity_dout_next =
+		(data_cnt_next == 32'd0 )?capacity[31:24]:
+		(data_cnt_next == 32'd1 )?capacity[23:16]:
+		(data_cnt_next == 32'd2 )?capacity[15:8]:
+		(data_cnt_next == 32'd3 )?capacity[7:0]:
+		(data_cnt_next == 32'd6 )?8'd2:
+		8'h00;
+wire [7:0] read_capacity_dout_next2 =
+		(data_cnt_next2 == 32'd0 )?capacity[31:24]:
+		(data_cnt_next2 == 32'd1 )?capacity[23:16]:
+		(data_cnt_next2 == 32'd2 )?capacity[15:8]:
+		(data_cnt_next2 == 32'd3 )?capacity[7:0]:
+		(data_cnt_next2 == 32'd6 )?8'd2:
+		8'h00;
+wire [7:0] read_capacity_dout_next3 =
+		(data_cnt_next3 == 32'd0 )?capacity[31:24]:
+		(data_cnt_next3 == 32'd1 )?capacity[23:16]:
+		(data_cnt_next3 == 32'd2 )?capacity[15:8]:
+		(data_cnt_next3 == 32'd3 )?capacity[7:0]:
+		(data_cnt_next3 == 32'd6 )?8'd2:
+		8'h00;
 
 wire [7:0] mode_sense_dout =
 		(data_cnt == 32'd3 )?8'd8:
@@ -177,6 +280,27 @@ wire [7:0] mode_sense_dout =
 		(data_cnt == 32'd6 )?capacity[15:8]:
 		(data_cnt == 32'd7 )?capacity[7:0]:
 		(data_cnt == 32'd10 )?8'd2:
+		8'h00;
+wire [7:0] mode_sense_dout_next =
+		(data_cnt_next == 32'd3 )?8'd8:
+		(data_cnt_next == 32'd5 )?capacity[23:16]:
+		(data_cnt_next == 32'd6 )?capacity[15:8]:
+		(data_cnt_next == 32'd7 )?capacity[7:0]:
+		(data_cnt_next == 32'd10 )?8'd2:
+		8'h00;
+wire [7:0] mode_sense_dout_next2 =
+		(data_cnt_next2 == 32'd3 )?8'd8:
+		(data_cnt_next2 == 32'd5 )?capacity[23:16]:
+		(data_cnt_next2 == 32'd6 )?capacity[15:8]:
+		(data_cnt_next2 == 32'd7 )?capacity[7:0]:
+		(data_cnt_next2 == 32'd10 )?8'd2:
+		8'h00;
+wire [7:0] mode_sense_dout_next3 =
+		(data_cnt_next3 == 32'd3 )?8'd8:
+		(data_cnt_next3 == 32'd5 )?capacity[23:16]:
+		(data_cnt_next3 == 32'd6 )?capacity[15:8]:
+		(data_cnt_next3 == 32'd7 )?capacity[7:0]:
+		(data_cnt_next3 == 32'd10 )?8'd2:
 		8'h00;
 
 // buffer to store incoming commands
@@ -422,7 +546,9 @@ module scsi_empty_cd
 	output     io,
 	output     req,
 	input  [7:0] din,
-	output [7:0] dout
+	output [7:0] dout,
+	output [15:0] dout_pair,
+	output [15:0] dout_pair_next
 );
 
 parameter [2:0] ID = 3;
@@ -449,7 +575,8 @@ reg        data_complete;
 assign msg = (phase == PHASE_MESSAGE_OUT);
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
-assign req = (phase != PHASE_IDLE) && !ack;
+	wire data_phase_complete = (phase == PHASE_DATA_OUT) && data_complete;
+	assign req = (phase != PHASE_IDLE) && !ack && !data_phase_complete;
 assign bsy = (phase != PHASE_IDLE);
 
 wire [7:0] op_code = cmd[0];
@@ -512,11 +639,71 @@ wire [7:0] sense_dout =
 			(data_cnt == 32'd7 ) ? 8'h0a :
 			(data_cnt == 32'd12) ? 8'hb0 : // AppleCD no-disc vendor ASC
 			8'h00;
+wire [31:0] empty_cd_data_cnt_next = data_cnt + 32'd1;
+wire [7:0] inquiry_dout_next =
+			(empty_cd_data_cnt_next == 32'd0 ) ? 8'h05 :
+			(empty_cd_data_cnt_next == 32'd1 ) ? 8'h80 :
+			(empty_cd_data_cnt_next == 32'd2 ) ? 8'h01 :
+			(empty_cd_data_cnt_next == 32'd3 ) ? 8'h01 :
+			(empty_cd_data_cnt_next == 32'd4 ) ? 8'h31 :
+			(empty_cd_data_cnt_next == 32'd8 ) ? "S" :
+			(empty_cd_data_cnt_next == 32'd9 ) ? "O" :
+			(empty_cd_data_cnt_next == 32'd10) ? "N" :
+			(empty_cd_data_cnt_next == 32'd11) ? "Y" :
+			(empty_cd_data_cnt_next == 32'd16) ? "C" :
+			(empty_cd_data_cnt_next == 32'd17) ? "D" :
+			(empty_cd_data_cnt_next == 32'd18) ? "-" :
+			(empty_cd_data_cnt_next == 32'd19) ? "R" :
+			(empty_cd_data_cnt_next == 32'd20) ? "O" :
+			(empty_cd_data_cnt_next == 32'd21) ? "M" :
+			(empty_cd_data_cnt_next == 32'd22) ? " " :
+			(empty_cd_data_cnt_next == 32'd23) ? "C" :
+			(empty_cd_data_cnt_next == 32'd24) ? "D" :
+			(empty_cd_data_cnt_next == 32'd25) ? "U" :
+			(empty_cd_data_cnt_next == 32'd26) ? "-" :
+			(empty_cd_data_cnt_next == 32'd27) ? "8" :
+			(empty_cd_data_cnt_next == 32'd28) ? "0" :
+			(empty_cd_data_cnt_next == 32'd29) ? "0" :
+			(empty_cd_data_cnt_next == 32'd30) ? "2" :
+			(empty_cd_data_cnt_next == 32'd32) ? "1" :
+			(empty_cd_data_cnt_next == 32'd33) ? "." :
+			(empty_cd_data_cnt_next == 32'd34) ? "8" :
+			(empty_cd_data_cnt_next == 32'd35) ? "g" :
+			(empty_cd_data_cnt_next == 32'd39) ? 8'hd0 :
+			(empty_cd_data_cnt_next == 32'd40) ? 8'h90 :
+			(empty_cd_data_cnt_next == 32'd41) ? 8'h27 :
+			(empty_cd_data_cnt_next == 32'd42) ? 8'h3e :
+			(empty_cd_data_cnt_next == 32'd43) ? 8'h01 :
+			(empty_cd_data_cnt_next == 32'd44) ? 8'h04 :
+			(empty_cd_data_cnt_next == 32'd45) ? 8'h91 :
+			(empty_cd_data_cnt_next == 32'd47) ? 8'h18 :
+			(empty_cd_data_cnt_next == 32'd48) ? 8'h06 :
+			(empty_cd_data_cnt_next == 32'd49) ? 8'hf0 :
+			(empty_cd_data_cnt_next == 32'd50) ? 8'hfe :
+			8'h00;
+wire [7:0] sense_dout_next =
+			(empty_cd_data_cnt_next == 32'd0 ) ? 8'h70 :
+			(empty_cd_data_cnt_next == 32'd2 ) ? 8'h02 :
+			(empty_cd_data_cnt_next == 32'd7 ) ? 8'h0a :
+			(empty_cd_data_cnt_next == 32'd12) ? 8'hb0 :
+			8'h00;
+wire [7:0] inquiry_dout_next2 = inquiry_dout_next;
+wire [7:0] inquiry_dout_next3 = inquiry_dout_next;
+wire [7:0] sense_dout_next2 = sense_dout_next;
+wire [7:0] sense_dout_next3 = sense_dout_next;
 
 assign dout = (phase == PHASE_STATUS_OUT)  ? status :
               (phase == PHASE_MESSAGE_OUT) ? MSG_CMD_COMPLETE :
               (phase == PHASE_DATA_OUT)    ? (cmd_request_sense ? sense_dout : inquiry_dout) :
               8'h00;
+assign dout_pair = (phase == PHASE_STATUS_OUT)  ? {status, status} :
+                   (phase == PHASE_MESSAGE_OUT) ? {MSG_CMD_COMPLETE, MSG_CMD_COMPLETE} :
+                   (phase == PHASE_DATA_OUT)    ? (cmd_request_sense ? {sense_dout, sense_dout_next} : {inquiry_dout, inquiry_dout_next}) :
+                   16'h0000;
+assign dout_pair_next = (phase == PHASE_STATUS_OUT)  ? {status, status} :
+                        (phase == PHASE_MESSAGE_OUT) ? {MSG_CMD_COMPLETE, MSG_CMD_COMPLETE} :
+                        (phase == PHASE_DATA_OUT)    ? (cmd_request_sense ? {sense_dout_next2, sense_dout_next3} : {inquiry_dout_next2, inquiry_dout_next3}) :
+                        16'h0000;
 
 reg old_ack;
 reg stb_ack;
@@ -610,7 +797,10 @@ module scsi_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=9)
 	input	[ADDRWIDTH-1:0] address_b,
 	input	[DATAWIDTH-1:0] data_b,
 	input	                wren_b,
-	output reg [DATAWIDTH-1:0] q_b
+	output reg [DATAWIDTH-1:0] q_b,
+
+	input	[ADDRWIDTH-1:0] address_c,
+	output reg [DATAWIDTH-1:0] q_c
 );
 
 reg [DATAWIDTH-1:0] ram[0:(1<<ADDRWIDTH)-1];
@@ -631,6 +821,7 @@ always @(posedge clock) begin
 	end else begin
 		q_b <= ram[address_b];
 	end
+	q_c <= ram[address_c];
 end
 
 endmodule

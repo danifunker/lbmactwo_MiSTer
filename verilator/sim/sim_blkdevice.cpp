@@ -35,7 +35,11 @@ QData* img_size=NULL;
 
 
 void SimBlockDevice::MountDisk( std::string file, int index) {
-        disk[index].open(file.c_str(), std::ios::in | std::ios::binary | std::ios::ate);
+        disk[index].open(file.c_str(), std::ios::in | std::ios::out | std::ios::binary | std::ios::ate);
+        if (!disk[index]) {
+                disk[index].clear();
+                disk[index].open(file.c_str(), std::ios::in | std::ios::binary | std::ios::ate);
+        }
         if (disk[index]) {
                 fprintf(stderr,"we are here\n");
            // we shouldn't do the actual mount here..
@@ -79,6 +83,12 @@ void SimBlockDevice::BeforeEval(int cycles)
          bytecnt += 2;
          *sd_buff_wr= 1;
          //printf("cycles %x reading %X : %X ack %x\n",cycles,*sd_buff_addr,*sd_buff_dout,*sd_ack );
+      } else if(writing && bytecnt >= kBLKSZ) {
+        unsigned short word = *(sd_buff_din[i]);
+        disk[i].put((word >> 8) & 0xFF);
+        disk[i].put(word & 0xFF);
+        *sd_buff_addr = 0;
+        writing = false;
       } else if(writing && *sd_buff_addr != bytecnt/2 && (*sd_buff_addr < kBLKSZ/2)) {
         //printf("writing disk %i at sd_buff_addr %x data %x ack %x\n",i,*sd_buff_addr,*sd_buff_din[i],*sd_ack);
         // Write 16-bit word as 2 bytes

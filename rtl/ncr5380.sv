@@ -56,9 +56,12 @@ module ncr5380
 	input         ior,
 	input         iow,
 	input         dack,
+	input         dma_word,
+	input         dma_longword,
+	input         dma_second_word,
 	output        dreq,
-	input   [7:0] wdata,
-	output  [7:0] rdata,
+	input  [15:0] wdata,
+	output [15:0] rdata,
 
 	// connections to io controller
 	input  [DEVS-1:0] img_mounted,
@@ -76,8 +79,6 @@ module ncr5380
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
-
-	assign dreq = scsi_req & dma_en;
 
 	reg  [7:0] mr;        /* Mode Register */
 	reg  [7:0] icr;       /* Initiator Command Register */
@@ -99,29 +100,90 @@ module ncr5380
 	reg dma_wr;
 	reg reg_wr;
 	reg dma_ack;
+	reg [2:0] dma_ack_holdoff;
+	reg dma_word_latched;
+	reg dma_longword_latched;
+	reg dma_second_word_latched;
+	reg dma_suppress_ack_latched;
+	reg dma_longword_second_pending;
+	reg [15:0] dma_second_word_data;
+	reg [7:0] dma_write_low_byte;
+	reg old_dma_rd;
+	reg old_dma_wr;
+	reg old_reg_wr;
+
+	wire dma_ack_busy = dma_ack | (dma_ack_holdoff != 3'd0);
+	assign dreq = scsi_req & dma_en & !dma_ack_busy;
 
 	wire i_dma_rd = bus_cs &  dack & ior;
 	wire i_dma_wr = bus_cs &  dack & iow;
 	wire i_reg_wr = bus_cs & ~dack & iow;
 
-	always @(posedge clk) begin
-		reg old_dma_rd, old_dma_wr, old_reg_wr;
+	always @(posedge clk or posedge reset) begin
+		if (reset) begin
+			old_dma_rd <= 0;
+			old_dma_wr <= 0;
+			old_reg_wr <= 0;
+			dma_wr <= 0;
+			dma_ack <= 0;
+			dma_ack_holdoff <= 0;
+			reg_wr <= 0;
+			dma_word_latched <= 0;
+			dma_longword_latched <= 0;
+			dma_second_word_latched <= 0;
+			dma_suppress_ack_latched <= 0;
+			dma_longword_second_pending <= 0;
+			dma_second_word_data <= 16'h0000;
+			dma_write_low_byte <= 8'h00;
+		end else begin
+			old_dma_rd <= i_dma_rd;
+			old_dma_wr <= i_dma_wr;
+			old_reg_wr <= i_reg_wr;
 
-		old_dma_rd <= i_dma_rd;
-		old_dma_wr <= i_dma_wr;
-		old_reg_wr <= i_reg_wr;
+			dma_wr <= 0;
+			dma_ack <= 0;
+			reg_wr <= 0;
 
-		dma_wr <= 0;
-		dma_ack <= 0;
-		reg_wr <= 0;
-
-		if(~old_dma_wr & i_dma_wr) dma_wr <= 1;
-		if(~old_reg_wr & i_reg_wr) reg_wr <= 1;
-		if((old_dma_wr & ~i_dma_wr) | (old_dma_rd & ~i_dma_rd)) dma_ack <= dma_en & bsr_pmatch;
+			if(~old_dma_rd & i_dma_rd) begin
+				dma_word_latched <= dma_word;
+				dma_longword_latched <= dma_longword;
+				dma_second_word_latched <= dma_second_word;
+				dma_suppress_ack_latched <= dma_longword_second_pending & dma_second_word;
+				dma_longword_second_pending <= (dma_longword_second_pending & dma_second_word) ? 1'b0 :
+				                               (dma_word & dma_longword & !dma_second_word);
+				if (dma_word & dma_longword & !dma_second_word)
+					dma_second_word_data <= din_pair_next;
+			end
+			if(~old_dma_wr & i_dma_wr) begin
+				dma_word_latched <= dma_word;
+				dma_longword_latched <= dma_longword;
+				dma_second_word_latched <= dma_second_word;
+				dma_write_low_byte <= wdata[7:0];
+				dma_wr <= 1;
+			end
+			if(~old_reg_wr & i_reg_wr) reg_wr <= 1;
+			if (dma_ack_holdoff != 3'd0) begin
+				/* Keep DREQ dropped while the target observes the ACK low edge.
+				 * A 68020 longword pseudo-DMA read is two 16-bit bus cycles;
+				 * only the first cycle should consume the four SCSI bytes.
+				 */
+				dma_ack <= dma_ack_holdoff[0];
+				dma_ack_holdoff <= dma_ack_holdoff - 3'd1;
+			end else if((old_dma_wr & ~i_dma_wr) |
+			            (old_dma_rd & ~i_dma_rd &
+			             !dma_suppress_ack_latched)) begin
+				dma_ack <= dma_en & bsr_pmatch;
+				if (dma_en & bsr_pmatch)
+					dma_ack_holdoff <= (old_dma_rd & ~i_dma_rd) ?
+						(dma_longword_latched ? 3'd6 : (dma_word_latched ? 3'd2 : 3'd0)) :
+						(dma_word_latched ? 3'd2 : 3'd0);
+			end
+		end
 	end
 
 	/* System bus reads */
-	assign rdata = dack                ? cur_data         :
+	wire [7:0] rdata8 =
+	               dack                ? cur_data         :
 	               bus_rs == `RREG_CDR ? cur_data         :
 	               bus_rs == `RREG_ICR ? icr_read         :
 	               bus_rs == `RREG_MR  ? mr               :
@@ -131,18 +193,22 @@ module ncr5380
 	               bus_rs == `RREG_IDR ? cur_data         :
 	               bus_rs == `RREG_RST ? 8'h00            :
 	               8'hff;
+	assign rdata = (dack && dma_word) ? cur_data_pair : { rdata8, rdata8 };
 
 	/* Data out latch (in DMA mode, this is one cycle after we've
 	* asserted ACK)
 	*/
-	always@(posedge clk) if((reg_wr && bus_rs == `WREG_ODR) || dma_wr) dout <= wdata;
+	always@(posedge clk) if(reg_wr && bus_rs == `WREG_ODR) dout <= wdata[15:8];
+	else if(dma_wr) dout <= wdata[15:8];
 
 	/* Current data register. Approximate MAME's nscsi bus: reads see the
 	 * wired-OR of active initiator and target data drivers.
 	 */
 	wire       out_en = icr[`ICR_A_DATA] | mr[`MR_ARB];
-	wire [7:0] scsi_bus_data = (out_en ? dout : 8'h00) | din;
+	wire [7:0] dma_write_data = (dma_ack_holdoff == 3'd1 && dma_word_latched) ? dma_write_low_byte : dout;
+	wire [7:0] scsi_bus_data = (out_en ? dma_write_data : 8'h00) | din;
 	wire [7:0] cur_data = scsi_bus_data;
+	wire [15:0] cur_data_pair = out_en ? { dout, dout } : (dma_suppress_ack_latched ? dma_second_word_data : din_pair);
 
 	/* ICR read wires */
 	wire [7:0] icr_read = { icr[`ICR_A_RST],
@@ -271,6 +337,8 @@ module ncr5380
 		scsi_msg = 0;
 		scsi_req = 0;
 		din = 8'h00;
+		din_pair = 16'h0000;
+		din_pair_next = 16'h0000;
 
 		for (i = 0; i < DEVS; i = i + 1) begin
 			if (target_bsy[i]) begin
@@ -279,6 +347,8 @@ module ncr5380
 				scsi_msg = target_msg[i];
 				scsi_req = target_req[i];
 				din = target_dout[i];
+				din_pair = target_dout_pair[i];
+				din_pair_next = target_dout_pair_next[i];
 			end
 		end
 
@@ -288,6 +358,8 @@ module ncr5380
 			scsi_msg = empty_cd_msg;
 			scsi_req = empty_cd_req;
 			din = empty_cd_dout;
+			din_pair = empty_cd_dout_pair;
+			din_pair_next = empty_cd_dout_pair_next;
 		end
 	end
 
@@ -298,6 +370,10 @@ module ncr5380
 	wire [DEVS-1:0] target_cd;
 	wire [DEVS-1:0] target_req;
 	wire      [7:0] target_dout[DEVS];
+	wire     [15:0] target_dout_pair[DEVS];
+	wire     [15:0] target_dout_pair_next[DEVS];
+	reg      [15:0] din_pair;
+	reg      [15:0] din_pair_next;
 
 	wire empty_cd_bsy;
 	wire empty_cd_msg;
@@ -305,6 +381,8 @@ module ncr5380
 	wire empty_cd_cd;
 	wire empty_cd_req;
 	wire [7:0] empty_cd_dout;
+	wire [15:0] empty_cd_dout_pair;
+	wire [15:0] empty_cd_dout_pair_next;
 	wire empty_cd_active = ENABLE_EMPTY_CD && empty_cd_bsy;
 
 	scsi_empty_cd #(.ID(3'd3)) empty_cd
@@ -319,6 +397,8 @@ module ncr5380
 		.io     ( empty_cd_io   ),
 		.req    ( empty_cd_req  ),
 		.dout   ( empty_cd_dout ),
+		.dout_pair ( empty_cd_dout_pair ),
+		.dout_pair_next ( empty_cd_dout_pair_next ),
 		.din    ( scsi_bus_data )
 	);
 
@@ -341,6 +421,8 @@ module ncr5380
 				.io     ( target_io[i]   ),
 				.req    ( target_req[i]  ),
 				.dout   ( target_dout[i] ),
+				.dout_pair ( target_dout_pair[i] ),
+				.dout_pair_next ( target_dout_pair_next[i] ),
 
 				.din    ( scsi_bus_data ),
 

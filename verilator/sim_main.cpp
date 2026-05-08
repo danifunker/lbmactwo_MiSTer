@@ -1,4 +1,5 @@
 #include <verilated.h>
+#include <verilated_save.h>
 #include "Vemu.h"
 #include "Vemu__Syms.h"
 
@@ -42,6 +43,7 @@
 #include <iomanip>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 using namespace std;
 
 #ifndef _MSC_VER
@@ -147,6 +149,11 @@ int scsi_debug_count = 0;
 const int scsi_debug_max = 2000;
 int scsi_debug_min_frame = 0;
 bool scsi_debug_prev_bus_control = false;
+uint32_t scsi_debug_prev_t0_data_cnt = 0xFFFFFFFFu;
+int scsi_debug_t0_data_count = 0;
+const int scsi_debug_t0_data_max = 1600;
+int scsi_debug_dma_count = 0;
+const int scsi_debug_dma_max = 2200;
 int scsi_timeout_loop_debug_count = 0;
 const int scsi_timeout_loop_debug_max = 2000;
 uint32_t scsi_timeout_loop_last_d5_word = 0xFFFFFFFF;
@@ -233,6 +240,18 @@ int stop_at_frame = -1;
 bool stop_at_frame_enabled = false;
 uint32_t stop_at_tick = 0;
 bool stop_at_tick_enabled = false;
+uint32_t stop_at_pc = 0;
+bool stop_at_pc_enabled = false;
+std::string checkpoint_save_file;
+std::string checkpoint_load_file;
+bool checkpoint_save_enabled = false;
+bool checkpoint_load_enabled = false;
+bool checkpoint_save_at_frame_enabled = false;
+int checkpoint_save_at_frame = -1;
+bool checkpoint_save_at_pc_enabled = false;
+uint32_t checkpoint_save_at_pc = 0;
+bool checkpoint_saved = false;
+std::string checkpoint_command_line;
 uint64_t unique_fetch_count = 0;
 uint32_t unique_fetch_last_pc = 0xFFFFFFFF;
 uint64_t profile_irq_assert_count[8] = {0};
@@ -321,6 +340,7 @@ vluint64_t main_time = 0;	// Current simulation time.
 double sc_time_stamp() {	// Called by $time in Verilog.
 	return main_time;
 }
+extern SimClock clk_sys;
 
 static inline uint16_t ram_word(uint32_t addr) {
 	if (addr >= 0x01000000) {
@@ -345,6 +365,25 @@ static inline uint8_t ram_byte(uint32_t addr) {
 	return (addr & 1) ? (word & 0xFF) : (word >> 8);
 }
 
+static uint32_t find_ram_bytes(const uint8_t* bytes, size_t len, uint32_t start, uint32_t end) {
+	if (!len || end < start || end - start + 1 < len) {
+		return 0xFFFFFFFFU;
+	}
+	for (uint32_t addr = start; addr <= end - len + 1; addr += 2) {
+		bool match = true;
+		for (size_t i = 0; i < len; i++) {
+			if (ram_byte(addr + i) != bytes[i]) {
+				match = false;
+				break;
+			}
+		}
+		if (match) {
+			return addr;
+		}
+	}
+	return 0xFFFFFFFFU;
+}
+
 static inline uint32_t tg68_reg(int idx) {
 	return ((uint32_t)VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n2[idx] << 8) |
 		VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__regfile_n1[idx];
@@ -361,6 +400,197 @@ static inline bool lowmem_tick_reached() {
 		return false;
 	}
 	return tick >= stop_at_tick;
+}
+
+static bool checkpoint_pc_reached() {
+	return checkpoint_save_at_pc_enabled &&
+	       !checkpoint_saved &&
+	       !*bus.ioctl_download &&
+	       VERTOPINTERN->debug_fetch_valid &&
+	       VERTOPINTERN->debug_pc == checkpoint_save_at_pc;
+}
+
+static bool stop_pc_reached() {
+	return stop_at_pc_enabled &&
+	       !*bus.ioctl_download &&
+	       VERTOPINTERN->debug_fetch_valid &&
+	       VERTOPINTERN->debug_pc == stop_at_pc;
+}
+
+static bool checkpoint_frame_reached() {
+	return checkpoint_save_at_frame_enabled &&
+	       !checkpoint_saved &&
+	       video.count_frame >= checkpoint_save_at_frame;
+}
+
+static bool checkpoint_save_on_stop_enabled() {
+	return checkpoint_save_enabled &&
+	       !checkpoint_saved &&
+	       !checkpoint_save_at_frame_enabled &&
+	       !checkpoint_save_at_pc_enabled;
+}
+
+static void write_checkpoint_metadata(const std::string& filename, const char* reason) {
+	std::ofstream meta(filename + ".meta");
+	if (!meta) {
+		fprintf(stderr, "Warning: could not write checkpoint metadata %s.meta\n", filename.c_str());
+		return;
+	}
+
+	meta << "format=lbmactwo-verilator-checkpoint-v1\n";
+	meta << "state_file=" << filename << "\n";
+	meta << "reason=" << reason << "\n";
+	meta << "main_time=" << (unsigned long long)main_time << "\n";
+	meta << "frame=" << video.count_frame << "\n";
+	meta << "video_line=" << video.count_line << "\n";
+	meta << "video_pixel=" << video.count_pixel << "\n";
+	meta << std::hex << std::setfill('0');
+	meta << "pc=0x" << std::setw(8) << VERTOPINTERN->debug_pc << "\n";
+	meta << "opcode=0x" << std::setw(4) << VERTOPINTERN->debug_opcode << "\n";
+	meta << "vbr=0x" << std::setw(8) << VERTOPINTERN->debug_vbr << "\n";
+	meta << "tick016a=0x" << std::setw(8) << lowmem_tick_016a() << "\n";
+	meta << std::dec << std::setfill(' ');
+	meta << "clk_sys_clk=" << (clk_sys.clk ? 1 : 0) << "\n";
+	meta << "clk_sys_old=" << (clk_sys.old ? 1 : 0) << "\n";
+	meta << "clk_sys_count=" << clk_sys.GetCount() << "\n";
+	meta << "rom=../releases/boot0.rom\n";
+	meta << "nubus_rom=../releases/boot1.rom\n";
+	meta << "scsi0=" << scsi_disk_files[0] << "\n";
+	meta << "scsi1=" << scsi_disk_files[1] << "\n";
+	meta << "floppy0=" << floppy_disk_files[0] << "\n";
+	meta << "floppy1=" << floppy_disk_files[1] << "\n";
+	meta << "command=" << checkpoint_command_line << "\n";
+	meta << "note=Restore with the same Verilator binary/model and matching media arguments.\n";
+}
+
+static bool save_checkpoint(const std::string& filename, const char* reason) {
+	if (!checkpoint_save_enabled || checkpoint_saved) {
+		return true;
+	}
+	if (*bus.ioctl_download) {
+		fprintf(stderr, "Checkpoint skipped: ROM/floppy download is active; reason=%s file=%s\n",
+		        reason, filename.c_str());
+		return false;
+	}
+
+	VerilatedSave os;
+	os.open(filename);
+	if (!os.isOpen()) {
+		fprintf(stderr, "Checkpoint save failed: could not open %s\n", filename.c_str());
+		return false;
+	}
+
+	const uint64_t magic = 0x4C424D3243535431ULL; // "LBM2CST1"
+	const uint32_t version = 2;
+	const uint64_t saved_main_time = main_time;
+	const uint32_t saved_frame = (uint32_t)video.count_frame;
+	const uint32_t saved_line = (uint32_t)video.count_line;
+	const uint32_t saved_pixel = (uint32_t)video.count_pixel;
+	const uint8_t saved_clk = clk_sys.clk ? 1 : 0;
+	const uint8_t saved_old = clk_sys.old ? 1 : 0;
+	const uint32_t saved_count = (uint32_t)clk_sys.GetCount();
+	const uint32_t saved_output_width = (uint32_t)video.output_width;
+	const uint32_t saved_output_height = (uint32_t)video.output_height;
+	const uint8_t saved_framebuffer = output_ptr ? 1 : 0;
+
+	os << magic;
+	os << version;
+	os << saved_main_time;
+	os << saved_frame;
+	os << saved_line;
+	os << saved_pixel;
+	os << saved_clk;
+	os << saved_old;
+	os << saved_count;
+	os << saved_output_width;
+	os << saved_output_height;
+	os << saved_framebuffer;
+	if (saved_framebuffer) {
+		os.write(output_ptr, saved_output_width * saved_output_height * sizeof(uint32_t));
+	}
+	os << *top;
+	os.close();
+
+	checkpoint_saved = true;
+	write_checkpoint_metadata(filename, reason);
+	printf("Checkpoint saved: %s frame=%d time=%llu PC=%08X reason=%s\n",
+	       filename.c_str(),
+	       video.count_frame,
+	       (unsigned long long)main_time,
+	       VERTOPINTERN->debug_pc,
+	       reason);
+	return true;
+}
+
+static bool load_checkpoint(const std::string& filename) {
+	VerilatedRestore is;
+	is.open(filename);
+	if (!is.isOpen()) {
+		fprintf(stderr, "Checkpoint restore failed: could not open %s\n", filename.c_str());
+		return false;
+	}
+
+	uint64_t magic = 0;
+	uint32_t version = 0;
+	uint64_t restored_main_time = 0;
+	uint32_t restored_frame = 0;
+	uint32_t restored_line = 0;
+	uint32_t restored_pixel = 0;
+	uint8_t restored_clk = 0;
+	uint8_t restored_old = 0;
+	uint32_t restored_count = 0;
+	uint32_t restored_output_width = 0;
+	uint32_t restored_output_height = 0;
+	uint8_t restored_framebuffer = 0;
+
+	is >> magic;
+	is >> version;
+	if (magic != 0x4C424D3243535431ULL || version != 2) {
+		fprintf(stderr, "Checkpoint restore failed: unsupported checkpoint header in %s\n",
+		        filename.c_str());
+		return false;
+	}
+	is >> restored_main_time;
+	is >> restored_frame;
+	is >> restored_line;
+	is >> restored_pixel;
+	is >> restored_clk;
+	is >> restored_old;
+	is >> restored_count;
+	is >> restored_output_width;
+	is >> restored_output_height;
+	is >> restored_framebuffer;
+	if (restored_output_width != (uint32_t)video.output_width ||
+	    restored_output_height != (uint32_t)video.output_height) {
+		fprintf(stderr, "Checkpoint restore failed: video size mismatch checkpoint=%ux%u sim=%dx%d\n",
+		        restored_output_width, restored_output_height, video.output_width, video.output_height);
+		return false;
+	}
+	if (restored_framebuffer) {
+		if (!output_ptr) {
+			fprintf(stderr, "Checkpoint restore failed: framebuffer is not initialized\n");
+			return false;
+		}
+		is.read(output_ptr, restored_output_width * restored_output_height * sizeof(uint32_t));
+	}
+	is >> *top;
+	is.close();
+
+	main_time = restored_main_time;
+	video.count_frame = (int)restored_frame;
+	video.count_line = (int)restored_line;
+	video.count_pixel = (int)restored_pixel;
+	frame_probe_last_frame = video.count_frame;
+	clk_sys.RestoreState(restored_clk != 0, restored_old != 0, (int)restored_count);
+	top->eval();
+
+	printf("Checkpoint restored: %s frame=%d time=%llu PC=%08X Op=%04X\n",
+	       filename.c_str(),
+	       video.count_frame,
+	       (unsigned long long)main_time,
+	       VERTOPINTERN->debug_pc,
+	       VERTOPINTERN->debug_opcode);
+	return true;
 }
 
 static inline uint8_t scsi_debug_csr() {
@@ -1034,9 +1264,14 @@ static void print_boot_decision_debug(uint32_t pc) {
 }
 
 static void print_scsi_stop_state() {
+	static const uint8_t lba60_sig[] = {0x4C, 0x4B, 0x60, 0x00, 0x00, 0x86, 0x44, 0x18};
+	uint32_t lba60_at = find_ram_bytes(lba60_sig, sizeof(lba60_sig), 0x0000, 0x1FFFFF);
+
 	printf("SCSI state: mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
-	       "sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X "
-	       "t0_phase=%d t0_mnt=%d t0_cnt=%u t0_done=%d t0_ack=%d t0_cmd=%d t0_din=%02X\n",
+	       "sd_rd=%02X sd_wr=%02X sd_ack=%02X sd_buf_wr=%d sd_addr=%02X "
+	       "t0_phase=%d t0_mnt=%d t0_cnt=%u t0_done=%d t0_ack=%d t0_cmd_cnt=%d t0_din=%02X "
+	       "t0_req_rd=%d t0_req_wr=%d "
+	       "blk_cur=%d blk_read=%d blk_write=%d blk_ack_delay=%d blk_bytecnt=%d\n",
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr,
@@ -1046,6 +1281,7 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
 	       VERTOPINTERN->sd_rd,
+	       VERTOPINTERN->sd_wr,
 	       VERTOPINTERN->sd_ack,
 	       VERTOPINTERN->sd_buff_wr ? 1 : 0,
 	       VERTOPINTERN->sd_buff_addr,
@@ -1055,7 +1291,14 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
-	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din);
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_wr ? 1 : 0,
+	       blockdevice.current_disk,
+	       blockdevice.reading ? 1 : 0,
+	       blockdevice.writing ? 1 : 0,
+	       blockdevice.ack_delay,
+	       blockdevice.bytecnt);
 	printf("LowMem: long[$016A]=%04X%04X word[$0D00]=%04X word[$0DA6]=%04X\n",
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B5],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6],
@@ -1066,6 +1309,14 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0617] & 0x00FF,
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0692],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0694]);
+	printf("Boot RAM: LBA60_sig=%s%06X "
+	       "L12000=%08X L12004=%08X L124D0=%08X L124D4=%08X "
+	       "L50F06000=%08X L50F06004=%08X\n",
+	       lba60_at == 0xFFFFFFFFU ? "notfound/" : "$",
+	       lba60_at == 0xFFFFFFFFU ? 0U : lba60_at,
+	       ram_long(0x12000), ram_long(0x12004),
+	       ram_long(0x124D0), ram_long(0x124D4),
+	       ram_long(0x50F06000), ram_long(0x50F06004));
 	printf("TM nodes: L0D10=%08X L0D14=%08X L030A=%08X "
 	       "N2748=%08X/%04X/%04X/%04X/%08X "
 	       "N33C4=%08X/%04X/%04X/%04X/%08X "
@@ -1868,7 +2119,88 @@ int verilate() {
 			}
 
 			if (scsi_debug_enable && !*bus.ioctl_download && video.count_frame >= scsi_debug_min_frame) {
+				uint32_t t0_data_cnt =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt;
+				uint8_t t0_cmd0 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[0];
+				uint8_t t0_cmd2 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[2];
+				uint8_t t0_cmd3 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[3];
+				uint8_t t0_cmd4 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[4];
+				uint8_t t0_cmd5 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[5];
+				uint8_t t0_cmd7 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[7];
+				uint8_t t0_cmd8 =
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[8];
+				bool t0_lba60_read10 =
+					t0_cmd0 == 0x28 && t0_cmd2 == 0x00 && t0_cmd3 == 0x00 &&
+					t0_cmd4 == 0x00 && t0_cmd5 == 0x60 && t0_cmd7 == 0x00 && t0_cmd8 == 0x02;
+				bool t0_interesting_data =
+					t0_data_cnt < 96 ||
+					(t0_data_cnt >= 496 && t0_data_cnt < 544) ||
+					(t0_data_cnt >= 1008 && t0_data_cnt < 1028);
+
+				if (t0_lba60_read10 &&
+				    VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase == 2 &&
+				    t0_data_cnt != scsi_debug_prev_t0_data_cnt &&
+				    t0_interesting_data &&
+				    scsi_debug_t0_data_count < scsi_debug_t0_data_max) {
+					fprintf(stderr,
+						"SCSI_T0_DATA frame=%d tick=%08X time=%llu pc=%08X cnt=%u busdin=%02X ack=%d req=%d "
+						"sd_rd=%02X sd_ack=%02X sd_wr=%d sd_addr=%02X sel=%d reqrd=%d done=%d\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						t0_data_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+						VERTOPINTERN->sd_rd,
+						VERTOPINTERN->sd_ack,
+						VERTOPINTERN->sd_buff_wr ? 1 : 0,
+						VERTOPINTERN->sd_buff_addr,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0);
+					scsi_debug_t0_data_count++;
+				}
+				scsi_debug_prev_t0_data_cnt = t0_data_cnt;
+
 				bool bus_active = !VERTOPINTERN->debug_cpuAS;
+				uint32_t dma_addr = VERTOPINTERN->debug_cpuAddr;
+				bool pseudo_dma_cycle =
+					bus_active && !scsi_debug_prev_bus_control &&
+					((dma_addr >= 0x50F06000u && dma_addr <= 0x50F06FFFu) ||
+					 (dma_addr >= 0x50F12000u && dma_addr <= 0x50F13FFFu));
+				if (pseudo_dma_cycle && scsi_debug_dma_count < scsi_debug_dma_max) {
+					uint16_t cpu_data = VERTOPINTERN->debug_cpuDataOut;
+					fprintf(stderr,
+						"SCSI_DMA frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X din=%04X dout=%04X "
+						"uds=%d lds=%d dtack=%d dreq=%d dmaen=%d pmatch=%d t0_phase=%d t0_cnt=%u t0_done=%d busdin=%02X\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
+						dma_addr,
+						VERTOPINTERN->debug_cpuDataIn,
+						cpu_data,
+						!VERTOPINTERN->debug_cpuUDS ? 1 : 0,
+						!VERTOPINTERN->debug_cpuLDS ? 1 : 0,
+						!VERTOPINTERN->debug_cpuDTACK ? 1 : 0,
+						VERTOPINTERN->emu__DOT__scsiDREQ ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en ? 1 : 0,
+						scsi_debug_pmatch() ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din);
+					scsi_debug_dma_count++;
+				}
 				if (bus_active && !scsi_debug_prev_bus_control &&
 				    VERTOPINTERN->debug_selectSCSI &&
 				    scsi_debug_count < scsi_debug_max) {
@@ -3063,6 +3395,11 @@ void show_help() {
 	printf("                                (comma-separated list, e.g., 100,200,300)\n");
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
 	printf("  --stop-at-tick <hex|dec>      Exit after low-memory tick long $016A reaches value\n");
+	printf("  --stop-at-pc <hex|dec>        Exit when debug PC is fetched\n");
+	printf("  --save-state <file>           Save a native Verilator checkpoint on stop\n");
+	printf("  --save-at-frame <frame>       Save checkpoint and exit when frame is reached\n");
+	printf("  --save-at-pc <hex|dec>        Save checkpoint and exit when debug PC is fetched\n");
+	printf("  --load-state <file>           Restore a native Verilator checkpoint at startup\n");
 	printf("\n");
 	printf("Examples:\n");
 	printf("  ./Vemu                        Run simulator in windowed mode\n");
@@ -3072,6 +3409,8 @@ void show_help() {
 	printf("  ./Vemu --headless --screenshot 50 --stop-at-frame 100\n");
 	printf("                                Headless, take screenshot at frame 50, stop at 100\n");
 	printf("  ./Vemu --headless --send-mouse 500:20,0 --stop-at-frame 520\n");
+	printf("  ./Vemu --headless --save-state checkpoints/f120.vlt --save-at-frame 120\n");
+	printf("  ./Vemu --headless --load-state checkpoints/f120.vlt --stop-at-frame 130\n");
 }
 
 void save_screenshot(int frame_number) {
@@ -3249,6 +3588,12 @@ static bool process_mouse_injections(int current_frame) {
 }
 
 int main(int argc, char** argv, char** env) {
+	for (int i = 0; i < argc; i++) {
+		if (i != 0) {
+			checkpoint_command_line += " ";
+		}
+		checkpoint_command_line += argv[i];
+	}
 
 	// Parse command-line arguments
 	for (int i = 1; i < argc; i++) {
@@ -3389,12 +3734,43 @@ int main(int argc, char** argv, char** env) {
 			stop_at_frame_enabled = true;
 			printf("Will stop at frame %d\n", stop_at_frame);
 			i++;
-		} else if (strcmp(argv[i], "--stop-at-tick") == 0 && i + 1 < argc) {
-			stop_at_tick = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
-			stop_at_tick_enabled = true;
-			printf("Will stop at low-memory tick $016A >= 0x%08X\n", stop_at_tick);
+			} else if (strcmp(argv[i], "--stop-at-tick") == 0 && i + 1 < argc) {
+				stop_at_tick = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
+				stop_at_tick_enabled = true;
+				printf("Will stop at low-memory tick $016A >= 0x%08X\n", stop_at_tick);
+				i++;
+			} else if (strcmp(argv[i], "--stop-at-pc") == 0 && i + 1 < argc) {
+				stop_at_pc = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
+				stop_at_pc_enabled = true;
+				printf("Will stop at PC %08X\n", stop_at_pc);
+				i++;
+			} else if (strcmp(argv[i], "--save-state") == 0 && i + 1 < argc) {
+			checkpoint_save_file = argv[i + 1];
+			checkpoint_save_enabled = true;
+			printf("Will save checkpoint to %s\n", checkpoint_save_file.c_str());
+			i++;
+		} else if (strcmp(argv[i], "--save-at-frame") == 0 && i + 1 < argc) {
+			checkpoint_save_at_frame = std::stoi(argv[i + 1]);
+			checkpoint_save_at_frame_enabled = true;
+			printf("Will save checkpoint at frame %d\n", checkpoint_save_at_frame);
+			i++;
+		} else if (strcmp(argv[i], "--save-at-pc") == 0 && i + 1 < argc) {
+			checkpoint_save_at_pc = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
+			checkpoint_save_at_pc_enabled = true;
+			printf("Will save checkpoint at PC %08X\n", checkpoint_save_at_pc);
+			i++;
+		} else if (strcmp(argv[i], "--load-state") == 0 && i + 1 < argc) {
+			checkpoint_load_file = argv[i + 1];
+			checkpoint_load_enabled = true;
+			printf("Will load checkpoint from %s\n", checkpoint_load_file.c_str());
 			i++;
 		}
+	}
+
+	if ((checkpoint_save_at_frame_enabled || checkpoint_save_at_pc_enabled) &&
+	    !checkpoint_save_enabled) {
+		fprintf(stderr, "Error: --save-at-frame/--save-at-pc require --save-state <file>\n");
+		return 1;
 	}
 
 	// Create core and initialise
@@ -3518,20 +3894,25 @@ int main(int argc, char** argv, char** env) {
 		}
 	}
 
-	// Auto-load Mac II ROM at startup
-	const char* rom_file = "../releases/boot0.rom";  // Mac II 256K ROM
-	bus.QueueDownload(rom_file, 0, 1);  // index 0 for ROM
-	fprintf(stderr, "Machine type: Mac II, loading ROM: %s\n", rom_file);
+	if (checkpoint_load_enabled) {
+		fprintf(stderr, "Machine type: Mac II, restoring checkpoint: %s\n",
+		        checkpoint_load_file.c_str());
+	} else {
+		// Auto-load Mac II ROM at startup
+		const char* rom_file = "../releases/boot0.rom";  // Mac II 256K ROM
+		bus.QueueDownload(rom_file, 0, 1);  // index 0 for ROM
+		fprintf(stderr, "Machine type: Mac II, loading ROM: %s\n", rom_file);
 
-	// Auto-load NuBus High-Res video card declaration ROM
-	const char* nubus_rom_file = "../releases/boot1.rom";  // Hi-Res 341-0660
-	bus.QueueDownload(nubus_rom_file, 1, 1);  // index 1 for NuBus ROM
-	fprintf(stderr, "Loading NuBus video ROM: %s\n", nubus_rom_file);
-	for (int disk_index = 0; disk_index < 2; disk_index++) {
-		if (!floppy_disk_files[disk_index].empty()) {
-			int ioctl_index = disk_index == 0 ? 2 : 3;
-			bus.QueueDownload(floppy_disk_files[disk_index], ioctl_index, 1);
-			fprintf(stderr, "Loading floppy%d image: %s\n", disk_index, floppy_disk_files[disk_index].c_str());
+		// Auto-load NuBus High-Res video card declaration ROM
+		const char* nubus_rom_file = "../releases/boot1.rom";  // Hi-Res 341-0660
+		bus.QueueDownload(nubus_rom_file, 1, 1);  // index 1 for NuBus ROM
+		fprintf(stderr, "Loading NuBus video ROM: %s\n", nubus_rom_file);
+		for (int disk_index = 0; disk_index < 2; disk_index++) {
+			if (!floppy_disk_files[disk_index].empty()) {
+				int ioctl_index = disk_index == 0 ? 2 : 3;
+				bus.QueueDownload(floppy_disk_files[disk_index], ioctl_index, 1);
+				fprintf(stderr, "Loading floppy%d image: %s\n", disk_index, floppy_disk_files[disk_index].c_str());
+			}
 		}
 	}
 
@@ -3540,6 +3921,9 @@ int main(int argc, char** argv, char** env) {
 	VERTOPINTERN->clk_sys = 0;
 	VERTOPINTERN->reset = 1;
 	top->eval();
+	if (checkpoint_load_enabled && !load_checkpoint(checkpoint_load_file)) {
+		return 1;
+	}
 
 #ifdef WIN32
 	MSG msg;
@@ -3564,9 +3948,15 @@ int main(int argc, char** argv, char** env) {
 					    late_adb_stop_requested) {
 						break;
 					}
-					if (stop_at_tick_enabled && lowmem_tick_reached()) {
-						break;
-					}
+						if (checkpoint_pc_reached() || checkpoint_frame_reached()) {
+							break;
+						}
+						if (stop_pc_reached()) {
+							break;
+						}
+						if (stop_at_tick_enabled && lowmem_tick_reached()) {
+							break;
+						}
 				}
 			}
 			else {
@@ -3578,11 +3968,30 @@ int main(int argc, char** argv, char** env) {
 
 			maybe_print_frame_probe();
 
+				if (checkpoint_pc_reached()) {
+					save_checkpoint(checkpoint_save_file, "save-at-pc");
+					print_scsi_stop_state();
+					break;
+				}
+
+				if (stop_pc_reached()) {
+					printf("Reached stop PC %08X, exiting... frame=%d Op=%04X VBR=%08X\n",
+						stop_at_pc,
+						video.count_frame,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_vbr);
+					print_scsi_stop_state();
+					break;
+				}
+
 			if (bootmask_once_stop_requested) {
 				printf("Bootmask one-shot probe complete, exiting... PC=%08X Op=%04X VBR=%08X\n",
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
+				if (checkpoint_save_on_stop_enabled()) {
+					save_checkpoint(checkpoint_save_file, "bootmask-once-debug");
+				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -3592,6 +4001,9 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
+				if (checkpoint_save_on_stop_enabled()) {
+					save_checkpoint(checkpoint_save_file, "scsi-transition-debug");
+				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -3601,6 +4013,9 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
+				if (checkpoint_save_on_stop_enabled()) {
+					save_checkpoint(checkpoint_save_file, "late-adb-debug");
+				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -3628,6 +4043,12 @@ int main(int argc, char** argv, char** env) {
 				}
 			}
 
+			if (checkpoint_frame_reached()) {
+				save_checkpoint(checkpoint_save_file, "save-at-frame");
+				print_scsi_stop_state();
+				break;
+			}
+
 			if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
 				if (took_screenshot_this_frame) {
 					printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
@@ -3642,6 +4063,9 @@ int main(int argc, char** argv, char** env) {
 						VERTOPINTERN->debug_opcode,
 						VERTOPINTERN->debug_vbr);
 				}
+				if (checkpoint_save_on_stop_enabled()) {
+					save_checkpoint(checkpoint_save_file, "stop-at-frame");
+				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -3652,6 +4076,9 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
+				if (checkpoint_save_on_stop_enabled()) {
+					save_checkpoint(checkpoint_save_file, "stop-at-tick");
+				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -3852,6 +4279,28 @@ int main(int argc, char** argv, char** env) {
 			}
 		}
 
+			if (checkpoint_pc_reached()) {
+				save_checkpoint(checkpoint_save_file, "save-at-pc");
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (stop_pc_reached()) {
+				printf("Reached stop PC %08X, exiting... frame=%d Op=%04X VBR=%08X\n",
+					stop_at_pc,
+					video.count_frame,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (checkpoint_frame_reached()) {
+			save_checkpoint(checkpoint_save_file, "save-at-frame");
+			print_scsi_stop_state();
+			break;
+		}
+
 		// Check if we should stop at this frame
 		if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
 			if (took_screenshot_this_frame) {
@@ -3866,6 +4315,9 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
+			}
+			if (checkpoint_save_on_stop_enabled()) {
+				save_checkpoint(checkpoint_save_file, "stop-at-frame");
 			}
 			print_scsi_stop_state();
 			break;
@@ -3895,8 +4347,16 @@ int main(int argc, char** argv, char** env) {
 
 		// Run simulation
 		if (run_enable) {
-			for (int step = 0; step < batchSize; step++) { verilate(); }
-		}
+				for (int step = 0; step < batchSize; step++) {
+					verilate();
+					if (checkpoint_pc_reached() || checkpoint_frame_reached()) {
+						break;
+					}
+					if (stop_pc_reached()) {
+						break;
+					}
+				}
+			}
 		else {
 			if (single_step) { verilate(); }
 			if (multi_step) {
