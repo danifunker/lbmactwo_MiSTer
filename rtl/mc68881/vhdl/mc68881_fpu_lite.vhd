@@ -28,7 +28,12 @@ architecture wrapper of mc68881_fpu_lite is
 begin
   u_fpu : entity work.mc68881_top
     generic map (
-      packed_decimal_full_g => true,
+      -- BCD/packed-decimal engine fails clk_sys (32.5 MHz) timing by 3.79 ns
+      -- across 10+ paths in mc68881_packed_decimal_unit. Mac OS / System 6/7
+      -- ROMs do not use FMOVE.P during boot and rare apps exercise it. Disable
+      -- the full engine to recover slack; the FPU will respond to packed
+      -- decimal opcodes with zeros (acceptable for our use case).
+      packed_decimal_full_g => false,
       fpu_lite_g            => true
     )
     port map (
