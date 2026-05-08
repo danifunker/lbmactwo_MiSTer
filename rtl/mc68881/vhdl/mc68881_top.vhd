@@ -13,7 +13,13 @@ entity mc68881_top is
   generic (
     -- `true`: full packed-decimal conversion path.
     -- `false`: synthesis-safe packed-decimal fallback for debug/triage builds.
-    packed_decimal_full_g : boolean := true;
+    -- DEFAULT FORCED TO FALSE: Quartus 17.0 has a known issue where VHDL
+    -- boolean generics from a wrapper instantiation can be ignored, leaving
+    -- the entity elaborated with its default value. The full BCD engine has
+    -- combinational paths that violate clk_sys timing by 3.79 ns. Forcing
+    -- the default false guarantees the full block is excluded regardless
+    -- of how Quartus interprets the wrapper's generic map.
+    packed_decimal_full_g : boolean := false;
     -- `true`: MC68040 hardware subset (11 ALU ops, no trig/sglops/modrem/getexp/getman).
     -- `false`: full MC68881 (37 ALU ops + 10 control/move).
     fpu_lite_g : boolean := false
