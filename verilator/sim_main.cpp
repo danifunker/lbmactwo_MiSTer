@@ -242,16 +242,6 @@ uint32_t stop_at_tick = 0;
 bool stop_at_tick_enabled = false;
 uint32_t stop_at_pc = 0;
 bool stop_at_pc_enabled = false;
-std::string checkpoint_save_file;
-std::string checkpoint_load_file;
-bool checkpoint_save_enabled = false;
-bool checkpoint_load_enabled = false;
-bool checkpoint_save_at_frame_enabled = false;
-int checkpoint_save_at_frame = -1;
-bool checkpoint_save_at_pc_enabled = false;
-uint32_t checkpoint_save_at_pc = 0;
-bool checkpoint_saved = false;
-std::string checkpoint_command_line;
 uint64_t unique_fetch_count = 0;
 uint32_t unique_fetch_last_pc = 0xFFFFFFFF;
 uint64_t profile_irq_assert_count[8] = {0};
@@ -402,14 +392,6 @@ static inline bool lowmem_tick_reached() {
 	return tick >= stop_at_tick;
 }
 
-static bool checkpoint_pc_reached() {
-	return checkpoint_save_at_pc_enabled &&
-	       !checkpoint_saved &&
-	       !*bus.ioctl_download &&
-	       VERTOPINTERN->debug_fetch_valid &&
-	       VERTOPINTERN->debug_pc == checkpoint_save_at_pc;
-}
-
 static bool stop_pc_reached() {
 	return stop_at_pc_enabled &&
 	       !*bus.ioctl_download &&
@@ -417,181 +399,6 @@ static bool stop_pc_reached() {
 	       VERTOPINTERN->debug_pc == stop_at_pc;
 }
 
-static bool checkpoint_frame_reached() {
-	return checkpoint_save_at_frame_enabled &&
-	       !checkpoint_saved &&
-	       video.count_frame >= checkpoint_save_at_frame;
-}
-
-static bool checkpoint_save_on_stop_enabled() {
-	return checkpoint_save_enabled &&
-	       !checkpoint_saved &&
-	       !checkpoint_save_at_frame_enabled &&
-	       !checkpoint_save_at_pc_enabled;
-}
-
-static void write_checkpoint_metadata(const std::string& filename, const char* reason) {
-	std::ofstream meta(filename + ".meta");
-	if (!meta) {
-		fprintf(stderr, "Warning: could not write checkpoint metadata %s.meta\n", filename.c_str());
-		return;
-	}
-
-	meta << "format=lbmactwo-verilator-checkpoint-v1\n";
-	meta << "state_file=" << filename << "\n";
-	meta << "reason=" << reason << "\n";
-	meta << "main_time=" << (unsigned long long)main_time << "\n";
-	meta << "frame=" << video.count_frame << "\n";
-	meta << "video_line=" << video.count_line << "\n";
-	meta << "video_pixel=" << video.count_pixel << "\n";
-	meta << std::hex << std::setfill('0');
-	meta << "pc=0x" << std::setw(8) << VERTOPINTERN->debug_pc << "\n";
-	meta << "opcode=0x" << std::setw(4) << VERTOPINTERN->debug_opcode << "\n";
-	meta << "vbr=0x" << std::setw(8) << VERTOPINTERN->debug_vbr << "\n";
-	meta << "tick016a=0x" << std::setw(8) << lowmem_tick_016a() << "\n";
-	meta << std::dec << std::setfill(' ');
-	meta << "clk_sys_clk=" << (clk_sys.clk ? 1 : 0) << "\n";
-	meta << "clk_sys_old=" << (clk_sys.old ? 1 : 0) << "\n";
-	meta << "clk_sys_count=" << clk_sys.GetCount() << "\n";
-	meta << "rom=../releases/boot0.rom\n";
-	meta << "nubus_rom=../releases/boot1.rom\n";
-	meta << "scsi0=" << scsi_disk_files[0] << "\n";
-	meta << "scsi1=" << scsi_disk_files[1] << "\n";
-	meta << "floppy0=" << floppy_disk_files[0] << "\n";
-	meta << "floppy1=" << floppy_disk_files[1] << "\n";
-	meta << "command=" << checkpoint_command_line << "\n";
-	meta << "note=Restore with the same Verilator binary/model and matching media arguments.\n";
-}
-
-static bool save_checkpoint(const std::string& filename, const char* reason) {
-	if (!checkpoint_save_enabled || checkpoint_saved) {
-		return true;
-	}
-	if (*bus.ioctl_download) {
-		fprintf(stderr, "Checkpoint skipped: ROM/floppy download is active; reason=%s file=%s\n",
-		        reason, filename.c_str());
-		return false;
-	}
-
-	VerilatedSave os;
-	os.open(filename);
-	if (!os.isOpen()) {
-		fprintf(stderr, "Checkpoint save failed: could not open %s\n", filename.c_str());
-		return false;
-	}
-
-	const uint64_t magic = 0x4C424D3243535431ULL; // "LBM2CST1"
-	const uint32_t version = 2;
-	const uint64_t saved_main_time = main_time;
-	const uint32_t saved_frame = (uint32_t)video.count_frame;
-	const uint32_t saved_line = (uint32_t)video.count_line;
-	const uint32_t saved_pixel = (uint32_t)video.count_pixel;
-	const uint8_t saved_clk = clk_sys.clk ? 1 : 0;
-	const uint8_t saved_old = clk_sys.old ? 1 : 0;
-	const uint32_t saved_count = (uint32_t)clk_sys.GetCount();
-	const uint32_t saved_output_width = (uint32_t)video.output_width;
-	const uint32_t saved_output_height = (uint32_t)video.output_height;
-	const uint8_t saved_framebuffer = output_ptr ? 1 : 0;
-
-	os << magic;
-	os << version;
-	os << saved_main_time;
-	os << saved_frame;
-	os << saved_line;
-	os << saved_pixel;
-	os << saved_clk;
-	os << saved_old;
-	os << saved_count;
-	os << saved_output_width;
-	os << saved_output_height;
-	os << saved_framebuffer;
-	if (saved_framebuffer) {
-		os.write(output_ptr, saved_output_width * saved_output_height * sizeof(uint32_t));
-	}
-	os << *top;
-	os.close();
-
-	checkpoint_saved = true;
-	write_checkpoint_metadata(filename, reason);
-	printf("Checkpoint saved: %s frame=%d time=%llu PC=%08X reason=%s\n",
-	       filename.c_str(),
-	       video.count_frame,
-	       (unsigned long long)main_time,
-	       VERTOPINTERN->debug_pc,
-	       reason);
-	return true;
-}
-
-static bool load_checkpoint(const std::string& filename) {
-	VerilatedRestore is;
-	is.open(filename);
-	if (!is.isOpen()) {
-		fprintf(stderr, "Checkpoint restore failed: could not open %s\n", filename.c_str());
-		return false;
-	}
-
-	uint64_t magic = 0;
-	uint32_t version = 0;
-	uint64_t restored_main_time = 0;
-	uint32_t restored_frame = 0;
-	uint32_t restored_line = 0;
-	uint32_t restored_pixel = 0;
-	uint8_t restored_clk = 0;
-	uint8_t restored_old = 0;
-	uint32_t restored_count = 0;
-	uint32_t restored_output_width = 0;
-	uint32_t restored_output_height = 0;
-	uint8_t restored_framebuffer = 0;
-
-	is >> magic;
-	is >> version;
-	if (magic != 0x4C424D3243535431ULL || version != 2) {
-		fprintf(stderr, "Checkpoint restore failed: unsupported checkpoint header in %s\n",
-		        filename.c_str());
-		return false;
-	}
-	is >> restored_main_time;
-	is >> restored_frame;
-	is >> restored_line;
-	is >> restored_pixel;
-	is >> restored_clk;
-	is >> restored_old;
-	is >> restored_count;
-	is >> restored_output_width;
-	is >> restored_output_height;
-	is >> restored_framebuffer;
-	if (restored_output_width != (uint32_t)video.output_width ||
-	    restored_output_height != (uint32_t)video.output_height) {
-		fprintf(stderr, "Checkpoint restore failed: video size mismatch checkpoint=%ux%u sim=%dx%d\n",
-		        restored_output_width, restored_output_height, video.output_width, video.output_height);
-		return false;
-	}
-	if (restored_framebuffer) {
-		if (!output_ptr) {
-			fprintf(stderr, "Checkpoint restore failed: framebuffer is not initialized\n");
-			return false;
-		}
-		is.read(output_ptr, restored_output_width * restored_output_height * sizeof(uint32_t));
-	}
-	is >> *top;
-	is.close();
-
-	main_time = restored_main_time;
-	video.count_frame = (int)restored_frame;
-	video.count_line = (int)restored_line;
-	video.count_pixel = (int)restored_pixel;
-	frame_probe_last_frame = video.count_frame;
-	clk_sys.RestoreState(restored_clk != 0, restored_old != 0, (int)restored_count);
-	top->eval();
-
-	printf("Checkpoint restored: %s frame=%d time=%llu PC=%08X Op=%04X\n",
-	       filename.c_str(),
-	       video.count_frame,
-	       (unsigned long long)main_time,
-	       VERTOPINTERN->debug_pc,
-	       VERTOPINTERN->debug_opcode);
-	return true;
-}
 
 static inline uint8_t scsi_debug_csr() {
 	uint8_t mr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr;
@@ -3396,10 +3203,6 @@ void show_help() {
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
 	printf("  --stop-at-tick <hex|dec>      Exit after low-memory tick long $016A reaches value\n");
 	printf("  --stop-at-pc <hex|dec>        Exit when debug PC is fetched\n");
-	printf("  --save-state <file>           Save a native Verilator checkpoint on stop\n");
-	printf("  --save-at-frame <frame>       Save checkpoint and exit when frame is reached\n");
-	printf("  --save-at-pc <hex|dec>        Save checkpoint and exit when debug PC is fetched\n");
-	printf("  --load-state <file>           Restore a native Verilator checkpoint at startup\n");
 	printf("\n");
 	printf("Examples:\n");
 	printf("  ./Vemu                        Run simulator in windowed mode\n");
@@ -3409,8 +3212,6 @@ void show_help() {
 	printf("  ./Vemu --headless --screenshot 50 --stop-at-frame 100\n");
 	printf("                                Headless, take screenshot at frame 50, stop at 100\n");
 	printf("  ./Vemu --headless --send-mouse 500:20,0 --stop-at-frame 520\n");
-	printf("  ./Vemu --headless --save-state checkpoints/f120.vlt --save-at-frame 120\n");
-	printf("  ./Vemu --headless --load-state checkpoints/f120.vlt --stop-at-frame 130\n");
 }
 
 void save_screenshot(int frame_number) {
@@ -3588,13 +3389,6 @@ static bool process_mouse_injections(int current_frame) {
 }
 
 int main(int argc, char** argv, char** env) {
-	for (int i = 0; i < argc; i++) {
-		if (i != 0) {
-			checkpoint_command_line += " ";
-		}
-		checkpoint_command_line += argv[i];
-	}
-
 	// Parse command-line arguments
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -3744,33 +3538,7 @@ int main(int argc, char** argv, char** env) {
 				stop_at_pc_enabled = true;
 				printf("Will stop at PC %08X\n", stop_at_pc);
 				i++;
-			} else if (strcmp(argv[i], "--save-state") == 0 && i + 1 < argc) {
-			checkpoint_save_file = argv[i + 1];
-			checkpoint_save_enabled = true;
-			printf("Will save checkpoint to %s\n", checkpoint_save_file.c_str());
-			i++;
-		} else if (strcmp(argv[i], "--save-at-frame") == 0 && i + 1 < argc) {
-			checkpoint_save_at_frame = std::stoi(argv[i + 1]);
-			checkpoint_save_at_frame_enabled = true;
-			printf("Will save checkpoint at frame %d\n", checkpoint_save_at_frame);
-			i++;
-		} else if (strcmp(argv[i], "--save-at-pc") == 0 && i + 1 < argc) {
-			checkpoint_save_at_pc = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
-			checkpoint_save_at_pc_enabled = true;
-			printf("Will save checkpoint at PC %08X\n", checkpoint_save_at_pc);
-			i++;
-		} else if (strcmp(argv[i], "--load-state") == 0 && i + 1 < argc) {
-			checkpoint_load_file = argv[i + 1];
-			checkpoint_load_enabled = true;
-			printf("Will load checkpoint from %s\n", checkpoint_load_file.c_str());
-			i++;
-		}
-	}
-
-	if ((checkpoint_save_at_frame_enabled || checkpoint_save_at_pc_enabled) &&
-	    !checkpoint_save_enabled) {
-		fprintf(stderr, "Error: --save-at-frame/--save-at-pc require --save-state <file>\n");
-		return 1;
+			}
 	}
 
 	// Create core and initialise
@@ -3894,10 +3662,7 @@ int main(int argc, char** argv, char** env) {
 		}
 	}
 
-	if (checkpoint_load_enabled) {
-		fprintf(stderr, "Machine type: Mac II, restoring checkpoint: %s\n",
-		        checkpoint_load_file.c_str());
-	} else {
+	{
 		// Auto-load Mac II ROM at startup
 		const char* rom_file = "../releases/boot0.rom";  // Mac II 256K ROM
 		bus.QueueDownload(rom_file, 0, 1);  // index 0 for ROM
@@ -3921,9 +3686,6 @@ int main(int argc, char** argv, char** env) {
 	VERTOPINTERN->clk_sys = 0;
 	VERTOPINTERN->reset = 1;
 	top->eval();
-	if (checkpoint_load_enabled && !load_checkpoint(checkpoint_load_file)) {
-		return 1;
-	}
 
 #ifdef WIN32
 	MSG msg;
@@ -3948,9 +3710,6 @@ int main(int argc, char** argv, char** env) {
 					    late_adb_stop_requested) {
 						break;
 					}
-						if (checkpoint_pc_reached() || checkpoint_frame_reached()) {
-							break;
-						}
 						if (stop_pc_reached()) {
 							break;
 						}
@@ -3968,12 +3727,6 @@ int main(int argc, char** argv, char** env) {
 
 			maybe_print_frame_probe();
 
-				if (checkpoint_pc_reached()) {
-					save_checkpoint(checkpoint_save_file, "save-at-pc");
-					print_scsi_stop_state();
-					break;
-				}
-
 				if (stop_pc_reached()) {
 					printf("Reached stop PC %08X, exiting... frame=%d Op=%04X VBR=%08X\n",
 						stop_at_pc,
@@ -3989,9 +3742,6 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
-				if (checkpoint_save_on_stop_enabled()) {
-					save_checkpoint(checkpoint_save_file, "bootmask-once-debug");
-				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -4001,9 +3751,6 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
-				if (checkpoint_save_on_stop_enabled()) {
-					save_checkpoint(checkpoint_save_file, "scsi-transition-debug");
-				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -4013,9 +3760,6 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
-				if (checkpoint_save_on_stop_enabled()) {
-					save_checkpoint(checkpoint_save_file, "late-adb-debug");
-				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -4043,12 +3787,6 @@ int main(int argc, char** argv, char** env) {
 				}
 			}
 
-			if (checkpoint_frame_reached()) {
-				save_checkpoint(checkpoint_save_file, "save-at-frame");
-				print_scsi_stop_state();
-				break;
-			}
-
 			if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
 				if (took_screenshot_this_frame) {
 					printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
@@ -4063,9 +3801,6 @@ int main(int argc, char** argv, char** env) {
 						VERTOPINTERN->debug_opcode,
 						VERTOPINTERN->debug_vbr);
 				}
-				if (checkpoint_save_on_stop_enabled()) {
-					save_checkpoint(checkpoint_save_file, "stop-at-frame");
-				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -4076,9 +3811,6 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
-				if (checkpoint_save_on_stop_enabled()) {
-					save_checkpoint(checkpoint_save_file, "stop-at-tick");
-				}
 				print_scsi_stop_state();
 				break;
 			}
@@ -4279,12 +4011,6 @@ int main(int argc, char** argv, char** env) {
 			}
 		}
 
-			if (checkpoint_pc_reached()) {
-				save_checkpoint(checkpoint_save_file, "save-at-pc");
-				print_scsi_stop_state();
-				break;
-			}
-
 			if (stop_pc_reached()) {
 				printf("Reached stop PC %08X, exiting... frame=%d Op=%04X VBR=%08X\n",
 					stop_at_pc,
@@ -4294,12 +4020,6 @@ int main(int argc, char** argv, char** env) {
 				print_scsi_stop_state();
 				break;
 			}
-
-			if (checkpoint_frame_reached()) {
-			save_checkpoint(checkpoint_save_file, "save-at-frame");
-			print_scsi_stop_state();
-			break;
-		}
 
 		// Check if we should stop at this frame
 		if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
@@ -4315,9 +4035,6 @@ int main(int argc, char** argv, char** env) {
 					VERTOPINTERN->debug_pc,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
-			}
-			if (checkpoint_save_on_stop_enabled()) {
-				save_checkpoint(checkpoint_save_file, "stop-at-frame");
 			}
 			print_scsi_stop_state();
 			break;
@@ -4349,9 +4066,6 @@ int main(int argc, char** argv, char** env) {
 		if (run_enable) {
 				for (int step = 0; step < batchSize; step++) {
 					verilate();
-					if (checkpoint_pc_reached() || checkpoint_frame_reached()) {
-						break;
-					}
 					if (stop_pc_reached()) {
 						break;
 					}
