@@ -847,11 +847,11 @@ PROCESS (clk)
 				END IF;
 				-- FScc/FTRAPcc: latch condition result from FPU response
 				IF micro_state = cp_cond_eval THEN
-					cp_cond_true <= last_data_read(0);
+					cp_cond_true <= data_in(0);
 				END IF;
 				-- cpSAVE format word capture
 				IF micro_state = cp_save_rd_fmt THEN
-					cp_save_fmt <= last_data_read(15 downto 0);
+					cp_save_fmt <= data_in(15 downto 0);
 				END IF;
 				-- cpSAVE/cpRESTORE frame word counter
 				IF micro_state = cp_save_decode THEN
@@ -875,7 +875,7 @@ PROCESS (clk)
 				END IF;
 				-- Coprocessor transfer count management
 				IF micro_state = cp_idle_resp THEN
-					cp_xfer_cnt <= last_data_read(12 downto 10);
+					cp_xfer_cnt <= data_in(12 downto 10);
 				ELSIF (micro_state = cp_xfer_to OR micro_state = cp_xfer_from) AND cp_xfer_cnt /= "000" THEN
 					cp_xfer_cnt <= cp_xfer_cnt - 1;
 				END IF;
@@ -3361,7 +3361,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 --				
 ---- 1111 ----------------------------------------------------------------------------
 			WHEN "1111" =>
-				IF cpu(1)='1' AND opcode(11 downto 9)/="000" THEN
+				IF decodeOPC='1' AND cpu(1)='1' AND opcode(11 downto 9)/="000" THEN
 					-- Valid coprocessor ID (non-zero)
 					datatype <= "01"; -- word for CIR access
 					IF opcode(8 downto 6)="000" THEN
@@ -3447,7 +3447,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						trap_1111 <= '1';
 						trapmake <= '1';
 					END IF;
-				ELSE
+				ELSIF decodeOPC='1' THEN
 					-- cpID=000 or not 68020 mode
 					trap_1111 <= '1';
 					trapmake <= '1';
@@ -4381,11 +4381,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN cp_idle_resp =>
 					-- Decode response from last_data_read
 					setstate <= "01";      -- idle (no bus access)
-					CASE last_data_read(15 downto 13) IS
+					CASE data_in(15 downto 13) IS
 						WHEN "000" =>      -- Busy: re-read
 							next_micro_state <= cp_read_resp;
 						WHEN "001" =>      -- Null: done
-							NULL;          -- next_micro_state defaults to idle
+							next_micro_state <= idle;
 						WHEN "011" =>      -- Transfer to coprocessor
 							next_micro_state <= cp_xfer_to;
 						WHEN "100" =>      -- Transfer from coprocessor
@@ -4452,7 +4452,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					ELSIF cp_frame_cnt = "0000000" THEN
 						-- Format word just written (or null frame)
 						cp_an_writeback <= '1';
-						-- done - return to idle
+						next_micro_state <= idle;
 					ELSE
 						-- More data words to read from CIR
 						next_micro_state <= cp_save_rd_cir;
@@ -4505,6 +4505,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					IF last_data_read(15 downto 8) = X"00" THEN
 						-- Null frame: done, writeback An
 						cp_an_writeback <= '1';
+						next_micro_state <= idle;
 					ELSE
 						-- Non-null frame: read data words from memory
 						next_micro_state <= cp_restore_rd_mem;
@@ -4545,25 +4546,26 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN cp_cond_eval =>
 					-- Decode response and act on condition result
 					setstate <= "01";      -- idle
-					CASE last_data_read(15 downto 13) IS
+					CASE data_in(15 downto 13) IS
 						WHEN "000" =>      -- Busy: re-read
 							next_micro_state <= cp_cond_resp;
 						WHEN "001" =>      -- Null: condition result in bit 0
+							next_micro_state <= idle;
 							IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
 								-- FBcc: branch if condition true
-								IF last_data_read(0) = '1' THEN
+								IF data_in(0) = '1' THEN
 									cp_do_branch <= '1';
 								END IF;
 							ELSIF exe_opcode(8 downto 6) = "001" THEN
 								IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
 									-- FTRAPcc: trap if condition true
-									IF last_data_read(0) = '1' THEN
+									IF data_in(0) = '1' THEN
 										trap_trapv <= '1';
 										trapmake <= '1';
 									END IF;
 								ELSIF exe_opcode(5 downto 3) = "001" THEN
 									-- FDBcc: if condition false, decrement Dn and maybe branch
-									IF last_data_read(0) = '0' THEN
+									IF data_in(0) = '0' THEN
 										data_is_source <= '1';
 										set(OP2out_one) <= '1';
 										next_micro_state <= cp_fdbcc_dec;
@@ -4593,6 +4595,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- cp_cond_true was latched from response bit 0
 					setstate <= "01";      -- idle
 					cp_fscc_writeback <= '1';
+					next_micro_state <= idle;
 
 				WHEN cp_fscc_wr_mem =>
 					-- Write FScc result byte ($FF or $00) to memory EA
@@ -4600,6 +4603,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					set_cp_memaddr <= '1';  -- use cp_ea_addr for address
 					setstate <= "11";       -- bus write
 					datatype <= "00";       -- byte
+					next_micro_state <= idle;
 
 				WHEN cp_fdbcc_disp =>
 					-- PC fetch: read displacement word (state defaults to "00")
@@ -4617,6 +4621,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						cp_do_branch <= '1';
 						skipFetch <= '1';
 						next_micro_state <= nop;
+					ELSE
+						next_micro_state <= idle;
 					END IF;
 					-- c_out(1)='0': Dn wrapped to $FFFF (-1), fall through (done)
 

@@ -608,6 +608,27 @@ always @(posedge clk_sys) begin
 	end
 end
 
+// TG68K samples read data at the end of the bus cycle.  Hold FPU read data
+// after AS releases so the CPU does not see the normal data-controller mux.
+reg [15:0] fpu_data_hold;
+reg fpu_data_hold_valid;
+always @(posedge clk_sys) begin
+	if (!_cpuReset) begin
+		fpu_data_hold <= 16'h0000;
+		fpu_data_hold_valid <= 1'b0;
+	end else if (!_cpuAS && selectFPU && _cpuRW) begin
+		fpu_data_hold <= fpu_data_out[15:0];
+		fpu_data_hold_valid <= 1'b1;
+	end else if (!_cpuAS && !selectFPU) begin
+		fpu_data_hold_valid <= 1'b0;
+	end
+end
+
+wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
+                          selectFPU ? fpu_data_out[15:0] :
+                          fpu_data_hold_valid ? fpu_data_hold :
+                          dataControllerDataOut;
+
 tg68k tg68k_inst (
 	.clk        ( clk_sys      ),
 	.reset      ( !_cpuReset   ),
@@ -636,8 +657,7 @@ tg68k tg68k_inst (
 
 	.ipl        ( _cpuIPL      ),
 	.berr       ( berr_inhibit_active ? 1'b0 : berr_out ),
-		.din        ( berr_inhibit_active ? berr_data_out[15:0] :
-		              (selectFPU ? fpu_data_out[15:0] : dataControllerDataOut) ),
+		.din        ( cpu_data_in   ),
 		.dout       ( tg68_dout    ),
 		.longword   ( tg68_longword ),
 		.addr       ( tg68_a       ),

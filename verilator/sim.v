@@ -258,6 +258,13 @@ module emu
 	wire [1:0] glueRAMSize;
 	wire [15:0] dataControllerDataOut;
 
+	// MC68881 FPU coprocessor cycles use FC=7 CPU space, cpID=1.
+	// The Verilator harness uses a fast CIR-level responder for boot/debug runs.
+	wire fpuAddrMatch = (cpuFC == 3'b111) && (cpuAddr[31:16] == 16'h0002) && (cpuAddr[15:13] == 3'b001);
+	wire selectFPU = fpuAddrMatch && !_cpuAS;
+	wire [31:0] fpu_data_out;
+	wire fpu_dsack0_n, fpu_dsack1_n;
+	wire fpu_sense_n;
 
 	// floppy disk image interface
 	wire dskReadAckInt;
@@ -278,13 +285,14 @@ module emu
 		end
 	end
 
-	// VPA: assert for FC=7 (autovector), 24-bit VIA space, and 32-bit VIA/VIA2 accesses
+	// VPA: assert for FC=7 autovector cycles, except FPU coprocessor cycles.
 	wire viaAccess = selectVIA | selectVIA2;
-	assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 :
+	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
-	// DTACK: do not assert for VIA accesses (they use VPA/VMA synchronous handshake)
-	assign      _cpuDTACK = selectNuBus ? nubusAck :
+	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
+	assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
+	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
 	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
@@ -295,7 +303,7 @@ module emu
 	wire nubus_acked = nubus_acked_arb;  // from nubus_arbiter: card or empty-slot responded
 	wire scsi_dma_wait = selectSCSIDMA && !scsiDREQ;
 	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-	                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay;
+	                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 	wire is_cpu_space = (cpuFC == 3'b111);
 
 	always @(posedge clk_sys) begin
@@ -397,7 +405,41 @@ module emu
 	wire cpu_berr_inhibit;
 	wire [31:0] cpu_berr_data;
 	wire berr_effective = cpu_berr_inhibit ? 1'b0 : berr_out;
-	wire [15:0] cpu_data_in = cpu_berr_inhibit ? cpu_berr_data[15:0] : dataControllerDataOut;
+	reg [15:0] fpu_data_hold;
+	reg fpu_data_hold_valid;
+	always @(posedge clk_sys) begin
+		if (!_cpuReset) begin
+			fpu_data_hold <= 16'h0000;
+			fpu_data_hold_valid <= 1'b0;
+		end else if (!_cpuAS && selectFPU && _cpuRW) begin
+			fpu_data_hold <= fpu_data_out[15:0];
+			fpu_data_hold_valid <= 1'b1;
+		end else if (!_cpuAS && !selectFPU) begin
+			fpu_data_hold_valid <= 1'b0;
+		end
+	end
+
+	wire [15:0] cpu_data_in = cpu_berr_inhibit ? cpu_berr_data[15:0] :
+	                          selectFPU ? fpu_data_out[15:0] :
+	                          fpu_data_hold_valid ? fpu_data_hold :
+	                          dataControllerDataOut;
+
+	sim_fpu_cir_stub fpu_inst (
+		.clk          ( clk_sys              ),
+		.reset_n      ( _cpuReset            ),
+		.a_in         ( cpuAddr[5:1]         ),
+		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_out        ( fpu_data_out         ),
+		.size_n       ( 2'b01                ),
+		.as_n         ( _cpuAS               ),
+		.cs_n         ( ~fpuAddrMatch        ),
+		.rw           ( _cpuRW               ),
+		.ds_n         ( _cpuUDS & _cpuLDS    ),
+		.dsack0_n     ( fpu_dsack0_n         ),
+		.dsack1_n     ( fpu_dsack1_n         ),
+		.sense_n      ( fpu_sense_n          ),
+		.status_valid (                      )
+	);
 	
 	// CPU debug - simplified without busstate
 	reg [31:0] last_fetch_pc;
@@ -770,7 +812,15 @@ module emu
 	wire        ram_we   = download_cycle ? 1'b1                  : !_ramWE;
 	wire        ram_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 	wire [15:0] ram_do_raw;
-	wire [15:0] ram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux : ram_do_raw;
+	wire [21:0] ram_next_word_addr = ram_addr[21:0] + 22'd1;
+	wire [15:0] ram_odd_word_do = {ram_do_raw[7:0], ram.mem[ram_next_word_addr][15:8]};
+	wire        ram_odd_full_read = !download_cycle && !(dskReadAckInt || dskReadAckExt) &&
+	                                ram_oe && !ram_we && memoryAddr[0] &&
+	                                !_memoryUDS && !_memoryLDS;
+	wire [15:0] ram_do   = download_cycle ? 16'hffff :
+	                       (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux :
+	                       ram_odd_full_read ? ram_odd_word_do :
+	                       ram_do_raw;
 	wire [15:0] extra_rom_data_demux = memoryAddr[0] ?
 						   {ram_do_raw[7:0],ram_do_raw[7:0]}:{ram_do_raw[15:8],ram_do_raw[15:8]};
 
@@ -1591,4 +1641,83 @@ module emu
 	end
 `endif
 
+endmodule
+
+module sim_fpu_cir_stub
+(
+	input         clk,
+	input         reset_n,
+	input  [4:0]  a_in,
+	input  [31:0] d_in,
+	output reg [31:0] d_out,
+	input  [1:0]  size_n,
+	input         as_n,
+	input         cs_n,
+	input         rw,
+	input         ds_n,
+	output        dsack0_n,
+	output        dsack1_n,
+	output        sense_n,
+	output        status_valid
+);
+	localparam [4:0] CIR_RESPONSE  = 5'd0;
+	localparam [4:0] CIR_SAVE      = 5'd2;
+	localparam [4:0] CIR_RESTORE   = 5'd3;
+	localparam [4:0] CIR_OPWORD    = 5'd4;
+	localparam [4:0] CIR_COMMAND   = 5'd5;
+	localparam [4:0] CIR_CONDITION = 5'd7;
+	localparam [4:0] CIR_OPERAND   = 5'd8;
+
+	localparam [15:0] RESP_NULL = 16'h2000;
+	localparam [15:0] FRAME_NULL = 16'h0000;
+
+	wire active = !as_n && !cs_n && !ds_n;
+	assign dsack0_n = ~active;
+	assign dsack1_n = 1'b1;
+	assign sense_n = 1'b0;
+	assign status_valid = 1'b1;
+
+	reg active_d;
+	reg [15:0] opword;
+	reg [15:0] command;
+	reg [15:0] condition;
+	reg [15:0] restore_format;
+
+	always @(*) begin
+		case (a_in)
+			CIR_RESPONSE: d_out = {16'h0000, RESP_NULL};
+			CIR_SAVE:     d_out = {16'h0000, FRAME_NULL};
+			CIR_OPERAND:  d_out = 32'h00000000;
+			default:      d_out = {16'h0000, RESP_NULL};
+		endcase
+	end
+
+	always @(posedge clk) begin
+		if (!reset_n) begin
+			active_d <= 1'b0;
+			opword <= 16'h0000;
+			command <= 16'h0000;
+			condition <= 16'h0000;
+			restore_format <= FRAME_NULL;
+		end else begin
+			active_d <= active;
+			if (active && !active_d && !rw) begin
+				case (a_in)
+					CIR_OPWORD:    opword <= d_in[15:0];
+					CIR_COMMAND:   command <= d_in[15:0];
+					CIR_CONDITION: condition <= d_in[15:0];
+					CIR_RESTORE:   restore_format <= d_in[15:0];
+					default: ;
+				endcase
+				if ($test$plusargs("fpu_stub_debug")) begin
+					$display("[FPU_STUB_WR] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h",
+					         a_in, d_in[15:0], opword, command, condition, restore_format);
+				end
+			end
+			if (active && !active_d && rw && $test$plusargs("fpu_stub_debug")) begin
+				$display("[FPU_STUB_RD] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h size_n=%b",
+				         a_in, d_out[15:0], opword, command, condition, restore_format, size_n);
+			end
+		end
+	end
 endmodule

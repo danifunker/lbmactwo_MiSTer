@@ -14648,13 +14648,13 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:849:48  */
   assign n756 = micro_state == 7'b1101111;
   /* TG68KdotC_Kernel.vhd:850:71  */
-  assign n757 = last_data_read[0]; // extract
+  assign n757 = data_in[0]; // extract
   /* TG68KdotC_Kernel.vhd:800:25  */
   assign n758 = n1090 ? n757 : cp_cond_true;
   /* TG68KdotC_Kernel.vhd:853:48  */
   assign n760 = micro_state == 7'b1100011;
   /* TG68KdotC_Kernel.vhd:854:70  */
-  assign n761 = last_data_read[15:0]; // extract
+  assign n761 = data_in[15:0]; // extract
   /* TG68KdotC_Kernel.vhd:800:25  */
   assign n762 = n1087 ? n761 : cp_save_fmt;
   /* TG68KdotC_Kernel.vhd:857:48  */
@@ -14706,7 +14706,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:877:48  */
   assign n803 = micro_state == 7'b1100000;
   /* TG68KdotC_Kernel.vhd:878:70  */
-  assign n804 = last_data_read[12:10]; // extract
+  assign n804 = data_in[12:10]; // extract
   /* TG68KdotC_Kernel.vhd:879:52  */
   assign n806 = micro_state == 7'b1100001;
   /* TG68KdotC_Kernel.vhd:879:80  */
@@ -24825,7 +24825,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:3364:70  */
   assign n7867 = n7865 != 3'b000;
   /* TG68KdotC_Kernel.vhd:3364:47  */
-  assign n7868 = n7867 & n7864;
+  assign n7868 = n7867 & n7864 & decodeopc;
   /* TG68KdotC_Kernel.vhd:3367:50  */
   assign n7869 = opcode[8:6]; // extract
   /* TG68KdotC_Kernel.vhd:3367:62  */
@@ -28321,7 +28321,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4373:33  */
   assign n9574 = micro_state == 7'b1011111;
   /* TG68KdotC_Kernel.vhd:4384:60  */
-  assign n9575 = last_data_read[15:13]; // extract
+  assign n9575 = data_in[15:13]; // extract
   /* TG68KdotC_Kernel.vhd:4385:49  */
   assign n9577 = n9575 == 3'b000;
   /* TG68KdotC_Kernel.vhd:4387:49  */
@@ -28354,7 +28354,7 @@ module TG68KdotC_Kernel
     case (n9584)
       4'b1000: n9592 = 7'b1100010;
       4'b0100: n9592 = 7'b1100001;
-      4'b0010: n9592 = n8545;
+      4'b0010: n9592 = 7'b0000000;
       4'b0001: n9592 = 7'b1011111;
       default: n9592 = n8545;
     endcase
@@ -28389,7 +28389,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4452:41  */
   assign n9625 = n9622 ? 1'b1 : 1'b0;
   /* TG68KdotC_Kernel.vhd:4452:41  */
-  assign n9627 = n9622 ? n8545 : 7'b1100110;
+  assign n9627 = n9622 ? 7'b0000000 : 7'b1100110;
   /* TG68KdotC_Kernel.vhd:4449:41  */
   assign n9629 = n9620 ? 1'b0 : n9625;
   /* TG68KdotC_Kernel.vhd:4449:41  */
@@ -28417,7 +28417,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4505:41  */
   assign n9654 = n9651 ? 1'b1 : 1'b0;
   /* TG68KdotC_Kernel.vhd:4505:41  */
-  assign n9656 = n9651 ? n8545 : 7'b1101000;
+  assign n9656 = n9651 ? 7'b0000000 : 7'b1101000;
   /* TG68KdotC_Kernel.vhd:4501:33  */
   assign n9658 = micro_state == 7'b1101011;
   /* TG68KdotC_Kernel.vhd:4519:57  */
@@ -28433,7 +28433,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4537:33  */
   assign n9672 = micro_state == 7'b1101110;
   /* TG68KdotC_Kernel.vhd:4548:60  */
-  assign n9673 = last_data_read[15:13]; // extract
+  assign n9673 = data_in[15:13]; // extract
   /* TG68KdotC_Kernel.vhd:4549:49  */
   assign n9675 = n9673 == 3'b000;
   /* TG68KdotC_Kernel.vhd:4552:70  */
@@ -28447,7 +28447,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4552:91  */
   assign n9682 = n9678 | n9681;
   /* TG68KdotC_Kernel.vhd:4554:82  */
-  assign n9683 = last_data_read[0]; // extract
+  assign n9683 = data_in[0]; // extract
   /* TG68KdotC_Kernel.vhd:4554:65  */
   assign n9686 = n9683 ? 1'b1 : 1'b0;
   /* TG68KdotC_Kernel.vhd:4557:73  */
@@ -28463,7 +28463,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4558:99  */
   assign n9694 = n9693 & n9692;
   /* TG68KdotC_Kernel.vhd:4560:90  */
-  assign n9695 = last_data_read[0]; // extract
+  assign n9695 = data_in[0]; // extract
   /* TG68KdotC_Kernel.vhd:4557:57  */
   assign n9697 = n9726 ? 1'b1 : n8235;
   /* TG68KdotC_Kernel.vhd:4557:57  */
@@ -28473,7 +28473,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4564:94  */
   assign n9702 = n9700 == 3'b001;
   /* TG68KdotC_Kernel.vhd:4566:90  */
-  assign n9703 = last_data_read[0]; // extract
+  assign n9703 = data_in[0]; // extract
   /* TG68KdotC_Kernel.vhd:4566:94  */
   assign n9704 = ~n9703;
   /* TG68KdotC_Kernel.vhd:4564:65  */
@@ -28481,7 +28481,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4564:65  */
   assign n9708 = n9718 ? 1'b1 : n8309;
   /* TG68KdotC_Kernel.vhd:4566:73  */
-  assign n9710 = n9704 ? 7'b1110100 : n8545;
+  assign n9710 = n9704 ? 7'b1110100 : 7'b0000000;
   /* TG68KdotC_Kernel.vhd:4572:81  */
   assign n9711 = exe_opcode[5:3]; // extract
   /* TG68KdotC_Kernel.vhd:4572:94  */
@@ -28503,7 +28503,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4558:65  */
   assign n9723 = n9694 ? n8309 : n9708;
   /* TG68KdotC_Kernel.vhd:4558:65  */
-  assign n9724 = n9694 ? n8545 : n9719;
+  assign n9724 = n9694 ? 7'b0000000 : n9719;
   /* TG68KdotC_Kernel.vhd:4557:57  */
   assign n9725 = n9689 ? n9720 : n8169;
   /* TG68KdotC_Kernel.vhd:4557:57  */
@@ -28513,7 +28513,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4557:57  */
   assign n9728 = n9689 ? n9723 : n8309;
   /* TG68KdotC_Kernel.vhd:4557:57  */
-  assign n9729 = n9689 ? n9724 : n8545;
+  assign n9729 = n9689 ? n9724 : 7'b0000000;
   /* TG68KdotC_Kernel.vhd:4552:57  */
   assign n9730 = n9682 ? n8169 : n9725;
   /* TG68KdotC_Kernel.vhd:4552:57  */
@@ -28525,7 +28525,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4552:57  */
   assign n9735 = n9682 ? n8309 : n9728;
   /* TG68KdotC_Kernel.vhd:4552:57  */
-  assign n9736 = n9682 ? n8545 : n9729;
+  assign n9736 = n9682 ? 7'b0000000 : n9729;
   /* TG68KdotC_Kernel.vhd:4551:49  */
   assign n9738 = n9673 == 3'b001;
   assign n9739 = {n9738, n9675};
@@ -28595,7 +28595,7 @@ module TG68KdotC_Kernel
   /* TG68KdotC_Kernel.vhd:4615:41  */
   assign n9766 = n9761 ? 1'b1 : 1'b0;
   /* TG68KdotC_Kernel.vhd:4615:41  */
-  assign n9768 = n9761 ? 7'b0000001 : n8545;
+  assign n9768 = n9761 ? 7'b0000001 : 7'b0000000;
   /* TG68KdotC_Kernel.vhd:4609:33  */
   assign n9770 = micro_state == 7'b1110100;
   assign n9771 = {n9770, n9760, n9758, n9756, n9754, n9752, n9672, n9670, n9668, n9658, n9648, n9646, n9639, n9637, n9635, n9633, n9618, n9610, n9608, n9601, n9594, n9574, n9572, n9570, n9536, n9534, n9523, n9515, n9494, n9486, n9478, n9459, n9457, n9452, n9427, n9419, n9411, n9409, n9402, n9383, n9371, n9358, n9313, n9310, n9308, n9299, n9297, n9267, n9265, n9250, n9238, n9229, n9226, n9223, n9220, n9216, n9208, n9201, n9185, n9182, n9179, n9176, n9173, n9169, n9161, n9153, n9151, n9136, n9126, n9119, n9100, n9080, n9076, n9072, n9037, n9034, n9025, n9022, n9016, n9012, n8991, n8989, n8984, n8982, n8964, n8945, n8939, n8921, n8919, n8910, n8908, n8897, n8878, n8866, n8862, n8823, n8820, n8783, n8781, n8761, n8750, n8747, n8704, n8701, n8659, n8656, n8653};
@@ -38030,8 +38030,8 @@ module TG68KdotC_Kernel
     case (n9771)
       107'b10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = n9768;
       107'b01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = 7'b1011110;
-      107'b00100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = n8545;
-      107'b00010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = n8545;
+      107'b00100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = 7'b0000000;
+      107'b00010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = 7'b0000000;
       107'b00001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = 7'b1011110;
       107'b00000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = n9750;
       107'b00000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000: n10149 = 7'b1101111;
@@ -39367,4 +39367,3 @@ module TG68KdotC_Kernel
   assign n10642 = cp_ea_addr[31:8]; // extract
   /* TG68KdotC_Kernel.vhd:608:49  */
 endmodule
-
