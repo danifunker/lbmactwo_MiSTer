@@ -56,6 +56,7 @@ reg sd_buff_sel;
 
 wire [7:0] buffer0_dout;
 wire [7:0] buffer0_dout_next;
+wire [7:0] buffer0_dout_next2;
 scsi_dpram buffer0
 (
 	.clock(clk),
@@ -71,11 +72,15 @@ scsi_dpram buffer0
 	.q_b(buffer0_dout),
 
 	.address_c(data_cnt[9:1] + 9'd1),
-	.q_c(buffer0_dout_next)
+	.q_c(buffer0_dout_next),
+
+	.address_d(data_cnt[9:1] + 9'd2),
+	.q_d(buffer0_dout_next2)
 );
 
 wire [7:0] buffer1_dout;
 wire [7:0] buffer1_dout_next;
+wire [7:0] buffer1_dout_next2;
 scsi_dpram buffer1
 (
 	.clock(clk),
@@ -91,7 +96,10 @@ scsi_dpram buffer1
 	.q_b(buffer1_dout),
 
 	.address_c(data_cnt[9:1] + 9'd1),
-	.q_c(buffer1_dout_next)
+	.q_c(buffer1_dout_next),
+
+	.address_d(data_cnt[9:1] + 9'd2),
+	.q_d(buffer1_dout_next2)
 );
 
 reg old_io_ack;
@@ -147,13 +155,13 @@ wire [7:0] cmd_dout =
 		cmd_mode_sense?mode_sense_dout:
 		8'h00;
 wire [15:0] cmd_dout_pair =
-		cmd_read?{buffer0_dout, buffer1_dout}:
+		cmd_read?(data_cnt[0] ? {buffer1_dout, buffer0_dout_next} : {buffer0_dout, buffer1_dout}):
 		cmd_inquiry?{inquiry_dout, inquiry_dout_next}:
 		cmd_read_capacity?{read_capacity_dout, read_capacity_dout_next}:
 		cmd_mode_sense?{mode_sense_dout, mode_sense_dout_next}:
 		16'h0000;
 wire [15:0] cmd_dout_pair_next =
-		cmd_read?{buffer0_dout_next, buffer1_dout_next}:
+		cmd_read?(data_cnt[0] ? {buffer1_dout_next, buffer0_dout_next2} : {buffer0_dout_next, buffer1_dout_next}):
 		cmd_inquiry?{inquiry_dout_next2, inquiry_dout_next3}:
 		cmd_read_capacity?{read_capacity_dout_next2, read_capacity_dout_next3}:
 		cmd_mode_sense?{mode_sense_dout_next2, mode_sense_dout_next3}:
@@ -237,7 +245,7 @@ reg        mounted = 0;
 always @(posedge clk) begin
 	if (img_mounted) begin
 		if (|img_blocks) begin
-			capacity <= img_blocks;
+			capacity <= img_blocks - 1'd1;
 			if (!mounted) $display("Image mounted on target %d, size: %d", ID, img_blocks);
 			mounted <= 1;
 		end else
@@ -800,7 +808,10 @@ module scsi_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=9)
 	output reg [DATAWIDTH-1:0] q_b,
 
 	input	[ADDRWIDTH-1:0] address_c,
-	output reg [DATAWIDTH-1:0] q_c
+	output reg [DATAWIDTH-1:0] q_c,
+
+	input	[ADDRWIDTH-1:0] address_d,
+	output reg [DATAWIDTH-1:0] q_d
 );
 
 reg [DATAWIDTH-1:0] ram[0:(1<<ADDRWIDTH)-1];
@@ -822,6 +833,7 @@ always @(posedge clock) begin
 		q_b <= ram[address_b];
 	end
 	q_c <= ram[address_c];
+	q_d <= ram[address_d];
 end
 
 endmodule
