@@ -541,6 +541,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg via1_sr_ext_load;
 	reg [7:0] via1_sr_ext_data;
 	reg via1_sr_out_done;            // pulses when shift-out timer expires
+	reg via1_sr_out_pending;
+	reg via1_sr_out_ack;
+	reg via1_sr_wr_d;
+	reg via1_acr_wr_d;
 
 	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin.
 	localparam SHIFT_DELAY = 17'd100000;
@@ -555,21 +559,35 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			via1_sr_ext_load <= 1'b0;
 			via1_sr_ext_data <= 8'h00;
 			via1_sr_out_done <= 1'b0;
+			via1_sr_out_pending <= 1'b0;
+			via1_sr_wr_d <= 1'b0;
+			via1_acr_wr_d <= 1'b0;
 		end else begin
 			via1_sr_ext_complete <= 1'b0;
 			via1_sr_ext_load <= 1'b0;
 			via1_sr_out_done <= 1'b0;
+			via1_sr_wr_d <= via1_sr_wr;
+			via1_acr_wr_d <= via1_acr_wr;
+			if (via1_sr_out_ack) begin
+				via1_sr_out_pending <= 1'b0;
+			end
 
 			// Track ACR writes — shadow the shift mode bits
 			if (via1_acr_wr) begin
 				via1_acr_shift_mode <= cpuDataIn[12:10]; // bits [4:2] of byte
-				// ACR changed to shift-out mode: start timer
-				if (cpuDataIn[12:10] == 3'b111 && via1_acr_shift_mode != 3'b111) begin
+`ifdef SIMULATION
+				if (!via1_acr_wr_d && $test$plusargs("adb_trace_debug")) begin
+					$display("ADB_VIA_ACR_WRITE data=%02h mode=%03b old_mode=%03b st=%b",
+					         cpuDataIn[15:8], cpuDataIn[12:10], via1_acr_shift_mode,
+					         {ADBST1, ADBST0});
+				end
+`endif
+				// ACR shift modes start the Snow-style transfer timer on each write.
+				if (cpuDataIn[12:10] == 3'b111) begin
 					via1_shift_timer <= SHIFT_DELAY;
 					via1_shift_dir <= 1'b1;
 				end
-				// ACR changed to shift-in mode: start timer for response
-				else if (cpuDataIn[12:10] == 3'b011 && via1_acr_shift_mode != 3'b011) begin
+				else if (cpuDataIn[12:10] == 3'b011) begin
 					via1_shift_timer <= SHIFT_DELAY;
 					via1_shift_dir <= 1'b0;
 				end
@@ -582,6 +600,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// Track SR writes — shadow the data and (re)start timer
 			if (via1_sr_wr) begin
 				via1_sr_shadow <= cpuDataIn[15:8];
+`ifdef SIMULATION
+				if (!via1_sr_wr_d && $test$plusargs("adb_trace_debug")) begin
+					$display("ADB_VIA_SR_WRITE data=%02h mode=%03b st=%b",
+					         cpuDataIn[15:8], via1_acr_shift_mode, {ADBST1, ADBST0});
+				end
+`endif
 				if (via1_acr_shift_mode == 3'b111) begin
 					via1_shift_timer <= SHIFT_DELAY;
 					via1_shift_dir <= 1'b1;
@@ -599,6 +623,18 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 				via1_shift_timer <= 17'd0;
 				via1_sr_ext_complete <= 1'b1;
 				via1_sr_out_done <= via1_shift_dir;
+				if (via1_shift_dir) begin
+					via1_sr_out_pending <= 1'b1;
+				end else if (via1_acr_shift_mode == 3'b011) begin
+					via1_shift_timer <= SHIFT_DELAY;
+				end
+`ifdef SIMULATION
+				if ($test$plusargs("adb_trace_debug")) begin
+					$display("ADB_VIA_SR_DONE dir=%0d shadow=%02h load=%0d data=%02h st=%b",
+					         via1_shift_dir, via1_sr_shadow, !via1_shift_dir,
+					         kbd_to_mac, {ADBST1, ADBST0});
+				end
+`endif
 				if (!via1_shift_dir) begin
 					// Shift-in complete: load response into SR
 					via1_sr_ext_load <= 1'b1;
@@ -666,6 +702,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			adb_recv_pending <= 0;
 			ADBListenD <= 0;
 			via1_sr_active_d <= 0;
+			via1_sr_out_ack <= 1'b0;
 		end else if (clk8_en_p) begin
 			if (kbd_in_strobe && !machineType) begin
 				kbd_to_mac <= kbd_in_data;
@@ -683,13 +720,15 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 			kbd_out_strobe <= 0;
 			adb_din_strobe <= 0;
+			via1_sr_out_ack <= 1'b0;
 			kbdclk_d <= kbdclk;
 			via1_sr_active_d <= via1_sr_active;
 
 			// Snow-style shift-out completion: deliver byte to ADB transceiver
-			if (via1_sr_out_done && machineType) begin
+			if (via1_sr_out_pending && machineType) begin
 				adb_din_strobe <= 1;
 				adb_din <= via1_sr_shadow;
+				via1_sr_out_ack <= 1'b1;
 			end
 
 			// Only the Macintosh can initiate communication over the keyboard lines. On

@@ -116,6 +116,10 @@ task process_command;
 	begin
 		resp_len <= 0;
 		resp_idx <= 0;
+		if ($test$plusargs("adb_trace_debug")) begin
+			$display("ADB_CMD addr=%0d type=%0d reg=%0d byte=%02h mouse_addr=%0d mouse_srq=%0d kbd_srq=%0d finish=%0d",
+			         cmd_addr, cmd_type, cmd_reg, cmd_byte, mouse_addr, mouse_has_event, kbd_has_data, do_finish);
+		end
 
 		if (cmd_type == 2'b00) begin
 			// Reset (broadcast to all devices)
@@ -148,7 +152,7 @@ task process_command;
 						else if (cmd_reg == 2'd3 && listen_len >= 2) begin
 							// Reg 3 write — check for address reassignment
 							if (listen_data[1][7:0] == 8'hFE) begin
-								kbd_addr <= listen_data[0][7:4]; // New address from high nibble
+								kbd_addr <= listen_data[0][3:0];
 							end
 						end
 						cmd_processed <= 1;
@@ -214,7 +218,7 @@ task process_command;
 					if (do_finish) begin
 						if (cmd_reg == 2'd3 && listen_len >= 2) begin
 							if (listen_data[1][7:0] == 8'hFE) begin
-								mouse_addr <= listen_data[0][7:4];
+								mouse_addr <= listen_data[0][3:0];
 							end
 						end
 						cmd_processed <= 1;
@@ -227,11 +231,17 @@ task process_command;
 								response[0] <= {~mouseButton, mouseY};
 								response[1] <= {1'b1, mouseX};
 								resp_len <= 2;
+								if ($test$plusargs("adb_mouse_debug")) begin
+									$display("ADB_MOUSE_TALK_R0 event btn=%0d x=%02h y=%02h resp=%02h %02h",
+									         mouseButton, mouseX, mouseY,
+									         {~mouseButton, mouseY}, {1'b1, mouseX});
+								end
 								mouseX <= 0;
 								mouseY <= 0;
 								mouse_has_event <= 0;
+							end else if ($test$plusargs("adb_trace_debug")) begin
+								$display("ADB_MOUSE_TALK_R0 empty");
 							end
-							// else: empty response
 							cmd_processed <= 1;
 						end
 						2'd3: begin
@@ -284,6 +294,10 @@ always @(posedge clk) begin
 
 		// Detect state transitions
 		if (st != st_prev) begin
+			if ($test$plusargs("adb_trace_debug")) begin
+				$display("ADB_STATE old=%b new=%b cmd=%02h valid=%0d processed=%0d resp_len=%0d resp_idx=%0d",
+				         st_prev, st, cmd_byte, cmd_valid, cmd_processed, resp_len, resp_idx);
+			end
 			st_prev <= st;
 
 			case (st)
@@ -323,6 +337,9 @@ always @(posedge clk) begin
 
 		// Receive command byte during Command state
 		if (st == ST_COMMAND && adb_din_strobe) begin
+			if ($test$plusargs("adb_trace_debug")) begin
+				$display("ADB_DIN data=%02h cmd_valid=%0d", adb_din, cmd_valid);
+			end
 			if (!cmd_valid) begin
 				// First byte: this is the command byte
 				cmd_byte <= adb_din;
@@ -339,8 +356,9 @@ always @(posedge clk) begin
 		// Process command as soon as cmd_byte settles (1 cycle after receipt).
 		// This ensures response[] and resp_len are ready before the Data1 transition.
 		// Listen commands are excluded — they defer to process_command(finish=true).
-		if (cmd_valid && !cmd_processed && st == ST_COMMAND) begin
+		if (cmd_valid && !cmd_processed && st == ST_COMMAND && cmd_type != 2'b10) begin
 			process_command(1'b0);
+			cmd_valid <= 0;
 		end
 
 		// Receive Listen data during Data phases (ROM sends via SR)
@@ -360,6 +378,10 @@ always @(posedge clk) begin
 
 		// PS2 mouse input handling
 		if (mouseStrobe && (mouseXraw != 9'd0 || mouseYraw != 9'd0 || mouseBtn != mouseButton)) begin
+			if ($test$plusargs("adb_mouse_debug")) begin
+				$display("ADB_MOUSE_INPUT raw_btn=%0d raw_x=%03h raw_y=%03h old_btn=%0d",
+				         mouseBtn, mouseXraw, mouseYraw, mouseButton);
+			end
 			// Clamp mouse deltas to 7-bit signed range
 			if (~mouseXraw[8] & |mouseXraw[7:6]) mouseX <= 7'h3F;
 			else if (mouseXraw[8] & ~mouseXraw[6]) mouseX <= 7'h40;
