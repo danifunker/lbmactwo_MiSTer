@@ -1049,8 +1049,9 @@ sdram sdram
 // SDRAM Arbiter - share SDRAM between Mac and NuBus video
 sdram_arbiter arbiter (
 	.clk(clk_sys),
-	.reset(!pll_locked),  // Reset with SDRAM, not CPU
-	
+	.clk8_en_p(clk8_en_p),  // align video transactions to SDRAM cycle T0
+	.reset(!pll_locked),    // Reset with SDRAM, not CPU
+
 	// Mac system port
 	.mac_addr(arb_mac_addr),
 	.mac_din(arb_mac_din),

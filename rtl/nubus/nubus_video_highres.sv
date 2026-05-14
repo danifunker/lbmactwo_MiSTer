@@ -99,6 +99,24 @@ module nubus_video_highres #(
     // ========================================================================
     (* ramstyle = "M10K" *) reg [15:0] rom [0:4095];
 
+    // ------------------------------------------------------------------------
+    // Synthesis-time ROM initialization
+    //
+    // On real MiSTer hardware there is no MRA / no auto-load for boot1.rom,
+    // and ioctl_index 1 is claimed by the F1 floppy mount slot (see CONF_STR).
+    // Without this initializer the slot ROM would be all-zero on hardware,
+    // the Mac II Slot Manager would not find the $E1 Format Block, the slot
+    // driver would never load, and REG_SOFTRESET would never be written,
+    // leaving video_en permanently 0.  The Verilator sim has its own
+    // QueueDownload path (sim_main.cpp), so we skip the initializer there
+    // to preserve the existing behaviour.
+    // ------------------------------------------------------------------------
+`ifndef SIMULATION
+    initial begin
+        $readmemh("nubus_video_highres_rom.hex", rom);
+    end
+`endif
+
     // ROM read — byte-lane 3 addressing
     // Each ROM byte at every 4th NuBus address (addr[1:0]==3).
     // ROM byte index = addr[14:2], ROM word index = addr[14:3].
@@ -128,6 +146,12 @@ module nubus_video_highres #(
     integer vbl_debug_count = 0;
     integer vram_debug_count = 0;
     // synthesis translate_on
+    // Runtime ROM write path is sim-only.  On hardware, ioctl_index 1 is
+    // claimed by the F1 floppy mount (see CONF_STR in LBMacTwo.sv) and would
+    // corrupt the $readmemh-initialized declaration ROM.  The sim still uses
+    // QueueDownload(boot1.rom, ioctl_index=1) so we keep this path active
+    // there for parity with the existing sim flow.
+`ifdef SIMULATION
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
             rom[ioctl_addr[12:1]] <= ioctl_data;
@@ -140,6 +164,7 @@ module nubus_video_highres #(
             // synthesis translate_on
         end
     end
+`endif
 
     // ========================================================================
     // TFB 2.2 Registers (MAME register indices)
@@ -270,7 +295,12 @@ module nubus_video_highres #(
 
             vga_hs_reg <= ~(h_cnt >= H_SYNC_START && h_cnt < H_SYNC_END);
             vga_vs_reg <= ~(v_cnt >= V_SYNC_START && v_cnt < V_SYNC_END);
-            blanking <= (h_cnt >= H_RES) || (v_cnt >= V_RES) || !video_en;
+            // DE (blanking) must run at the configured cadence regardless of
+            // video_en, so the MiSTer scaler can measure resolution before
+            // the Mac II slot driver enables the card. Pixel content is still
+            // gated by video_en via pixel_valid (see assign vga_r/g/b below),
+            // which forces RGB to black until the driver writes REG_SOFTRESET.
+            blanking <= (h_cnt >= H_RES) || (v_cnt >= V_RES);
         end
     end
 
@@ -620,16 +650,42 @@ module nubus_video_highres #(
                                 ramdac_dup_phase <= 1'b1;
 
                                 if (addr[2] == 1'b0) begin
-                                    // Set RAMDAC address, reset RGB counter
+                                    // Set RAMDAC address, reset RGB counter.
+                                    // The address is inverted by the NuBus
+                                    // bus-level XOR (MAME ramdac_w), which
+                                    // pairs with the VRAM-write inversion
+                                    // (cpu_write_data <= ~data_in) so the
+                                    // pixel index that scanout produces from
+                                    // ~Mac_pixel hits clut[~Mac_addr] -- i.e.
+                                    // the same slot Mac is targeting.
                                     ramdac_addr <= ~data_in[15:8];
                                     ramdac_rgb <= 2'd0;
                                 end else begin
-                                    // Write palette R/G/B sequentially
+                                    // Write palette R/G/B sequentially.
+                                    //
+                                    // The previous implementation inverted
+                                    // every color byte to mirror the address
+                                    // inversion ("MAME does ^= 0xFFFFFFFF").
+                                    // That made screen output appear as the
+                                    // bitwise complement of Mac's intended
+                                    // color: Mac white (255,255,255) became
+                                    // black, Mac black became white, and
+                                    // partially-driven Bt453 sequences
+                                    // produced eye-bleed colors like yellow.
+                                    //
+                                    // The correct path: address inversion
+                                    // alone re-routes lookups to the right
+                                    // slot; the RGB payload should be stored
+                                    // verbatim so the DAC drives the color
+                                    // Mac asked for.  (MAME's bus-level XOR
+                                    // applies symmetrically on bus reads too,
+                                    // so the Bt453's internal palette stays
+                                    // in Mac's color space.)
                                     case (ramdac_rgb)
-                                        2'd0: clut[ramdac_addr][23:16] <= ~data_in[15:8]; // R
-                                        2'd1: clut[ramdac_addr][15:8]  <= ~data_in[15:8]; // G
+                                        2'd0: clut[ramdac_addr][23:16] <= data_in[15:8]; // R
+                                        2'd1: clut[ramdac_addr][15:8]  <= data_in[15:8]; // G
                                         2'd2: begin
-                                            clut[ramdac_addr][7:0] <= ~data_in[15:8];     // B
+                                            clut[ramdac_addr][7:0] <= data_in[15:8];     // B
                                             ramdac_addr <= ramdac_addr + 8'd1;            // Auto-increment
                                         end
                                         default: ;
@@ -873,9 +929,62 @@ module nubus_video_highres #(
     wire pixel_valid = video_en && !blanking_d && (display_word_cached_d || vram_cache_any_valid_d);
     wire mono_mode = DEFAULT_MONOCHROME || monochrome;
     wire [7:0] mono_pixel = pixel_idx[0] ? 8'h22 : 8'hee;
-    assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16]) : 8'd0;
-    assign vga_g = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])  : 8'd0;
-    assign vga_b = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])   : 8'd0;
+
+    // ------------------------------------------------------------------------
+    // Diagnostic test pattern (visible only while the card is dormant, i.e.
+    // the Mac II slot driver has not yet written REG_SOFTRESET to set
+    // video_en). Color bars in the upper portion of the screen, a vertical
+    // gradient below, and a thin moving marker so we can confirm the timing
+    // pipeline and SDRAM-free portion of the path are alive on real hardware.
+    // Once video_en goes high, normal framebuffer output takes over.
+    //
+    // h_cnt_d is used here (registered, in the pixel domain) so the bars
+    // line up with the same display pipeline used by the framebuffer path.
+    // ------------------------------------------------------------------------
+    reg [10:0] v_cnt_d;
+    reg [10:0] h_cnt_full_d;
+    always @(posedge clk) if (clk_video_en) begin
+        v_cnt_d      <= v_cnt;
+        h_cnt_full_d <= h_cnt;
+    end
+
+    // 8 color bars across the screen (each 80 px wide @ 640 active)
+    wire [2:0] bar_idx = h_cnt_full_d[9:7];
+    reg [7:0] bar_r, bar_g, bar_b;
+    always @(*) begin
+        case (bar_idx)
+            3'd0: {bar_r, bar_g, bar_b} = 24'hFFFFFF; // white
+            3'd1: {bar_r, bar_g, bar_b} = 24'hFFFF00; // yellow
+            3'd2: {bar_r, bar_g, bar_b} = 24'h00FFFF; // cyan
+            3'd3: {bar_r, bar_g, bar_b} = 24'h00FF00; // green
+            3'd4: {bar_r, bar_g, bar_b} = 24'hFF00FF; // magenta
+            3'd5: {bar_r, bar_g, bar_b} = 24'hFF0000; // red
+            3'd6: {bar_r, bar_g, bar_b} = 24'h0000FF; // blue
+            3'd7: {bar_r, bar_g, bar_b} = 24'h202020; // near-black
+        endcase
+    end
+
+    // Below the bars, show a horizontal gradient so we can see DE/HS are
+    // active across the full width.
+    wire [7:0] grad = h_cnt_full_d[8:1];
+    wire in_bars   = (v_cnt_d < 11'd320);
+    wire [7:0] tp_r = in_bars ? bar_r : grad;
+    wire [7:0] tp_g = in_bars ? bar_g : grad;
+    wire [7:0] tp_b = in_bars ? bar_b : grad;
+
+    // Show test pattern only inside the active display, and only while the
+    // card is dormant. Blanking forces black so DE still measures cleanly.
+    wire show_test_pattern = !video_en && !blanking_d;
+
+    assign vga_r = pixel_valid       ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16])
+                 : show_test_pattern ? tp_r
+                 :                     8'd0;
+    assign vga_g = pixel_valid       ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])
+                 : show_test_pattern ? tp_g
+                 :                     8'd0;
+    assign vga_b = pixel_valid       ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])
+                 : show_test_pattern ? tp_b
+                 :                     8'd0;
 
     // ========================================================================
     // Debug: video pipeline state (synthesis translate_off)

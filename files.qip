@@ -22,6 +22,10 @@ set_global_assignment -name VERILOG_FILE rtl/videoShifter.v
 set_global_assignment -name VERILOG_FILE rtl/rtc.v 
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_arbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_highres.sv
+# 341-0660 declaration ROM, initialized via $readmemh at synthesis time so
+# the slot ROM is present without depending on an MRA / ioctl loader.
+set_global_assignment -name SEARCH_PATH rtl/nubus
+set_global_assignment -name MISC_FILE rtl/nubus/nubus_video_highres_rom.hex
 #set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_toby.sv
 #set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/ovo.sv
 set_global_assignment -name QIP_FILE rtl/mc68881/mc68881.qip

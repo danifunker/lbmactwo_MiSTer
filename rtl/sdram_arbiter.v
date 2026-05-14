@@ -10,8 +10,12 @@
 module sdram_arbiter (
     // System
     input         clk,           // System clock (same as clk_sys)
+    input         clk8_en_p,     // 1-cycle pulse at clk_8 rising edge — used
+                                 //   to align video transactions to SDRAM
+                                 //   cycle boundaries.  Pass 1'b0 to skip
+                                 //   alignment (legacy behaviour).
     input         reset,
-    
+
     // Mac System Port (high priority)
     input  [24:0] mac_addr,
     input  [15:0] mac_din,
@@ -37,84 +41,164 @@ module sdram_arbiter (
     output        sdram_oe
 );
 
-    // Detect Mac system activity (registered for Quartus compatibility)
-    wire mac_active;
-    assign mac_active = mac_we | mac_oe;
-    
-    // Grant signals (Mac has priority over video)
-    wire grant_video;
-    assign grant_video = !mac_active & (vram_rd | vram_wr);
-    
-    // Multiplex SDRAM signals
+    // ------------------------------------------------------------------------
+    // Mac vs Video arbitration
+    //
+    // The previous implementation made grant_video a combinational signal:
+    //     grant_video = !mac_active & (vram_rd | vram_wr);
+    //     vram_din    = sdram_dout;               // combinational
+    // This created a race that is harmless in Verilator (the sim wires the
+    // video card to a private sim_vram, so the arbiter is never exercised)
+    // but lethal on real hardware:
+    //   T0: video request, Mac idle -> grant_video=1, sdram_addr=vram_addr
+    //   Tx: Mac asserts mac_we/mac_oe mid-transaction -> grant_video=0,
+    //       sdram_addr immediately switches to mac_addr.  The SDRAM controller
+    //       continues the read it already started, but at the end of the
+    //       wait window vram_din latches whatever sdram_dout currently is --
+    //       which may be data from an unrelated Mac read that came in after.
+    // On hardware (with the Mac actively booting and hitting DRAM constantly)
+    // this fires every few microseconds and the framebuffer ends up loaded
+    // with random Mac DRAM contents -> cyan/black noise on screen.
+    //
+    // Fix: once we grant the video, lock the grant in a registered signal
+    // and hold the SDRAM mux on the video port for the entire transaction.
+    // Capture sdram_dout into a register at the cycle when the SDRAM data
+    // is known stable, and feed that register out to the video card instead
+    // of the bare SDRAM bus.  Mac access is briefly stalled during the
+    // ~185ns video window, which is well within Mac bus-cycle tolerance.
+    // ------------------------------------------------------------------------
+
+    wire mac_active = mac_we | mac_oe;
+
+    // ------------------------------------------------------------------------
+    // Mac vs Video arbitration
+    //
+    // History: the original implementation had a combinational grant_video and
+    // wired vram_din directly to sdram_dout.  Verilator wires the video card
+    // to a private sim_vram (so the arbiter is never exercised in sim and the
+    // bug is invisible there) but on real hardware the combinational grant
+    // produced visible noise on screen: video would start a read while Mac
+    // was idle, Mac would re-assert mid-transaction, sdram_addr would
+    // instantly flip to mac_addr, and at the end of the 6-cycle wait
+    // vram_din would latch a Mac word.  Framebuffer ends up filled with
+    // random Mac DRAM contents -> cyan/black noise pattern.
+    //
+    // A first attempt locked grant_video for the full transaction window so
+    // Mac couldn't preempt.  That fixed the video side but starved the Mac:
+    // its bus cycles were silently extended past 68020 DTACK tolerance and
+    // Mac CPU reads returned the video's data instead, wedging boot before
+    // anything was written to VRAM -> pure black screen.
+    //
+    // This version keeps Mac priority (the SDRAM mux is still combinational,
+    // Mac never gets blocked) but tracks whether the in-flight video
+    // transaction was preempted at any point.  Only uncontested transactions
+    // are latched into vram_din_reg; preempted ones are silently dropped and
+    // the video card retries on its next prefetch cycle.  The video card
+    // already tolerates missed fetches via its prefetch + cache logic, so
+    // intermittent retries are harmless.
+    // ------------------------------------------------------------------------
+
+    // SDRAM signal muxes — Mac priority preserved, combinational as before
+    wire grant_video = !mac_active & (vram_rd | vram_wr);
+
     assign sdram_addr = grant_video ? vram_addr : mac_addr;
     assign sdram_din  = grant_video ? vram_dout : mac_din;
-    assign sdram_ds   = grant_video ? 2'b11 : mac_ds;      // Video always accesses full word
+    assign sdram_ds   = grant_video ? 2'b11 : mac_ds;
     assign sdram_we   = grant_video ? vram_wr : mac_we;
     assign sdram_oe   = grant_video ? vram_rd : mac_oe;
-    
-    // Route readback data (direct connection, no muxing needed)
-    assign mac_dout = sdram_dout;
-    assign vram_din = sdram_dout;
-    
-    // Generate ready signal for video card
-    // SDRAM operations complete in ~5-6 clk_sys cycles (one clk_8 cycle + margin)
-    // The SDRAM controller cycles through 8 states at 64MHz (clk_mem)
-    // synchronized to 8MHz (clk_8). One clk_8 cycle = 4 clk_sys cycles (125ns).
-    // SDRAM data ready at STATE_READ (t=5), which is ~100ns into the cycle.
-    // Add margin: wait 6 clk_sys cycles = 185ns to ensure data is stable.
+
+    assign mac_dout   = sdram_dout;           // Mac unchanged
+    // Video reads the latched (clean-transaction-only) word
+    reg [15:0] vram_din_reg;
+    assign vram_din = vram_din_reg;
+
+    // ------------------------------------------------------------------------
+    // Video transaction state machine
     //
-    // Handshake: Video asserts rd/wr -> arbiter grants -> after 6 cycles
-    // arbiter asserts vram_ready -> video latches data and drops rd/wr
-    
-    // State machine for tracking video operations
-    reg [2:0] vram_state;
-    reg [2:0] vram_wait_cnt;
+    // SDRAM operations complete in ~5-6 clk_sys cycles (one clk_8 SDRAM cycle
+    // at 8 MHz plus alignment margin).  We track preemption with video_clean:
+    // it starts at 1 when the transaction begins and clears the moment Mac
+    // preempts.  At the end of the wait we only latch sdram_dout if the
+    // transaction stayed clean throughout AND Mac is still idle on the
+    // capture cycle itself.  Otherwise we abandon and the video card retries.
+    // ------------------------------------------------------------------------
+
+    reg [3:0] vram_state;
+    reg [3:0] vram_wait_cnt;
     reg vram_ready_latch;
-    
-    localparam VRAM_IDLE = 3'd0;
-    localparam VRAM_WAIT = 3'd1;
-    localparam VRAM_READY = 3'd2;
-    
+    reg video_clean;
+
+    localparam VRAM_IDLE  = 4'd0;
+    localparam VRAM_WAIT  = 4'd1;
+    localparam VRAM_READY = 4'd2;
+
+    // Wait count: worst-case latency from arbiter assertion to SDRAM data
+    // ready is ~6.5 clk_sys cycles (up to 4 cycles to reach the next SDRAM
+    // T0 + ~2.5 cycles for CAS).  Pad to 9 to give the SDRAM dout a stable
+    // window before we capture it, and to leave a cycle of margin against
+    // Mac asserting at the capture moment.
+    localparam WAIT_COUNT = 4'd9;
+
     always @(posedge clk) begin
         if (reset) begin
-            vram_state <= VRAM_IDLE;
-            vram_wait_cnt <= 3'd0;
+            vram_state       <= VRAM_IDLE;
+            vram_wait_cnt    <= 4'd0;
             vram_ready_latch <= 1'b0;
+            video_clean      <= 1'b0;
+            vram_din_reg     <= 16'd0;
         end else begin
             case (vram_state)
                 VRAM_IDLE: begin
                     vram_ready_latch <= 1'b0;
-                    if (grant_video) begin
-                        // Video request granted, start counting
-                        vram_state <= VRAM_WAIT;
-                        vram_wait_cnt <= 3'd6;  // 6 cycles for SDRAM read/write
+                    // Start transactions aligned to SDRAM cycle boundaries
+                    // (clk8_en_p marks T0 of the SDRAM controller's state
+                    // machine).  Aligning here guarantees the SDRAM samples
+                    // our address right away — no up-to-4-cycle slop waiting
+                    // for the next T0 — and that Mac and video can't share
+                    // a single SDRAM cycle.
+                    if (grant_video && clk8_en_p) begin
+                        video_clean   <= 1'b1;
+                        vram_state    <= VRAM_WAIT;
+                        vram_wait_cnt <= WAIT_COUNT;
                     end
                 end
-                
+
                 VRAM_WAIT: begin
-                    if (vram_wait_cnt > 3'd0) begin
-                        vram_wait_cnt <= vram_wait_cnt - 3'd1;
+                    // If Mac preempts at any point, mark the transaction
+                    // dirty.  We don't abort early — we still ride out the
+                    // wait so the SDRAM controller has time to finish whatever
+                    // it started — but we won't latch the result.
+                    if (mac_active) video_clean <= 1'b0;
+
+                    if (vram_wait_cnt > 4'd0) begin
+                        vram_wait_cnt <= vram_wait_cnt - 4'd1;
                     end else begin
-                        // Data ready - latch the ready signal
-                        vram_ready_latch <= 1'b1;
-                        vram_state <= VRAM_READY;
+                        if (video_clean && !mac_active) begin
+                            // Clean transaction: capture data, signal ready
+                            vram_din_reg     <= sdram_dout;
+                            vram_ready_latch <= 1'b1;
+                            vram_state       <= VRAM_READY;
+                        end else begin
+                            // Preempted: drop this transaction silently.
+                            // Returning to IDLE without ready makes the
+                            // video card hold vram_rd and retry next cycle.
+                            vram_state <= VRAM_IDLE;
+                        end
                     end
                 end
-                
+
                 VRAM_READY: begin
-                    // Hold ready high until video drops its request
                     if (!vram_rd && !vram_wr) begin
                         vram_ready_latch <= 1'b0;
-                        vram_state <= VRAM_IDLE;
+                        vram_state       <= VRAM_IDLE;
                     end
                 end
-                
+
                 default: vram_state <= VRAM_IDLE;
             endcase
         end
     end
-    
-    // Ready signal is latched, independent of grant_video
+
     assign vram_ready = vram_ready_latch;
 
 endmodule
