@@ -650,42 +650,25 @@ module nubus_video_highres #(
                                 ramdac_dup_phase <= 1'b1;
 
                                 if (addr[2] == 1'b0) begin
-                                    // Set RAMDAC address, reset RGB counter.
-                                    // The address is inverted by the NuBus
-                                    // bus-level XOR (MAME ramdac_w), which
-                                    // pairs with the VRAM-write inversion
-                                    // (cpu_write_data <= ~data_in) so the
-                                    // pixel index that scanout produces from
-                                    // ~Mac_pixel hits clut[~Mac_addr] -- i.e.
-                                    // the same slot Mac is targeting.
+                                    // Set RAMDAC address, reset RGB counter
                                     ramdac_addr <= ~data_in[15:8];
                                     ramdac_rgb <= 2'd0;
                                 end else begin
-                                    // Write palette R/G/B sequentially.
-                                    //
-                                    // The previous implementation inverted
-                                    // every color byte to mirror the address
-                                    // inversion ("MAME does ^= 0xFFFFFFFF").
-                                    // That made screen output appear as the
-                                    // bitwise complement of Mac's intended
-                                    // color: Mac white (255,255,255) became
-                                    // black, Mac black became white, and
-                                    // partially-driven Bt453 sequences
-                                    // produced eye-bleed colors like yellow.
-                                    //
-                                    // The correct path: address inversion
-                                    // alone re-routes lookups to the right
-                                    // slot; the RGB payload should be stored
-                                    // verbatim so the DAC drives the color
-                                    // Mac asked for.  (MAME's bus-level XOR
-                                    // applies symmetrically on bus reads too,
-                                    // so the Bt453's internal palette stays
-                                    // in Mac's color space.)
+                                    // Write palette R/G/B sequentially.  MAME's
+                                    // ramdac_w XORs the whole bus word with
+                                    // 0xFFFFFFFF before splitting into
+                                    // address_w / palette_w, so both the
+                                    // address and each color byte get
+                                    // inverted on the way in.  Reverting an
+                                    // earlier experimental change that
+                                    // dropped the color inversion: empirical
+                                    // testing (sim cursor came out negative)
+                                    // confirmed the inversion is needed.
                                     case (ramdac_rgb)
-                                        2'd0: clut[ramdac_addr][23:16] <= data_in[15:8]; // R
-                                        2'd1: clut[ramdac_addr][15:8]  <= data_in[15:8]; // G
+                                        2'd0: clut[ramdac_addr][23:16] <= ~data_in[15:8]; // R
+                                        2'd1: clut[ramdac_addr][15:8]  <= ~data_in[15:8]; // G
                                         2'd2: begin
-                                            clut[ramdac_addr][7:0] <= data_in[15:8];     // B
+                                            clut[ramdac_addr][7:0] <= ~data_in[15:8];     // B
                                             ramdac_addr <= ramdac_addr + 8'd1;            // Auto-increment
                                         end
                                         default: ;
