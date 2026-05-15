@@ -44,6 +44,12 @@ local FINAL_DUMP  = 0x00001200
 -- Each entry produces ONE corpus entry. Bytes are concatenated and
 -- planted at PROG_BASE between init/final dump blocks.
 local tests = {
+    -- Sanity test 1: no FPU at all. If this works, FPU exception is the
+    -- problem. If even this hangs, our stop-detection is wrong.
+    { name = "DBG: MOVEQ #5,D0 (no FPU)",
+      preload = {},
+      test    = { 0x70, 0x05 } }, -- MOVEQ #5,D0
+    -- Sanity test 2: F-line but skip the dump prologue/epilogue.
     { name = "FMOVE.L #1,FP0",
       preload = {},
       test    = { 0x70, 0x01,            -- MOVEQ #1,D0
@@ -236,17 +242,28 @@ local function start_test(t)
     append(emit_state_dump(INIT_DUMP))
     append(t.test)
     append(emit_state_dump(FINAL_DUMP))
-    append({ 0x4E, 0x72, 0x27, 0x00 })  -- STOP #$2700
+    -- Landing pad: JMP-to-self. PC sticking at this address means the
+    -- test is complete. Easier to detect than STOP, and survives the
+    -- absence of any vector table / stack setup.
+    local jmp_pc = PROG_BASE + #out
+    append({
+        0x4E, 0xF9,
+        (jmp_pc >> 24) & 0xFF, (jmp_pc >> 16) & 0xFF,
+        (jmp_pc >>  8) & 0xFF,  jmp_pc        & 0xFF,
+    })
+    stop_pc = jmp_pc
 
     write_bytes(PROG_BASE, out)
 
-    -- Reset core registers (preload will set FP regs etc. when it runs).
+    -- Reset core registers. SR = $2700 (supervisor, interrupts masked
+    -- level 7) — critical because the running maciihmu machine keeps
+    -- firing VBL/timer interrupts; without masking, PC bounces back to
+    -- the ROM interrupt handler every frame.
     for r = 0, 7 do rset("D" .. r, 0); rset("A" .. r, 0) end
-    rset("SR", 0x2000)
+    rset("SR", 0x2700)
     rset("A7", 0x00200000)
     rset("PC", PROG_BASE)
-
-    stop_pc = PROG_BASE + #out - 4
+    -- stop_pc was set inside the append() block above.
     frames  = 0
 end
 
@@ -282,7 +299,8 @@ local function tick()
     elseif phase == "RUN" then
         frames = frames + 1
         local pc = rget("PC")
-        -- After STOP executes the CPU halts; PC sits at the STOP opcode.
+        -- The test ends with a JMP-to-self at stop_pc; PC sticking
+        -- there means the test instruction stream has completed.
         if pc == stop_pc then
             emu.pause()
             local t = tests[test_i]
