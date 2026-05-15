@@ -1,113 +1,78 @@
 -- MAME Lua script: capture FPU instruction state from maciihmu.
 --
--- Strategy: rather than trying to single-step and snapshot via Lua
--- (which gets tangled because Lua can't reach into FP0..FP7 directly —
--- only D/A regs and SR/PC are exposed in cpu.state), we build a small
--- assembly program PER TEST that:
---   1. Initializes FPU state with known values (preamble FMOVEs).
---   2. Dumps initial FP0..FP7 + FPCR/FPSR + D/A regs to a known RAM
---      window via FMOVE.X / MOVE.L / etc.
---   3. Executes the target test instruction.
---   4. Dumps final FP0..FP7 + FPCR/FPSR + D/A regs to a second window.
---   5. Hits STOP #$2700 to halt deterministically.
+-- Drives MAME as an FPU oracle to produce JSON test corpora that the
+-- SingleStepTests/fpu bench can consume.
 --
--- Then we read the RAM windows back via Lua and emit JSON.
+-- Strategy: per test we plant a small instruction stream at $1000:
+--   preload  → init-state dump → test instruction → final-state dump → STOP
+-- Then we hijack PC, resume the CPU, wait for PC to reach the STOP, pause
+-- again, read both dump windows back from RAM, advance to the next test.
 --
--- Why MAME (not Musashi standalone or some other oracle):
---   * Musashi's standalone build doesn't expose FP0..FP7 in its public
---     API; patching would diverge from upstream.
---   * MAME's m68k FPU is the same Musashi implementation but with full
---     state-export hooks AND a real bus model so we get exact
---     architectural behavior (FPSR side effects, exception flags,
---     etc.) matching what software will see on real hardware.
---   * maciihmu is the same target our FPGA core emulates, so any
---     model-specific quirks line up.
+-- Implementation is a frame-driven state machine. The Lua engine only
+-- gets control between MAME frames (via the periodic/frame_done hooks),
+-- so we cannot block waiting for the CPU to run — we let it run for a
+-- frame, then come back and check progress.
 --
 -- USAGE
 -- -----
--- 1. cd ~/repos/mame
--- 2. ./mame64 maciihmu -window -debug \
---      -autoboot_script ~/repos/lbmactwo_MiSTer/SingleStepTests/gen/mame_fpu_capture.lua
--- 3. Let the boot ROM run for a few seconds so RAM at $0..$7FFFFF is
---    writeable (the MMU/HMMU has decoded RAM into the linear address
---    space). Then in the MAME debugger Lua prompt:
---      > capture_run()
--- 4. Output JSON written to FPU_OUT_PATH below.
+--   ../mame/maciihmu maciihmu -bios original -skip_gameinfo \
+--     -debug -debugger none -window -nothrottle \
+--     -autoboot_delay 1 \
+--     -autoboot_script SingleStepTests/gen/mame_fpu_capture.lua
 --
--- The first cut handles cpGEN reg-reg ops. Memory-form ops, conditional
--- branches, cpSAVE/cpRESTORE need similar but distinct test templates;
--- adding them is a copy-paste of write_test_program for each family.
+-- Why these flags:
+--   maciihmu maciihmu : binary name + system arg (yes, twice)
+--   -bios original    : rev. A ROM
+--   -skip_gameinfo    : skip system info screen
+--   -debug            : skips the disclaimer/warnings screens
+--                       (UI's display_startup_screens uses
+--                        DEBUG_FLAG_ENABLED to disable both)
+--   -debugger none    : but DON'T open the debugger UI window
+--   -nothrottle       : run as fast as host can (we want to exit ASAP)
+--   -autoboot_delay 1 : let one second pass before our Lua hook fires
+--                       so the boot ROM has time to flip the overlay
+--                       bit and map RAM at $0..
+--
+-- MAME exits automatically once the corpus is written.
 
 local FPU_OUT_PATH = "/tmp/fpu_corpus.json"
 
--- Memory layout per test:
---   $1000..$104F: instruction stream (preamble + dump + test + dump + STOP)
---   $1100..$11FF: initial-state dump (8 × 12-byte FPn + FPCR + FPSR + Dn + An)
---   $1200..$12FF: final-state dump
---   $1300..$13FF: scratch (operand source addresses for memory-form tests)
 local PROG_BASE   = 0x00001000
 local INIT_DUMP   = 0x00001100
 local FINAL_DUMP  = 0x00001200
-local SCRATCH     = 0x00001300
 
--- ----------------------------------------------------------------------
--- Tests. Each entry produces ONE corpus entry.
---
--- preload : list of instructions (raw bytes) that set up FP register
---           values before the test. Example: FMOVE.L #1,FP0 then
---           FMOVE.L #2,FP1.
--- test    : the single F-line instruction whose effect we want to
---           capture.
--- ----------------------------------------------------------------------
+-- Each entry produces ONE corpus entry. Bytes are concatenated and
+-- planted at PROG_BASE between init/final dump blocks.
 local tests = {
-    {
-        name    = "FMOVE.L #1,FP0",
-        preload = {},
-        -- F200 8000 + 70 01 (MOVEQ #1,D0 first) — actually since we don't
-        -- have a clean way to provide an immediate, encode as a sequence:
-        -- MOVEQ #1,D0 ; FMOVE.L D0,FP0
-        test    = { 0x70, 0x01,            -- MOVEQ #1,D0
-                    0xF2, 0x00, 0x80, 0x00 }, -- FMOVE.L D0,FP0
-    },
-    {
-        name    = "FADD.X FP0,FP0 (1+1=2)",
-        preload = { 0x70, 0x01, 0xF2, 0x00, 0x80, 0x00 }, -- FP0=1
-        test    = { 0xF2, 0x00, 0x00, 0x22 },              -- FADD.X FP0,FP0
-    },
-    {
-        name    = "FMUL.X FP0,FP0 (2*2=4)",
-        preload = { 0x70, 0x02, 0xF2, 0x00, 0x80, 0x00 }, -- FP0=2
-        test    = { 0xF2, 0x00, 0x00, 0x23 },              -- FMUL.X FP0,FP0
-    },
-    {
-        name    = "FSQRT.X FP0,FP0 (sqrt(4)=2)",
-        preload = { 0x70, 0x04, 0xF2, 0x00, 0x80, 0x00 }, -- FP0=4
-        test    = { 0xF2, 0x00, 0x00, 0x04 },
-    },
-    {
-        name    = "FNEG.X FP0,FP0 (1 -> -1)",
-        preload = { 0x70, 0x01, 0xF2, 0x00, 0x80, 0x00 },
-        test    = { 0xF2, 0x00, 0x00, 0x1A },
-    },
-    {
-        name    = "FABS.X FP0,FP0 (-1 -> 1)",
-        preload = { 0x70, 0xFF, 0xF2, 0x00, 0x80, 0x00 }, -- D0=-1, FP0=-1
-        test    = { 0xF2, 0x00, 0x00, 0x18 },
-    },
-    {
-        name    = "FTST.X FP0 (sets FPSR for 0)",
-        preload = { 0x70, 0x00, 0xF2, 0x00, 0x80, 0x00 }, -- FP0=0
-        test    = { 0xF2, 0x00, 0x00, 0x3A },
-    },
-    {
-        name    = "FMOVE.X FP0,FP1",
-        preload = { 0x70, 0x05, 0xF2, 0x00, 0x80, 0x00 }, -- FP0=5
-        test    = { 0xF2, 0x00, 0x00, 0x80 },              -- FMOVE.X FP0,FP1
-    },
+    { name = "FMOVE.L #1,FP0",
+      preload = {},
+      test    = { 0x70, 0x01,            -- MOVEQ #1,D0
+                  0xF2, 0x00, 0x80, 0x00 } }, -- FMOVE.L D0,FP0
+    { name = "FADD.X FP0,FP0 (1+1=2)",
+      preload = { 0x70, 0x01, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x22 } },
+    { name = "FMUL.X FP0,FP0 (2*2=4)",
+      preload = { 0x70, 0x02, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x23 } },
+    { name = "FSQRT.X FP0,FP0 (sqrt(4)=2)",
+      preload = { 0x70, 0x04, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x04 } },
+    { name = "FNEG.X FP0,FP0 (1 -> -1)",
+      preload = { 0x70, 0x01, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x1A } },
+    { name = "FABS.X FP0,FP0 (-1 -> 1)",
+      preload = { 0x70, 0xFF, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x18 } },
+    { name = "FTST.X FP0",
+      preload = { 0x70, 0x00, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x3A } },
+    { name = "FMOVE.X FP0,FP1",
+      preload = { 0x70, 0x05, 0xF2, 0x00, 0x80, 0x00 },
+      test    = { 0xF2, 0x00, 0x00, 0x80 } },
 }
 
 -- ----------------------------------------------------------------------
--- Helpers
+-- Handles + helpers
 -- ----------------------------------------------------------------------
 local cpu, prog
 local function init_handles()
@@ -136,12 +101,12 @@ local function hexstr(bytes)
     return table.concat(out)
 end
 
--- Build instructions ----------------------------------------------------
+-- Instruction emitters --------------------------------------------------
 
 -- FMOVE.X FPn,(abs.L)  --  8 bytes
 local function emit_fmove_x_to_abs(fpn, abs_addr)
     local opword = 0xF239
-    local ext    = 0x7400 | (fpn * 128) -- family=011 fmt=100(X) src=FPn dst=mode111reg001
+    local ext    = 0x7400 | (fpn * 128)
     return {
         (opword >> 8) & 0xFF, opword & 0xFF,
         (ext    >> 8) & 0xFF, ext    & 0xFF,
@@ -150,12 +115,7 @@ local function emit_fmove_x_to_abs(fpn, abs_addr)
     }
 end
 
--- FMOVE FPSR/FPCR/FPIAR,(abs.L)  --  6 bytes (FMOVE.L with ctrl-reg variant)
--- Opword: F239 / ext: 1010_000_FPCR_FPSR_FPIAR_xxxxxxx
--- Simpler: skip FPCR/FPSR dumps for now, only emit FP regs. We can add
--- ctrl-reg dumping once the basic flow is proven.
-
--- MOVE.L Dn,(abs.L)  --  6 bytes (opcode 23C0 | (n<<0))
+-- MOVE.L Dn,(abs.L)  --  6 bytes
 local function emit_move_l_dn_to_abs(dn, abs_addr)
     local opword = 0x23C0 | (dn & 7)
     return {
@@ -164,6 +124,7 @@ local function emit_move_l_dn_to_abs(dn, abs_addr)
         (abs_addr >>  8) & 0xFF,  abs_addr        & 0xFF,
     }
 end
+
 -- MOVE.L An,(abs.L)  --  6 bytes
 local function emit_move_l_an_to_abs(an, abs_addr)
     local opword = 0x23C8 | (an & 7)
@@ -174,12 +135,11 @@ local function emit_move_l_an_to_abs(an, abs_addr)
     }
 end
 
--- Build a full state-dump block at `addr`. Returns the byte-list.
--- Layout written to RAM[dump_base..dump_base+0xC0]:
---   +0x00..0x5F :  FP0..FP7 (96 bits each = 12 bytes), packed
---   +0x60..0x7F :  D0..D7 (32 bits each)
---   +0x80..0x9F :  A0..A7
--- (FPCR/FPSR omitted; add once flow works.)
+-- State dump block: FP0..FP7 then D0..D7 then A0..A7.
+-- Layout in RAM[dump_base..]:
+--   +0x00..0x5F : FP0..FP7 (12 bytes each)
+--   +0x60..0x7F : D0..D7 (4 bytes each)
+--   +0x80..0x9F : A0..A7 (4 bytes each)
 local function emit_state_dump(dump_base)
     local out = {}
     local function append(t)
@@ -191,68 +151,27 @@ local function emit_state_dump(dump_base)
     for dn = 0, 7 do
         append(emit_move_l_dn_to_abs(dn, dump_base + 0x60 + dn * 4))
     end
-    -- A7 is the stack pointer; reading it is fine but writing it via
-    -- MOVE.L An is OK since we're just snapshotting.
     for an = 0, 7 do
         append(emit_move_l_an_to_abs(an, dump_base + 0x80 + an * 4))
     end
     return out
 end
 
--- ----------------------------------------------------------------------
--- Run one test
--- ----------------------------------------------------------------------
-local function run_one(t)
-    local out = {}
-    local function append(bs)
-        for _, b in ipairs(bs) do out[#out + 1] = b end
+-- Read the dump block back from RAM into a snapshot table.
+local function read_snap(base)
+    local snap = { fp = {}, d = {}, a = {} }
+    for fpn = 0, 7 do
+        snap.fp[fpn] = hexstr(read_bytes(base + fpn * 12, 12))
     end
-
-    append(t.preload)
-    append(emit_state_dump(INIT_DUMP))
-    append(t.test)
-    append(emit_state_dump(FINAL_DUMP))
-    -- STOP #$2700
-    append({ 0x4E, 0x72, 0x27, 0x00 })
-
-    write_bytes(PROG_BASE, out)
-
-    -- Reset register state so we get reproducible "initial" snapshots
-    -- (well, after preload runs, but preload is deterministic).
-    for r = 0, 7 do rset("D" .. r, 0); rset("A" .. r, 0) end
-    rset("SR", 0x2000)
-    rset("A7", 0x00200000)  -- some valid stack
-    rset("PC", PROG_BASE)
-
-    -- Step until STOP fires (the FPU dumps + test all settle).
-    -- Count instructions roughly: preload/2 + 24 (init dump) + 1 + 24 + 1.
-    -- Use go-to-PC=PROG_BASE+#out-4 (STOP location):
-    local stop_pc = PROG_BASE + #out - 4
-    cpu.debug:bpset(stop_pc)
-    cpu.debug:go()
-    -- After go(), execution is paused at the breakpoint. Clear it.
-    cpu.debug:bpclear()
-
-    -- Read state dumps back from RAM.
-    local function read_snap(base)
-        local snap = { fp = {}, d = {}, a = {} }
-        for fpn = 0, 7 do
-            snap.fp[fpn] = hexstr(read_bytes(base + fpn * 12, 12))
-        end
-        for dn = 0, 7 do
-            local b = read_bytes(base + 0x60 + dn * 4, 4)
-            snap.d[dn] = (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]
-        end
-        for an = 0, 7 do
-            local b = read_bytes(base + 0x80 + an * 4, 4)
-            snap.a[an] = (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]
-        end
-        return snap
+    for dn = 0, 7 do
+        local b = read_bytes(base + 0x60 + dn * 4, 4)
+        snap.d[dn] = (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]
     end
-
-    return { name = t.name,
-             initial = read_snap(INIT_DUMP),
-             final   = read_snap(FINAL_DUMP) }
+    for an = 0, 7 do
+        local b = read_bytes(base + 0x80 + an * 4, 4)
+        snap.a[an] = (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]
+    end
+    return snap
 end
 
 -- ----------------------------------------------------------------------
@@ -287,28 +206,118 @@ local function emit_json(file, results)
 end
 
 -- ----------------------------------------------------------------------
--- Driver
+-- Frame-driven state machine
+--
+-- Phases:
+--   WAIT_RAM    : poll RAM at $1000 each frame until writable.
+--   SETUP_NEXT  : pause CPU, plant next test program, set PC, resume.
+--                 Goes directly to RUN.
+--   RUN         : every frame, check if PC is at our stop address; if so,
+--                 pause, capture, advance.
+--   DONE        : write JSON, exit MAME.
 -- ----------------------------------------------------------------------
-function capture_run()
-    init_handles()
-    print("FPU capture starting (output: " .. FPU_OUT_PATH .. ")")
-    manager.machine.debugger.execution_state = "stop"
+local RAM_PROBE_VALUE = 0xDEADBEEF
+local MAX_WAIT_FRAMES = 1800
+local MAX_RUN_FRAMES  = 120     -- per test; ~2 sec headroom
 
-    local results = {}
-    for _, t in ipairs(tests) do
-        print(string.format("  running: %s", t.name))
-        results[#results + 1] = run_one(t)
-    end
+local phase   = "WAIT_RAM"
+local frames  = 0
+local test_i  = 1
+local stop_pc = 0
+local results = {}
 
-    local f = io.open(FPU_OUT_PATH, "w")
-    if f == nil then
-        print("ERROR: cannot open " .. FPU_OUT_PATH)
-        return
+local function start_test(t)
+    -- Build the instruction stream.
+    local out = {}
+    local function append(bs)
+        for _, b in ipairs(bs) do out[#out + 1] = b end
     end
-    emit_json(f, results)
-    f:close()
-    print(string.format("Wrote %d tests to %s", #results, FPU_OUT_PATH))
+    append(t.preload)
+    append(emit_state_dump(INIT_DUMP))
+    append(t.test)
+    append(emit_state_dump(FINAL_DUMP))
+    append({ 0x4E, 0x72, 0x27, 0x00 })  -- STOP #$2700
+
+    write_bytes(PROG_BASE, out)
+
+    -- Reset core registers (preload will set FP regs etc. when it runs).
+    for r = 0, 7 do rset("D" .. r, 0); rset("A" .. r, 0) end
+    rset("SR", 0x2000)
+    rset("A7", 0x00200000)
+    rset("PC", PROG_BASE)
+
+    stop_pc = PROG_BASE + #out - 4
+    frames  = 0
 end
 
-print("mame_fpu_capture.lua loaded. After boot has progressed, run:")
-print("  > capture_run()")
+local function tick()
+    init_handles()
+
+    if phase == "WAIT_RAM" then
+        prog:write_u32(PROG_BASE, RAM_PROBE_VALUE)
+        local rb = prog:read_u32(PROG_BASE)
+        frames = frames + 1
+        if rb == RAM_PROBE_VALUE then
+            print(string.format("RAM mapped at $%08X after %d frames.",
+                PROG_BASE, frames))
+            phase  = "SETUP_NEXT"
+            frames = 0
+        elseif frames >= MAX_WAIT_FRAMES then
+            print(string.format("ERROR: RAM never mapped at $%08X.", PROG_BASE))
+            phase = "ABORT"
+        end
+
+    elseif phase == "SETUP_NEXT" then
+        if test_i > #tests then
+            phase = "DONE"
+            return
+        end
+        local t = tests[test_i]
+        print(string.format("[%d/%d] %s", test_i, #tests, t.name))
+        emu.pause()
+        start_test(t)
+        emu.unpause()
+        phase = "RUN"
+
+    elseif phase == "RUN" then
+        frames = frames + 1
+        local pc = rget("PC")
+        -- After STOP executes the CPU halts; PC sits at the STOP opcode.
+        if pc == stop_pc then
+            emu.pause()
+            local t = tests[test_i]
+            results[#results + 1] = {
+                name    = t.name,
+                initial = read_snap(INIT_DUMP),
+                final   = read_snap(FINAL_DUMP),
+            }
+            test_i = test_i + 1
+            phase  = "SETUP_NEXT"
+        elseif frames >= MAX_RUN_FRAMES then
+            print(string.format("  timeout: PC=$%08X, expected $%08X",
+                pc, stop_pc))
+            emu.pause()
+            test_i = test_i + 1
+            phase  = "SETUP_NEXT"
+        end
+
+    elseif phase == "DONE" then
+        local f = io.open(FPU_OUT_PATH, "w")
+        if f == nil then
+            print("ERROR: cannot open " .. FPU_OUT_PATH)
+        else
+            emit_json(f, results)
+            f:close()
+            print(string.format("Wrote %d tests to %s", #results, FPU_OUT_PATH))
+        end
+        phase = "EXITED"
+        manager.machine:exit()
+
+    elseif phase == "ABORT" then
+        manager.machine:exit()
+    end
+end
+
+emu.register_frame_done(tick, "fpu_capture")
+print("mame_fpu_capture.lua loaded — waiting for RAM, will run "
+      .. #tests .. " tests then exit.")
