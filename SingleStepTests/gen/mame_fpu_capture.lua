@@ -46,41 +46,9 @@ local FINAL_DUMP  = 0x00002200
 local VEC_BASE    = 0x00000000
 local VEC_COUNT   = 256
 
--- Each entry produces ONE corpus entry. Bytes are concatenated and
--- planted at PROG_BASE between init/final dump blocks.
-local tests = {
-    -- Sanity test 1: no FPU at all. If this works, FPU exception is the
-    -- problem. If even this hangs, our stop-detection is wrong.
-    { name = "DBG: MOVEQ #5,D0 (no FPU)",
-      preload = {},
-      test    = { 0x70, 0x05 } }, -- MOVEQ #5,D0
-    -- Sanity test 2: F-line but skip the dump prologue/epilogue.
-    { name = "FMOVE.L #1,FP0",
-      preload = {},
-      test    = { 0x70, 0x01,            -- MOVEQ #1,D0
-                  0xF2, 0x00, 0x40, 0x00 } }, -- FMOVE.L D0,FP0
-    { name = "FADD.X FP0,FP0 (1+1=2)",
-      preload = { 0x70, 0x01, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x22 } },
-    { name = "FMUL.X FP0,FP0 (2*2=4)",
-      preload = { 0x70, 0x02, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x23 } },
-    { name = "FSQRT.X FP0,FP0 (sqrt(4)=2)",
-      preload = { 0x70, 0x04, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x04 } },
-    { name = "FNEG.X FP0,FP0 (1 -> -1)",
-      preload = { 0x70, 0x01, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x1A } },
-    { name = "FABS.X FP0,FP0 (-1 -> 1)",
-      preload = { 0x70, 0xFF, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x18 } },
-    { name = "FTST.X FP0",
-      preload = { 0x70, 0x00, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x3A } },
-    { name = "FMOVE.X FP0,FP1",
-      preload = { 0x70, 0x05, 0xF2, 0x00, 0x40, 0x00 },
-      test    = { 0xF2, 0x00, 0x00, 0x80 } },
-}
+-- Tests are generated below the emit helpers (search "TEST GENERATOR").
+-- Each entry produces ONE corpus entry: { name, preload, test }.
+local tests
 
 -- ----------------------------------------------------------------------
 -- Handles + helpers
@@ -238,37 +206,244 @@ local function read_snap(base)
     return snap
 end
 
--- ----------------------------------------------------------------------
--- JSON emission
--- ----------------------------------------------------------------------
-local function emit_snap(file, label, s, trailing_comma)
-    file:write(string.format("    \"%s\": {\n", label))
-    file:write("      \"d\":[")
-    for i = 0, 7 do
-        file:write(string.format("%s%d", i == 0 and "" or ",", s.d[i]))
-    end
-    file:write("],\n      \"a\":[")
-    for i = 0, 7 do
-        file:write(string.format("%s%d", i == 0 and "" or ",", s.a[i]))
-    end
-    file:write("],\n      \"fp\":[")
-    for i = 0, 7 do
-        file:write(string.format("%s\"%s\"", i == 0 and "" or ",", s.fp[i]))
-    end
-    file:write(string.format("],\n      \"fpcr\":%d, \"fpsr\":%d, \"fpiar\":%d\n",
-        s.fpcr, s.fpsr, s.fpiar))
-    file:write("    }" .. (trailing_comma and "," or "") .. "\n")
+-- ======================================================================
+-- TEST GENERATOR
+--
+-- Operand pool: each value is a 12-byte 68881 extended-precision big-
+-- endian representation. Loaded into FP registers via FMOVE.X #imm,FPn
+-- so the preload exercises no conversion (the value lands in the FP
+-- register exactly as written).
+-- ======================================================================
+
+local OPERANDS = {
+    -- Trivial values
+    pos_zero   = {0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    neg_zero   = {0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    pos_one    = {0x3F,0xFF,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    neg_one    = {0xBF,0xFF,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    pos_two    = {0x40,0x00,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    neg_two    = {0xC0,0x00,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    pos_half   = {0x3F,0xFE,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    neg_half   = {0xBF,0xFE,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    pos_three  = {0x40,0x00,0x00,0x00, 0xC0,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    -- Famous constants (correct to extended precision)
+    pi         = {0x40,0x00,0x00,0x00, 0xC9,0x0F,0xDA,0xA2, 0x21,0x68,0xC2,0x35},
+    pi_half    = {0x3F,0xFF,0x00,0x00, 0xC9,0x0F,0xDA,0xA2, 0x21,0x68,0xC2,0x35},
+    pi_quarter = {0x3F,0xFE,0x00,0x00, 0xC9,0x0F,0xDA,0xA2, 0x21,0x68,0xC2,0x35},
+    e          = {0x40,0x00,0x00,0x00, 0xAD,0xF8,0x54,0x58, 0xA2,0xBB,0x4A,0x9A},
+    ten        = {0x40,0x02,0x00,0x00, 0xA0,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    -- Magnitude extremes
+    big        = {0x40,0x40,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00}, -- 2^65
+    tiny       = {0x3F,0xC0,0x00,0x00, 0x80,0x00,0x00,0x00, 0x00,0x00,0x00,0x00}, -- 2^-63
+    -- Specials
+    pos_inf    = {0x7F,0xFF,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    neg_inf    = {0xFF,0xFF,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+    qnan       = {0x7F,0xFF,0x00,0x00, 0xC0,0x00,0x00,0x00, 0x00,0x00,0x00,0x00},
+}
+
+-- FMOVE.X #imm,FPn  --  4 bytes opword/ext + 12 bytes extended-precision
+-- opword F23C: coproc 1, EA mode 111/reg 100 (immediate)
+-- ext: bits 15-13 = 010 (EA->FP), bits 12-10 = 010 (size X),
+--      bits 9-7 = dest FPn, bits 6-0 = 0
+local function emit_fmove_x_imm_to_fp(fpn, op_bytes)
+    local opword = 0xF23C
+    local ext    = 0x4800 | (fpn << 7)
+    local out = {
+        (opword >> 8) & 0xFF, opword & 0xFF,
+        (ext    >> 8) & 0xFF, ext    & 0xFF,
+    }
+    for _, b in ipairs(op_bytes) do out[#out + 1] = b end
+    return out
 end
 
-local function emit_json(file, results)
-    file:write("[\n")
-    for i, e in ipairs(results) do
-        file:write(string.format("  {\n    \"name\": %q,\n", e.name))
-        emit_snap(file, "initial", e.initial, true)
-        emit_snap(file, "final",   e.final,   false)
-        file:write(string.format("  }%s\n", i < #results and "," or ""))
+-- Register-direct FP op: FPm -> FPn, R/M = 0.
+-- opword: 0xF200 (no EA needed; src is the SSS field in ext).
+-- ext: bit 15 = 0, bit 14 = 0 (R/M=0 -> source is an FP reg),
+--      bits 12-10 = SSS (src FP reg), bits 9-7 = DDD (dst FP reg),
+--      bits 6-0 = opmode.
+local function emit_fop_x_reg_to_reg(opmode, src_fpn, dst_fpn)
+    local opword = 0xF200
+    local ext    = ((src_fpn & 7) << 10)
+                 | ((dst_fpn & 7) << 7)
+                 |  (opmode  & 0x7F)
+    return {
+        (opword >> 8) & 0xFF, opword & 0xFF,
+        (ext    >> 8) & 0xFF, ext    & 0xFF,
+    }
+end
+
+local function concat_bytes(...)
+    local out = {}
+    for _, t in ipairs({...}) do
+        for _, b in ipairs(t) do out[#out + 1] = b end
     end
-    file:write("]\n")
+    return out
+end
+
+local function make_dyadic_test(op, a_name, b_name)
+    return {
+        name = string.format("%s.X FP1,FP0 (%s,%s)", op.name, a_name, b_name),
+        preload = concat_bytes(
+            emit_fmove_x_imm_to_fp(0, OPERANDS[a_name]),
+            emit_fmove_x_imm_to_fp(1, OPERANDS[b_name])
+        ),
+        test = emit_fop_x_reg_to_reg(op.opmode, 1, 0),  -- src=FP1, dst=FP0
+    }
+end
+
+local function make_monadic_test(op, a_name)
+    return {
+        name = string.format("%s.X FP0 (%s)", op.name, a_name),
+        preload = emit_fmove_x_imm_to_fp(0, OPERANDS[a_name]),
+        test = emit_fop_x_reg_to_reg(op.opmode, 0, 0),
+    }
+end
+
+local DYADIC_OPS = {
+    {name="FADD",    opmode=0x22},
+    {name="FSUB",    opmode=0x28},
+    {name="FMUL",    opmode=0x23},
+    {name="FDIV",    opmode=0x20},
+    {name="FCMP",    opmode=0x38},  -- writes FPCC only, no result reg
+    {name="FMOD",    opmode=0x21},
+    {name="FREM",    opmode=0x25},
+    {name="FSCALE",  opmode=0x26},
+    {name="FSGLDIV", opmode=0x24},
+    {name="FSGLMUL", opmode=0x27},
+}
+
+local MONADIC_OPS = {
+    {name="FABS",    opmode=0x18},
+    {name="FNEG",    opmode=0x1A},
+    {name="FSQRT",   opmode=0x04},
+    {name="FINT",    opmode=0x01},
+    {name="FINTRZ",  opmode=0x03},
+    {name="FGETEXP", opmode=0x1E},
+    {name="FGETMAN", opmode=0x1F},
+    {name="FTST",    opmode=0x3A},  -- writes FPCC only
+}
+
+-- Transcendentals that MAME's m68kfpu actually implements. Skipped (real
+-- hardware does these but MAME crashes with "unimplemented opmode"):
+--   FASIN  (0x0C), FACOS  (0x1C), FATANH (0x0D),
+--   FSINH  (0x02), FCOSH  (0x19), FTANH  (0x09).
+-- These should still be tested on real hardware once we have a Mac-side
+-- bench, but until MAME implements them they can't be oracle-checked.
+local TRANSCENDENTAL_OPS = {
+    {name="FSIN",    opmode=0x0E},
+    {name="FCOS",    opmode=0x1D},
+    {name="FTAN",    opmode=0x0F},
+    {name="FATAN",   opmode=0x0A},
+    {name="FETOX",   opmode=0x10},
+    {name="FETOXM1", opmode=0x08},
+    {name="FLOGN",   opmode=0x14},
+    {name="FLOG10",  opmode=0x15},
+    {name="FLOG2",   opmode=0x16},
+    {name="FLOGNP1", opmode=0x06},
+    {name="FTENTOX", opmode=0x12},
+    {name="FTWOTOX", opmode=0x11},
+}
+
+-- Operand pairs for the dyadic sweep. Chosen to exercise: identity,
+-- commutativity, sign combos, magnitude differences, infinity arithmetic,
+-- NaN propagation, division-by-zero, and modulo-style ops.
+local DYADIC_PAIRS = {
+    {"pos_one",  "pos_one"},   -- 1 op 1
+    {"pos_one",  "pos_two"},   -- 1 op 2
+    {"pos_two",  "pos_one"},   -- 2 op 1 (non-commutative check)
+    {"pos_one",  "neg_one"},   -- 1 op -1
+    {"pi",       "e"},         -- transcendental constants
+    {"pos_one",  "pos_zero"},  -- 1 op 0 (DIV by zero!)
+    {"pos_zero", "pos_one"},   -- 0 op 1
+    {"pos_inf",  "pos_one"},   -- inf arithmetic
+    {"pos_inf",  "pos_inf"},   -- inf op inf
+    {"pos_one",  "qnan"},      -- NaN propagation
+    {"big",      "tiny"},      -- magnitude mismatch
+    {"ten",      "pos_three"}, -- non-power-of-two
+}
+
+-- Operands for monadic ops -- broad coverage of sign / magnitude / special.
+local MONADIC_VALUES = {
+    "pos_zero", "neg_zero",
+    "pos_one",  "neg_one",
+    "pos_two",  "pos_half",
+    "pi",       "e",
+    "pos_inf",  "neg_inf",
+    "qnan",
+}
+
+-- Operands for transcendentals: same idea but tighter, since each op
+-- has a different "natural" domain.
+local TRANS_VALUES = {
+    "pos_zero", "pos_half", "pos_one", "pi_quarter", "pi",
+}
+
+-- ----------------------------------------------------------------------
+-- Assemble the full `tests` list.
+-- ----------------------------------------------------------------------
+tests = {
+    -- Smoke tests (preserved from the bring-up phase; cheap insurance).
+    { name = "DBG: MOVEQ #5,D0 (no FPU)",
+      preload = {},
+      test    = { 0x70, 0x05 } },
+    { name = "FMOVE.L #1,FP0 (sanity)",
+      preload = {},
+      test    = { 0x70, 0x01, 0xF2, 0x00, 0x40, 0x00 } },
+}
+
+for _, op in ipairs(DYADIC_OPS) do
+    for _, pair in ipairs(DYADIC_PAIRS) do
+        tests[#tests + 1] = make_dyadic_test(op, pair[1], pair[2])
+    end
+end
+
+for _, op in ipairs(MONADIC_OPS) do
+    for _, val in ipairs(MONADIC_VALUES) do
+        tests[#tests + 1] = make_monadic_test(op, val)
+    end
+end
+
+for _, op in ipairs(TRANSCENDENTAL_OPS) do
+    for _, val in ipairs(TRANS_VALUES) do
+        tests[#tests + 1] = make_monadic_test(op, val)
+    end
+end
+
+print(string.format("Corpus has %d tests "
+    .. "(%d dyadic, %d monadic, %d transcendental, 2 smoke).",
+    #tests,
+    #DYADIC_OPS * #DYADIC_PAIRS,
+    #MONADIC_OPS * #MONADIC_VALUES,
+    #TRANSCENDENTAL_OPS * #TRANS_VALUES))
+
+-- ----------------------------------------------------------------------
+-- JSON Lines emission. One JSON object per line so a partial run leaves
+-- a valid file even if MAME crashes mid-corpus on an unimplemented FPU
+-- instruction. Consumers do  `[json.loads(l) for l in open(path)]`.
+-- ----------------------------------------------------------------------
+local function snap_to_string(s)
+    local buf = { "{\"d\":[" }
+    for i = 0, 7 do
+        buf[#buf + 1] = (i == 0 and "" or ",") .. tostring(s.d[i])
+    end
+    buf[#buf + 1] = "],\"a\":["
+    for i = 0, 7 do
+        buf[#buf + 1] = (i == 0 and "" or ",") .. tostring(s.a[i])
+    end
+    buf[#buf + 1] = "],\"fp\":["
+    for i = 0, 7 do
+        buf[#buf + 1] = (i == 0 and "" or ",") .. '"' .. s.fp[i] .. '"'
+    end
+    buf[#buf + 1] = string.format(
+        "],\"fpcr\":%d,\"fpsr\":%d,\"fpiar\":%d}",
+        s.fpcr, s.fpsr, s.fpiar)
+    return table.concat(buf)
+end
+
+local function emit_entry(file, name, initial, final)
+    file:write(string.format("{\"name\":%q,\"initial\":%s,\"final\":%s}\n",
+        name, snap_to_string(initial), snap_to_string(final)))
+    file:flush()
 end
 
 -- ----------------------------------------------------------------------
@@ -286,11 +461,12 @@ local RAM_PROBE_VALUE = 0xDEADBEEF
 local MAX_WAIT_FRAMES = 1800
 local MAX_RUN_FRAMES  = 120     -- per test; ~2 sec headroom
 
-local phase   = "WAIT_RAM"
-local frames  = 0
-local test_i  = 1
-local stop_pc = 0
-local results = {}
+local phase    = "WAIT_RAM"
+local frames   = 0
+local test_i   = 1
+local stop_pc  = 0
+local out_file = nil    -- opened once RAM is up, written to incrementally
+local n_written = 0
 
 local function start_test(t)
     -- Pre-fill dump areas with a sentinel so we can tell at JSON-read
@@ -363,6 +539,12 @@ local function tick()
         if rb == RAM_PROBE_VALUE then
             print(string.format("RAM mapped at $%08X after %d frames.",
                 PROG_BASE, frames))
+            out_file = io.open(FPU_OUT_PATH, "w")
+            if out_file == nil then
+                print("ERROR: cannot open " .. FPU_OUT_PATH)
+                phase = "ABORT"
+                return
+            end
             phase  = "SETUP_NEXT"
             frames = 0
         elseif frames >= MAX_WAIT_FRAMES then
@@ -390,11 +572,10 @@ local function tick()
         if pc == stop_pc then
             emu.pause()
             local t = tests[test_i]
-            results[#results + 1] = {
-                name    = t.name,
-                initial = read_snap(INIT_DUMP),
-                final   = read_snap(FINAL_DUMP),
-            }
+            emit_entry(out_file, t.name,
+                read_snap(INIT_DUMP),
+                read_snap(FINAL_DUMP))
+            n_written = n_written + 1
             test_i = test_i + 1
             phase  = "SETUP_NEXT"
         elseif frames >= MAX_RUN_FRAMES then
@@ -406,18 +587,13 @@ local function tick()
         end
 
     elseif phase == "DONE" then
-        local f = io.open(FPU_OUT_PATH, "w")
-        if f == nil then
-            print("ERROR: cannot open " .. FPU_OUT_PATH)
-        else
-            emit_json(f, results)
-            f:close()
-            print(string.format("Wrote %d tests to %s", #results, FPU_OUT_PATH))
-        end
+        if out_file then out_file:close() end
+        print(string.format("Wrote %d tests to %s", n_written, FPU_OUT_PATH))
         phase = "EXITED"
         manager.machine:exit()
 
     elseif phase == "ABORT" then
+        if out_file then out_file:close() end
         manager.machine:exit()
     end
 end

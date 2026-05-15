@@ -69,21 +69,46 @@ fix is a read-side CIR-mode address remap parallel to the existing
 write-side gating. After patching, re-run `SingleStepTests/cpu_fpu/`
 to confirm.
 
-### B-2: No FPU test corpus exists  ⚠ DATA
+### B-2: No FPU test corpus exists  ✅ RESOLVED (270 tests)
 
-**Status:** There is no public 68881 SingleStepTests-style corpus. The
-[680x0 repo](https://github.com/SingleStepTests/680x0) covers 68000 only.
+**Status:** `gen/mame_fpu_capture.lua` now produces a 270-test corpus
+in `/tmp/fpu_corpus.json` (JSON Lines format — one entry per line so
+partial runs survive MAME crashes). Coverage:
 
-**Options to unblock:**
-1. **MAME as oracle** — MAME's m68k core implements full 68881/68882
-   semantics. Drive a Lua script in MAME to step instructions and dump
-   state to JSON. (See companion script: `gen/mame_fpu_capture.lua`.)
-2. **Musashi as oracle** — Musashi's `m68kfpu.c` also implements the
-   FPU. Would need to expose FP0–FP7 (they're in `m68ki_cpu.fpr[8]`
-   but not in the public `m68k_get_reg()` API). Patch and rebuild.
-3. **TestFloat** — IEEE 754 reference (John Hauser). Better for
-   transcendental accuracy but doesn't model the 68881-specific
-   FPSR/FPCR side effects.
+- 10 dyadic ops × 12 operand pairs = 120 tests
+  (FADD, FSUB, FMUL, FDIV, FCMP, FMOD, FREM, FSCALE, FSGLDIV, FSGLMUL)
+- 8 monadic ops × 11 operand values = 88 tests
+  (FABS, FNEG, FSQRT, FINT, FINTRZ, FGETEXP, FGETMAN, FTST)
+- 12 transcendental ops × 5 values = 60 tests
+  (FSIN, FCOS, FTAN, FATAN, FETOX, FETOXM1, FLOGN, FLOG10, FLOG2,
+   FLOGNP1, FTENTOX, FTWOTOX)
+- 2 smoke tests
+
+Operand pool: pos/neg zero, ±1, ±2, ±½, π, π/2, π/4, e, 10, 2^65, 2^-63,
+±∞, qNaN. Loaded via `FMOVE.X #imm,FPn` so no conversion is folded in.
+
+**Known MAME m68kfpu gaps** (these ops crash MAME hard with
+"unimplemented opmode"; skipped from corpus, must verify directly on
+hardware once Mac-side bench scales up):
+
+- FASIN  (0x0C), FACOS  (0x1C), FATANH (0x0D)
+- FSINH  (0x02), FCOSH  (0x19), FTANH  (0x09)
+
+**Real Mac II hardware validation:** verified for the 9 bring-up tests
+on a physical Mac II (System 7.1.2 + Symantec C++ via
+`gen/fpu_test_macii.c`). All 8 arithmetic tests produced byte-identical
+extended-precision results vs MAME. One bona-fide MAME divergence
+found: reset state of unused FP registers is `7FFF_0000_FFFF...` on
+real 68881 (signaling NaN) but `0000_..._00` (or random) in MAME.
+Tracked separately as a MAME bug — does not affect tests that preload
+their operands.
+
+**TODO (future):**
+- Scale the Mac-side bench to consume the same 270 tests (currently
+  hand-listed 9). Likely needs a binary loader or generated `.c` so
+  the Mac doesn't need 270 hand-encoded test functions.
+- Add tests for FMOVE size variants (.L/.S/.D/.W/.B from immediate
+  and Dn EA), FMOVEM, FSAVE/FRESTORE, FBcc/FScc/FDBcc.
 
 Plan: start with MAME (option 1) since the corpus needs to match real
 68881 semantics, not just IEEE 754, and MAME's FPU is closer to the
