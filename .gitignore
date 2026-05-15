@@ -54,3 +54,11 @@ verilator/*.txt
 
 # Local emulator checkout and ROMs used for boot comparison.
 /mame/
+
+# SingleStepTests benches: large external test corpus + build dirs.
+SingleStepTests/tg68k/680x0/
+SingleStepTests/tg68k/corpus/
+SingleStepTests/fpu/fpu_corpus/
+SingleStepTests/*/obj_dir/
+SingleStepTests/gen/gen
+SingleStepTests/gen/gen.dSYM/
