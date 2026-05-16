@@ -111,11 +111,24 @@ static u8 *build_program(const CpuTestSpec *t)
 {
     u8 *entry = prog_buffer;
     u8 *p = entry;
+    int n;
 
-    /* 1) A6 = &scratch_ram[0] (harness preamble; tests reference A6) */
+    /* 1) Reset D0..D7 and A0..A5. MAME's harness clears these externally
+     * via Lua rset(); without this matching step on the Mac side, every
+     * test inherits D0/D1/A0/A1 residue from the C caller (memset loop
+     * counter, heap pointers, printf return value, etc.) and diff_corpus
+     * flags every single test as "unknown" even when the actual test
+     * result is identical to MAME. A6 is set in step 2; A7 is the C
+     * stack and must be preserved. */
+    for (n = 0; n < 8; n++)
+        p = put_w(p, (u16)(0x7000 | (n << 9)));     /* MOVEQ #0,Dn */
+    for (n = 0; n < 6; n++)
+        p = put_w(p, (u16)(0x91C8 | (n << 9) | n)); /* SUBA.L An,An */
+
+    /* 2) A6 = &scratch_ram[0] (harness preamble; tests reference A6) */
     p = emit_movea_l_imm_to_an(p, 6, (u32) &scratch_ram[0]);
 
-    /* 2) Zero CCR */
+    /* 3) Zero CCR */
     p = emit_move_w_imm_to_ccr(p, 0);
 
     /* 3) Per-test preload */

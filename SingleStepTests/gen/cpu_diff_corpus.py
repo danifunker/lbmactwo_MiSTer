@@ -45,10 +45,15 @@ def load(path):
     return [json.loads(l) for l in open(path) if l.strip()]
 
 
-# Address registers we actually compare. A7 is excluded because it's the
-# Mac C stack pointer on the hardware side (residue from the JSR) and an
-# arbitrary value on the MAME side -- never aligned across platforms.
-COMPARE_AREGS = list(range(7))   # A0..A6
+# Address registers we actually compare. Excluded:
+#   - A7 = the Mac C stack pointer on hardware (post-JSR residue) and an
+#     arbitrary harness-set value on MAME -- never aligned across platforms.
+#   - A6 = the scratch RAM base register; set by each harness to its
+#     platform-specific RAM address ($1800 on MAME, &scratch_ram[0] on
+#     the Mac heap). Tests that USE A6 do so only via (A6)/d16(A6)
+#     addressing, which yields identical scratch RAM mutations on both
+#     sides (compared via the ram[] field).
+COMPARE_AREGS = list(range(6))   # A0..A5
 
 
 def is_zeroed(snap):
