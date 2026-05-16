@@ -80,20 +80,23 @@ static u8 *emit_move_w_imm_to_ccr(u8 *p, u16 imm) {
  * Two invariants:
  *   1. Must not clobber any general-purpose register (init dump runs
  *      before the test; clobbered residue would corrupt test inputs).
- *   2. Must capture CCR BEFORE any flag-setting instruction, since
- *      `MOVE.L Dn,abs.L` (used to dump D regs) sets N/Z on the source.
- *
- * Order: CCR first, then A regs, then D regs, then scratch RAM copy.
- * Uses `MOVE CCR,(abs.L)` and `MOVE.L (abs.L),(abs.L)` -- no register
- * temps.
+ *   2. CCR is captured at the moment that matches its semantic role:
+ *        - INIT dump  (is_init=1): CCR LAST  -- the value the test will
+ *                                              actually inherit, after
+ *                                              the dump's MOVE.L pollution.
+ *        - FINAL dump (is_init=0): CCR FIRST -- the test's clean output
+ *                                              CCR, before this dump's
+ *                                              MOVE.L pollution.
+ *      This makes the corpus self-consistent for tests that don't update
+ *      CCR (NOP, LEA, MOVEM, PACK, UNPK): final.ccr will equal initial.ccr
+ *      instead of being the dump residue (0x04).
  */
-static u8 *emit_state_dump(u8 *p, Snapshot *snap)
+static u8 *emit_state_dump(u8 *p, Snapshot *snap, int is_init)
 {
     u32 base = (u32) snap;
     u32 scratch_base = (u32) &scratch_ram[0];
     int n, i;
-    /* CCR first. 16-bit word write: byte 0x40 = 0x00, byte 0x41 = CCR. */
-    p = put_w(p, 0x42F9); p = put_l(p, base + 0x40);
+    if (!is_init) { p = put_w(p, 0x42F9); p = put_l(p, base + 0x40); }
     for (n = 0; n < 8; n++)
         p = emit_move_l_an_to_abs(p, n, base + 0x20 + n * 4);
     for (n = 0; n < 8; n++)
@@ -103,6 +106,7 @@ static u8 *emit_state_dump(u8 *p, Snapshot *snap)
         p = put_l(p, scratch_base + i * 4);
         p = put_l(p, base + 0x44 + i * 4);
     }
+    if (is_init) { p = put_w(p, 0x42F9); p = put_l(p, base + 0x40); }
     return p;
 }
 
@@ -137,13 +141,13 @@ static u8 *build_program(const CpuTestSpec *t)
         p += t->preload_len;
     }
 
-    p = emit_state_dump(p, &init_snap);
+    p = emit_state_dump(p, &init_snap, 1);
 
     /* 4) Test instruction(s) */
     memcpy(p, t->test, t->test_len);
     p += t->test_len;
 
-    p = emit_state_dump(p, &final_snap);
+    p = emit_state_dump(p, &final_snap, 0);
 
     *p++ = 0x4E; *p++ = 0x75;     /* RTS */
     return entry;

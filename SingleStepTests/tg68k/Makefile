@@ -30,19 +30,11 @@ V_OPT = --x-assign fast --x-initial fast --noassert
 EXE   = ./obj_dir/Vtg68k_tests
 VOUT  = obj_dir/Vtg68k_tests.cpp
 
-# 68k SingleStepTests corpus — auto-cloned on first build. Large (~190 MB
-# checkout + ~190 MB .git); gitignored at the repo root. NOT touched by
-# `make clean`. Use `make distclean` if you really want to drop it.
-TESTDATA_DIR  = 680x0
-TESTDATA_REPO = https://github.com/SingleStepTests/680x0.git
+# Corpus is the in-repo MAME-derived oracle at
+# SingleStepTests/results/cpu/mame_baseline_2026-05-16.json. No external
+# download needed.
 
-all: $(TESTDATA_DIR) $(EXE)
-
-$(TESTDATA_DIR):
-	@echo "Test corpus '$(TESTDATA_DIR)' not found — cloning $(TESTDATA_REPO)."
-	@echo "This is ~400 MB and will be reused across builds. Skip with"
-	@echo "  make $(EXE)   (corpus not needed to build the bench itself)"
-	git clone --depth=1 $(TESTDATA_REPO) $(TESTDATA_DIR)
+all: $(EXE)
 
 $(VOUT): $(V_SRC) Makefile
 	$V -cc $(V_OPT) -exe --Mdir ./obj_dir $(V_DEFINE) $(V_INC) $(TOP) \
@@ -51,15 +43,10 @@ $(VOUT): $(V_SRC) Makefile
 $(EXE): $(VOUT) $(C_SRC)
 	cd obj_dir && $(MAKE) -f Vtg68k_tests.mk OBJCACHE=
 
-run: $(TESTDATA_DIR) $(EXE)
-	./test.sh
+run: $(EXE)
+	$(EXE)
 
 clean:
 	rm -rf obj_dir
 
-# Wipes the corpus too. Separate target so a routine `clean` never costs
-# you a 400 MB re-download.
-distclean: clean
-	rm -rf $(TESTDATA_DIR)
-
-.PHONY: all run clean distclean
+.PHONY: all run clean

@@ -100,33 +100,35 @@ local function emit_move_w_imm_to_ccr(imm)
 end
 local function emit_move_ccr_to_dn(dn) return bw(0x42C0 | (dn & 7)) end
 
--- State dump epilogue. snap_base is platform-specific.
+-- State dump epilogue. snap_base is platform-specific; `is_init` toggles
+-- WHERE in the dump the CCR write lands.
 --
 -- TWO invariants this routine must preserve:
 --   1. Must not clobber any general-purpose register (D0..D7, A0..A7).
 --      The init dump runs BEFORE the test, so clobbered values would
 --      propagate into the test instruction.
---   2. Must capture CCR BEFORE issuing any flag-setting instruction.
---      `MOVE.L Dn,abs.L` sets N/Z based on the source -- by the time
---      MOVE CCR,(abs.L) runs at the end of the dump, CCR has been
---      overwritten by the last register dumped (D7=0 -> Z=1 -> 0x04).
---
--- Order:
---   1. MOVE CCR,(abs.L) -- first, while CCR still reflects the test
---   2. MOVE.L An,abs.L x 8
---   3. MOVE.L Dn,abs.L x 8
---   4. MOVE.L (abs.L),(abs.L) x 16 -- scratch RAM copy
+--   2. CCR is captured at the moment that matches its semantic role:
+--        - INIT dump:  CCR last  -- captures the CCR the test will see,
+--                                   i.e. after the dump's MOVE.L pollution.
+--                                   Without this, the corpus is self-
+--                                   inconsistent: init.ccr says "0" but
+--                                   the test actually inherits CCR=0x04
+--                                   from the dump's last MOVE.L 0,0.
+--        - FINAL dump: CCR first -- captures the test's actual output CCR,
+--                                   before the final dump's MOVE.L pollution.
 --
 -- All instructions use memory-to-memory or reg-to-memory forms with no
 -- temp-register intermediates. `MOVE CCR,(abs.L)` writes a 16-bit word:
 -- byte snap+0x40 = 0x00 (zero-extended high), byte snap+0x41 = CCR.
-local function emit_state_dump(snap_base)
+local function emit_state_dump(snap_base, is_init)
     local out = {}
     local function append(t)
         for _, b in ipairs(t) do out[#out + 1] = b end
     end
-    -- CCR first (before subsequent MOVEs corrupt it).
-    append(concat(bw(0x42F9), bl(snap_base + 0x40)))
+    local function emit_ccr()
+        append(concat(bw(0x42F9), bl(snap_base + 0x40)))
+    end
+    if not is_init then emit_ccr() end
     -- A regs
     for an = 0, 7 do
         append(emit_move_l_an_to_abs(an, snap_base + 0x20 + an * 4))
@@ -141,6 +143,7 @@ local function emit_state_dump(snap_base)
                       bl(SCRATCH_BASE + i * 4),
                       bl(snap_base + 0x44 + i * 4)))
     end
+    if is_init then emit_ccr() end
     return out
 end
 
@@ -993,10 +996,10 @@ local function start_test(t)
     append(emit_move_w_imm_to_ccr(0))
     -- 3) Per-test preload (D regs, optional A regs via LEA-from-A6, CCR overrides).
     append(t.preload)
-    append(emit_state_dump(INIT_DUMP))
+    append(emit_state_dump(INIT_DUMP, true))
     local final_dump_off = #out + #t.test
     append(t.test)
-    append(emit_state_dump(FINAL_DUMP))
+    append(emit_state_dump(FINAL_DUMP, false))
     local jmp_pc = PROG_BASE + #out
     append(concat(bw(0x4EF9), bl(jmp_pc)))   -- JMP self
     stop_pc = jmp_pc
