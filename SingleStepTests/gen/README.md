@@ -1,10 +1,22 @@
-# FPU oracle + hardware bench
+# Oracle + hardware-bench pipeline
 
-End-to-end pipeline for verifying 68881 FPU behavior across three
-environments: a software oracle (MAME's m68kfpu), a real Macintosh II,
-and (when wired up) the verilator build of `mc68881_top`. All three
-emit results in the same JSON-Lines schema so any pair can be diffed
-with the same `diff_corpus.py` tool.
+End-to-end pipelines for verifying 68k subsystems against MAME's
+`maciihmu` driver as a software oracle. Two parallel pipelines live here:
+
+- **FPU** (this section): 68881 instruction set vs MAME's m68kfpu.
+- **CPU** ([further down](#cpu-oracle--hardware-bench)): 68020 instruction
+  set vs MAME's m68k core.
+
+Both produce JSON-Lines test corpora in a per-subsystem schema, runnable
+on (a) MAME, (b) a real Macintosh II via a THINK C bench, and (c) the
+verilator core when wired up. Diff tools categorize divergences.
+
+## FPU oracle + hardware bench
+
+The 68881 pipeline against three environments: a software oracle (MAME's
+m68kfpu), a real Macintosh II, and (when wired up) the verilator build
+of `mc68881_top`. All three emit results in the same JSON-Lines schema
+so any pair can be diffed with `diff_corpus.py`.
 
 ```
    +-----------+    +----------+    +----------------+    +-----------+
@@ -158,7 +170,7 @@ build with one of the `fpu_tests_q{1..4}.h` slice headers instead
 
 ## Baseline results
 
-`SingleStepTests/results/hw_vs_mame_2026-05-16.md` is the first
+`SingleStepTests/results/fpu/hw_vs_mame_2026-05-16.md` is the first
 documented baseline: real Mac II hardware (System 7.1.2 + 68881) vs
 MAME's m68kfpu oracle. **170 / 270 tests (63%) match byte-for-byte**
 on the compared fields.
@@ -171,3 +183,153 @@ handling (NaN encoding, infinity inputs to FINT/FSGLDIV/etc).
 
 See `SingleStepTests/test-blockers.md` for the full categorized list
 and the bench-side issues still to fix (FPSR.AEXC reset, etc.).
+
+# CPU oracle + hardware bench
+
+Sibling pipeline to the FPU one above. Same general architecture
+(MAME-driven oracle plants instructions and dumps state; Mac-side
+bench runs the same byte stream and produces a matching JSONL),
+but a different schema (no FP regs; adds scratch RAM dump and CCR)
+and a different diff tool (different divergence categories).
+
+## Files
+
+### Test generator + oracle
+
+- `mame_cpu_capture.lua` — drives MAME's `maciihmu` driver via Lua.
+  Builds a corpus across the common 68020 integer instruction families
+  (MOVE/MOVEQ/ADD/SUB/CMP/AND/OR/EOR + immediates, MULU/MULS/DIVU/DIVS,
+  NEG/NOT/CLR/SWAP/EXT, LEA, BTST/BSET/BCLR/BCHG, all 8 shift+rotate
+  ops, MOVEM, MOVES, MOVE-to/from-CCR), runs each test on the live CPU,
+  and writes:
+  - `/tmp/cpu_corpus.json` — JSON Lines, one test per line, initial +
+    final state for every test
+  - `/tmp/cpu_tests.h` — C header with the same test specs as a
+    static `CpuTestSpec[]` array (consumed by the Mac program)
+
+  **v1 scope**: non-control-flow instructions only. Bcc/JMP/JSR/RTS/BSR
+  need dual-site dump dispatch (the dump epilogue is only reached by
+  fall-through; branch targets need their own landing sites) and are
+  deferred to a later phase.
+
+### Mac OS application
+
+- `cpu_test_macii.c` — full CPU bench. `#include`s `cpu_tests.h` and
+  iterates `g_cpu_tests[]`. Output: `CPU Results.jsonl` in the app's
+  directory, in JSONL form matching the MAME oracle's schema.
+
+  Tests flagged `privileged` (currently just MOVES) are skipped — the
+  THINK C app runs in user mode, so MOVES would trap. The bench writes
+  zeroed init/final snapshots for those tests; the diff tool sees this
+  and labels them `skipped` rather than `dreg_diff`.
+
+  Build instructions identical to the FPU bench: new THINK C project,
+  application target, add the `.c` file + ANSI.π + MacTraps, drop the
+  `.h` file in the same folder.
+
+### Diff / analysis tool
+
+- `cpu_diff_corpus.py` — compares two CPU JSONL corpora. Same CLI
+  shape as `diff_corpus.py`:
+  - default: human-readable terminal report
+  - `--json`: machine-parseable structured dump
+  - `--markdown`: drop-in markdown for `SingleStepTests/results/cpu/`
+
+  Categories: `match`, `skipped`, `ccr_only`, `flag_only`, `dreg_diff`,
+  `areg_diff`, `ram_diff`, `sign_extension`, `unknown`. (No
+  `trailing_bits`/`nan_encoding` — those are FPU-specific. Substituted
+  with CPU-specific buckets that catch the most common 68020 divergence
+  patterns.)
+
+## Cross-platform invariant
+
+Test instruction bytes must be **byte-identical between MAME and the
+Mac OS bench**, so any test that touches memory uses `(A6)` / `d16(A6)`
+addressing with A6 pre-loaded by the harness to a *platform-specific*
+scratch base. That way the same bytes run on both sides regardless of
+where scratch RAM actually lives:
+
+- MAME side: `A6 = $00001800` (an arbitrary low-RAM page we own).
+- Mac side: `A6 = &scratch_ram[0]` (a 64-byte C global).
+
+Tests must NOT preload A6 (it's reserved); the lua helper
+`preload_an_scratch({[an] = offset})` emits `LEA off(A6),An` so other
+A regs can be loaded with platform-correct addresses derived from A6.
+
+## Test schema (JSON Lines)
+
+```json
+{
+  "name": "ADD.L D1,D0 (#1 0xDEADBEEF,0x12345678)",
+  "initial": {
+    "d":   [3735928559, 305419896, 0, 0, 0, 0, 0, 0],
+    "a":   [0, 0, 0, 0, 0, 0, 6144, 2097152],
+    "ccr": 0,
+    "ram": [0,0,0,...]                              /* 64 bytes */
+  },
+  "final": {
+    "d":   [4041348439, 305419896, ...],
+    "a":   [...],
+    "ccr": 8,                                       /* N flag set */
+    "ram": [...]
+  }
+}
+```
+
+- `d[]`, `a[]`: 8 unsigned 32-bit integers each
+- `ccr`: 0..255 (low byte of SR; XNZVC bits)
+- `ram[]`: 64 unsigned bytes (scratch RAM image)
+
+`cpu_diff_corpus.py` compares `d[0..7]`, `a[0..6]`, `ccr`, and `ram[]`.
+It deliberately ignores **A7** (stack residue — meaningless cross-platform).
+
+## Typical workflows
+
+### Regenerate the CPU oracle + header
+
+```
+cd /Users/dani/repos/mame
+./maciihmu maciihmu -bios original -skip_gameinfo -debug \
+    -debugger none -window -nothrottle -autoboot_delay 1 \
+    -autoboot_script /Users/dani/repos/lbmactwo_MiSTer/\
+SingleStepTests/gen/mame_cpu_capture.lua
+```
+
+Produces `/tmp/cpu_corpus.json` and `/tmp/cpu_tests.h`.
+
+### Compare candidate corpus to oracle
+
+```
+python3 SingleStepTests/gen/cpu_diff_corpus.py \
+    /tmp/cpu_corpus.json /path/to/candidate.jsonl
+```
+
+Add `--markdown > SingleStepTests/results/cpu/<run>.md` to save a snapshot.
+
+### Build the Mac OS CPU bench
+
+1. Make `.macc` twins (`.c` and `.h` with CR line endings):
+   ```
+   tr '\n' '\r' < cpu_test_macii.c > cpu_test_macii.macc
+   tr '\n' '\r' < /tmp/cpu_tests.h > cpu_tests.h.macc
+   ```
+2. Transfer to the Mac. Rename to `.c` / `.h` on the Mac side.
+3. THINK C: New Project → Application → add the `.c`, `ANSI.π`,
+   `MacTraps`. Place the `.h` in the same folder (not the picker).
+4. Build Application → save as e.g. "CPU Test".
+5. Run on a 68020 Mac. Output: `CPU Results.jsonl` in the app's folder.
+
+If the data segment is over 32KB, switch the project to 32-bit globals
+(THINK C → Project Type → Memory). With ~200 tests the corpus is well
+under the limit, but the same q1..q4 slice trick used for FPU could be
+applied if needed.
+
+## Results layout
+
+- `SingleStepTests/results/fpu/` — FPU corpus comparisons (hardware,
+  Snow, verilator-vs-MAME).
+- `SingleStepTests/results/cpu/` — CPU corpora and comparisons.
+  - `mame_baseline_2026-05-16.json` — MAME oracle, 175 tests. Snapshot
+    of the corpus captured on 2026-05-16; treat as the reference
+    baseline until a newer one is generated. Hardware/verilator runs
+    diff against this.

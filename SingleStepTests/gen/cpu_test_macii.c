@@ -1,0 +1,227 @@
+/*
+ * cpu_test_macii.c -- CPU instruction bench for real Mac II hardware.
+ *
+ * Companion to gen/mame_cpu_capture.lua: that script produces both
+ *   /tmp/cpu_corpus.json   -- MAME oracle results (JSON Lines)
+ *   /tmp/cpu_tests.h       -- C header with the same test specs
+ *
+ * Builds with THINK C 5+ / Symantec C++ on a 68020 Mac.
+ *
+ * Output: "CPU Results.jsonl" in the app's working directory, in the
+ * same JSONL schema MAME emits, so the two files diff line-by-line via
+ * cpu_diff_corpus.py.
+ *
+ * Cross-platform invariant
+ * ------------------------
+ * The test instruction bytes come straight from cpu_tests.h and are
+ * identical to those run under MAME. Memory-touching tests use
+ * (A6)/d16(A6) addressing; the harness preloads A6 with this bench's
+ * scratch RAM base (&scratch_ram[0]) before each test, so the same bytes
+ * run safely on both sides regardless of where scratch RAM actually lives.
+ *
+ * Tests flagged `privileged` (currently just MOVES) are skipped on Mac
+ * since this app runs in user mode. They still ship in the oracle so
+ * a supervisor-mode variant can run them later.
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include "cpu_tests.h"
+
+typedef unsigned char  u8;
+typedef unsigned short u16;
+typedef unsigned long  u32;
+
+typedef struct {
+    u32 d[8];                       /* offset 0x00 */
+    u32 a[8];                       /* offset 0x20 */
+    u8  ccr;                        /* offset 0x40 */
+    u8  pad[3];                     /* offset 0x41..0x43 */
+    u8  ram[CPU_SCRATCH_LEN];       /* offset 0x44 */
+} Snapshot;
+
+static Snapshot init_snap;
+static Snapshot final_snap;
+
+/* Scratch RAM region used as the target of all memory-touching tests.
+ * Address provided to the test program via A6 (set in the harness preamble). */
+static u8 scratch_ram[CPU_SCRATCH_LEN];
+
+/* Single 1KB buffer; flushed before each invocation. */
+static u8 prog_buffer[1024];
+
+/* -------------------------------------------------------------------- *
+ * Machine-code emitters. Mirror those in mame_cpu_capture.lua so the
+ * Mac-side dump lands at the same Snapshot offsets MAME's read_snap()
+ * reads back.                                                          *
+ * -------------------------------------------------------------------- */
+static u8 *put_w(u8 *p, u16 v) { *p++ = (u8)(v >> 8); *p++ = (u8)v; return p; }
+static u8 *put_l(u8 *p, u32 v) {
+    *p++ = (u8)(v >> 24); *p++ = (u8)(v >> 16);
+    *p++ = (u8)(v >>  8); *p++ = (u8) v;        return p;
+}
+
+static u8 *emit_move_l_dn_to_abs(u8 *p, int dn, u32 addr) {
+    p = put_w(p, (u16)(0x23C0 | (dn & 7))); return put_l(p, addr);
+}
+static u8 *emit_move_l_an_to_abs(u8 *p, int an, u32 addr) {
+    p = put_w(p, (u16)(0x23C8 | (an & 7))); return put_l(p, addr);
+}
+static u8 *emit_movea_l_imm_to_an(u8 *p, int an, u32 imm) {
+    p = put_w(p, (u16)(0x207C | ((an & 7) << 9))); return put_l(p, imm);
+}
+static u8 *emit_move_w_imm_to_ccr(u8 *p, u16 imm) {
+    p = put_w(p, 0x44FC); return put_w(p, (u16)(imm & 0xFF));
+}
+
+/* State dump epilogue. snap_base is the Mac-side address of init_snap or
+ * final_snap. Logic mirrors the lua emit_state_dump byte-for-byte. */
+static u8 *emit_state_dump(u8 *p, Snapshot *snap)
+{
+    u32 base = (u32) snap;
+    int n, i;
+    /* 1) A regs */
+    for (n = 0; n < 8; n++)
+        p = emit_move_l_an_to_abs(p, n, base + 0x20 + n * 4);
+    /* 2) D regs */
+    for (n = 0; n < 8; n++)
+        p = emit_move_l_dn_to_abs(p, n, base + 0x00 + n * 4);
+    /* 3) CCR (clobbers D0 after its dump) */
+    p = put_w(p, (u16)(0x42C0));                          /* MOVE CCR,D0 */
+    p = emit_move_l_dn_to_abs(p, 0, base + 0x40);
+    /* 4) Copy scratch -> snap+0x44 via A0/A1. */
+    p = emit_movea_l_imm_to_an(p, 0, (u32) &scratch_ram[0]);
+    p = emit_movea_l_imm_to_an(p, 1, base + 0x44);
+    for (i = 0; i < CPU_SCRATCH_LEN / 4; i++)
+        p = put_w(p, 0x22D8);                             /* MOVE.L (A0)+,(A1)+ */
+    return p;
+}
+
+/* Build one test program. Returns the entry point (start of prog_buffer). */
+static u8 *build_program(const CpuTestSpec *t)
+{
+    u8 *entry = prog_buffer;
+    u8 *p = entry;
+
+    /* 1) A6 = &scratch_ram[0] (harness preamble; tests reference A6) */
+    p = emit_movea_l_imm_to_an(p, 6, (u32) &scratch_ram[0]);
+
+    /* 2) Zero CCR */
+    p = emit_move_w_imm_to_ccr(p, 0);
+
+    /* 3) Per-test preload */
+    if (t->preload_len) {
+        memcpy(p, t->preload, t->preload_len);
+        p += t->preload_len;
+    }
+
+    p = emit_state_dump(p, &init_snap);
+
+    /* 4) Test instruction(s) */
+    memcpy(p, t->test, t->test_len);
+    p += t->test_len;
+
+    p = emit_state_dump(p, &final_snap);
+
+    *p++ = 0x4E; *p++ = 0x75;     /* RTS */
+    return entry;
+}
+
+/* _HwPriv selector 1 = FlushInstructionCache. System 6.0.4+. */
+static void flush_icache(void)
+{
+    asm {
+        moveq   #1, d0
+        dc.w    0xA198          /* _HwPriv */
+    }
+}
+
+/* Save callee-saved regs, jsr into the assembled test, restore.
+ * A6 is callee-saved on C; we clobber it during the test but the test's
+ * own A6 dump captures pre-dump value (= scratch base). The compiler's
+ * A6 frame pointer is preserved across the asm block by movem.l. */
+static void invoke_program(u8 *entry)
+{
+    asm {
+        movem.l d2-d7/a2-a6, -(sp)
+        move.l  entry, a0
+        jsr     (a0)
+        movem.l (sp)+, d2-d7/a2-a6
+    }
+}
+
+/* -------------------------------------------------------------------- *
+ * Output: JSON Lines, schema matches /tmp/cpu_corpus.json:
+ *   {"name":..., "initial":{d[],a[],ccr,ram[]}, "final":{...}}
+ * -------------------------------------------------------------------- */
+static void write_snap_obj(FILE *f, Snapshot *s)
+{
+    int i;
+    fprintf(f, "{\"d\":[");
+    for (i = 0; i < 8; i++) fprintf(f, "%s%lu", i ? "," : "", s->d[i]);
+    fprintf(f, "],\"a\":[");
+    for (i = 0; i < 8; i++) fprintf(f, "%s%lu", i ? "," : "", s->a[i]);
+    fprintf(f, "],\"ccr\":%u,\"ram\":[", (unsigned)s->ccr);
+    for (i = 0; i < CPU_SCRATCH_LEN; i++)
+        fprintf(f, "%s%u", i ? "," : "", (unsigned)s->ram[i]);
+    fprintf(f, "]}");
+}
+
+static void write_json_name(FILE *f, const char *name)
+{
+    const char *p = name;
+    fputc('"', f);
+    while (*p) {
+        if (*p == '"' || *p == '\\') fputc('\\', f);
+        fputc(*p, f);
+        p++;
+    }
+    fputc('"', f);
+}
+
+int main(void)
+{
+    FILE *f;
+    int i;
+
+#ifndef CPU_OUTPUT_PATH
+#define CPU_OUTPUT_PATH "CPU Results.jsonl"
+#endif
+
+    f = fopen(CPU_OUTPUT_PATH, "w");
+    if (f == NULL) { printf("Cannot open output file.\n"); return 1; }
+
+    printf("Running %u CPU tests against real 68020...\n", CPU_N_TESTS);
+
+    for (i = 0; i < CPU_N_TESTS; i++) {
+        const CpuTestSpec *t = &g_cpu_tests[i];
+        u8 *entry;
+
+        memset(&init_snap,  0, sizeof(init_snap));
+        memset(&final_snap, 0, sizeof(final_snap));
+        memset(scratch_ram, 0, sizeof(scratch_ram));
+        if (t->ram_init_present)
+            memcpy(scratch_ram, t->ram_init, CPU_SCRATCH_LEN);
+
+        printf("[%d/%u] %s%s\n", i + 1, CPU_N_TESTS, t->name,
+            t->privileged ? "  [SKIPPED: privileged]" : "");
+
+        if (!t->privileged) {
+            entry = build_program(t);
+            flush_icache();
+            invoke_program(entry);
+        }
+        /* Privileged tests: init_snap and final_snap stay zeroed.
+         * The diff tool will categorize them as "skipped". */
+
+        fputc('{', f);
+        fprintf(f, "\"name\":"); write_json_name(f, t->name);
+        fprintf(f, ",\"initial\":"); write_snap_obj(f, &init_snap);
+        fprintf(f, ",\"final\":");   write_snap_obj(f, &final_snap);
+        fputs("}\n", f);
+        fflush(f);
+    }
+    fclose(f);
+    printf("Done. %u tests written to \"%s\".\n", CPU_N_TESTS, CPU_OUTPUT_PATH);
+    return 0;
+}
