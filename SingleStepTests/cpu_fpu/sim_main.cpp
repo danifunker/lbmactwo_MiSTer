@@ -135,23 +135,33 @@ static int run_smoke(bool trace) {
     for (int cyc = 0; cyc < max_cycles; ++cyc) {
         tick();
         if (trace) {
+            static uint32_t prev_state_sig = 0xFFFFFFFFu;
             uint8_t cur_micro = top->dbg_micro_state;
-            if (cur_micro != prev_micro) {
-                // dbg_fp0 is 80-bit, Verilator stores as uint32_t[3]:
-                // [0] = bits 31..0 (significand low), [1] = bits 63..32,
-                // [2] = bits 79..64 (sign + exponent + significand top).
+            uint32_t cur_state_sig = (uint32_t(cur_micro) << 16)
+                | (uint32_t(top->dbg_cir_state) << 8)
+                | (uint32_t(top->dbg_cir_xfer_word_idx) << 4)
+                | (uint32_t(top->dbg_fpu_bus_write) << 1)
+                | uint32_t(top->dbg_cir_move_pending);
+            if (cur_state_sig != prev_state_sig) {
                 uint32_t fp0_0 = top->dbg_fp0[0];
                 uint32_t fp0_1 = top->dbg_fp0[1];
                 uint32_t fp0_2 = top->dbg_fp0[2] & 0xFFFFu;
+                uint32_t op1_0 = top->dbg_operand_reg_1[0];
+                uint32_t op1_1 = top->dbg_operand_reg_1[1];
+                uint32_t op1_2 = top->dbg_operand_reg_1[2] & 0xFFFFu;
                 std::cerr << "    [cyc " << std::setw(5) << cyc
                           << "] ms=" << std::dec << int(cur_micro)
-                          << " xfer_data=0x" << std::hex << std::setw(8)
-                          << std::setfill('0') << top->dbg_cp_xfer_data
-                          << " D1=0x" << std::setw(8) << top->dbg_d1
-                          << " FP0=" << std::setw(4) << fp0_2
-                          << "_" << std::setw(8) << fp0_1
-                          << "_" << std::setw(8) << fp0_0
+                          << " cir=" << int(top->dbg_cir_state)
+                          << " idx=" << int(top->dbg_cir_xfer_word_idx)
+                          << " bw=" << int(top->dbg_fpu_bus_write)
+                          << " mpend=" << int(top->dbg_cir_move_pending)
+                          << " launch=" << int(top->dbg_cir_launch_alu)
+                          << " a_in=" << int(top->dbg_fpu_addr)
+                          << " stg=0x" << std::hex << std::setw(8) << std::setfill('0')
+                          << top->dbg_cir_operand_staging[1]
+                          << "_" << std::setw(8) << top->dbg_cir_operand_staging[0]
                           << std::dec << std::setfill(' ') << "\n";
+                prev_state_sig = cur_state_sig;
                 prev_micro = cur_micro;
             }
             uint8_t cur_as = top->as_n;
@@ -212,24 +222,31 @@ static int run_corpus(const std::string& fname, bool trace) {
             top->reset = 1; top->data_in = 0; phase = 0;
             for (int i = 0; i < 32; ++i) tick();
             top->reset = 0;
-            uint8_t prev_micro = 0xFF;
+            uint32_t prev_state_sig = 0xFFFFFFFFu;
             for (int cyc = 0; cyc < 5000; ++cyc) {
                 tick();
                 uint8_t cur_micro = top->dbg_micro_state;
-                if (cur_micro != prev_micro) {
+                uint32_t cur_state_sig = (uint32_t(cur_micro) << 16)
+                    | (uint32_t(top->dbg_cir_state) << 8)
+                    | (uint32_t(top->dbg_fpu_xfer_phase) << 6)
+                    | (uint32_t(top->dbg_cir_move_pending) << 4)
+                    | uint32_t(top->dbg_cir_launch_alu);
+                if (cur_state_sig != prev_state_sig) {
                     uint32_t fp0_0 = top->dbg_fp0[0];
                     uint32_t fp0_1 = top->dbg_fp0[1];
                     uint32_t fp0_2 = top->dbg_fp0[2] & 0xFFFFu;
+                    uint32_t stg0  = top->dbg_cir_operand_staging[0];
                     std::cerr << "    [cyc " << std::setw(5) << cyc
                               << "] ms=" << std::dec << int(cur_micro)
-                              << " xfer_data=0x" << std::hex << std::setw(8)
-                              << std::setfill('0') << top->dbg_cp_xfer_data
+                              << " cir=" << int(top->dbg_cir_state)
+                              << " ph=" << int(top->dbg_fpu_xfer_phase)
+                              << " stg=0x" << std::hex << std::setw(8)
+                              << std::setfill('0') << stg0
+                              << " dout=0x" << std::setw(8) << top->dbg_fpu_d_out
+                              << " latch=0x" << std::setw(8) << top->dbg_fpu_rd_latch
                               << " D1=0x" << std::setw(8) << top->dbg_d1
-                              << " FP0=" << std::setw(4) << fp0_2
-                              << "_" << std::setw(8) << fp0_1
-                              << "_" << std::setw(8) << fp0_0
                               << std::dec << std::setfill(' ') << "\n";
-                    prev_micro = cur_micro;
+                    prev_state_sig = cur_state_sig;
                 }
             }
         } else {

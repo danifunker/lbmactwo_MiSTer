@@ -903,20 +903,17 @@ PROCESS (clk)
 				END IF;
 				-- FPU operand buffer management for FMOVE.L Dn↔FPn.
 				-- CPU→FPU: load reg_QB once during cp_xfer_to_load.
-				-- FPU→CPU: each read state asserts exec(update_ld) so
-				--          last_data_read is updated at end of each bus
-				--          read. Capture happens one microstate later, when
-				--          last_data_read has settled with the prior read.
-				--          HIGH read is during cp_xfer_from_lo's cycle, so
-				--            capture HIGH in cp_xfer_from_store (the next state).
-				--          LOW  read is during cp_xfer_from_store's cycle, so
-				--            capture LOW in cp_xfer_from_done (the next state).
+				-- FPU→CPU: capture data_in directly on the clkena fire that
+				--          ENDS each read state (when micro_state still = the
+				--          read state and bus has just settled). Avoids using
+				--          last_data_read which can be clobbered by
+				--          intervening prefetch cycles.
 				IF micro_state = cp_xfer_to_load THEN
 					cp_xfer_data <= reg_QB;
+				ELSIF micro_state = cp_xfer_from_lo THEN
+					cp_xfer_data(31 downto 16) <= data_in;
 				ELSIF micro_state = cp_xfer_from_store THEN
-					cp_xfer_data(31 downto 16) <= last_data_read(15 downto 0);
-				ELSIF micro_state = cp_xfer_from_done THEN
-					cp_xfer_data(15 downto 0) <= last_data_read(15 downto 0);
+					cp_xfer_data(15 downto 0) <= data_in;
 				END IF;
 				-- MOVES FC override management
 				IF endOPC='1' THEN

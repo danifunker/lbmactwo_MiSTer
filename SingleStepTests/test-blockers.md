@@ -125,7 +125,55 @@ data_write_muxin combinational bypass, 7 new microstate bodies),
 (ADD/SUB/AND/OR/EOR/CMP/NEG/NOT/CLR/TST/ASL/ASR/LSL/LSR/ROL/ROR/
 ROXL/ROXR .L) still passes after all TG68K patches.
 
-### FPU integration: new finding — operand_reg vs fp_reg_file_reg
+### FPU integration: 140/140 ALU corpus PASS ✅ (2026-05-16)
+
+`cpu_fpu/` bench now passes the full 140-test FPU corpus:
+- FNEG / FABS / FINT / FINTRZ (20 each, monadic)
+- FADD / FSUB / FMUL (20 each, dyadic reg-to-reg with FP1 source)
+
+All using `MOVEQ → FMOVE.L Dn,FPn → <ALU op> → FMOVE.L FPn,Dm → STOP`
+through the real TG68K + mc68881_top integration. CPU 360/360 still
+passes — no regression.
+
+Two issues fixed:
+
+1. **Bus-width mismatch** between TG68K's 16-bit bus and
+   `mc68881_top`'s 32-bit `d_in`. The FPU's `cir_xfer_word_count = 1`
+   for `.L` means it expects a SINGLE 32-bit transfer per operand,
+   but TG68K splits `.L` into two 16-bit transfers. Only the first
+   16-bit half was being captured (in the low half of `d_in`, with
+   the upper 16 bits tied to zero by the bench). Result: FPU
+   operand was always zero or garbage.
+
+   Fix: bench-side 16-↔-32-bit adapter in `cpu_fpu_tests.v`. For
+   the Operand CIR register (addr 8, post-remap) only:
+   - **WRITES**: bench latches the first 16-bit half into `fpu_wr_hi`,
+     fakes a 16-bit DSACK back to TG68K, then on the second half
+     drives `d_in = {fpu_wr_hi, cpu_dout}` and lets FPU's DSACK
+     pass through. FPU sees ONE 32-bit transfer with full data.
+   - **READS**: opposite phase. FPU is active on the first half
+     (drives full 32-bit `d_out`), bench latches the result and
+     returns `d_out[31:16]` to TG68K. On the second half FPU is
+     suppressed; bench returns latched `d_out[15:0]`.
+   - Phase tracking uses an AS-rising-edge counter so cs_n stays
+     stable throughout each individual bus access.
+   - Non-Operand CIR accesses (Response/Command/OpWord) are
+     single 16-bit transfers and pass through unchanged.
+
+2. **`last_data_read` clobber** during back-to-back FPU operand
+   reads. The original `cp_xfer_from_*` microcode captured from
+   `last_data_read` in the NEXT microstate, but TG68K's prefetch
+   would interleave a code fetch and overwrite `last_data_read`
+   before the capture. Fix: capture from `data_in` directly in
+   the same microstate that does the read, at the `clkena` fire
+   that ends the bus access. No reliance on `last_data_read`.
+
+**Verified end-to-end** via the FNEG #5 test: trace shows FPU
+correctly stores `5.0` into `FP0`, FNEG computes `-5.0`, FPU
+converts back to int (`stg=0xFFFFFFFB`), TG68K captures both
+halves and writes D1 = `0xFFFFFFFB` via `cp_dn_writeback`.
+
+### FPU integration: new finding (now resolved) — operand_reg vs fp_reg_file_reg
 
 After landing the FMOVE.L Dn↔FPn round-trip, built a 140-test corpus
 runner (`gen/gen_fpu.c` + extended `cpu_fpu/sim_main.cpp`) covering
