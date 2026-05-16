@@ -123,26 +123,29 @@ module sdram_arbiter (
     // capture cycle itself.  Otherwise we abandon and the video card retries.
     // ------------------------------------------------------------------------
 
-    reg [3:0] vram_state;
-    reg [3:0] vram_wait_cnt;
+    reg [2:0] vram_state;
+    reg [2:0] vram_wait_cnt;
     reg vram_ready_latch;
     reg video_clean;
 
-    localparam VRAM_IDLE  = 4'd0;
-    localparam VRAM_WAIT  = 4'd1;
-    localparam VRAM_READY = 4'd2;
+    localparam VRAM_IDLE  = 3'd0;
+    localparam VRAM_WAIT  = 3'd1;
+    localparam VRAM_READY = 3'd2;
 
-    // Wait count: worst-case latency from arbiter assertion to SDRAM data
-    // ready is ~6.5 clk_sys cycles (up to 4 cycles to reach the next SDRAM
-    // T0 + ~2.5 cycles for CAS).  Pad to 9 to give the SDRAM dout a stable
-    // window before we capture it, and to leave a cycle of margin against
-    // Mac asserting at the capture moment.
-    localparam WAIT_COUNT = 4'd9;
+    // Wait count: SDRAM cmd issued at T0, data latched into sdram_dout at T5
+    // (~78 ns later, ~2.5 clk_sys cycles).  Worst case alignment adds one
+    // SDRAM cycle (~4 clk_sys) if we land between T0 boundaries.  Use 6
+    // cycles -- matches the original arbiter budget and keeps the
+    // contention window as narrow as we can manage.  Previous experiments
+    // with clk8_en_p alignment and a 9-cycle wait starved video because
+    // Mac CPU bus cycles also begin at clk_8 rising, so the
+    // (!mac_active && clk8_en_p) gate almost never fired.
+    localparam WAIT_COUNT = 3'd6;
 
     always @(posedge clk) begin
         if (reset) begin
             vram_state       <= VRAM_IDLE;
-            vram_wait_cnt    <= 4'd0;
+            vram_wait_cnt    <= 3'd0;
             vram_ready_latch <= 1'b0;
             video_clean      <= 1'b0;
             vram_din_reg     <= 16'd0;
@@ -150,13 +153,11 @@ module sdram_arbiter (
             case (vram_state)
                 VRAM_IDLE: begin
                     vram_ready_latch <= 1'b0;
-                    // Start transactions aligned to SDRAM cycle boundaries
-                    // (clk8_en_p marks T0 of the SDRAM controller's state
-                    // machine).  Aligning here guarantees the SDRAM samples
-                    // our address right away — no up-to-4-cycle slop waiting
-                    // for the next T0 — and that Mac and video can't share
-                    // a single SDRAM cycle.
-                    if (grant_video && clk8_en_p) begin
+                    // Start whenever Mac is idle.  No clk_8 alignment --
+                    // SDRAM naturally waits for its next T0 boundary if we
+                    // assert mid-cycle, and aligning on clk8_en_p was
+                    // colliding with Mac's bus-cycle alignment.
+                    if (grant_video) begin
                         video_clean   <= 1'b1;
                         vram_state    <= VRAM_WAIT;
                         vram_wait_cnt <= WAIT_COUNT;
@@ -170,8 +171,8 @@ module sdram_arbiter (
                     // it started — but we won't latch the result.
                     if (mac_active) video_clean <= 1'b0;
 
-                    if (vram_wait_cnt > 4'd0) begin
-                        vram_wait_cnt <= vram_wait_cnt - 4'd1;
+                    if (vram_wait_cnt > 3'd0) begin
+                        vram_wait_cnt <= vram_wait_cnt - 3'd1;
                     end else begin
                         if (video_clean && !mac_active) begin
                             // Clean transaction: capture data, signal ready
