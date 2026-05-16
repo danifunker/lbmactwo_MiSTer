@@ -125,6 +125,59 @@ data_write_muxin combinational bypass, 7 new microstate bodies),
 (ADD/SUB/AND/OR/EOR/CMP/NEG/NOT/CLR/TST/ASL/ASR/LSL/LSR/ROL/ROR/
 ROXL/ROXR .L) still passes after all TG68K patches.
 
+### FPU integration: new finding — operand_reg vs fp_reg_file_reg
+
+After landing the FMOVE.L Dn↔FPn round-trip, built a 140-test corpus
+runner (`gen/gen_fpu.c` + extended `cpu_fpu/sim_main.cpp`) covering
+FNEG/FABS/FINT/FINTRZ/FADD/FSUB/FMUL with int-preserving operands.
+
+**Result: 51 / 140 pass.** All passes are operations that are
+*identity* for the input — FINT/FINTRZ (already integer), FABS of
+positives, FMUL by 1. Every actual arithmetic op fails by returning
+the original input.
+
+Root cause: `fp_reg_file_reg[639:0]` in mc68881_top **stays all zero**
+throughout the smoke test, even after `FMOVE.L D0,FP0` with D0=1.
+Verified by dumping all 20 32-bit words at end of run — every word
+is zero. Yet the readback `FMOVE.L FP0,D1` returns 1, meaning the
+FPU's CIR `FMOVE FPn → EA` path reads from `operand_reg(0)` (which
+the host wrote during the load) rather than from `fp_reg_file_reg`.
+
+For arithmetic ops (FNEG, FADD, etc.), the ALU reads
+`fp_reg_file_reg(cir_src_reg_idx)` = 0, computes the result, writes
+back to `fp_reg_file_reg(cir_dst_reg_idx)` = 0 again (no change).
+Then the subsequent `FMOVE.L FPn,D1` reads `operand_reg(0)` which
+still holds the original input — returning the input unchanged.
+
+The `cir_move_pending_reg` mechanism at `mc68881_top.vhd:3182-3194`
+*should* copy `operand_reg(1)` into `fp_reg_file_reg(cir_dst_reg_idx)`
+after a CIR FMOVE, but for our protocol path it apparently never
+fires. Probably a missing trigger condition in mc68881_top's CIR FSM
+when the operand transfer completes via the standard EA→FPn path.
+
+This is a separate FPU-side issue from the TG68K microcode work we
+just completed. The TG68K coprocessor path is correct — the operand
+data reaches the FPU's operand register and round-trips faithfully.
+The FPU just doesn't bridge operand_reg to fp_reg_file_reg.
+
+To unblock the corpus runner past trivial identity ops, the next
+debug step is in `68881-fpga/src/mc68881_top.vhd`: trace under what
+conditions `cir_move_pending_reg` is asserted for a `FMOVE EA→FPn`
+sequence that goes through `CIR_XFER_SRC → CIR_XFER_SRC_WAIT →
+CIR_XFER_SRC_WAIT2 → CIR_IDLE`. Likely a one-line guard fix in the
+mc68881 source. Or run the same sequence through 68881-fpga's own
+`tb_mc68881_cir_dialog.vhd` to see if it works there (which would
+imply our integration is missing some setup step).
+
+**Bench/generator additions in this session:**
+- `gen/gen_fpu.c` — standalone (no Musashi) generator emitting JSON
+  corpus for FPU ALU op tests. 140 tests at 20 per op family.
+- `cpu_fpu/sim_main.cpp` — added JSON corpus runner mode. Single-arg
+  is a corpus file; smoke test unchanged. `--trace` works in both
+  modes for per-cycle FPU dialog inspection.
+- `cpu_fpu/cpu_fpu_tests.v` — new debug taps: `dbg_data_in`,
+  `dbg_last_data_read`, `dbg_data_read`, `dbg_state`, `dbg_fp0`.
+
 **Next steps:** scope is now `FMOVE.L Dn↔FPn` only. To expand:
 - Other FMOVE size variants (.B/.W/.S/.D/.X/.P): same pipeline,
   different byte counts per transfer (FPU's Response Primary

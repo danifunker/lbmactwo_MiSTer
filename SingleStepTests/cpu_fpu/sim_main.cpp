@@ -2,28 +2,37 @@
 // DTACK handshaking is real and the FPU's multi-cycle DSACK response is
 // honored.
 //
-// Test program at $1000:
-//   MOVEQ #1,D0
-//   FMOVE.L D0,FP0     ; opword $F200 ext $4000 (opclass 010, src=L, dst=FP0)
-//   FMOVE.L FP0,D1     ; opword $F201 ext $6000 (opclass 011, dst=L, src=FP0)
-//   STOP #$2700
+// Modes:
+//   ./Vcpu_fpu_tests                # smoke: MOVEQ #1; FMOVE.L D0,FP0;
+//                                   #        FMOVE.L FP0,D1; STOP. Expect D1=1.
+//   ./Vcpu_fpu_tests --trace        # smoke + per-cycle FPU dialog trace.
+//   ./Vcpu_fpu_tests <corpus.json>  # JSON corpus runner (gen_fpu output).
 //
-// Both encodings verified via Musashi disassembler. Pass condition: D1 == 1
-// after STOP (D0 → FP0 → D1 round-trip).
-//
-// (Earlier B-1 hang was a bench-side bug: cpu_fpu_tests.v drove
-// mc68881_top.a_in raw, omitting the CIR address remap LBMacTwo.sv applies.
-// Fixed there; the FPU's CIR read path is correct.)
+// Corpus entry shape (one per test):
+//   {
+//     "name":"FNEG.X #5",
+//     "op_a": 5,  ["op_b": <int>,]
+//     "program":[<byte>,...],   // full program from MOVEQ #op_a,D0 to STOP
+//     "result_reg": 1,           // Dn that holds the FMOVE.L FP0,Dn result
+//     "expected": -5             // expected signed-int32 value of D{result_reg}
+//   }
+// The harness plants the program bytes at $1000, points reset vectors at it,
+// runs until STOP, then checks D{result_reg} against expected.
 
 #include <verilated.h>
 #include "Vcpu_fpu_tests.h"
 #include "Vcpu_fpu_tests__Syms.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <iomanip>
+#include <fstream>
 #include <vector>
 #include <string>
+
+#include "../json.hpp"
+using json = nlohmann::json;
 
 #define VERILATOR_MAJOR_VERSION (VERILATOR_VERSION_INTEGER / 1000000)
 #if VERILATOR_MAJOR_VERSION >= 5
@@ -48,24 +57,16 @@ static inline void ram_write16(uint32_t a, uint16_t v, bool uds, bool lds) {
     if (lds) ram[a + 1] = uint8_t(v & 0xFF);
 }
 
-// Service RAM on every AS=low cycle that isn't an FPU access.
 static void service_ram() {
     if (top->as_n) return;
     if (top->fpu_select) return;
     const uint32_t a = top->addr_out;
-    if (top->rw_n) {
-        // Read
-        top->data_in = ram_read16(a);
-    } else {
-        ram_write16(a, top->data_write, !top->uds_n, !top->lds_n);
-    }
+    if (top->rw_n) top->data_in = ram_read16(a);
+    else           ram_write16(a, top->data_write, !top->uds_n, !top->lds_n);
 }
 
-// One full clock cycle. phi1 / phi2 alternate within the cycle; tg68k.v
-// wrapper uses them as clock enables.
 static int phase = 0;
 static void tick() {
-    // Drive phi1 high on even ticks, phi2 high on odd ticks.
     top->phi1 = (phase == 0) ? 1 : 0;
     top->phi2 = (phase == 1) ? 1 : 0;
     top->clk = 0; top->eval();
@@ -78,89 +79,101 @@ static void tick() {
 
 static void finish() { top->final(); delete top; top = nullptr; }
 
-static void plant_program() {
-    ram[0x00] = 0x00; ram[0x01] = 0xFF; ram[0x02] = 0xFF; ram[0x03] = 0xF8;
-    ram[0x04] = 0x00; ram[0x05] = 0x00; ram[0x06] = 0x10; ram[0x07] = 0x00;
-
-    // MOVEQ #1,D0
-    ram[0x1000] = 0x70; ram[0x1001] = 0x01;
-    // FMOVE.L D0,FP0:  F200 / 4000
-    ram[0x1002] = 0xF2; ram[0x1003] = 0x00;
-    ram[0x1004] = 0x40; ram[0x1005] = 0x00;
-    // FMOVE.L FP0,D1:  F201 / 6000
-    ram[0x1006] = 0xF2; ram[0x1007] = 0x01;
-    ram[0x1008] = 0x60; ram[0x1009] = 0x00;
-    // STOP #$2700
-    ram[0x100A] = 0x4E; ram[0x100B] = 0x72;
-    ram[0x100C] = 0x27; ram[0x100D] = 0x00;
+static uint32_t get_reg(int i) {
+    uint32_t n1 = VERTOPINTERN->cpu_fpu_tests__DOT__cpu__DOT__tg68k__DOT__regfile_n1[i];
+    uint32_t n2 = VERTOPINTERN->cpu_fpu_tests__DOT__cpu__DOT__tg68k__DOT__regfile_n2[i];
+    return (n2 << 8) | n1;
 }
 
-int main(int argc, char** argv, char** env) {
-    top = new Vcpu_fpu_tests();
-    Verilated::commandArgs(argc, argv);
-    Verilated::traceEverOn(true);
+// Plant reset vectors + a program byte string at PROG_BASE.
+static constexpr uint32_t PROG_BASE   = 0x00001000;
+static constexpr uint32_t RESET_SSP   = 0x00FFFFF8;
+static void plant_program(const uint8_t* bytes, size_t n) {
+    std::fill(ram.begin(), ram.end(), 0);
+    // Reset vectors: SSP at $0, PC at $4.
+    ram[0] = (RESET_SSP >> 24) & 0xFF;
+    ram[1] = (RESET_SSP >> 16) & 0xFF;
+    ram[2] = (RESET_SSP >>  8) & 0xFF;
+    ram[3] =  RESET_SSP        & 0xFF;
+    ram[4] = (PROG_BASE >> 24) & 0xFF;
+    ram[5] = (PROG_BASE >> 16) & 0xFF;
+    ram[6] = (PROG_BASE >>  8) & 0xFF;
+    ram[7] =  PROG_BASE        & 0xFF;
+    for (size_t i = 0; i < n; ++i) ram[PROG_BASE + i] = bytes[i];
+}
 
-    ram.assign(0x01000000, 0x00);
-    plant_program();
+// Reset the kernel + run the planted program for at most max_cycles.
+// Detects STOP by watching the kernel halt (busstate idle for many cycles).
+static void reset_and_run(int max_cycles) {
+    top->reset = 1;
+    top->data_in = 0;
+    phase = 0;
+    for (int i = 0; i < 32; ++i) tick();
+    top->reset = 0;
+    for (int i = 0; i < max_cycles; ++i) tick();
+}
 
-    bool trace = (argc > 1 && std::string(argv[1]) == "--trace");
+// ---- Smoke test (no-arg / --trace mode) --------------------------------
+static int run_smoke(bool trace) {
+    static const uint8_t prog[] = {
+        0x70, 0x01,                  // MOVEQ #1,D0
+        0xF2, 0x00, 0x40, 0x00,      // FMOVE.L D0,FP0
+        0xF2, 0x01, 0x60, 0x00,      // FMOVE.L FP0,D1
+        0x4E, 0x72, 0x27, 0x00,      // STOP #$2700
+    };
+    plant_program(prog, sizeof(prog));
 
     top->reset = 1;
     top->data_in = 0;
+    phase = 0;
     for (int i = 0; i < 32; ++i) tick();
     top->reset = 0;
 
-    // Trace: edge-triggered on as_n falling edge so each bus cycle prints once.
     uint8_t prev_as = 1;
     uint8_t prev_micro = 0xFF;
     int max_cycles = 20000;
     for (int cyc = 0; cyc < max_cycles; ++cyc) {
         tick();
         if (trace) {
-            // Per-micro_state print on transitions, for debugging the FPU
-            // dialog. Concise — drop to {ms, xfer_data, D1} on changes.
             uint8_t cur_micro = top->dbg_micro_state;
             if (cur_micro != prev_micro) {
+                // dbg_fp0 is 80-bit, Verilator stores as uint32_t[3]:
+                // [0] = bits 31..0 (significand low), [1] = bits 63..32,
+                // [2] = bits 79..64 (sign + exponent + significand top).
+                uint32_t fp0_0 = top->dbg_fp0[0];
+                uint32_t fp0_1 = top->dbg_fp0[1];
+                uint32_t fp0_2 = top->dbg_fp0[2] & 0xFFFFu;
                 std::cerr << "    [cyc " << std::setw(5) << cyc
                           << "] ms=" << std::dec << int(cur_micro)
                           << " xfer_data=0x" << std::hex << std::setw(8)
                           << std::setfill('0') << top->dbg_cp_xfer_data
                           << " D1=0x" << std::setw(8) << top->dbg_d1
+                          << " FP0=" << std::setw(4) << fp0_2
+                          << "_" << std::setw(8) << fp0_1
+                          << "_" << std::setw(8) << fp0_0
                           << std::dec << std::setfill(' ') << "\n";
                 prev_micro = cur_micro;
             }
             uint8_t cur_as = top->as_n;
             if (prev_as && !cur_as) {
-                // AS just asserted
                 std::cerr << "  cyc " << std::setw(5) << cyc
                           << " fc=" << int(top->fc)
                           << " rw=" << int(top->rw_n)
                           << " addr=0x" << std::hex << std::setw(8)
                           << std::setfill('0') << top->addr_out
-                          << (top->rw_n
-                                ? (" rd")
-                                : (" wr"))
+                          << (top->rw_n ? " rd" : " wr")
                           << " data=0x" << std::setw(4)
                           << (top->rw_n
-                                ? (top->fpu_select
-                                     ? (top->fpu_d_out_obs & 0xFFFF)
-                                     : ram_read16(top->addr_out))
+                                ? (top->fpu_select ? (top->fpu_d_out_obs & 0xFFFF)
+                                                   : ram_read16(top->addr_out))
                                 : top->data_write)
                           << std::dec << std::setfill(' ')
-                          << (top->fpu_select ? " [FPU]" : "")
-                          << "\n";
+                          << (top->fpu_select ? " [FPU]" : "") << "\n";
             }
             prev_as = cur_as;
         }
     }
 
-    // Read D0, D1 from TG68K's regfile (split [7:0] / [31:8] arrays —
-    // same convention as the tg68k bench's --probe-regs path).
-    auto get_reg = [](int i) -> uint32_t {
-        uint32_t n1 = VERTOPINTERN->cpu_fpu_tests__DOT__cpu__DOT__tg68k__DOT__regfile_n1[i];
-        uint32_t n2 = VERTOPINTERN->cpu_fpu_tests__DOT__cpu__DOT__tg68k__DOT__regfile_n2[i];
-        return (n2 << 8) | n1;
-    };
     uint32_t d0 = get_reg(0);
     uint32_t d1 = get_reg(1);
     std::cerr << "D0 = 0x" << std::hex << std::setw(8) << std::setfill('0') << d0
@@ -168,10 +181,96 @@ int main(int argc, char** argv, char** env) {
               << "D1 = 0x" << std::setw(8) << d1
               << "  (FMOVE.L D0,FP0; FMOVE.L FP0,D1 round-trip -> expect 0x00000001)\n"
               << std::dec << std::setfill(' ');
-
     bool pass = (d0 == 1) && (d1 == 1);
     std::cerr << (pass ? "PASS — FMOVE.L D0,FP0,D1 round-trip works\n"
                        : "FAIL — FMOVE round-trip did not produce expected value\n");
-    finish();
     return pass ? 0 : 1;
+}
+
+// ---- Corpus runner (JSON-driven) ---------------------------------------
+static int run_corpus(const std::string& fname, bool trace) {
+    std::ifstream f(fname);
+    if (!f) { std::cerr << "Cannot open " << fname << "\n"; return 1; }
+    json corpus = json::parse(f);
+
+    int passed = 0, failed = 0;
+    for (auto& t : corpus) {
+        const std::string name = t.value("name", "<unnamed>");
+        auto& prog_arr = t["program"];
+        std::vector<uint8_t> prog;
+        prog.reserve(prog_arr.size());
+        for (auto& b : prog_arr) prog.push_back(uint8_t(b.get<unsigned>()));
+        const int  result_reg = t["result_reg"].get<int>();
+        const int32_t expected = t["expected"].get<int32_t>();
+
+        plant_program(prog.data(), prog.size());
+
+        if (trace) std::cerr << "=== " << name << " ===\n";
+
+        // Reset + run. 5000 ticks is more than enough for any single FPU op.
+        if (trace) {
+            top->reset = 1; top->data_in = 0; phase = 0;
+            for (int i = 0; i < 32; ++i) tick();
+            top->reset = 0;
+            uint8_t prev_micro = 0xFF;
+            for (int cyc = 0; cyc < 5000; ++cyc) {
+                tick();
+                uint8_t cur_micro = top->dbg_micro_state;
+                if (cur_micro != prev_micro) {
+                    uint32_t fp0_0 = top->dbg_fp0[0];
+                    uint32_t fp0_1 = top->dbg_fp0[1];
+                    uint32_t fp0_2 = top->dbg_fp0[2] & 0xFFFFu;
+                    std::cerr << "    [cyc " << std::setw(5) << cyc
+                              << "] ms=" << std::dec << int(cur_micro)
+                              << " xfer_data=0x" << std::hex << std::setw(8)
+                              << std::setfill('0') << top->dbg_cp_xfer_data
+                              << " D1=0x" << std::setw(8) << top->dbg_d1
+                              << " FP0=" << std::setw(4) << fp0_2
+                              << "_" << std::setw(8) << fp0_1
+                              << "_" << std::setw(8) << fp0_0
+                              << std::dec << std::setfill(' ') << "\n";
+                    prev_micro = cur_micro;
+                }
+            }
+        } else {
+            reset_and_run(5000);
+        }
+
+        uint32_t got = get_reg(result_reg);
+        int32_t got_s = int32_t(got);
+        bool ok = (got_s == expected);
+        if (ok) {
+            ++passed;
+        } else {
+            ++failed;
+            std::cerr << "FAIL " << name
+                      << ": D" << result_reg << " got " << got_s
+                      << " (0x" << std::hex << got << std::dec
+                      << "), expected " << expected
+                      << " (0x" << std::hex << uint32_t(expected) << std::dec
+                      << ")\n";
+        }
+    }
+
+    std::cerr << passed << " passed, " << failed << " failed in "
+              << fname << "\n";
+    return failed ? 1 : 0;
+}
+
+int main(int argc, char** argv, char** env) {
+    top = new Vcpu_fpu_tests();
+    Verilated::commandArgs(argc, argv);
+    Verilated::traceEverOn(true);
+    ram.assign(0x01000000, 0x00);
+
+    int rc;
+    bool trace = false;
+    int argi = 1;
+    if (argi < argc && std::string(argv[argi]) == "--trace") {
+        trace = true; ++argi;
+    }
+    if (argi >= argc)          rc = run_smoke(trace);
+    else                       rc = run_corpus(argv[argi], trace);
+    finish();
+    return rc;
 }

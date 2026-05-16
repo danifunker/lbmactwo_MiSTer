@@ -40,7 +40,8 @@ module cpu_fpu_tests
    output [15:0] dbg_data_in,
    output [31:0] dbg_last_data_read,
    output [31:0] dbg_data_read,
-   output [1:0]  dbg_state
+   output [1:0]  dbg_state,
+   output [79:0] dbg_fp0
    );
 
    // Hierarchical taps into the TG68K kernel inside the bus wrapper.
@@ -58,6 +59,10 @@ module cpu_fpu_tests
    assign dbg_last_data_read = cpu.tg68k.last_data_read;
    assign dbg_data_read = cpu.tg68k.data_read;
    assign dbg_state = cpu.tg68k.state;
+   // FP register file is a packed reg [639:0] = 8x80 bits. ghdl-synth
+   // convention is to map VHDL array index 0 to the HIGH bits — so FP0
+   // lives at bits [639:560], FP7 at bits [79:0].
+   assign dbg_fp0 = fpu.fp_reg_file_reg[79:0];
 
    // -------------------- CPU bus signals --------------------------------
    wire [31:0] cpu_addr;
