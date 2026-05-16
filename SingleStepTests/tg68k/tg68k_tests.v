@@ -22,8 +22,20 @@ module tg68k_tests
    output        nLDS,
    output        longword,
    output [2:0]  fc,
-   output [31:0] vbr_out
+   output [31:0] vbr_out,
+   // Architectural state taps for SingleStepTests post-instruction checks.
+   // These pick up internal kernel wires by hierarchical reference. The
+   // ghdl-synth pass preserves these names (tg68_pc / flagssr / flags / usp);
+   // if convert_to_verilog.sh ever renames them, update the refs below.
+   output [31:0] pc_out,
+   output [15:0] sr_out,
+   output [31:0] usp_out
    );
+
+   // FlagsSR = T.S.0III (SR high byte); Flags = XNZVC (SR low byte / CCR).
+   assign pc_out  = cpu.tg68_pc;
+   assign sr_out  = { cpu.flagssr, cpu.flags };
+   assign usp_out = cpu.usp;
 
    TG68KdotC_Kernel cpu
      (

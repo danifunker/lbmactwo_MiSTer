@@ -22,7 +22,6 @@
 #include <vector>
 #include <string>
 #include <algorithm>
-
 #include "../json.hpp"
 using json = nlohmann::json;
 
@@ -203,12 +202,17 @@ int main(int argc, char** argv, char** env) {
     }
 
     // ---- Real JSON test runner ----------------------------------------
+    // SCHEMA.md / Musashi: top-level JSON array, each entry has
+    // initial.d0..d7/a0..a7/pc/sr/ssp[/usp/vbr], RAM as [[addr,byte],...].
+    // Replayed by booting at init.pc with reset vectors.
     const std::string fname(argv[1]);
     std::ifstream f(fname);
     if (!f) { std::cerr << "Cannot open " << fname << "\n"; finish(); return 1; }
     json corpus = json::parse(f);
 
     int passed = 0, failed = 0;
+
+    // ---- SCHEMA.md / Musashi path -----------------------------------------
     for (auto& t : corpus) {
         const std::string name = t.value("name", "<unnamed>");
         auto& init  = t["initial"];
@@ -285,6 +289,47 @@ int main(int argc, char** argv, char** env) {
                     char buf[80];
                     snprintf(buf, sizeof(buf), "A%d: got 0x%08X, expected 0x%08X",
                              r, got, exp);
+                    fail_reason = buf;
+                    pass = false;
+                }
+            }
+            // PC / SR / USP from the wrapper's hierarchical taps. TG68K's
+            // internal PC runs one prefetch (4 bytes) ahead of the
+            // architectural post-instruction PC the corpus records.
+            if (pass) {
+                uint32_t got_pc = uint32_t(top->pc_out) - 4;
+                uint32_t exp_pc = final_pc;
+                if (got_pc != exp_pc) {
+                    char buf[80];
+                    snprintf(buf, sizeof(buf), "PC: got 0x%08X, expected 0x%08X",
+                             got_pc, exp_pc);
+                    fail_reason = buf;
+                    pass = false;
+                }
+            }
+            if (pass && final_.contains("sr")) {
+                // Mask IPL (bits 8-10): TG68K resets with IPL=7, Musashi
+                // defaults to IPL=0. The test corpus doesn't generate
+                // interrupts, so this bit field is a setup-convention
+                // difference, not a divergence.
+                static constexpr uint16_t SR_IPL_MASK = ~uint16_t(0x0700);
+                uint16_t got_sr = top->sr_out & SR_IPL_MASK;
+                uint16_t exp_sr = uint16_t(final_["sr"].get<uint32_t>()) & SR_IPL_MASK;
+                if (got_sr != exp_sr) {
+                    char buf[80];
+                    snprintf(buf, sizeof(buf), "SR: got 0x%04X, expected 0x%04X",
+                             got_sr, exp_sr);
+                    fail_reason = buf;
+                    pass = false;
+                }
+            }
+            if (pass && final_.contains("usp")) {
+                uint32_t got_usp = top->usp_out;
+                uint32_t exp_usp = final_["usp"].get<uint32_t>();
+                if (got_usp != exp_usp) {
+                    char buf[80];
+                    snprintf(buf, sizeof(buf), "USP: got 0x%08X, expected 0x%08X",
+                             got_usp, exp_usp);
                     fail_reason = buf;
                     pass = false;
                 }

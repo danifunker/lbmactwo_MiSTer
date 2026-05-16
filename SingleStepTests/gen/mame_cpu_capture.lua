@@ -137,7 +137,9 @@ local function read_snap(base)
         local b = read_bytes(base + 0x20 + an * 4, 4)
         snap.a[an] = (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]
     end
-    snap.ccr = read_bytes(base + 0x40, 1)[1]
+    -- MOVE.L D0,(snap+0x40) writes big-endian {00,00,00,ccr}; CCR is the
+    -- LOW byte at offset 0x43, not the high byte at 0x40 (which is always 0).
+    snap.ccr = read_bytes(base + 0x43, 1)[1]
     snap.ram = read_bytes(base + 0x44, SCRATCH_LEN)
     return snap
 end
