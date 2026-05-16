@@ -101,28 +101,45 @@ end
 local function emit_move_ccr_to_dn(dn) return bw(0x42C0 | (dn & 7)) end
 
 -- State dump epilogue. snap_base is platform-specific.
+--
+-- TWO invariants this routine must preserve:
+--   1. Must not clobber any general-purpose register (D0..D7, A0..A7).
+--      The init dump runs BEFORE the test, so clobbered values would
+--      propagate into the test instruction.
+--   2. Must capture CCR BEFORE issuing any flag-setting instruction.
+--      `MOVE.L Dn,abs.L` sets N/Z based on the source -- by the time
+--      MOVE CCR,(abs.L) runs at the end of the dump, CCR has been
+--      overwritten by the last register dumped (D7=0 -> Z=1 -> 0x04).
+--
+-- Order:
+--   1. MOVE CCR,(abs.L) -- first, while CCR still reflects the test
+--   2. MOVE.L An,abs.L x 8
+--   3. MOVE.L Dn,abs.L x 8
+--   4. MOVE.L (abs.L),(abs.L) x 16 -- scratch RAM copy
+--
+-- All instructions use memory-to-memory or reg-to-memory forms with no
+-- temp-register intermediates. `MOVE CCR,(abs.L)` writes a 16-bit word:
+-- byte snap+0x40 = 0x00 (zero-extended high), byte snap+0x41 = CCR.
 local function emit_state_dump(snap_base)
     local out = {}
     local function append(t)
         for _, b in ipairs(t) do out[#out + 1] = b end
     end
-    -- 1) A regs (still original at this point)
+    -- CCR first (before subsequent MOVEs corrupt it).
+    append(concat(bw(0x42F9), bl(snap_base + 0x40)))
+    -- A regs
     for an = 0, 7 do
         append(emit_move_l_an_to_abs(an, snap_base + 0x20 + an * 4))
     end
-    -- 2) D regs
+    -- D regs
     for dn = 0, 7 do
         append(emit_move_l_dn_to_abs(dn, snap_base + 0x00 + dn * 4))
     end
-    -- 3) CCR via D0 (D0 already dumped above, safe to clobber).
-    append(emit_move_ccr_to_dn(0))
-    append(emit_move_l_dn_to_abs(0, snap_base + 0x40))
-    -- 4) Copy SCRATCH_BASE..+64 to snap_base+0x44 via A0/A1.
-    --    MOVE.L (A0)+,(A1)+ = $22D8.
-    append(emit_movea_l_imm_to_an(0, SCRATCH_BASE))
-    append(emit_movea_l_imm_to_an(1, snap_base + 0x44))
-    for _ = 1, SCRATCH_LEN / 4 do
-        append(bw(0x22D8))
+    -- Scratch RAM copy via MOVE.L (abs.L),(abs.L).
+    for i = 0, (SCRATCH_LEN / 4) - 1 do
+        append(concat(bw(0x23F9),
+                      bl(SCRATCH_BASE + i * 4),
+                      bl(snap_base + 0x44 + i * 4)))
     end
     return out
 end
@@ -137,7 +154,8 @@ local function read_snap(base)
         local b = read_bytes(base + 0x20 + an * 4, 4)
         snap.a[an] = (b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]
     end
-    snap.ccr = read_bytes(base + 0x40, 1)[1]
+    -- MOVE CCR,(abs.L) writes a 16-bit word; CCR byte is at offset 0x41.
+    snap.ccr = read_bytes(base + 0x41, 1)[1]
     snap.ram = read_bytes(base + 0x44, SCRATCH_LEN)
     return snap
 end
@@ -584,6 +602,246 @@ tests[#tests + 1] = {
     preload = concat(preload_dregs({[1] = 0xFFFFFF00}), preload_ccr(0x0F)),
     test    = bw(0x42C1),
 }
+
+-- ======================================================================
+-- 68020-SPECIFIC INSTRUCTIONS
+--
+-- The base ISA above runs on every 680x0. This section exercises
+-- 020-introduced features that a TG68K-derived implementation may not
+-- have full coverage of:
+--   - 32-bit MULU.L/MULS.L (both 32-bit-result and 64-bit-result forms)
+--   - 32-bit DIVU.L/DIVS.L (both with and without separate remainder)
+--   - Bitfield operations (BFTST/BFEXTU/BFEXTS/BFCHG/BFCLR/BFSET/BFFFO/BFINS)
+--   - PACK / UNPK (BCD nibble pack/unpack, Dn,Dn form)
+--   - Scaled-index addressing modes (d8,An,Xn.L*scale)
+-- ======================================================================
+
+-- ---------- 32-bit MULU.L / MULS.L -------------------------------------
+-- 32-bit-result form: $4C00|<ea> | ext = Dq<<12 | (signed?0x800:0)
+--   Dn destination = source value too; result is low 32 bits of Dq * <ea>.
+-- 64-bit-result form: ext bit 10 set, Dh in low 3 bits; result = Dh:Dl.
+local MUL32_SAMPLES = {
+    {name="small",  a=0x00000010, b=0x00000004},   -- 0x40
+    {name="midhi",  a=0x12345678, b=0x00010000},   -- low32 = 0x56780000
+    {name="negneg", a=0xFFFFFFFE, b=0xFFFFFFFE},   -- signed: 4
+}
+for _, s in ipairs(MUL32_SAMPLES) do
+    -- MULU.L D1,D0  -> D0 := (D0.L * D1.L) low 32 bits
+    tests[#tests + 1] = {
+        name    = string.format("MULU.L D1,D0 (%s 0x%08X*0x%08X)",
+                                s.name, s.a & 0xFFFFFFFF, s.b & 0xFFFFFFFF),
+        preload = preload_dregs({[0] = s.a, [1] = s.b}),
+        test    = concat(bw(0x4C01), bw(0x0000)),    -- ext: Dq=0
+    }
+    tests[#tests + 1] = {
+        name    = string.format("MULS.L D1,D0 (%s 0x%08X*0x%08X)",
+                                s.name, s.a & 0xFFFFFFFF, s.b & 0xFFFFFFFF),
+        preload = preload_dregs({[0] = s.a, [1] = s.b}),
+        test    = concat(bw(0x4C01), bw(0x0800)),    -- signed
+    }
+end
+-- 64-bit-result: D2:D0 := D0 * D1 (Dh=D2, Dl=D0)
+for _, s in ipairs({
+    {name="big",    a=0x12345678, b=0x10000000},
+    {name="negneg", a=0xFFFFFFFF, b=0xFFFFFFFF},
+}) do
+    tests[#tests + 1] = {
+        name    = string.format("MULU.L D1,D2:D0 (%s)", s.name),
+        preload = preload_dregs({[0] = s.a, [1] = s.b}),
+        test    = concat(bw(0x4C01), bw(0x0402)),    -- size=1, Dh=D2, Dl=D0
+    }
+    tests[#tests + 1] = {
+        name    = string.format("MULS.L D1,D2:D0 (%s)", s.name),
+        preload = preload_dregs({[0] = s.a, [1] = s.b}),
+        test    = concat(bw(0x4C01), bw(0x0C02)),    -- signed + size=1
+    }
+end
+
+-- ---------- 32-bit DIVU.L / DIVS.L -------------------------------------
+-- opword: $4C40 | <ea>. ext: Dq<<12 | (signed?0x800:0) | (size?0x400:0) | Dr.
+-- 32-bit form (size=0): Dq := Dq/<ea>, Dr := Dq%<ea>. If Dq==Dr only Dq used.
+local DIV32_SAMPLES = {
+    {name="exact",   dq=100,         d=7},
+    {name="big",     dq=0x12345678,  d=0x100},
+    {name="neg",     dq=0xFFFFFFF6,  d=0x4},    -- signed: -10 / 4 = -2
+}
+for _, s in ipairs(DIV32_SAMPLES) do
+    -- DIVU.L D1,D0:D2  (Dq=D0 quotient, Dr=D2 remainder)
+    tests[#tests + 1] = {
+        name    = string.format("DIVU.L D1,D0:D2 (%s D0=0x%08X/D1=0x%08X)",
+                                s.name, s.dq & 0xFFFFFFFF, s.d & 0xFFFFFFFF),
+        preload = preload_dregs({[0] = s.dq, [1] = s.d}),
+        test    = concat(bw(0x4C41), bw(0x0002)),  -- Dq=D0(0), Dr=D2(2)
+    }
+    tests[#tests + 1] = {
+        name    = string.format("DIVS.L D1,D0:D2 (%s D0=0x%08X/D1=0x%08X)",
+                                s.name, s.dq & 0xFFFFFFFF, s.d & 0xFFFFFFFF),
+        preload = preload_dregs({[0] = s.dq, [1] = s.d}),
+        test    = concat(bw(0x4C41), bw(0x0802)),  -- signed
+    }
+end
+-- Quotient-only form (Dq==Dr=D0)
+tests[#tests + 1] = {
+    name    = "DIVU.L D1,D0 (quot-only D0=100/D1=7)",
+    preload = preload_dregs({[0] = 100, [1] = 7}),
+    test    = concat(bw(0x4C41), bw(0x0000)),     -- Dq=Dr=D0
+}
+tests[#tests + 1] = {
+    name    = "DIVS.L D1,D0 (quot-only D0=-100/D1=7)",
+    preload = preload_dregs({[0] = (-100) & 0xFFFFFFFF, [1] = 7}),
+    test    = concat(bw(0x4C41), bw(0x0800)),
+}
+
+-- ---------- EXTB.L extra samples ---------------------------------------
+-- (One already exists above for 0x80 -> 0xFFFFFF80; add positive/negative.)
+tests[#tests + 1] = {
+    name    = "EXTB.L D0 (0x000000FF -> 0xFFFFFFFF)",
+    preload = preload_dregs({[0] = 0xAABBCCFF}),
+    test    = bw(0x49C0),
+}
+tests[#tests + 1] = {
+    name    = "EXTB.L D0 (0x0000007F -> 0x0000007F)",
+    preload = preload_dregs({[0] = 0xAABBCC7F}),
+    test    = bw(0x49C0),
+}
+
+-- ---------- Bitfield operations ----------------------------------------
+-- All use Dn-direct EA (mode=0,reg=dn) to keep the encoding simple.
+-- opword: $E8C0..$EFC0 | dn  (8 ops sharing the 1110 1xxx 11... prefix).
+-- ext bits: dst_dn<<12 | Do<<11 | offset<<6 | Dw<<5 | width
+--   For static offset/width: Do=Dw=0, offset in bits 10-6, width in bits 4-0.
+--   width field: 0 means 32; 1..31 means 1..31.
+-- All examples below use D0 as the bitfield source/dest, D1 as auxiliary
+-- (dst for read ops, src for BFINS).
+-- BFTST D0{16:8}: tests bits 16..23 of D0, sets CCR (N,Z); D0 unchanged.
+tests[#tests + 1] = {
+    name    = "BFTST D0{16:8} (D0=0x12FF5678 -> Z=0,N=1)",
+    preload = preload_dregs({[0] = 0x12FF5678}),
+    test    = concat(bw(0xE8C0), bw(0x0408)),    -- off=16,width=8
+}
+tests[#tests + 1] = {
+    name    = "BFTST D0{0:16} (D0=0)",
+    preload = preload_dregs({[0] = 0x00000000}),
+    test    = concat(bw(0xE8C0), bw(0x0010)),    -- off=0,width=16
+}
+-- BFEXTU D0{16:8},D1 = unsigned extract
+tests[#tests + 1] = {
+    name    = "BFEXTU D0{16:8},D1 (D0=0x12FF5678 -> D1=0xFF)",
+    preload = preload_dregs({[0] = 0x12FF5678}),
+    test    = concat(bw(0xE9C0), bw(0x1408)),    -- dst=D1, off=16, w=8
+}
+tests[#tests + 1] = {
+    name    = "BFEXTU D0{4:12},D2",
+    preload = preload_dregs({[0] = 0xABCDEF12}),
+    test    = concat(bw(0xE9C0), bw(0x210C)),    -- dst=D2, off=4, w=12
+}
+-- BFEXTS D0{16:8},D1 = signed extract (sign-extends top bit)
+tests[#tests + 1] = {
+    name    = "BFEXTS D0{16:8},D1 (D0=0x12FF5678 -> D1=0xFFFFFFFF)",
+    preload = preload_dregs({[0] = 0x12FF5678}),
+    test    = concat(bw(0xEBC0), bw(0x1408)),
+}
+tests[#tests + 1] = {
+    name    = "BFEXTS D0{16:8},D1 (D0=0x12345678 -> D1=0x00000034)",
+    preload = preload_dregs({[0] = 0x12345678}),
+    test    = concat(bw(0xEBC0), bw(0x1408)),
+}
+-- BFCHG D0{16:8} = invert bitfield in place
+tests[#tests + 1] = {
+    name    = "BFCHG D0{16:8} (D0=0x12FF5678)",
+    preload = preload_dregs({[0] = 0x12FF5678}),
+    test    = concat(bw(0xEAC0), bw(0x0408)),
+}
+-- BFCLR D0{16:8} = zero bitfield
+tests[#tests + 1] = {
+    name    = "BFCLR D0{16:8} (D0=0xFFFFFFFF)",
+    preload = preload_dregs({[0] = 0xFFFFFFFF}),
+    test    = concat(bw(0xECC0), bw(0x0408)),
+}
+-- BFSET D0{16:8} = set bitfield to all-ones
+tests[#tests + 1] = {
+    name    = "BFSET D0{16:8} (D0=0)",
+    preload = preload_dregs({[0] = 0x00000000}),
+    test    = concat(bw(0xEEC0), bw(0x0408)),
+}
+-- BFFFO D0{16:8},D1 = find first one (bit number of highest set bit)
+tests[#tests + 1] = {
+    name    = "BFFFO D0{0:32},D1 (D0=0x00100000 -> D1=11)",
+    preload = preload_dregs({[0] = 0x00100000}),
+    test    = concat(bw(0xEDC0), bw(0x1000)),    -- off=0, w=32(encoded 0)
+}
+tests[#tests + 1] = {
+    name    = "BFFFO D0{0:32},D1 (D0=0 -> D1=32)",
+    preload = preload_dregs({[0] = 0x00000000}),
+    test    = concat(bw(0xEDC0), bw(0x1000)),
+}
+-- BFINS D1,D0{16:8} = insert low N bits of D1 into D0's bitfield
+tests[#tests + 1] = {
+    name    = "BFINS D1,D0{16:8} (D0=0xFFFFFFFF, D1=0xAA)",
+    preload = preload_dregs({[0] = 0xFFFFFFFF, [1] = 0x000000AA}),
+    test    = concat(bw(0xEFC0), bw(0x1408)),
+}
+
+-- ---------- PACK / UNPK ------------------------------------------------
+-- Dy,Dx,#adj form. Takes two BCD nibbles from low byte of Dy plus #adj16,
+-- packs to one BCD byte in low byte of Dx (PACK), or expands one byte
+-- to two-nibble-per-byte word (UNPK).
+-- PACK D1,D0,#0: $8141 ext=$0000 (Dx=D0, Dy=D1)
+tests[#tests + 1] = {
+    name    = "PACK D1,D0,#0 (D1=0x00003132 -> D0 low byte=0x12)",
+    preload = preload_dregs({[0] = 0xAABBCCDD, [1] = 0x00003132}),
+    test    = concat(bw(0x8141), bw(0x0000)),
+}
+tests[#tests + 1] = {
+    name    = "PACK D1,D0,#0x0100 (D1=0x00003132 -> D0 low byte=0x13)",
+    preload = preload_dregs({[0] = 0xAABBCCDD, [1] = 0x00003132}),
+    test    = concat(bw(0x8141), bw(0x0100)),
+}
+-- UNPK D1,D0,#0: $8181  (Dx=D0, Dy=D1)
+tests[#tests + 1] = {
+    name    = "UNPK D1,D0,#0 (D1 low byte=0x12 -> D0 low word=0x0102)",
+    preload = preload_dregs({[0] = 0xAABBCCDD, [1] = 0x00000012}),
+    test    = concat(bw(0x8181), bw(0x0000)),
+}
+tests[#tests + 1] = {
+    name    = "UNPK D1,D0,#0x3030 (D1 low=0x12 -> D0='12' = 0x3132)",
+    preload = preload_dregs({[0] = 0xAABBCCDD, [1] = 0x00000012}),
+    test    = concat(bw(0x8181), bw(0x3030)),
+}
+
+-- ---------- Scaled-index addressing (d8,An,Xn.L*scale) -----------------
+-- MOVE.L (d8,A6,Dn.L*scale),Dy
+-- opword: $2000 | (dst_dn<<9) | (dst_mode<<6) | (src_mode<<3) | src_reg
+--   src mode=6,reg=6 -> $36; dst Dn -> opword = $2236 (Dy=D1, dst_mode=0)
+-- brief ext: D/A(1) | reg(3) | WL(1) | scale(2) | full(1) | disp(8)
+--   D/A=0 (Dn index), WL=1 (long), scale=0..3 for 1/2/4/8, full=0
+-- Preload scratch with a recognizable pattern so the read picks up
+-- something meaningful per index.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = i end   -- 1,2,3,...64
+    for _, sc in ipairs({
+        {bits=0x00, mul=1, name="*1"},   -- scale=0
+        {bits=0x02, mul=2, name="*2"},
+        {bits=0x04, mul=4, name="*4"},
+        {bits=0x06, mul=8, name="*8"},
+    }) do
+        local ext = 0x0800 | (sc.bits << 8)    -- D/A=0,reg=0(D0),WL=1,scale,full=0,disp=0
+        tests[#tests + 1] = {
+            name = string.format("MOVE.L (0,A6,D0.L%s),D1 (D0=2)", sc.name),
+            preload  = preload_dregs({[0] = 2}),
+            ram_init = ram,
+            test     = concat(bw(0x2236), bw(ext)),
+        }
+    end
+    -- Non-zero d8 to verify displacement add path.
+    tests[#tests + 1] = {
+        name = "MOVE.L (8,A6,D0.L*4),D1 (D0=1)",
+        preload  = preload_dregs({[0] = 1}),
+        ram_init = ram,
+        test     = concat(bw(0x2236), bw(0x0C08)),   -- scale=4, disp=8
+    }
+end
 
 -- ---------- Smoke ------------------------------------------------------
 tests[#tests + 1] = {

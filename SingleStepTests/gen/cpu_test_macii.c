@@ -35,8 +35,9 @@ typedef unsigned long  u32;
 typedef struct {
     u32 d[8];                       /* offset 0x00 */
     u32 a[8];                       /* offset 0x20 */
-    u8  ccr;                        /* offset 0x40 */
-    u8  pad[3];                     /* offset 0x41..0x43 */
+    u8  ccr_high;                   /* offset 0x40 -- always 0x00 (zero-ext) */
+    u8  ccr;                        /* offset 0x41 -- the CCR byte */
+    u8  pad[2];                     /* offset 0x42..0x43 */
     u8  ram[CPU_SCRATCH_LEN];       /* offset 0x44 */
 } Snapshot;
 
@@ -74,26 +75,34 @@ static u8 *emit_move_w_imm_to_ccr(u8 *p, u16 imm) {
     p = put_w(p, 0x44FC); return put_w(p, (u16)(imm & 0xFF));
 }
 
-/* State dump epilogue. snap_base is the Mac-side address of init_snap or
- * final_snap. Logic mirrors the lua emit_state_dump byte-for-byte. */
+/* State dump epilogue -- mirrors lua emit_state_dump byte-for-byte.
+ *
+ * Two invariants:
+ *   1. Must not clobber any general-purpose register (init dump runs
+ *      before the test; clobbered residue would corrupt test inputs).
+ *   2. Must capture CCR BEFORE any flag-setting instruction, since
+ *      `MOVE.L Dn,abs.L` (used to dump D regs) sets N/Z on the source.
+ *
+ * Order: CCR first, then A regs, then D regs, then scratch RAM copy.
+ * Uses `MOVE CCR,(abs.L)` and `MOVE.L (abs.L),(abs.L)` -- no register
+ * temps.
+ */
 static u8 *emit_state_dump(u8 *p, Snapshot *snap)
 {
     u32 base = (u32) snap;
+    u32 scratch_base = (u32) &scratch_ram[0];
     int n, i;
-    /* 1) A regs */
+    /* CCR first. 16-bit word write: byte 0x40 = 0x00, byte 0x41 = CCR. */
+    p = put_w(p, 0x42F9); p = put_l(p, base + 0x40);
     for (n = 0; n < 8; n++)
         p = emit_move_l_an_to_abs(p, n, base + 0x20 + n * 4);
-    /* 2) D regs */
     for (n = 0; n < 8; n++)
         p = emit_move_l_dn_to_abs(p, n, base + 0x00 + n * 4);
-    /* 3) CCR (clobbers D0 after its dump) */
-    p = put_w(p, (u16)(0x42C0));                          /* MOVE CCR,D0 */
-    p = emit_move_l_dn_to_abs(p, 0, base + 0x40);
-    /* 4) Copy scratch -> snap+0x44 via A0/A1. */
-    p = emit_movea_l_imm_to_an(p, 0, (u32) &scratch_ram[0]);
-    p = emit_movea_l_imm_to_an(p, 1, base + 0x44);
-    for (i = 0; i < CPU_SCRATCH_LEN / 4; i++)
-        p = put_w(p, 0x22D8);                             /* MOVE.L (A0)+,(A1)+ */
+    for (i = 0; i < CPU_SCRATCH_LEN / 4; i++) {
+        p = put_w(p, 0x23F9);
+        p = put_l(p, scratch_base + i * 4);
+        p = put_l(p, base + 0x44 + i * 4);
+    }
     return p;
 }
 
