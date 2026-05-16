@@ -1382,6 +1382,130 @@ tests[#tests + 1] = {
     ),
 }
 
+-- ======================================================================
+-- EXCEPTION TESTS
+--
+-- These tests deliberately trigger exceptions. The MAME harness vector
+-- table (VEC_BASE..VEC_BASE+VEC_COUNT*4) already points every vector at
+-- the final-dump entry, so any exception lands in our state-capture
+-- code. TG68K's bench replicates the same vector setup. Mac OS catches
+-- exceptions and kills the app, so these are marked raises_exception=1
+-- and the Mac bench skips them.
+--
+-- Per PRM Table B-1 (verified against the manual):
+--   Vec 2 / $08  Access Fault (bus error)   -- needs /BERR; deferred
+--   Vec 3 / $0C  Address Error              -- triggered by odd PC fetch
+--   Vec 4 / $10  Illegal Instruction        -- $4AFC
+--   Vec 5 / $14  Integer Divide by Zero
+--   Vec 6 / $18  CHK / CHK2 (shared)
+--   Vec 7 / $1C  TRAPcc / TRAPV / FTRAPcc (shared)
+--   Vec 8 / $20  Privilege Violation        -- needs user-mode harness; deferred
+--   Vec 9 / $24  Trace                      -- needs T-bit harness; deferred
+--   Vec 10/ $28  Line A (1010 emulator)
+--   Vec 11/ $2C  Line F (1111 emulator)     -- on MAME w/ FPU, dispatches to FPU
+--   Vec 32-47   TRAP #0 .. TRAP #15
+--
+-- After the exception fires, A7 has been decremented by the stack-frame
+-- size (4 or 6 words on 68020). The diff tool excludes A7 from
+-- comparison so this is fine. SR's S bit is set; we capture only CCR
+-- (low byte), so unaffected.
+-- ======================================================================
+
+-- ILLEGAL ($4AFC) -- vector 4 / $10
+tests[#tests + 1] = {
+    name    = "EXC: ILLEGAL  ($4AFC -> vec 4 / $10)",
+    preload = {},
+    test    = bw(0x4AFC),
+    raises_exception = true,
+}
+
+-- Integer Divide by Zero -- vector 5 / $14
+-- DIVU.W #0,D0 = $80FC + immediate word $0000
+tests[#tests + 1] = {
+    name    = "EXC: DIVU.W #0,D0  (vec 5 / $14)",
+    preload = preload_dregs({[0] = 0x00000100}),
+    test    = concat(bw(0x80FC), bw(0x0000)),
+    raises_exception = true,
+}
+-- DIVS.W #0,D0 = $81FC + immediate word $0000
+tests[#tests + 1] = {
+    name    = "EXC: DIVS.W #0,D0  (vec 5 / $14)",
+    preload = preload_dregs({[0] = 0x00000100}),
+    test    = concat(bw(0x81FC), bw(0x0000)),
+    raises_exception = true,
+}
+
+-- CHK.W Dn,Dm out-of-bounds -- vector 6 / $18
+-- CHK.W Dy,Dx = $4180 | (Dx<<9) | Dy. For CHK D1,D0: $4180 | 1 = $4181.
+-- D0 holds the value to check; D1 holds the upper bound (signed word).
+-- Out-of-bound above:
+tests[#tests + 1] = {
+    name    = "EXC: CHK.W D1,D0  (D0=100 > D1=10, vec 6 / $18)",
+    preload = preload_dregs({[0] = 100, [1] = 10}),
+    test    = bw(0x4181),
+    raises_exception = true,
+}
+-- Out-of-bound below (D0 negative):
+tests[#tests + 1] = {
+    name    = "EXC: CHK.W D1,D0  (D0=-1 < 0, vec 6 / $18)",
+    preload = preload_dregs({[0] = 0xFFFFFFFF, [1] = 100}),
+    test    = bw(0x4181),
+    raises_exception = true,
+}
+
+-- TRAPV with V flag set -- vector 7 / $1C
+-- TRAPV = $4E76. V=1 must be in CCR at TRAPV time; we can't use the
+-- preload, because the init-dump epilogue runs *between* preload and
+-- the test instruction and overwrites CCR (its last MOVE.L 0,0 sets
+-- Z=1, wiping any V we put in the preload). Emit MOVE #2,CCR inside
+-- the test bytes so V=1 is set immediately before TRAPV.
+tests[#tests + 1] = {
+    name    = "EXC: MOVE #2,CCR ; TRAPV  (V=1, vec 7 / $1C)",
+    preload = {},
+    test    = concat(bw(0x44FC), bw(0x0002), bw(0x4E76)),
+    raises_exception = true,
+}
+
+-- TRAP #N -- vectors 32-47 / $80-$BC. TRAP #N = $4E40 | N.
+for _, n in ipairs({0, 7, 15}) do
+    tests[#tests + 1] = {
+        name    = string.format("EXC: TRAP #%d  (vec %d / $%X)", n, 32 + n, 0x80 + n * 4),
+        preload = {},
+        test    = bw(0x4E40 | n),
+        raises_exception = true,
+    }
+end
+
+-- Address Error via odd PC fetch -- vector 3 / $0C
+-- Preload A0 = scratch+1 (odd address), then JMP (A0). The JMP itself
+-- executes fine; the *next* instruction prefetch from $1801 fails with
+-- an address error (per UM §6.1.3).
+tests[#tests + 1] = {
+    name    = "EXC: JMP (A0) where A0=$1801 (odd, vec 3 / $0C)",
+    preload = preload_an_scratch({[0] = 1}),     -- LEA $1(A6),A0 -> A0=scratch+1
+    test    = bw(0x4ED0),                         -- JMP (A0)
+    raises_exception = true,
+}
+
+-- Line A trap ($A000) -- vector 10 / $28
+-- Any $AXXX opcode is unimplemented and traps to the Line A emulator
+-- vector (per PRM Table B-1, vector 10). Mac OS uses $AXXX for toolbox
+-- traps; this just exercises the dispatch path.
+tests[#tests + 1] = {
+    name    = "EXC: Line A trap ($A000, vec 10 / $28)",
+    preload = {},
+    test    = bw(0xA000),
+    raises_exception = true,
+}
+
+-- Line F trap: deferred. On MAME's maciihmu, the FPU is present and
+-- claims all F-line opcodes regardless of cpid. We verified $F800
+-- (cpid=4) doesn't trap on MAME -- A7 unchanged after the test. On
+-- TG68K (no FPU dispatch yet), all F-lines do trap. To exercise this
+-- divergence cleanly we'd need a Line-F-only oracle separate from the
+-- FPU-present MAME path; that's CPU+FPU integration scope (blocked on
+-- the CIR Response read bug).
+
 -- ---------- Smoke ------------------------------------------------------
 tests[#tests + 1] = {
     name    = "DBG: NOP (baseline)",
@@ -1424,7 +1548,9 @@ local function emit_tests_h(path)
     f:write("    unsigned short test_len;\n")
     f:write("    unsigned char ram_init[CPU_SCRATCH_LEN];\n")
     f:write("    unsigned char ram_init_present;  /* 0 or 1 */\n")
-    f:write("    unsigned char privileged;        /* 0 or 1 -- bench skips if 1 */\n")
+    f:write("    unsigned char privileged;        /* 0 or 1 -- Mac bench skips */\n")
+    f:write("    unsigned char raises_exception;  /* 0 or 1 -- Mac bench skips; TG68K + MAME run\n")
+    f:write("                                      * (vector table is set up to land at the dump). */\n")
     f:write("} CpuTestSpec;\n\n")
     -- Note: NOT `static const`. THINK C places const arrays in the CODE
     -- resource, which has a hard 32KB-per-segment ceiling. Plain `static`
@@ -1449,10 +1575,11 @@ local function emit_tests_h(path)
             ram_str = "{0}"; ram_n = 0
         end
         local priv = t.privileged and 1 or 0
+        local exc  = t.raises_exception and 1 or 0
         f:write(string.format("    {%q,\n", t.name))
         f:write(string.format("      %s, %d,\n", pre_str, #t.preload))
         f:write(string.format("      %s, %d,\n", tst_str, #t.test))
-        f:write(string.format("      %s, %d, %d},\n", ram_str, ram_n, priv))
+        f:write(string.format("      %s, %d, %d, %d},\n", ram_str, ram_n, priv, exc))
     end
     f:write("};\n\n")
     f:write("#define CPU_N_TESTS "

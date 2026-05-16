@@ -401,11 +401,58 @@ Done:
 - ✓ Explicit MOVEA.L / MOVEA.W
 - ✓ 020 full-extension addressing: (bd.W,A6,Dn.W) and (bd.L,A6,Dn.L*scale)
 
+### Expansion v4 (2026-05-16) — exception tests (+11 tests, corpus → 320)
+
+Added a `raises_exception` flag and 11 trap-generating tests. The MAME
+oracle and TG68K bench both set up a vector table that lands all
+exceptions at the dump epilogue; the Mac bench skips exception tests
+(Mac OS catches and kills the app). New tests:
+
+| Vec | Offset | Test | TG68K |
+|---|---|---|---|
+| 3 | $0C | Address Error via JMP (A0), A0=$1801 (odd) | **FAIL: timeout** -- TG68K may not detect odd-PC prefetch as address error. Documented divergence. |
+| 4 | $10 | ILLEGAL ($4AFC) | ✓ |
+| 5 | $14 | DIVU.W #0,D0 | ✓ |
+| 5 | $14 | DIVS.W #0,D0 | ✓ |
+| 6 | $18 | CHK.W out-of-bound above | ✓ |
+| 6 | $18 | CHK.W out-of-bound below | ✓ |
+| 7 | $1C | TRAPV (V=1 set inside test bytes) | ✓ |
+| 10 | $28 | Line A ($A000) | ✓ |
+| 32 | $80 | TRAP #0 | ✓ |
+| 39 | $9C | TRAP #7 | ✓ |
+| 47 | $BC | TRAP #15 | ✓ |
+
+TRAPV note: the V flag must be set immediately before the TRAPV
+instruction, not in the preload -- the init-dump epilogue's `MOVE.L 0,0`
+sets Z=1 and wipes V. So the test bytes themselves include
+`MOVE #2,CCR ; TRAPV`.
+
+Stack-frame format note: A7 deltas observed in the corpus confirm
+correct frame selection per UM §6.2:
+  - 8 bytes (format $0): ILLEGAL, TRAP, Line A
+  - 12 bytes (format $2 with FP/PC): DIVU/DIVS, CHK
+  - 92 bytes (format $B long bus cycle): address error
+
 ### Still gap (future batches)
 
-- ☐ **020 memory-indirect** modes `([bd,An],Xn,od)` / `([bd,An,Xn],od)` —
-  complex encoding, separate batch
-- ☐ **Trap-generating** (TRAP/CHK/CHK2/TRAPV/TRAPcc) — needs vector-table
-  harness with proper exception-frame handling
-- ☐ **EXG**, **ADDQ/SUBQ on An**, **MOVEP** — niche ops
+- ☐ **Address Error (TG68K bug)**: TG68K timed out instead of trapping.
+  Needs investigation: does TG68KdotC_Kernel even check for odd PC on
+  prefetch? If not, this is a real correctness gap for Mac II ROM boot
+  (the ROM probes for hardware by jumping to odd addresses and
+  catching the trap).
+- ☐ **Privilege Violation** (vec 8 / $20) — needs user-mode harness;
+  the current MAME harness starts in supervisor (SR=$2700).
+- ☐ **Trace** (vec 9 / $24) — needs T-bit setup; tricky to wedge into
+  the existing single-instruction harness (every instruction traps).
+- ☐ **Coprocessor Protocol Violation** (vec 13 / $34) — needs
+  CPU+FPU integration; blocked.
+- ☐ **Line F** ($F800 etc.) — on MAME's maciihmu the FPU claims all
+  F-lines regardless of cpid, so MAME and TG68K disagree about which
+  F-lines trap. Needs CPU+FPU integration scope.
+- ☐ **Bus Error** (vec 2 / $08) — TG68K wrapper currently hardcodes
+  `berr` to 0. Adding `berr_in` and a sim-controlled BERR trigger is a
+  separate wrapper change.
+- ☐ **020 memory-indirect** modes `([bd,An],Xn,od)` / `([bd,An,Xn],od)`
+  — complex encoding, separate batch.
+- ☐ **EXG**, **ADDQ/SUBQ on An**, **MOVEP** — niche ops.
 - ⛔ **CPU+FPU integration** — blocked on `mc68881_top` CIR Response read bug.

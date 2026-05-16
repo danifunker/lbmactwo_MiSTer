@@ -229,16 +229,21 @@ int main(void)
         if (t->ram_init_present)
             memcpy(scratch_ram, t->ram_init, CPU_SCRATCH_LEN);
 
-        printf("[%d/%u] %s%s\n", i + 1, CPU_N_TESTS, t->name,
-            t->privileged ? "  [SKIPPED: privileged]" : "");
+        {
+            const char *skip_reason = NULL;
+            if (t->privileged)        skip_reason = "  [SKIPPED: privileged]";
+            else if (t->raises_exception) skip_reason = "  [SKIPPED: raises exception]";
+            printf("[%d/%u] %s%s\n", i + 1, CPU_N_TESTS, t->name,
+                   skip_reason ? skip_reason : "");
 
-        if (!t->privileged) {
-            entry = build_program(t);
-            flush_icache();
-            invoke_program(entry);
+            if (!skip_reason) {
+                entry = build_program(t);
+                flush_icache();
+                invoke_program(entry);
+            }
+            /* Skipped tests: init_snap and final_snap stay zeroed.
+             * The diff tool categorizes them as "skipped". */
         }
-        /* Privileged tests: init_snap and final_snap stay zeroed.
-         * The diff tool will categorize them as "skipped". */
 
         fputc('{', f);
         fprintf(f, "\"name\":"); write_json_name(f, t->name);

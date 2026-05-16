@@ -266,6 +266,7 @@ int main(int argc, char** argv, char** env) {
         pc += spec->test_len;
 
         // MOVE CCR,$00001900 -- writes a word: byte 0x1900 = 0, byte 0x1901 = CCR.
+        const uint32_t move_ccr_addr = pc;
         ram[pc + 0] = 0x42; ram[pc + 1] = 0xF9;
         ram[pc + 2] = 0x00; ram[pc + 3] = 0x00;
         ram[pc + 4] = 0x19; ram[pc + 5] = 0x00;
@@ -274,6 +275,18 @@ int main(int argc, char** argv, char** env) {
         // STOP #$2700 -- halts the CPU; bus goes IDLE.
         ram[pc + 0] = 0x4E; ram[pc + 1] = 0x72;
         ram[pc + 2] = 0x27; ram[pc + 3] = 0x00;
+
+        // Exception vector table: point every vector (except 0/1, which are
+        // reset SSP/PC and must stay) at the MOVE CCR address so any
+        // exception lands in the dump epilogue. Mirrors what
+        // mame_cpu_capture.lua's start_test() does on the MAME side.
+        for (uint32_t v = 2; v < 256; ++v) {
+            uint32_t va = v * 4;
+            ram[va + 0] = (move_ccr_addr >> 24) & 0xFF;
+            ram[va + 1] = (move_ccr_addr >> 16) & 0xFF;
+            ram[va + 2] = (move_ccr_addr >>  8) & 0xFF;
+            ram[va + 3] = (move_ccr_addr)       & 0xFF;
+        }
 
         // Scratch RAM at $1800.
         auto& init_ram = init["ram"];
