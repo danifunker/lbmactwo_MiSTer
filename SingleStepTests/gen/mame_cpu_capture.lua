@@ -203,6 +203,9 @@ local function preload_an_scratch(a_offsets)
             if n == 6 then
                 error("cannot preload A6 (reserved scratch base)")
             end
+            if n == 7 then
+                error("cannot preload A7 (Mac bench needs intact stack)")
+            end
             for _, b in ipairs(emit_lea_d16_a6_to_an(n, off)) do
                 out[#out + 1] = b
             end
@@ -485,7 +488,10 @@ tests[#tests + 1] = {
 
 -- ---------- LEA --------------------------------------------------------
 -- LEA (A6),An = $41D6 | (an<<9)
-for _, an in ipairs({0, 1, 5, 7}) do
+-- A7 deliberately excluded: tests that write to A7 destroy the C stack
+-- in the Mac OS bench (final RTS pops a garbage return address from
+-- scratch RAM). MAME's harness uses a JMP-self loop and doesn't care.
+for _, an in ipairs({0, 1, 5}) do
     tests[#tests + 1] = {
         name = string.format("LEA (A6),A%d", an),
         preload = {},
