@@ -103,12 +103,53 @@ real 68881 (signaling NaN) but `0000_..._00` (or random) in MAME.
 Tracked separately as a MAME bug — does not affect tests that preload
 their operands.
 
-**TODO (future):**
-- Scale the Mac-side bench to consume the same 270 tests (currently
-  hand-listed 9). Likely needs a binary loader or generated `.c` so
-  the Mac doesn't need 270 hand-encoded test functions.
+## Hardware baseline (2026-05-16)
+
+`gen/fpu_test_macii_full.c` + auto-generated `gen/fpu_tests.h` now run
+the full 270-test corpus on a real Mac II + System 7.1.2. Output to
+"FPU Results Full.jsonl" matches MAME's `/tmp/fpu_corpus.json` schema
+exactly. Diff against MAME via `gen/diff_corpus.py`.
+
+**Current pass rate vs MAME oracle:** 170 / 270 (63.0%).
+
+Divergence categories (from `diff_corpus.py`):
+
+| Category         | Count | Cause |
+|------------------|------:|-------|
+| `trailing_bits`  |    29 | Transcendentals: MAME softfloat ≠ real 68881 algorithm in last 1-3 mantissa bytes. (FATAN, FCOS, FSIN, FETOX, FETOXM1, FLOG*, FTAN, FTENTOX, FTWOTOX) |
+| `nan_encoding`   |    14 | MAME produces non-canonical NaN `ffff_0000_c000_..._0000`; real 68881 produces `7fff_0000_ffff_..._ffff` |
+| `inf_handling`   |     7 | FINT/FINTRZ/FSCALE/FSGLDIV with ±∞ inputs: MAME returns 0 or finite garbage instead of the infinity |
+| `special_value`  |    18 | Other ±∞/qNaN/±0 inputs that MAME mis-handles |
+| `smoke_fpinit`   |     1 | Reset-state FP-reg pattern (the documented MAME init bug) |
+| `unknown`        |    31 | Remaining gaps, mostly more transcendental precision plus the FLOGNP1 implementation (MAME appears to compute `ln(x)` instead of `ln(1+x)`) |
+
+**Ops where HW matches MAME 100%:** FABS, FADD, FTST.
+
+**Ops where HW matches MAME ≥ 80%:** FCMP, FGETMAN, FMUL, FNEG, FSGLMUL,
+FSCALE, FSQRT, FSUB.
+
+**Ops with widespread divergence:** the transcendental block
+(FATAN/FCOS/FSIN/FETOX/FLOG*/FTAN/FTENTOX/FTWOTOX) plus FMOD/FREM/FLOGNP1.
+
+## Known bench-side issues to fix before tightening the comparison
+
+1. **FPSR.AEXC accumulates on real HW, doesn't on MAME.** Once any test
+   sets a sticky exception (e.g. INEX from FADD π+e), it persists on
+   real hardware across all subsequent tests. Need to emit
+   `FMOVE.L #0, FPSR` at the start of every test program so AEXC
+   starts clean. Affects all 268 post-test FPSR readings in the HW
+   corpus and prevents direct FPSR diffing.
+2. **`diff_corpus.py` ignores FPSR.AEXC / FPSR.EXC / Quotient and
+   only diffs FPSR.CC** until item (1) is fixed.
+
+## TODO (future)
+
 - Add tests for FMOVE size variants (.L/.S/.D/.W/.B from immediate
   and Dn EA), FMOVEM, FSAVE/FRESTORE, FBcc/FScc/FDBcc.
+- Add rounding-mode sweep: same test set repeated with FPCR set to
+  round-to-nearest / round-to-zero / round-up / round-down.
+- File MAME issues for the categorized bugs above (nan_encoding,
+  inf_handling, FLOGNP1, FNEG-of-NaN sign flip).
 
 Plan: start with MAME (option 1) since the corpus needs to match real
 68881 semantics, not just IEEE 754, and MAME's FPU is closer to the
