@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
 """
-diff_corpus.py -- compare two FPU test JSONL files (MAME oracle vs real
-68881 hardware) and categorize divergences.
+diff_corpus.py -- compare two FPU test JSONL files (MAME oracle vs any
+other corpus: real 68881 hardware, Snow emulator, verilator FPU core)
+and categorize divergences.
 
 Usage:
-    python3 diff_corpus.py mame.jsonl hardware.jsonl [--verbose]
+    python3 diff_corpus.py BASELINE.jsonl CANDIDATE.jsonl [OPTIONS]
 
-The corpus is matched by `name`. For each test we compare the
-semantically important post-test fields:
+Options:
+    --json        Emit a machine-parseable JSON summary on stdout.
+                  Includes overall stats, per-category counts,
+                  per-op breakdown, and every test's category +
+                  detail string. Good for CI / tooling / dashboards.
+    --markdown    Emit a markdown report suitable for pasting into
+                  README.md or core documentation. Includes header
+                  stats, the category table, and the per-op table.
+    --verbose     (terminal mode only) list every divergent test
+                  with its category and detail.
+    (no flag)     Print the human-friendly terminal report.
 
-  - FP0           (the destination register; FP1 for FMOVE FP0,FP1)
+Convention: BASELINE is the "right answer" corpus (usually the MAME
+oracle). CANDIDATE is what you're scoring (hardware run, Snow run,
+verilator run). Pass rate = candidate matches baseline.
+
+Comparison fields:
+  - FP0           (destination register; FP1 for FMOVE FP0,FP1)
   - FPSR.CC byte  (high byte of FPSR: N/Z/I/NaN condition codes)
   - FPCR          (rounding mode, precision)
   - D0            (sanity for the smoke tests)
 
-We deliberately ignore:
-
-  - FP1..FP7 in non-FMOVE tests (uninit reset-state pattern differs
-    between MAME and real hardware -- not a semantic divergence)
-  - A0..A7 (Mac stack-related residue from the JSR; not comparable)
-  - FPSR.AEXC (sticky accrued exceptions accumulate across tests on
-    real hardware but not in MAME -- needs a per-test reset fix in
-    the bench before this becomes comparable)
-  - FPSR.Quotient (set by FMOD/FREM/FSCALE only; cross-test bleed)
-  - FPSR.EXC (current-exception byte; MAME and hardware report
-    different ways)
-
-Output: per-op tally + a per-test breakdown with the divergence
-category attached.
+Deliberately ignored:
+  - FP1..FP7 in non-FMOVE tests (uninit reset-state pattern)
+  - A0..A7 (Mac stack-related residue from the JSR)
+  - FPSR.AEXC / FPSR.EXC / Quotient (sticky/cross-test noise)
 """
 import json
 import re
@@ -123,74 +128,147 @@ def classify(name, hf, mf):
             f"CC hw={cc(hf['fpsr']):02x} mame={cc(mf['fpsr']):02x}")
 
 
-def main():
-    if len(sys.argv) < 3:
-        print(__doc__)
-        sys.exit(1)
-    mame_path, hw_path = sys.argv[1], sys.argv[2]
-    verbose = "--verbose" in sys.argv or "-v" in sys.argv
+CATEGORY_ORDER = ['match', 'trailing_bits', 'nan_encoding',
+                  'inf_handling', 'special_value', 'cc_only',
+                  'smoke_fpinit', 'unknown']
 
-    mame = load(mame_path)
-    hw   = load(hw_path)
-    mame_by = {t['name']: t for t in mame}
-    hw_by   = {t['name']: t for t in hw}
-    common = sorted(set(mame_by) & set(hw_by))
+CATEGORY_HELP = {
+    'match':         "candidate matches baseline byte-for-byte",
+    'trailing_bits': "FP0 differs only in the last 1-3 mantissa bytes",
+    'nan_encoding':  "different NaN bit pattern",
+    'inf_handling':  "one side returns inf, the other doesn't",
+    'special_value': "operand was inf/NaN/-0 and results disagree",
+    'cc_only':       "FP0 matches but FPSR.CC byte differs",
+    'smoke_fpinit':  "reset-state FP register pattern differs (a known MAME bug)",
+    'unknown':       "uncategorized divergence",
+}
 
-    print(f"MAME corpus:     {len(mame)} tests ({mame_path})")
-    print(f"Hardware output: {len(hw)} tests ({hw_path})")
-    print(f"Tests in common: {len(common)}\n")
+
+def build_report(baseline_path, candidate_path):
+    """Run the comparison and return a structured dict with all the
+    data the renderers need. Renderer functions consume this dict."""
+    baseline  = load(baseline_path)
+    candidate = load(candidate_path)
+    base_by = {t['name']: t for t in baseline}
+    cand_by = {t['name']: t for t in candidate}
+    common = sorted(set(base_by) & set(cand_by))
 
     cat_counts = defaultdict(int)
     op_cat = defaultdict(lambda: defaultdict(list))
+    test_rows = []
     for name in common:
-        h, m = hw_by[name], mame_by[name]
-        category, detail = classify(name, h['final'], m['final'])
+        b, c = base_by[name], cand_by[name]
+        category, detail = classify(name, c['final'], b['final'])
         cat_counts[category] += 1
         op = name.split('.')[0] if '.' in name else 'smoke'
         op_cat[op][category].append((name, detail))
+        test_rows.append({"name": name, "op": op,
+                          "category": category, "detail": detail})
 
+    per_op = {}
+    for op, cats in op_cat.items():
+        total = sum(len(v) for v in cats.values())
+        per_op[op] = {
+            "total": total,
+            **{cat: len(cats.get(cat, [])) for cat in CATEGORY_ORDER},
+            "pass_rate": (len(cats.get('match', [])) / total) if total else 0,
+        }
+
+    return {
+        "baseline_path":  baseline_path,
+        "candidate_path": candidate_path,
+        "baseline_count":  len(baseline),
+        "candidate_count": len(candidate),
+        "common_count": len(common),
+        "match_count":  cat_counts['match'],
+        "pass_rate": (cat_counts['match'] / len(common)) if common else 0,
+        "categories": {c: cat_counts[c] for c in CATEGORY_ORDER},
+        "per_op": per_op,
+        "tests": test_rows,
+    }
+
+
+def render_terminal(rep, verbose=False):
+    print(f"Baseline ({rep['baseline_path']}):  {rep['baseline_count']} tests")
+    print(f"Candidate ({rep['candidate_path']}): {rep['candidate_count']} tests")
+    print(f"Tests in common: {rep['common_count']}\n")
     print("=== category totals ===")
-    order = ['match', 'trailing_bits', 'nan_encoding', 'inf_handling',
-             'special_value', 'cc_only', 'smoke_fpinit', 'unknown']
-    for c in order:
-        n = cat_counts[c]
+    for c in CATEGORY_ORDER:
+        n = rep['categories'].get(c, 0)
         if n:
-            pct = 100.0 * n / len(common)
+            pct = 100.0 * n / rep['common_count']
             print(f"  {c:<16} {n:>4}  ({pct:5.1f}%)")
-    print()
-
-    print("=== per-op breakdown ===")
+    print("\n=== per-op breakdown ===")
     print(f"{'op':<10}  {'match':>5} {'trail':>5} {'nanEn':>5} "
           f"{'inf':>5} {'spec':>5} {'cc':>5} {'init':>5} {'unkn':>5}  {'total':>6}")
-    for op in sorted(op_cat):
-        cats = op_cat[op]
-        total = sum(len(v) for v in cats.values())
-        row = [op]
-        row.append(len(cats.get('match', [])))
-        row.append(len(cats.get('trailing_bits', [])))
-        row.append(len(cats.get('nan_encoding', [])))
-        row.append(len(cats.get('inf_handling', [])))
-        row.append(len(cats.get('special_value', [])))
-        row.append(len(cats.get('cc_only', [])))
-        row.append(len(cats.get('smoke_fpinit', [])))
-        row.append(len(cats.get('unknown', [])))
-        row.append(total)
-        print(f"  {row[0]:<8}  {row[1]:>5} {row[2]:>5} {row[3]:>5} "
-              f"{row[4]:>5} {row[5]:>5} {row[6]:>5} {row[7]:>5} "
-              f"{row[8]:>5}  {row[9]:>6}")
-
+    for op in sorted(rep['per_op']):
+        d = rep['per_op'][op]
+        print(f"  {op:<8}  {d['match']:>5} {d['trailing_bits']:>5} "
+              f"{d['nan_encoding']:>5} {d['inf_handling']:>5} "
+              f"{d['special_value']:>5} {d['cc_only']:>5} "
+              f"{d['smoke_fpinit']:>5} {d['unknown']:>5}  {d['total']:>6}")
     if verbose:
-        print("\n=== divergent tests (verbose) ===")
-        for op in sorted(op_cat):
-            for cat, items in op_cat[op].items():
-                if cat == 'match':
-                    continue
-                for name, detail in items:
-                    print(f"  [{cat}] {name}")
-                    print(f"        {detail}")
+        print("\n=== divergent tests ===")
+        for t in rep['tests']:
+            if t['category'] != 'match':
+                print(f"  [{t['category']}] {t['name']}")
+                print(f"        {t['detail']}")
+    print(f"\n{rep['match_count']}/{rep['common_count']} pass "
+          f"({100.0 * rep['pass_rate']:.1f}%).")
 
-    print(f"\n{cat_counts['match']}/{len(common)} pass "
-          f"({100.0*cat_counts['match']/len(common):.1f}%).")
+
+def render_json(rep):
+    print(json.dumps(rep, indent=2))
+
+
+def render_markdown(rep):
+    """Drop-in markdown for documentation."""
+    print(f"# FPU corpus comparison")
+    print()
+    print(f"- **Baseline:** `{rep['baseline_path']}` ({rep['baseline_count']} tests)")
+    print(f"- **Candidate:** `{rep['candidate_path']}` ({rep['candidate_count']} tests)")
+    print(f"- **Tests compared:** {rep['common_count']}")
+    print(f"- **Pass rate:** **{rep['match_count']} / {rep['common_count']} "
+          f"({100.0 * rep['pass_rate']:.1f}%)**")
+    print()
+    print("## Category totals")
+    print()
+    print("| Category | Count | % | Meaning |")
+    print("|---|---:|---:|---|")
+    for c in CATEGORY_ORDER:
+        n = rep['categories'].get(c, 0)
+        if n:
+            pct = 100.0 * n / rep['common_count']
+            print(f"| `{c}` | {n} | {pct:.1f}% | {CATEGORY_HELP[c]} |")
+    print()
+    print("## Per-op breakdown")
+    print()
+    print("| op | total | match | trail | nanEnc | inf | spec | cc | init | unkn | pass% |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for op in sorted(rep['per_op']):
+        d = rep['per_op'][op]
+        pct = 100.0 * d['pass_rate']
+        print(f"| `{op}` | {d['total']} | {d['match']} | {d['trailing_bits']} | "
+              f"{d['nan_encoding']} | {d['inf_handling']} | "
+              f"{d['special_value']} | {d['cc_only']} | "
+              f"{d['smoke_fpinit']} | {d['unknown']} | {pct:.0f}% |")
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith('-')]
+    flags = [a for a in sys.argv[1:] if a.startswith('-')]
+    if len(args) < 2:
+        print(__doc__)
+        sys.exit(1)
+    baseline_path, candidate_path = args[0], args[1]
+    rep = build_report(baseline_path, candidate_path)
+
+    if '--json' in flags:
+        render_json(rep)
+    elif '--markdown' in flags or '--md' in flags:
+        render_markdown(rep)
+    else:
+        render_terminal(rep, verbose=('--verbose' in flags or '-v' in flags))
 
 
 if __name__ == '__main__':
