@@ -4,25 +4,16 @@
 //
 // Test program at $1000:
 //   MOVEQ #1,D0
-//   FMOVE.L D0,FP0          ; opword $F200 ext $8000 (R/M=1, src=L=D0, dst=FP0, op=FMOVE)
-//   FMOVE.X FP0,($200).L    ; opword $F239 ext $4400 (R/M=0, FPn→EA, .X, FP0, op=FMOVE)
+//   FMOVE.L D0,FP0     ; opword $F200 ext $4000 (opclass 010, src=L, dst=FP0)
+//   FMOVE.L FP0,D1     ; opword $F201 ext $6000 (opclass 011, dst=L, src=FP0)
 //   STOP #$2700
 //
-// Expected: RAM[$200..$20B] = 3F FF 00 00 80 00 00 00 00 00 00 00 (+1.0)
+// Both encodings verified via Musashi disassembler. Pass condition: D1 == 1
+// after STOP (D0 → FP0 → D1 round-trip).
 //
-// PHASE 2 STATUS — BLOCKED on FPU bug. The CIR dialog goes:
-//   1. CPU writes OpWord ($F200) to CIR byte $08 → ✓ FPU accepts.
-//   2. CPU writes Command ($8000) to CIR byte $0A → ✓ FPU accepts.
-//   3. CPU polls Response at CIR byte $00 → ✗ returns $0000 forever.
-// The FPU's d_out_comb read path (mc68881_top.vhd ~line 3155) has a
-// case statement keyed on the peripheral-mode ADDR_* constants. Byte $00
-// maps to ADDR_OPSEL — which has NO read case, falling through to the
-// default 0. The standard M68020 CIR layout puts Response at byte $00
-// (matches what TG68K's CIR dispatcher writes / reads), but the FPU's
-// read-side address dispatch never CIR-remaps byte $00 → cir_response_reg.
-// Write side gates correctly (cir_mode_reg branches in lines 3463+), but
-// the read side does not. Bug in the canonical FPU repo at
-// /Users/dani/repos/68881-fpga.
+// (Earlier B-1 hang was a bench-side bug: cpu_fpu_tests.v drove
+// mc68881_top.a_in raw, omitting the CIR address remap LBMacTwo.sv applies.
+// Fixed there; the FPU's CIR read path is correct.)
 
 #include <verilated.h>
 #include "Vcpu_fpu_tests.h"
@@ -93,17 +84,15 @@ static void plant_program() {
 
     // MOVEQ #1,D0
     ram[0x1000] = 0x70; ram[0x1001] = 0x01;
-    // FMOVE.L D0,FP0:  F200 / 8000
+    // FMOVE.L D0,FP0:  F200 / 4000
     ram[0x1002] = 0xF2; ram[0x1003] = 0x00;
-    ram[0x1004] = 0x80; ram[0x1005] = 0x00;
-    // FMOVE.X FP0,($200).L:  F239 / 4400 / 00000200
-    ram[0x1006] = 0xF2; ram[0x1007] = 0x39;
-    ram[0x1008] = 0x44; ram[0x1009] = 0x00;
-    ram[0x100A] = 0x00; ram[0x100B] = 0x00;
-    ram[0x100C] = 0x02; ram[0x100D] = 0x00;
+    ram[0x1004] = 0x40; ram[0x1005] = 0x00;
+    // FMOVE.L FP0,D1:  F201 / 6000
+    ram[0x1006] = 0xF2; ram[0x1007] = 0x01;
+    ram[0x1008] = 0x60; ram[0x1009] = 0x00;
     // STOP #$2700
-    ram[0x100E] = 0x4E; ram[0x100F] = 0x72;
-    ram[0x1010] = 0x27; ram[0x1011] = 0x00;
+    ram[0x100A] = 0x4E; ram[0x100B] = 0x72;
+    ram[0x100C] = 0x27; ram[0x100D] = 0x00;
 }
 
 int main(int argc, char** argv, char** env) {
@@ -123,10 +112,23 @@ int main(int argc, char** argv, char** env) {
 
     // Trace: edge-triggered on as_n falling edge so each bus cycle prints once.
     uint8_t prev_as = 1;
+    uint8_t prev_micro = 0xFF;
     int max_cycles = 20000;
     for (int cyc = 0; cyc < max_cycles; ++cyc) {
         tick();
         if (trace) {
+            // Per-micro_state print on transitions, for debugging the FPU
+            // dialog. Concise — drop to {ms, xfer_data, D1} on changes.
+            uint8_t cur_micro = top->dbg_micro_state;
+            if (cur_micro != prev_micro) {
+                std::cerr << "    [cyc " << std::setw(5) << cyc
+                          << "] ms=" << std::dec << int(cur_micro)
+                          << " xfer_data=0x" << std::hex << std::setw(8)
+                          << std::setfill('0') << top->dbg_cp_xfer_data
+                          << " D1=0x" << std::setw(8) << top->dbg_d1
+                          << std::dec << std::setfill(' ') << "\n";
+                prev_micro = cur_micro;
+            }
             uint8_t cur_as = top->as_n;
             if (prev_as && !cur_as) {
                 // AS just asserted
@@ -152,25 +154,24 @@ int main(int argc, char** argv, char** env) {
         }
     }
 
-    static const uint8_t expected[12] = {
-        0x3F, 0xFF, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    // Read D0, D1 from TG68K's regfile (split [7:0] / [31:8] arrays —
+    // same convention as the tg68k bench's --probe-regs path).
+    auto get_reg = [](int i) -> uint32_t {
+        uint32_t n1 = VERTOPINTERN->cpu_fpu_tests__DOT__cpu__DOT__tg68k__DOT__regfile_n1[i];
+        uint32_t n2 = VERTOPINTERN->cpu_fpu_tests__DOT__cpu__DOT__tg68k__DOT__regfile_n2[i];
+        return (n2 << 8) | n1;
     };
-    std::cerr << "RAM[$200..$20B]:";
-    for (int i = 0; i < 12; ++i)
-        std::cerr << " " << std::hex << std::setw(2) << std::setfill('0')
-                  << int(ram[0x200 + i]);
-    std::cerr << std::dec << std::setfill(' ') << "\n";
-    std::cerr << "Expected:       ";
-    for (int i = 0; i < 12; ++i)
-        std::cerr << " " << std::hex << std::setw(2) << std::setfill('0')
-                  << int(expected[i]);
-    std::cerr << std::dec << std::setfill(' ') << "\n";
+    uint32_t d0 = get_reg(0);
+    uint32_t d1 = get_reg(1);
+    std::cerr << "D0 = 0x" << std::hex << std::setw(8) << std::setfill('0') << d0
+              << "  (MOVEQ #1 -> expect 0x00000001)\n"
+              << "D1 = 0x" << std::setw(8) << d1
+              << "  (FMOVE.L D0,FP0; FMOVE.L FP0,D1 round-trip -> expect 0x00000001)\n"
+              << std::dec << std::setfill(' ');
 
-    bool pass = true;
-    for (int i = 0; i < 12; ++i)
-        if (ram[0x200 + i] != expected[i]) { pass = false; break; }
-    std::cerr << (pass ? "PASS — FPU returned 1.0\n"
-                       : "FAIL — RAM contents do not match expected 1.0\n");
+    bool pass = (d0 == 1) && (d1 == 1);
+    std::cerr << (pass ? "PASS — FMOVE.L D0,FP0,D1 round-trip works\n"
+                       : "FAIL — FMOVE round-trip did not produce expected value\n");
     finish();
     return pass ? 0 : 1;
 }

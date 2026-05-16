@@ -27,8 +27,37 @@ module cpu_fpu_tests
    output        fpu_status_valid,
    output [31:0] fpu_d_out_obs,
    output        fpu_dsack0_n_obs,
-   output        fpu_dsack1_n_obs
+   output        fpu_dsack1_n_obs,
+
+   // CPU internal taps for FPU dispatch debugging.
+   output [7:0]  dbg_micro_state,
+   output [31:0] dbg_cp_xfer_data,
+   output [31:0] dbg_data_write_tmp,
+   output [2:0]  dbg_cp_xfer_cnt,
+   output [31:0] dbg_d0,
+   output [31:0] dbg_d1,
+   output [31:0] dbg_data_write_muxin,
+   output [15:0] dbg_data_in,
+   output [31:0] dbg_last_data_read,
+   output [31:0] dbg_data_read,
+   output [1:0]  dbg_state
    );
+
+   // Hierarchical taps into the TG68K kernel inside the bus wrapper.
+   // Path: cpu_fpu_tests → cpu (tg68k.v) → tg68k (TG68KdotC_Kernel).
+   // micro_state is an enum; ghdl-synth lowers it to a small int.
+   assign dbg_micro_state    = cpu.tg68k.micro_state;
+   assign dbg_cp_xfer_data   = cpu.tg68k.cp_xfer_data;
+   assign dbg_data_write_tmp = cpu.tg68k.data_write_tmp;
+   assign dbg_cp_xfer_cnt    = 3'b000;  // cnt removed (per-word states now)
+   // Regfile is split high/low per the TG68K split-array convention.
+   assign dbg_d0 = ({cpu.tg68k.regfile_n2[0], 8'h00} | {24'h0, cpu.tg68k.regfile_n1[0]});
+   assign dbg_d1 = ({cpu.tg68k.regfile_n2[1], 8'h00} | {24'h0, cpu.tg68k.regfile_n1[1]});
+   assign dbg_data_write_muxin = cpu.tg68k.data_write_muxin;
+   assign dbg_data_in = cpu.tg68k.data_in;
+   assign dbg_last_data_read = cpu.tg68k.last_data_read;
+   assign dbg_data_read = cpu.tg68k.data_read;
+   assign dbg_state = cpu.tg68k.state;
 
    // -------------------- CPU bus signals --------------------------------
    wire [31:0] cpu_addr;
@@ -104,6 +133,14 @@ module cpu_fpu_tests
    wire sense_n;
    assign sense_n = 1'bz;
 
+   // CIR register address remapping — mirrors LBMacTwo.sv. mc68881_top
+   // uses non-standard addresses for the CIR regs that collide with
+   // peripheral-mode addresses 0/2/3.
+   wire [4:0] fpu_addr_remapped = (cpu_addr[5:1] == 5'd0) ? 5'd13 :
+                                  (cpu_addr[5:1] == 5'd2) ? 5'd12 :
+                                  (cpu_addr[5:1] == 5'd3) ? 5'd28 :
+                                                            cpu_addr[5:1];
+
    // Size encoding: derive from longword + UDS/LDS.
    wire [1:0] fpu_size_n =
        cpu_as_n                   ? 2'b11 :  // idle
@@ -117,7 +154,7 @@ module cpu_fpu_tests
 
    mc68881_top fpu
      (
-      .a_in         (cpu_addr[5:1]),
+      .a_in         (fpu_addr_remapped),
       .d_in         ({16'h0000, cpu_dout}),
       .d_out        (fpu_d_out),
       .size_n       (fpu_size_n),

@@ -36,9 +36,16 @@ module fpu_tests
    wire sense_n;
    assign sense_n = 1'bz;
 
+   // CIR address remap — mirrors LBMacTwo.sv. C++ driver passes the
+   // standard MC68881 reg index; remap the three that collide with
+   // peripheral-mode registers (0/2/3 → 13/12/28).
+   wire [4:0] a_in_remapped = (a_in == 5'd0) ? 5'd13 :
+                              (a_in == 5'd2) ? 5'd12 :
+                              (a_in == 5'd3) ? 5'd28 : a_in;
+
    mc68881_top fpu
      (
-      .a_in         (a_in),
+      .a_in         (a_in_remapped),
       .d_in         (d_in),
       .d_out        (d_out),
       .size_n       (size_n),
