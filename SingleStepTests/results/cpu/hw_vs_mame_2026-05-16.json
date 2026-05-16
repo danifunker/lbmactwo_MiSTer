@@ -1,0 +1,1964 @@
+{
+  "baseline_path": "SingleStepTests/results/cpu/mame_baseline_2026-05-16.json",
+  "candidate_path": "SingleStepTests/results/cpu/hw_2026-05-16.jsonl",
+  "baseline_count": 215,
+  "candidate_count": 215,
+  "common_count": 215,
+  "match_count": 213,
+  "pass_rate": 0.9906976744186047,
+  "categories": {
+    "match": 213,
+    "skipped": 1,
+    "ccr_only": 1,
+    "flag_only": 0,
+    "dreg_diff": 0,
+    "areg_diff": 0,
+    "ram_diff": 0,
+    "sign_extension": 0,
+    "unknown": 0
+  },
+  "per_op": {
+    "ADD": {
+      "total": 9,
+      "match": 9,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ADDI": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "AND": {
+      "total": 9,
+      "match": 9,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ANDI": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ASL": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ASR": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BCHG": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BCLR": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFCHG": {
+      "total": 1,
+      "match": 1,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFCLR": {
+      "total": 1,
+      "match": 1,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFEXTS": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFEXTU": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFFFO": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFINS": {
+      "total": 1,
+      "match": 1,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFSET": {
+      "total": 1,
+      "match": 1,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BFTST": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BSET": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "BTST": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "CLR": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "CMP": {
+      "total": 9,
+      "match": 9,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "CMPI": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "smoke": {
+      "total": 1,
+      "match": 1,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "DIVS": {
+      "total": 7,
+      "match": 6,
+      "skipped": 0,
+      "ccr_only": 1,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 0.8571428571428571
+    },
+    "DIVU": {
+      "total": 7,
+      "match": 7,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "EOR": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "EORI": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "EXT": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "EXTB": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "LEA": {
+      "total": 4,
+      "match": 4,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "LSL": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "LSR": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "MOVE": {
+      "total": 37,
+      "match": 37,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "MOVEM": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "MOVEQ": {
+      "total": 8,
+      "match": 8,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "MOVES": {
+      "total": 1,
+      "match": 0,
+      "skipped": 1,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 0.0
+    },
+    "MULS": {
+      "total": 8,
+      "match": 8,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "MULU": {
+      "total": 8,
+      "match": 8,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "NEG": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "NOT": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "OR": {
+      "total": 9,
+      "match": 9,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ORI": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "PACK": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ROL": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ROR": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ROXL": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "ROXR": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "SUB": {
+      "total": 9,
+      "match": 9,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "SUBI": {
+      "total": 3,
+      "match": 3,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "SWAP": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "UNPK": {
+      "total": 2,
+      "match": 2,
+      "skipped": 0,
+      "ccr_only": 0,
+      "flag_only": 0,
+      "dreg_diff": 0,
+      "areg_diff": 0,
+      "ram_diff": 0,
+      "sign_extension": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    }
+  },
+  "tests": [
+    {
+      "name": "ADD.B D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.B D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.B D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.L D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.L D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.L D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.W D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.W D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADD.W D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "ADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADDI.L #0x00000001,D2",
+      "op": "ADDI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADDI.L #0x0000FFFF,D0",
+      "op": "ADDI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ADDI.L #0x80000000,D1",
+      "op": "ADDI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.B D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.B D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.B D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.L D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.L D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.L D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.W D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.W D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "AND.W D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "AND",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ANDI.L #0x00000001,D2",
+      "op": "ANDI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ANDI.L #0x0000FFFF,D0",
+      "op": "ANDI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ANDI.L #0x80000000,D1",
+      "op": "ANDI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ASL.L #1,D0 (0x80000001)",
+      "op": "ASL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ASL.L #4,D0 (0x12345678)",
+      "op": "ASL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ASL.L #7,D0 (0xDEADBEEF)",
+      "op": "ASL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ASR.L #1,D0 (0x80000001)",
+      "op": "ASR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ASR.L #4,D0 (0x12345678)",
+      "op": "ASR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ASR.L #7,D0 (0xDEADBEEF)",
+      "op": "ASR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BCHG.L D1,D0 (bit=2 clr in 0x12345678)",
+      "op": "BCHG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BCHG.L D1,D0 (bit=3 set in 0x12345678)",
+      "op": "BCHG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BCLR.L D1,D0 (bit=2 clr in 0x12345678)",
+      "op": "BCLR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BCLR.L D1,D0 (bit=3 set in 0x12345678)",
+      "op": "BCLR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFCHG D0{16:8} (D0=0x12FF5678)",
+      "op": "BFCHG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFCLR D0{16:8} (D0=0xFFFFFFFF)",
+      "op": "BFCLR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFEXTS D0{16:8},D1 (D0=0x12345678 -> D1=0x00000034)",
+      "op": "BFEXTS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFEXTS D0{16:8},D1 (D0=0x12FF5678 -> D1=0xFFFFFFFF)",
+      "op": "BFEXTS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFEXTU D0{16:8},D1 (D0=0x12FF5678 -> D1=0xFF)",
+      "op": "BFEXTU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFEXTU D0{4:12},D2",
+      "op": "BFEXTU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFFFO D0{0:32},D1 (D0=0 -> D1=32)",
+      "op": "BFFFO",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFFFO D0{0:32},D1 (D0=0x00100000 -> D1=11)",
+      "op": "BFFFO",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFINS D1,D0{16:8} (D0=0xFFFFFFFF, D1=0xAA)",
+      "op": "BFINS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFSET D0{16:8} (D0=0)",
+      "op": "BFSET",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFTST D0{0:16} (D0=0)",
+      "op": "BFTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BFTST D0{16:8} (D0=0x12FF5678 -> Z=0,N=1)",
+      "op": "BFTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BSET #31,D0  (D0=0)",
+      "op": "BSET",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BSET.L D1,D0 (bit=2 clr in 0x12345678)",
+      "op": "BSET",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BSET.L D1,D0 (bit=3 set in 0x12345678)",
+      "op": "BSET",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BTST #5,D0  (D0=0x20)",
+      "op": "BTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BTST.L D1,D0 (bit=2 clr in 0x12345678)",
+      "op": "BTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "BTST.L D1,D0 (bit=3 set in 0x12345678)",
+      "op": "BTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CLR.B D0 (0x12345678)",
+      "op": "CLR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CLR.L D0 (0x12345678)",
+      "op": "CLR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CLR.W D0 (0x12345678)",
+      "op": "CLR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.B D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.B D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.B D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.L D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.L D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.L D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.W D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.W D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMP.W D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "CMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMPI.L #0x00000001,D2",
+      "op": "CMPI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMPI.L #0x0000FFFF,D0",
+      "op": "CMPI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "CMPI.L #0x80000000,D1",
+      "op": "CMPI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DBG: NOP (baseline)",
+      "op": "smoke",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVS.L D1,D0 (quot-only D0=-100/D1=7)",
+      "op": "DIVS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVS.L D1,D0:D2 (big D0=0x12345678/D1=0x00000100)",
+      "op": "DIVS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVS.L D1,D0:D2 (exact D0=0x00000064/D1=0x00000007)",
+      "op": "DIVS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVS.L D1,D0:D2 (neg D0=0xFFFFFFF6/D1=0x00000004)",
+      "op": "DIVS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVS.W D1,D0 (#1 Dn=0x00000010 Dm=0x00000004)",
+      "op": "DIVS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVS.W D1,D0 (#2 Dn=0x0000FFFF Dm=0x0000FFFF)",
+      "op": "DIVS",
+      "category": "ccr_only",
+      "detail": "CCR base=0x06 cand=0x02"
+    },
+    {
+      "name": "DIVS.W D1,D0 (#3 Dn=0x00008000 Dm=0x00000002)",
+      "op": "DIVS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.L D1,D0 (quot-only D0=100/D1=7)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.L D1,D0:D2 (big D0=0x12345678/D1=0x00000100)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.L D1,D0:D2 (exact D0=0x00000064/D1=0x00000007)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.L D1,D0:D2 (neg D0=0xFFFFFFF6/D1=0x00000004)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.W D1,D0 (#1 Dn=0x00000010 Dm=0x00000004)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.W D1,D0 (#2 Dn=0x0000FFFF Dm=0x0000FFFF)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "DIVU.W D1,D0 (#3 Dn=0x00008000 Dm=0x00000002)",
+      "op": "DIVU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EOR.L D1,D0 (#1 0xDEADBEEF^0x12345678)",
+      "op": "EOR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EOR.L D1,D0 (#2 0x80000000^0x80000000)",
+      "op": "EOR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EOR.L D1,D0 (#3 0x7FFFFFFF^0x00000001)",
+      "op": "EOR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EORI.L #0x00000001,D2",
+      "op": "EORI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EORI.L #0x0000FFFF,D0",
+      "op": "EORI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EORI.L #0x80000000,D1",
+      "op": "EORI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EXT.L D0 (0x0000FFFF)",
+      "op": "EXT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EXT.W D0 (0x000000FF)",
+      "op": "EXT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EXTB.L D0 (0x0000007F -> 0x0000007F)",
+      "op": "EXTB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EXTB.L D0 (0x00000080)",
+      "op": "EXTB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "EXTB.L D0 (0x000000FF -> 0xFFFFFFFF)",
+      "op": "EXTB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LEA (A6),A0",
+      "op": "LEA",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LEA (A6),A1",
+      "op": "LEA",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LEA (A6),A5",
+      "op": "LEA",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LEA 16(A6),A1",
+      "op": "LEA",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LSL.L #1,D0 (0x80000001)",
+      "op": "LSL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LSL.L #4,D0 (0x12345678)",
+      "op": "LSL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LSL.L #7,D0 (0xDEADBEEF)",
+      "op": "LSL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LSR.L #1,D0 (0x80000001)",
+      "op": "LSR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LSR.L #4,D0 (0x12345678)",
+      "op": "LSR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "LSR.L #7,D0 (0xDEADBEEF)",
+      "op": "LSR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE CCR,D1  (CCR=0x0F)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE D0,CCR  (D0=0x1F)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.B D0,D1 (0x000000FF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.B D2,D3 (0x00000080)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.B D4,D5 (0x0000007F)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.B D7,D0 (0x00000001)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L #0x00000001,D7",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L #0x12345678,D0",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L #0x7FFFFFFF,D2",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L #0x80000000,D1",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L #0xFFFFFFFF,D3",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (0,A6,D0.L*1),D1 (D0=2)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (0,A6,D0.L*2),D1 (D0=2)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (0,A6,D0.L*4),D1 (D0=2)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (0,A6,D0.L*8),D1 (D0=2)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (8,A6,D0.L*4),D1 (D0=1)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (A1)+,D0  A1=scratch+0",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (A1),D0  A1=scratch+0",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L (A2),D3  A2=scratch+0",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L -(A2),D3  A2=scratch+8",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L 0(A6),D0",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L 0(A6),D7",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L 4(A6),D3",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D0,0(A6) (val=0xDEADBEEF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D0,D1 (0xDEADBEEF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D1,4(A6) (val=0x12345678)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D1,D2 (0x00000000)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D2,D3 (0x80000000)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D3,D4 (0x7FFFFFFF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D4,D0 (0x12345678)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D7,8(A6) (val=0xFFFFFFFF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.L D7,D5 (0x00000001)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.W D0,D1 (0xDEADBEEF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.W D1,D2 (0xFFFF8000)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.W D3,D4 (0x00007FFF)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.W D5,D7 (0x00000001)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVE.W D7,D0 (0x12340000)",
+      "op": "MOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEM.L (A6),D4-D7",
+      "op": "MOVEM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEM.L D0-D3,(A6)",
+      "op": "MOVEM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #-1,D1 (neg_one)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #-128,D2 (min_neg)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #-64,D7 (neg_64_into_d7)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #0,D0 (zero)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #1,D0 (one)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #127,D0 (max_pos)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #42,D3 (answer)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVEQ #90,D4 (fives_alt)",
+      "op": "MOVEQ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MOVES.L D0,(A1) A1=scratch (privileged)",
+      "op": "MOVES",
+      "category": "skipped",
+      "detail": "candidate skipped this test (privileged)"
+    },
+    {
+      "name": "MULS.L D1,D0 (midhi 0x12345678*0x00010000)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.L D1,D0 (negneg 0xFFFFFFFE*0xFFFFFFFE)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.L D1,D0 (small 0x00000010*0x00000004)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.L D1,D2:D0 (big)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.L D1,D2:D0 (negneg)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.W D1,D0 (#1 Dn=0x00000010 Dm=0x00000004)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.W D1,D0 (#2 Dn=0x0000FFFF Dm=0x0000FFFF)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULS.W D1,D0 (#3 Dn=0x00008000 Dm=0x00000002)",
+      "op": "MULS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.L D1,D0 (midhi 0x12345678*0x00010000)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.L D1,D0 (negneg 0xFFFFFFFE*0xFFFFFFFE)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.L D1,D0 (small 0x00000010*0x00000004)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.L D1,D2:D0 (big)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.L D1,D2:D0 (negneg)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.W D1,D0 (#1 Dn=0x00000010 Dm=0x00000004)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.W D1,D0 (#2 Dn=0x0000FFFF Dm=0x0000FFFF)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "MULU.W D1,D0 (#3 Dn=0x00008000 Dm=0x00000002)",
+      "op": "MULU",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "NEG.B D0 (0x12345678)",
+      "op": "NEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "NEG.L D0 (0x12345678)",
+      "op": "NEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "NEG.W D0 (0x12345678)",
+      "op": "NEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "NOT.B D0 (0x12345678)",
+      "op": "NOT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "NOT.L D0 (0x12345678)",
+      "op": "NOT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "NOT.W D0 (0x12345678)",
+      "op": "NOT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.B D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.B D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.B D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.L D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.L D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.L D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.W D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.W D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "OR.W D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "OR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ORI.L #0x00000001,D2",
+      "op": "ORI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ORI.L #0x0000FFFF,D0",
+      "op": "ORI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ORI.L #0x80000000,D1",
+      "op": "ORI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "PACK D1,D0,#0 (D1=0x00003132 -> D0 low byte=0x12)",
+      "op": "PACK",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "PACK D1,D0,#0x0100 (D1=0x00003132 -> D0 low byte=0x13)",
+      "op": "PACK",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROL.L #1,D0 (0x80000001)",
+      "op": "ROL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROL.L #4,D0 (0x12345678)",
+      "op": "ROL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROL.L #7,D0 (0xDEADBEEF)",
+      "op": "ROL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROR.L #1,D0 (0x80000001)",
+      "op": "ROR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROR.L #4,D0 (0x12345678)",
+      "op": "ROR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROR.L #7,D0 (0xDEADBEEF)",
+      "op": "ROR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROXL.L #1,D0 (0x80000001)",
+      "op": "ROXL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROXL.L #4,D0 (0x12345678)",
+      "op": "ROXL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROXL.L #7,D0 (0xDEADBEEF)",
+      "op": "ROXL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROXR.L #1,D0 (0x80000001)",
+      "op": "ROXR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROXR.L #4,D0 (0x12345678)",
+      "op": "ROXR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "ROXR.L #7,D0 (0xDEADBEEF)",
+      "op": "ROXR",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.B D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.B D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.B D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.L D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.L D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.L D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.W D1,D0 (#1 0xDEADBEEF,0x12345678)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.W D1,D0 (#2 0x80000000,0x80000000)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUB.W D1,D0 (#3 0x7FFFFFFF,0x00000001)",
+      "op": "SUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUBI.L #0x00000001,D2",
+      "op": "SUBI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUBI.L #0x0000FFFF,D0",
+      "op": "SUBI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SUBI.L #0x80000000,D1",
+      "op": "SUBI",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SWAP D0 (0x12345678)",
+      "op": "SWAP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "SWAP D3 (0xDEADBEEF)",
+      "op": "SWAP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "UNPK D1,D0,#0 (D1 low byte=0x12 -> D0 low word=0x0102)",
+      "op": "UNPK",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "UNPK D1,D0,#0x3030 (D1 low=0x12 -> D0='12' = 0x3132)",
+      "op": "UNPK",
+      "category": "match",
+      "detail": null
+    }
+  ]
+}

@@ -81,8 +81,23 @@ def classify(name, baseline_final, cand_final, baseline_init, cand_init):
         return ("match", None)
 
     bf, cf = baseline_final, cand_final
+
+    # A6 is the platform-specific scratch base ($1800 on MAME, &scratch_ram[0]
+    # on the Mac heap). Tests that derive An from A6 (LEA (A6),An; MOVE.L
+    # (A1)+,D0 after preload_an_scratch; etc.) yield An values that differ
+    # in absolute terms but match exactly in A6-relative terms. Accept an
+    # An as matching if either the raw value matches (covers An=0 untouched
+    # and absolute-#imm preloads) or the offset-from-A6 matches (covers
+    # A6-derived An values). A true bug would shift the offset.
+    def a_matches(i):
+        if bf['a'][i] == cf['a'][i]:
+            return True
+        bo = (bf['a'][i] - bf['a'][6]) & 0xFFFFFFFF
+        co = (cf['a'][i] - cf['a'][6]) & 0xFFFFFFFF
+        return bo == co
+    a_diffs = [i for i in COMPARE_AREGS if not a_matches(i)]
+
     d_diffs = [i for i in range(8) if bf['d'][i] != cf['d'][i]]
-    a_diffs = [i for i in COMPARE_AREGS if bf['a'][i] != cf['a'][i]]
     ccr_diff = bf['ccr'] != cf['ccr']
     ram_diff = bf.get('ram', []) != cf.get('ram', [])
 

@@ -348,7 +348,13 @@ via Project Type → Memory → **32-bit globals**.
 - `SingleStepTests/results/fpu/` — FPU corpus comparisons (hardware,
   Snow, verilator-vs-MAME).
 - `SingleStepTests/results/cpu/` — CPU corpora and comparisons.
-  - `mame_baseline_2026-05-16.json` — MAME oracle, 175 tests. Snapshot
-    of the corpus captured on 2026-05-16; treat as the reference
-    baseline until a newer one is generated. Hardware/verilator runs
-    diff against this.
+  - `mame_baseline_2026-05-16.json` — MAME oracle, 215 tests.
+    Reference baseline. Hardware/verilator runs diff against this.
+  - `hw_2026-05-16.jsonl` — real Mac II hardware run (THINK C bench
+    on System 7.1.2 + 68020).
+  - `hw_vs_mame_2026-05-16.md` / `.json` — the diff. **213/215 (99.1%)
+    match**. The two non-matches are: (a) `MOVES.L` (explicitly skipped
+    on the Mac bench since it traps in user mode), and (b) `DIVS.W
+    0xFFFF/0xFFFF`, a documented overflow case where the manual
+    declares Z undefined when V is set, so MAME (Z=1) and real
+    hardware (Z=0) can legitimately disagree.
