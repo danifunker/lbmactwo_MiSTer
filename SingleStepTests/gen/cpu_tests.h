@@ -3,8 +3,8 @@
 #ifndef CPU_TESTS_H
 #define CPU_TESTS_H
 
-#define CPU_TEST_MAX_PRELOAD 80  /* widest: 24 */
-#define CPU_TEST_MAX_TEST    12  /* widest: 6 */
+#define CPU_TEST_MAX_PRELOAD 24  /* widest: 24 */
+#define CPU_TEST_MAX_TEST    6  /* widest: 6 */
 #define CPU_SCRATCH_LEN      64
 
 typedef struct {
@@ -18,7 +18,7 @@ typedef struct {
     unsigned char privileged;        /* 0 or 1 -- bench skips if 1 */
 } CpuTestSpec;
 
-static const CpuTestSpec g_cpu_tests[] = {
+static CpuTestSpec g_cpu_tests[] = {
     {"MOVEQ #0,D0 (zero)",
       {0}, 0,
       {0x70,0x00}, 2,

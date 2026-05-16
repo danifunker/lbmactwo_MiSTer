@@ -866,8 +866,11 @@ local function emit_tests_h(path)
         if #t.preload > max_pre then max_pre = #t.preload end
         if #t.test    > max_tst then max_tst = #t.test    end
     end
-    local pre_cap = math.max(max_pre, 80)
-    local tst_cap = math.max(max_tst, 12)
+    -- No artificial floor: each per-entry byte wastes 216x on the Mac side.
+    -- THINK C splits hairs over the 32KB-per-segment data limit, so we
+    -- track the actual widest preload/test bytes observed.
+    local pre_cap = max_pre
+    local tst_cap = max_tst
     f:write(string.format("#define CPU_TEST_MAX_PRELOAD %d  /* widest: %d */\n",
         pre_cap, max_pre))
     f:write(string.format("#define CPU_TEST_MAX_TEST    %d  /* widest: %d */\n",
@@ -884,7 +887,11 @@ local function emit_tests_h(path)
     f:write("    unsigned char ram_init_present;  /* 0 or 1 */\n")
     f:write("    unsigned char privileged;        /* 0 or 1 -- bench skips if 1 */\n")
     f:write("} CpuTestSpec;\n\n")
-    f:write("static const CpuTestSpec g_cpu_tests[] = {\n")
+    -- Note: NOT `static const`. THINK C places const arrays in the CODE
+    -- resource, which has a hard 32KB-per-segment ceiling. Plain `static`
+    -- lives in the data segment, which can be extended to 32-bit via
+    -- THINK C Project Type -> Memory -> 32-bit globals.
+    f:write("static CpuTestSpec g_cpu_tests[] = {\n")
     local function bytes_str(t)
         if not t or #t == 0 then return "{0}" end
         local parts = {}

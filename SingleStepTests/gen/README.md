@@ -336,8 +336,12 @@ Add `--markdown > SingleStepTests/results/cpu/<run>.md` to save a snapshot.
 4. Build Application → save as e.g. "CPU Test".
 5. Run on a 68020 Mac. Output: `CPU Results.jsonl` in the app's folder.
 
-If the data segment is over 32KB, switch the project to 32-bit globals
-(THINK C → Project Type → Memory).
+If you hit **"code overflow"** in THINK C, the `g_cpu_tests[]` array
+ended up in a CODE resource (32KB per-segment ceiling). The generator
+emits the array as plain `static` (not `static const`) precisely so it
+lives in the data segment instead — if you re-add `const` for any
+reason, expect this error. The data segment itself can exceed 32KB
+via Project Type → Memory → **32-bit globals**.
 
 ## Results layout
 
