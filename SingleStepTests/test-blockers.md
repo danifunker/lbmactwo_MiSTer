@@ -39,7 +39,140 @@ Snapshot taken 2026-05-15. See `git log SingleStepTests/` for commits.
 
 ## Blockers
 
-### B-1: FPU CIR Response read returns $0000 forever  ⚠ ARCHITECTURAL
+### FPU integration: end-to-end FMOVE.L Dn↔FPn round-trip working  ✅ (2026-05-16)
+
+**Summary:** End-to-end `MOVEQ #1,D0; FMOVE.L D0,FP0; FMOVE.L FP0,D1`
+runs cleanly through the integrated TG68K + mc68881_top Verilator
+bench. D1 = 0x00000001 — full round-trip via the M68881 CIR
+coprocessor dialog with correct operand data flowing both directions.
+First time any F-line FPU instruction has actually completed against
+this FPU integration.
+
+**Design summary** for the new TG68K FPU operand-transfer microcode:
+each direction uses a 3-microstate pipeline (CPU→FPU) or 4-microstate
+pipeline (FPU→CPU) to account for the 1-cycle lag between `setstate`
+and `state`. Each microstate owns the muxin/capture logic for the bus
+access that physically runs during *its* cycle (driven by `setstate`
+from the previous microstate).
+
+- **CPU→FPU**: `cp_xfer_to_load` (latch reg_QB, setstate=11) →
+  `cp_xfer_to_hi` (HIGH word write, muxin=cp_xfer_data[31:16]) →
+  `cp_xfer_to_lo` (LOW word write, setstate=01 to release bus) →
+  `cp_read_resp`.
+- **FPU→CPU**: `cp_xfer_from_hi` (setstate=10 setup) →
+  `cp_xfer_from_lo` (HIGH word read) →
+  `cp_xfer_from_store` (LOW word read, capture HIGH from
+  `last_data_read`) →
+  `cp_xfer_from_done` (capture LOW, pulse `cp_dn_writeback` to commit
+  to regfile) → `cp_read_resp`.
+
+The 1-cycle state lag means the capture for a read in microstate N
+happens in microstate N+1, when `last_data_read` has settled with N's
+result. `set(update_ld) <= '1'` is asserted in all read states so
+`last_data_read` actually updates.
+
+**Fixed in this session:**
+
+1. **Stale FPU source files** — `rtl/mc68881/vhdl/mc68881_pkg.vhd` had
+   custom internal opcodes (FADD=0x01, FMOVE=0x05) instead of the
+   M68881 native cpGEN opmodes (FADD=0x22, FMOVE=0x00). The .v was
+   ghdl-synth'd from the stale .vhd so the bug was baked in. Regen
+   from `68881-fpga/src/` (current canonical) gives correct opcode
+   decode. README updated with synced regen recipe.
+
+2. **Bench-side CIR address remap missing** — `cpu_fpu_tests.v` and
+   `fpu_tests.v` now apply the 3-line remap (CIR std 0/2/3 → fpu
+   13/12/28) that `LBMacTwo.sv` already has.
+
+3. **TG68K Response-Primary decoder rewritten** — original CASE on
+   bits 15-13 was incompatible with M68881 AN-944/AN-947 encoding.
+   New decoder reads bit 12 (transfer primary indicator), bit 13
+   (direction), bits 11-8 (TYPE), bits 7-0 (byte count). Verified
+   against 68881-fpga's own `tb_mc68881_cir_dialog.vhd` expected
+   values (`0x9604`, `0xB204`).
+
+4. **\$fatal assertions stripped from generated FPU .v** — VHDL
+   `assert severity failure` becomes `$fatal` after ghdl-synth and
+   fires on benign reset transitions in Verilator. Sed step added
+   to the regen recipe.
+
+5. **TG68K coprocessor operand-transfer microcode added** — new
+   states `cp_xfer_to_load` / `cp_xfer_from_store`, new `cp_xfer_data`
+   shift register, new `cp_dn_writeback` control signal mirroring
+   the existing `cp_an_writeback` pattern. `rf_source_addr` is
+   overridden during cp_idle_resp→cp_xfer_to_load transition to
+   pre-stage reg_QB. Combinational `data_write_muxin` bypass for
+   cp_xfer_to to avoid data_write_tmp pipeline pitfalls.
+
+**Observable progress:**
+
+- Before: FPU returns Response=0x0000 immediately, decode treats
+  FMOVE as NOP, no operand transfer attempted.
+- After: FPU returns `0x9604` (Transfer CPU→FPU), TG68K enters
+  cp_xfer_to, drives the operand register twice (.L = 2 word
+  transfers), reads next Response, dispatches second instruction,
+  enters cp_xfer_from for FPU→CPU.
+
+**Files touched:** `rtl/tg68k/TG68KdotC_Kernel.vhd` (Response decoder,
+cp_xfer_data buffer, cp_dn_writeback, rf_source_addr override,
+data_write_muxin combinational bypass, 7 new microstate bodies),
+`rtl/tg68k/TG68K_Pack.vhd` (7 new microstate enum values),
+`rtl/mc68881/vhdl/*.vhd` (synced with canonical 68881-fpga/src),
+`rtl/mc68881/fpu_lite/mc68881_top.v` (regenerated), `rtl/mc68881/README.md`
+(regen recipe), bench wrappers (CIR address remap) and sim_main.
+
+**CPU regression check:** 360/360 of the existing CPU corpus
+(ADD/SUB/AND/OR/EOR/CMP/NEG/NOT/CLR/TST/ASL/ASR/LSL/LSR/ROL/ROR/
+ROXL/ROXR .L) still passes after all TG68K patches.
+
+**Next steps:** scope is now `FMOVE.L Dn↔FPn` only. To expand:
+- Other FMOVE size variants (.B/.W/.S/.D/.X/.P): same pipeline,
+  different byte counts per transfer (FPU's Response Primary
+  carries the byte count in bits 7-0, which the bus needs to use
+  to size the access).
+- Other EA modes (memory, immediate): need `cp_xfer_to_load` /
+  `cp_xfer_from_done` variants that route to/from memory address
+  instead of regfile.
+- ALU ops (FADD, FMUL, etc.): same operand transfer mechanism, the
+  FPU just sequences differently in its CIR FSM. Should work
+  without further TG68K changes once we send a non-FMOVE opcode.
+- Build a Musashi-oracled FPU test corpus (gen_fpu.c) mirroring
+  the CPU pipeline once the above are in place.
+
+### B-1: FPU CIR Response read returns $0000 forever  ✅ RESOLVED (bench fix)
+
+**Original diagnosis was wrong.** The FPU's VHDL read path is correct.
+The bug was in the **bench wrappers**, which drove `mc68881_top.a_in`
+with raw `cpu_addr[5:1]` and omitted the address remap that the real
+integration in `LBMacTwo.sv:480-488` applies. `mc68881_top` uses
+non-standard CIR register addresses to avoid collision with
+peripheral-mode regs (0/2/3 → 13/12/28); without the remap, CPU reads
+of CIR Response (addr 0) hit the peripheral OPSEL register and always
+return 0 = BUSY.
+
+**Fix:** added the 4-line remap to both bench wrappers:
+- `cpu_fpu/cpu_fpu_tests.v` — now drives `fpu_addr_remapped`.
+- `fpu/fpu_tests.v` — same remap on the C++ driver's `a_in`.
+
+**Verified:** the `cpu_fpu` bench's MOVEQ→FMOVE.L D0,FP0→FMOVE.X FP0,$200
+sequence no longer hangs. FMOVE.L D0,FP0 completes cleanly (Response
+cycles 0x0000→0x7004→0x0000, operand transfer succeeds). FMOVE.X
+FP0,$200 dispatches (Response 0x2001 then 0x0000) but doesn't write
+to memory — needs follow-up to distinguish whether fpu_lite supports
+FMOVE.X-to-EA, or whether the bench mishandles the operand-out
+roundtrip. Try `FMOVE.L FP0,Dn` next to disambiguate.
+
+**File reference:** `rtl/mc68881/fpu_lite/mc68881_top.v` is the
+ghdl-synth'd "lite" variant of the FPU (MC68040 subset: 11 core ALU
+ops — FADD, FSUB, FMUL, FDIV, FABS, FNEG, FSQRT, FCMP, FTST, FINT,
+FINTRZ). Canonical VHDL sources live in `68881-fpga/src/`; regen via
+`68881-fpga/scripts/convert_to_verilog.sh` and copy
+`verilog/fpu_lite/mc68881_top.v` back into `rtl/mc68881/fpu_lite/`.
+For the full 37-op MC68881, copy `verilog/mc68881_top.v` instead.
+
+---
+
+### B-1 (historical, before bench fix): FPU CIR Response read returns $0000 forever
 
 **Where:** `/Users/dani/repos/68881-fpga/.../mc68881_top.vhd` ~lines 3153–3275.
 
@@ -169,7 +302,77 @@ cut and will need iteration once we actually run it — particularly:
   autoboot-script load and `capture_run()` — script halts the CPU
   before each test but assumes RAM at $1000..$13FF is writable.
 
-### B-3: SR/PC architectural state not verified in CPU bench  ⚠ COVERAGE
+### CPU coverage as of 2026-05-16
+
+`gen/gen.c` now emits 18 opcode families × 20 random tests each = 360
+SCHEMA.md-format JSON files. **360/360 pass** against the TG68K
+Verilator bench with full PC + SR + USP verification. Families:
+
+- Arithmetic / logic Dn,Dn: ADD, SUB, AND, OR, EOR, CMP (all .L)
+- Unary Dn: NEG, NOT, CLR, TST (.L)
+- Shift / rotate #imm,Dn: ASL, ASR, LSL, LSR, ROL, ROR, ROXL, ROXR (.L)
+
+To regenerate: `make -C SingleStepTests/Musashi`, then
+`make -C SingleStepTests/gen MUSASHI_DIR=../Musashi && cd SingleStepTests/gen && ./gen .`,
+then run any `./obj_dir/Vtg68k_tests ../gen/<OP>.l.json` in `tg68k/`.
+
+Generated `.json` corpora are gitignored. Add new opcode families by
+extending the `g_alu_ops` / `g_unary_ops` / `g_shift_ops` tables in
+`gen/gen.c`, or by adding a new per-family generator + main() loop
+entry for multi-word ops (immediates, displacements, EA modes).
+
+### B-3: SR/PC architectural state not verified in CPU bench  ✅ RESOLVED
+
+**Status (2026-05-16):** `tg68k_tests.v` now exposes `pc_out`, `sr_out`
+(FlagsSR<<8 | Flags), and `usp_out` as wrapper-level outputs via
+hierarchical refs (`cpu.tg68_pc`, `cpu.flagssr`, `cpu.flags`, `cpu.usp`).
+VBR was already exposed via the kernel's `VBR_out` port. `sim_main.cpp`
+diffs PC + SR + USP after each test when the corpus carries those fields
+(`final.sr`, `final.usp`). The signal names survive ghdl-synth (verified
+in `rtl/tg68k/TG68KdotC_Kernel.v`); if `convert_to_verilog.sh` is rerun
+with a different ghdl version that renames them, update the hierarchical
+refs in `tg68k_tests.v`.
+
+PC tap reads the prefetch-ahead PC; bench subtracts 4 to recover the
+architectural post-instruction PC. SR comparison masks IPL bits 8-10:
+TG68K resets with IPL=7, Musashi defaults to IPL=0, and no tests
+generate interrupts so this field is setup convention rather than
+divergence.
+
+**Verified:** 10/10 ADD.l tests pass against a freshly-generated
+Musashi corpus (`gen/ADD.l.json`) including PC + SR + USP checks. Build
+Musashi locally with `make -C SingleStepTests/Musashi`, then
+`make -C SingleStepTests/gen MUSASHI_DIR=../Musashi` and run `./gen`
+to produce the corpus.
+
+### MAME corpus replay (`results/cpu/mame_baseline_2026-05-16.json`)  ⚠ RETIRED
+
+Investigated and abandoned as a Verilator oracle. Two findings:
+
+1. **CCR-read bug in `mame_cpu_capture.lua` (fixed).** The dump emits
+   `MOVE.L D0,(snap+0x40)` which writes big-endian `{00,00,00,ccr}`
+   starting at offset 0x40, but `read_snap` was reading byte +0x40
+   (the high zero byte) instead of +0x43 where CCR actually lands.
+   Every `ccr` field in the pre-2026-05-16 corpus was effectively
+   zero. Lua now reads +0x43; corpus regenerated and committed.
+2. **Real TG68K-vs-MAME M68020 flag divergence in the dump epilogue.**
+   Even with the CCR-read fixed, the captured `snap.d[0]` (which
+   carries CCR from the prior `MOVE CCR,D0`) differs between MAME
+   and TG68K on the same byte sequence (TG68K=0x08, MAME=0x04 for
+   the NOP test). Either implementation could be wrong; the dump's
+   sensitivity to per-instruction flag side-effects makes it a
+   noisy oracle for byte-for-byte snap comparison.
+
+The MAME-replay runner that briefly lived in `sim_main.cpp` has been
+removed; the bench only consumes the SCHEMA.md / Musashi schema.
+The MAME corpus remains useful for the **Mac II hardware bench**
+(`gen/cpu_test_macii.c`) where MAME-vs-real-hardware comparison is
+the actual signal of interest — those runs both go through the same
+dump epilogue, so the divergence cancels.
+
+---
+
+### B-3 (historical, pre-fix): SR/PC architectural state not verified in CPU bench
 
 **Symptom:** Final SR and PC are not compared post-instruction. Only
 D0–D7 and A0–A7 (via the discovered `regfile_n1/n2` paths) plus RAM
