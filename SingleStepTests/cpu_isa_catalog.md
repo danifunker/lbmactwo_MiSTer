@@ -381,23 +381,31 @@ From PRM Table 3-19. Encoding is 4-bit field in those instructions.
 
 ## Bench-roadmap summary
 
-Recommended next batches, in priority order:
+### Expansion v3 (2026-05-16) — 309 tests in corpus
 
-1. **Control flow as a class** — Bcc/BRA/BSR (all three sizes), DBcc, Scc, JMP, JSR/RTS,
-   LINK/UNLK. Marker-byte harness extension. ~50 tests.
-2. **TST + ADDQ/SUBQ + ADDX/SUBX predec form + NEGX** — quick wins in existing harness, ~12 tests.
-3. **EOR/EORI/ORI/ANDI to CCR** — quick wins, ~4 tests.
-4. **020 addressing modes** — full extension, memory-indirect (the highest-risk
-   for TG68K decoder bugs). ~30 tests across a few representative ops.
-5. **Shift/rotate broader coverage** — register-count form for the 5 ops missing it;
-   memory single-bit form for 6 ops; .B/.W sizes. ~25 tests.
-6. **Bit-manipulation memory form** — BTST/BCHG/BCLR/BSET .B against (An). ~8 tests.
-7. **BCD predec memory form** — ABCD/SBCD/PACK/UNPK -(An),-(An). ~4 tests.
-8. **MOVEA explicit, ADDQ/SUBQ explicit** — ~6 tests.
-9. **Trap-generating** (TRAP/CHK/CHK2/TRAPV/TRAPcc) — needs vector-table harness. ~10 tests.
-10. **CPU+FPU integration** — blocked on CIR Response bug; once unblocked, all
-    270 FPU tests through the coprocessor protocol.
+Batches 1-8 below have been **implemented** in `mame_cpu_capture.lua` (94 new
+tests on top of the original 215). TG68K passes 307/309 = 99.4% against the
+MAME oracle; same two non-matches as before (DIVS.W overflow undefined-flag,
+MOVES.L privileged-skipped).
 
-Items 1–8 are ~140 more tests on top of the current 215, taking us to ~355.
-Item 9 needs a new harness shape (vector handler).
-Item 10 lives in `cpu_fpu/` and depends on the FPU verilator core being fixed.
+Done:
+- ✓ Control flow with marker bytes: Bcc.B/W (8 conditions × 2 paths), BRA.B/W,
+  BSR.W/RTS, JSR/RTS, JMP (d16,PC), DBF/DBNE/DBEQ, Scc (all 16 CCs), LINK/UNLK
+- ✓ Quick ALU wins: TST .L/.W/.B (× 3 inputs), ADDQ/SUBQ × 3 sizes,
+  ADDX/SUBX -(An),-(An), NEGX × 3 sizes
+- ✓ CCR-immediate: ANDI/ORI/EORI to CCR
+- ✓ Shift/rotate broader: Dm,Dn register-count for ASR/LSL/ROR/ROXL/ROXR;
+  memory single-bit form for all 8 ops (ASL/ASR/LSL/LSR/ROL/ROR/ROXL/ROXR)
+- ✓ Bit-manipulation memory form: BTST/BCHG/BCLR/BSET dynamic + static against (A6)
+- ✓ BCD predec-memory form: ABCD/SBCD/PACK/UNPK -(A1),-(A0)
+- ✓ Explicit MOVEA.L / MOVEA.W
+- ✓ 020 full-extension addressing: (bd.W,A6,Dn.W) and (bd.L,A6,Dn.L*scale)
+
+### Still gap (future batches)
+
+- ☐ **020 memory-indirect** modes `([bd,An],Xn,od)` / `([bd,An,Xn],od)` —
+  complex encoding, separate batch
+- ☐ **Trap-generating** (TRAP/CHK/CHK2/TRAPV/TRAPcc) — needs vector-table
+  harness with proper exception-frame handling
+- ☐ **EXG**, **ADDQ/SUBQ on An**, **MOVEP** — niche ops
+- ⛔ **CPU+FPU integration** — blocked on `mc68881_top` CIR Response read bug.

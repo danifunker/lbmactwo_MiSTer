@@ -852,6 +852,536 @@ do
     }
 end
 
+-- ======================================================================
+-- EXPANSION v3 -- catalog-driven (see SingleStepTests/cpu_isa_catalog.md):
+--   * Quick wins: TST, ADDQ/SUBQ, ADDX/SUBX predec-mem form, NEGX
+--   * CCR-immediate ops: ANDI/ORI/EORI to CCR
+--   * Broader shift/rotate: Dm,Dn register-count form + mem single-bit form
+--   * Bit-manipulation memory form: BTST/BCHG/BCLR/BSET Dn,(A6) + #imm,(A6)
+--   * BCD predec memory form: ABCD/SBCD/PACK/UNPK -(An),-(An)
+--   * Explicit MOVEA.L / MOVEA.W
+--   * One 020-only full-extension addressing test
+--   * Control flow with marker bytes: Bcc.B/W taken+not-taken (multiple
+--     conditions), BRA.B/W, BSR.W/RTS, JSR/RTS, JMP (d16,PC), DBF,
+--     Scc (all 16 conditions), LINK/UNLK
+--
+-- Marker convention for control-flow tests: paths converge to the end of
+-- the test bytes; visited path is recorded by MOVE.B #imm,(A6) writes
+-- visible in scratch[0]. (1 = not-taken, 2 = taken; 3 = both, 0 = neither.)
+-- ======================================================================
+
+-- ---------- TST.L/W/B Dn (gap from catalog) ---------------------------
+for _, sz in ipairs({{name="L", bits=0x0080}, {name="W", bits=0x0040}, {name="B", bits=0x0000}}) do
+    for _, s in ipairs({
+        {v=0x12345678, lbl="pos"},
+        {v=0x80000000, lbl="neg"},
+        {v=0x00000000, lbl="zero"},
+    }) do
+        tests[#tests + 1] = {
+            name = string.format("TST.%s D0 (0x%08X / %s)", sz.name, s.v, s.lbl),
+            preload = preload_dregs({[0] = s.v}),
+            test    = bw(0x4A00 | sz.bits | 0),
+        }
+    end
+end
+
+-- ---------- ADDQ / SUBQ #imm,Dn ---------------------------------------
+-- ADDQ.L #imm,Dn = $5080 | (data<<9) | dn  (data 1-7, 0 means 8)
+-- SUBQ.L         = $5180 | (data<<9) | dn
+for _, op in ipairs({{name="ADDQ", base=0x5000}, {name="SUBQ", base=0x5100}}) do
+    for _, sz in ipairs({{name="L", bits=0x0080}, {name="W", bits=0x0040}, {name="B", bits=0x0000}}) do
+        tests[#tests + 1] = {
+            name = string.format("%s.%s #3,D0 (D0=0x12345678)", op.name, sz.name),
+            preload = preload_dregs({[0] = 0x12345678}),
+            test    = bw(op.base | sz.bits | (3 << 9) | 0),
+        }
+    end
+end
+-- ADDQ.L #8,Dn (encoded as data=0)
+tests[#tests + 1] = {
+    name = "ADDQ.L #8,D0 (data field = 0 means 8)",
+    preload = preload_dregs({[0] = 0x12345678}),
+    test    = bw(0x5080 | (0 << 9) | 0),
+}
+
+-- ---------- ADDX/SUBX -(Ay),-(Ax) predec-memory form ------------------
+-- ADDX.L -(A1),-(A0) = $D188 | (Ax=A0<<9) | Ay=A1 = $D189
+-- Set A0 and A1 to scratch+8 and scratch+0x10 respectively so they predec
+-- to scratch+4 and scratch+0xC (still in range).
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    -- Plant a longword at scratch[4..7] = 0x00000005 and scratch[12..15] = 0x00000003
+    ram[5]=0x00; ram[6]=0x00; ram[7]=0x00; ram[8]=0x05
+    ram[13]=0x00; ram[14]=0x00; ram[15]=0x00; ram[16]=0x03
+    tests[#tests + 1] = {
+        name     = "ADDX.L -(A1),-(A0)  mem+mem with X=1",
+        preload  = concat(preload_an_scratch({[0] = 8, [1] = 0x10}),
+                          preload_ccr(0x10)),    -- X=1
+        ram_init = ram,
+        test     = bw(0xD189),
+    }
+    tests[#tests + 1] = {
+        name     = "SUBX.L -(A1),-(A0)  mem+mem with X=0",
+        preload  = preload_an_scratch({[0] = 8, [1] = 0x10}),
+        ram_init = ram,
+        test     = bw(0x9189),
+    }
+end
+
+-- ---------- NEGX.L/W/B Dn ---------------------------------------------
+-- NEGX.B = $4000|dn, .W = $4040|dn, .L = $4080|dn
+for _, sz in ipairs({{name="L", bits=0x0080}, {name="W", bits=0x0040}, {name="B", bits=0x0000}}) do
+    tests[#tests + 1] = {
+        name = string.format("NEGX.%s D0  (D0=0x12345678, X=1)", sz.name),
+        preload = concat(preload_dregs({[0] = 0x12345678}), preload_ccr(0x10)),
+        test    = bw(0x4000 | sz.bits | 0),
+    }
+end
+
+-- ---------- ANDI/ORI/EORI to CCR --------------------------------------
+-- ANDI #imm,CCR = $023C + immediate word (only low 8 bits used)
+-- ORI  #imm,CCR = $003C
+-- EORI #imm,CCR = $0A3C
+tests[#tests + 1] = {
+    name = "ANDI #0x10,CCR  (CCR=0x1F & 0x10 = 0x10)",
+    preload = preload_ccr(0x1F),
+    test    = concat(bw(0x023C), bw(0x0010)),
+}
+tests[#tests + 1] = {
+    name = "ORI #0x08,CCR  (CCR=0x04 | 0x08 = 0x0C)",
+    preload = preload_ccr(0x04),
+    test    = concat(bw(0x003C), bw(0x0008)),
+}
+tests[#tests + 1] = {
+    name = "EORI #0x0F,CCR  (CCR=0x05 ^ 0x0F = 0x0A)",
+    preload = preload_ccr(0x05),
+    test    = concat(bw(0x0A3C), bw(0x000F)),
+}
+
+-- ---------- Shifts: Dm,Dn register-count form (remaining ops) ---------
+-- We previously tested only a subset in Dm,Dn form. Cover the rest:
+-- Encoding: $E000 | (cnt_reg<<9) | (dr<<8) | (size<<6) | (ir=1<<5) | (typ<<3) | dn
+-- For .L, size=2, ir=1 → 0xA0 base.
+for _, sd in ipairs({
+    -- name, dr, typ, opword for ".L D1,D0"
+    {name="ASR", dr=0, typ=0, op = 0xE000 | (1<<9) | (0<<8) | (2<<6) | (1<<5) | (0<<3) | 0},  -- 0xE2A0
+    {name="LSL", dr=1, typ=1, op = 0xE000 | (1<<9) | (1<<8) | (2<<6) | (1<<5) | (1<<3) | 0},  -- 0xE3A8
+    {name="ROR", dr=0, typ=3, op = 0xE000 | (1<<9) | (0<<8) | (2<<6) | (1<<5) | (3<<3) | 0},  -- 0xE2B8
+    {name="ROXL",dr=1, typ=2, op = 0xE000 | (1<<9) | (1<<8) | (2<<6) | (1<<5) | (2<<3) | 0},  -- 0xE3B0
+    {name="ROXR",dr=0, typ=2, op = 0xE000 | (1<<9) | (0<<8) | (2<<6) | (1<<5) | (2<<3) | 0},  -- 0xE2B0
+}) do
+    tests[#tests + 1] = {
+        name = string.format("%s.L D1,D0  reg-count (D0=0x80000001, D1=3, X=1)", sd.name),
+        preload = concat(preload_dregs({[0] = 0x80000001, [1] = 3}), preload_ccr(0x10)),
+        test    = bw(sd.op),
+    }
+end
+
+-- ---------- Memory shifts: single-bit on word at (A6) ------------------
+-- Encoding: $E0C0 | (dr<<8) | (typ<<9) | <ea>. For (A6) ea=0x16.
+-- ASL: typ=0, dr=1 → 0xE1D6
+-- ASR: typ=0, dr=0 → 0xE0D6
+-- LSL: typ=1, dr=1 → 0xE3D6
+-- LSR: typ=1, dr=0 → 0xE2D6
+-- ROXL: typ=2, dr=1 → 0xE5D6
+-- ROXR: typ=2, dr=0 → 0xE4D6
+-- ROL:  typ=3, dr=1 → 0xE7D6
+-- ROR:  typ=3, dr=0 → 0xE6D6
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x40; ram[2]=0x01                -- word 0x4001 at scratch[0..1]
+    for _, sd in ipairs({
+        {name="ASL",  op=0xE1D6}, {name="ASR",  op=0xE0D6},
+        {name="LSL",  op=0xE3D6}, {name="LSR",  op=0xE2D6},
+        {name="ROXL", op=0xE5D6}, {name="ROXR", op=0xE4D6},
+        {name="ROL",  op=0xE7D6}, {name="ROR",  op=0xE6D6},
+    }) do
+        tests[#tests + 1] = {
+            name = string.format("%s.W (A6)  mem-shift, single bit", sd.name),
+            preload  = preload_ccr(0x10),       -- X=1 for ROX*
+            ram_init = ram,
+            test     = bw(sd.op),
+        }
+    end
+end
+
+-- ---------- Bit-manipulation memory form (B-size on (A6)) -------------
+-- Dynamic (Dn-driven): opword = $0100 | (typ<<6) | (dn<<9) | <ea>
+-- For BTST Dn,(A6): typ=00, ea=0x16 → $0116 | (dn<<9). For dn=1: $0316
+-- BCHG: typ=01 → $0156 | (dn<<9)
+-- BCLR: typ=10 → $0196 | (dn<<9)
+-- BSET: typ=11 → $01D6 | (dn<<9)
+-- Static: opword = $0800 | (typ<<6) | <ea>, then 16-bit imm word.
+-- For BTST #imm,(A6): $0816 + imm word.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1] = 0x80                            -- bit 7 set at scratch[0]
+    for _, b in ipairs({
+        {name="BTST",  op=0x0316, suffix="D1=7 -> bit 7"},
+        {name="BCHG",  op=0x0356, suffix="D1=7 -> invert bit 7"},
+        {name="BCLR",  op=0x0396, suffix="D1=7 -> clear bit 7"},
+        {name="BSET",  op=0x03D6, suffix="D1=0 -> set bit 0"},
+    }) do
+        local d1 = b.name == "BSET" and 0 or 7
+        tests[#tests + 1] = {
+            name = string.format("%s D1,(A6)  (%s)", b.name, b.suffix),
+            preload  = preload_dregs({[1] = d1}),
+            ram_init = ram,
+            test     = bw(b.op),
+        }
+    end
+    -- Static forms with #imm.
+    tests[#tests + 1] = {
+        name = "BTST #7,(A6)  static, byte ram=0x80",
+        preload = {}, ram_init = ram,
+        test    = concat(bw(0x0816), bw(0x0007)),
+    }
+    tests[#tests + 1] = {
+        name = "BSET #0,(A6)  static, byte ram=0x80 -> 0x81",
+        preload = {}, ram_init = ram,
+        test    = concat(bw(0x08D6), bw(0x0000)),
+    }
+    tests[#tests + 1] = {
+        name = "BCLR #7,(A6)  static, byte ram=0x80 -> 0x00",
+        preload = {}, ram_init = ram,
+        test    = concat(bw(0x0896), bw(0x0007)),
+    }
+    tests[#tests + 1] = {
+        name = "BCHG #6,(A6)  static, byte ram=0x80 -> 0xC0",
+        preload = {}, ram_init = ram,
+        test    = concat(bw(0x0856), bw(0x0006)),
+    }
+end
+
+-- ---------- BCD predec-memory form ------------------------------------
+-- ABCD -(Ay),-(Ax) = $C108 | (Ax<<9) | Ay
+-- We use A0=dst, A1=src. A0 pre-loaded to scratch+4 (predecrements to +3).
+-- A1 pre-loaded to scratch+8 (predecrements to +7). Bytes there hold the BCD operands.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[4]  = 0x25   -- scratch[3] = $25 (BCD operand 1, A0 dst predec target)
+    ram[8]  = 0x37   -- scratch[7] = $37 (BCD operand 2, A1 src predec target)
+    tests[#tests + 1] = {
+        name     = "ABCD -(A1),-(A0)  mem-mem (0x25 + 0x37, X=0)",
+        preload  = preload_an_scratch({[0] = 4, [1] = 8}),
+        ram_init = ram,
+        test     = bw(0xC109),
+    }
+    tests[#tests + 1] = {
+        name     = "SBCD -(A1),-(A0)  mem-mem (0x42 - 0x18, X=0)",
+        preload  = preload_an_scratch({[0] = 4, [1] = 8}),
+        ram_init = (function()
+            local r = {}
+            for i = 1, SCRATCH_LEN do r[i] = 0 end
+            r[4] = 0x42; r[8] = 0x18
+            return r
+        end)(),
+        test     = bw(0x8109),
+    }
+    -- PACK predec form: $8108 | (Ax<<9) | Ay + 16-bit adjust
+    -- Wait, PACK -(Ay),-(Ax),#adj encoding:
+    --   $8100 | (Ax<<9) | (101<<3) | Ay  for predec mem form
+    --   = $8108 | (Ax<<9) | Ay -- but bits 5-3 = 101 (mode=5) -> 0x28
+    -- Actually PACK is: $8140 | (Ax<<9) | Ay + adj for predec.
+    -- Per PRM: PACK -(An),-(An),#data: $8108|(Ax<<9)|(1<<6)|Ay.
+    -- For Ax=0, Ay=1: $814A? Hmm.
+    -- Looking at the actual encoding:
+    --   PACK Dy,Dx,#adjustment:     $8140 | (Dx<<9) | Dy
+    --   PACK -(Ay),-(Ax),#adjustment: $8148 | (Ax<<9) | Ay
+    -- The bit 3 distinguishes Dn vs -(An) form.
+    -- For Ax=0, Ay=1: $8149. Then 2-byte adjustment.
+    tests[#tests + 1] = {
+        name     = "PACK -(A1),-(A0),#0  mem-mem",
+        preload  = preload_an_scratch({[0] = 4, [1] = 8}),
+        ram_init = (function()
+            local r = {}; for i = 1, SCRATCH_LEN do r[i] = 0 end
+            -- Source: 2 bytes, packed-decimal source. Predec twice from A1=8: A1=6 then A1=7, reading bytes 6 and 7.
+            r[7] = 0x31; r[8] = 0x32   -- "12" in ASCII-ish
+            return r
+        end)(),
+        test     = concat(bw(0x8149), bw(0x0000)),
+    }
+    -- UNPK -(Ay),-(Ax),#adjustment: $8188 | (Ax<<9) | Ay
+    -- For Ax=0, Ay=1: $8189. Then 2-byte adjustment.
+    tests[#tests + 1] = {
+        name     = "UNPK -(A1),-(A0),#0x3030  mem-mem",
+        preload  = preload_an_scratch({[0] = 6, [1] = 8}),  -- A0 -> 5,4; A1 -> 7
+        ram_init = (function()
+            local r = {}; for i = 1, SCRATCH_LEN do r[i] = 0 end
+            r[8] = 0x12   -- packed BCD byte 0x12
+            return r
+        end)(),
+        test     = concat(bw(0x8189), bw(0x3030)),
+    }
+end
+
+-- ---------- MOVEA explicit (cover .W and .L) --------------------------
+-- MOVEA.L #imm,An = $207C | (an<<9) + 4-byte imm
+-- MOVEA.W #imm,An = $307C | (an<<9) + 2-byte imm  (sign-extended to .L)
+tests[#tests + 1] = {
+    name = "MOVEA.L #0x12345678,A0",
+    preload = {},
+    test    = concat(bw(0x207C), bl(0x12345678)),
+}
+tests[#tests + 1] = {
+    name = "MOVEA.W #0xFFFE,A1  (sign-extended to 0xFFFFFFFE)",
+    preload = {},
+    test    = concat(bw(0x327C), bw(0xFFFE)),
+}
+
+-- ---------- 020 full-extension addressing  ----------------------------
+-- MOVE.L (bd,A6,D0.W),D1 with word base displacement = 0
+-- Full ext word: full=1(bit8), D/A=0(Dn), reg=000(D0), W/L=0(W), scale=00,
+--   BS=0, IS=0, BDSIZE=10(word), IIS=000(no mem-indirect)
+-- = 0_000_0_00_1_0_0_10_0_000 = 0x0120
+-- bd word follows: 0x0000
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = i end   -- 1..64 at scratch[0..63]
+    tests[#tests + 1] = {
+        name     = "MOVE.L (bd.W,A6,D0.W),D1  full-ext, bd=0, D0=8",
+        preload  = preload_dregs({[0] = 8}),
+        ram_init = ram,
+        test     = concat(bw(0x2236), bw(0x0120), bw(0x0000)),
+    }
+end
+-- MOVE.L (bd.L,A6,D0.L*4),D1 with long base displacement = 0
+-- = full=1, D/A=0, reg=0, W/L=1(L), scale=10(*4), BS=0, IS=0, BDSIZE=11(L), IIS=0
+-- = 0_000_1_10_1_0_0_11_0_000 = 0x0D30
+-- bd long follows: 0x00000000
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = i end
+    tests[#tests + 1] = {
+        name     = "MOVE.L (bd.L,A6,D0.L*4),D1  full-ext scaled, bd=0, D0=2",
+        preload  = preload_dregs({[0] = 2}),
+        ram_init = ram,
+        test     = concat(bw(0x2236), bw(0x0D30), bl(0x00000000)),
+    }
+end
+
+-- ======================================================================
+-- CONTROL FLOW (marker-byte convention: scratch[0] holds the visited path)
+-- ======================================================================
+
+-- Helper: emit MOVE.B #imm,(A6)  (4 bytes, writes one byte to scratch[0])
+local function emit_mb_to_a6(imm)
+    return concat(bw(0x1CBC), bw(imm & 0xFF))
+end
+
+-- Helper: emit BRA.B disp  (2 bytes; disp signed byte, nonzero)
+local function emit_bra_b(disp)
+    return bw(0x6000 | (disp & 0xFF))
+end
+
+-- ---------- Bcc.B taken / not-taken ----------------------------------
+-- Layout for Bcc.B (12 bytes):
+--   $00: Bcc.B disp=$06           ; if taken, target = $02+$06 = $08
+--   $02: MOVE.B #1,(A6)           ; not-taken marker (4 bytes)
+--   $06: BRA.B disp=$04           ; PC+2=$08, +$04 = $0C = end
+--   $08: MOVE.B #2,(A6)           ; taken marker (4 bytes)
+--   $0C: end
+local function bcc_b_test(name, cc, ccr_in)
+    return {
+        name    = name,
+        preload = preload_ccr(ccr_in),
+        test    = concat(
+            bw(0x6006 | (cc << 8)),       -- Bcc.B disp=$06
+            emit_mb_to_a6(1),             -- not-taken: scratch[0]=1
+            emit_bra_b(0x04),             -- jump to end
+            emit_mb_to_a6(2)              -- taken: scratch[0]=2
+        ),
+    }
+end
+-- Bcc.W (14 bytes):
+--   $00: Bcc.W disp=$0008         ; target = $02+$08 = $0A
+--   $04: MOVE.B #1,(A6)           ; not-taken (4 bytes)
+--   $08: BRA.B disp=$04           ; PC+2=$0A, +$04 = $0E = end
+--   $0A: MOVE.B #2,(A6)           ; taken (4 bytes)
+--   $0E: end
+local function bcc_w_test(name, cc, ccr_in)
+    return {
+        name    = name,
+        preload = preload_ccr(ccr_in),
+        test    = concat(
+            bw(0x6000 | (cc << 8)), bw(0x0008),  -- Bcc.W disp=$0008
+            emit_mb_to_a6(1),
+            emit_bra_b(0x04),
+            emit_mb_to_a6(2)
+        ),
+    }
+end
+-- Pick conditions that resolve both ways with CCR=0x04 (Z=1) and CCR=0x09 (N=1,C=1):
+--   With Z=1: BEQ taken, BNE not-taken; BHI not-taken (C∨Z = Z), BLS taken
+--   With N=1,C=1: BMI taken, BPL not-taken, BCS taken, BCC not-taken
+for _, cs in ipairs({
+    {n="BEQ",  cc=0x7, ccr=0x04, suffix="taken (Z=1)"},
+    {n="BNE",  cc=0x6, ccr=0x04, suffix="not-taken (Z=1)"},
+    {n="BMI",  cc=0xB, ccr=0x09, suffix="taken (N=1)"},
+    {n="BPL",  cc=0xA, ccr=0x09, suffix="not-taken (N=1)"},
+    {n="BCS",  cc=0x5, ccr=0x09, suffix="taken (C=1)"},
+    {n="BCC",  cc=0x4, ccr=0x09, suffix="not-taken (C=1)"},
+    {n="BHI",  cc=0x2, ccr=0x04, suffix="not-taken (Z=1)"},
+    {n="BLS",  cc=0x3, ccr=0x04, suffix="taken (Z=1)"},
+}) do
+    tests[#tests + 1] = bcc_b_test(string.format("%s.B  %s", cs.n, cs.suffix), cs.cc, cs.ccr)
+    tests[#tests + 1] = bcc_w_test(string.format("%s.W  %s", cs.n, cs.suffix), cs.cc, cs.ccr)
+end
+
+-- ---------- BRA.B / BRA.W ---------------------------------------------
+-- BRA.B disp=$04 (10 bytes):
+--   $00: BRA.B disp=$04           ; target = $02+$04 = $06
+--   $02: MOVE.B #1,(A6)           ; (skipped)
+--   $06: MOVE.B #2,(A6)           ; (reached)
+--   $0A: end
+tests[#tests + 1] = {
+    name    = "BRA.B  always-skip",
+    preload = {},
+    test    = concat(
+        emit_bra_b(0x04),
+        emit_mb_to_a6(1),
+        emit_mb_to_a6(2)
+    ),
+}
+-- BRA.W disp=$0006 (10 bytes):
+--   $00: BRA.W disp=$0006         ; target = $02+$06 = $08
+--   $04: MOVE.B #1,(A6)           ; (skipped)
+--   $08: MOVE.B #2,(A6)           ; (reached)
+--   $0C: end
+tests[#tests + 1] = {
+    name    = "BRA.W  always-skip",
+    preload = {},
+    test    = concat(
+        bw(0x6000), bw(0x0006),
+        emit_mb_to_a6(1),
+        emit_mb_to_a6(2)
+    ),
+}
+
+-- ---------- BSR/RTS round-trip ----------------------------------------
+-- Layout (16 bytes):
+--   $00: BRA.B disp=$06           ; skip subroutine
+--   $02: MOVE.B #2,(A6)           ; subroutine body
+--   $06: RTS                      ; (2 bytes)
+--   $08: BSR.W disp=$FFF8         ; target = $0A + (-$08) = $02
+--   $0C: MOVE.B #1,(A6)           ; runs AFTER RTS returns (overwrites)
+--   $10: end
+-- After test: scratch[0] = 1 (caller's write happened last)
+-- A7 unchanged (BSR pushed 4, RTS popped 4)
+tests[#tests + 1] = {
+    name    = "BSR.W / RTS  round-trip",
+    preload = {},
+    test    = concat(
+        emit_bra_b(0x06),
+        emit_mb_to_a6(2),
+        bw(0x4E75),                 -- RTS
+        bw(0x6100), bw(0xFFF8),     -- BSR.W disp=-8
+        emit_mb_to_a6(1)
+    ),
+}
+
+-- ---------- JSR (d16,PC) / RTS round-trip -----------------------------
+-- Same shape; JSR (d16,PC) = $4EBA + word disp.
+-- disp from JSR PC+2. From $08, PC+2=$0A. Target $02 → disp = -8 = 0xFFF8.
+tests[#tests + 1] = {
+    name    = "JSR (d16,PC) / RTS  round-trip",
+    preload = {},
+    test    = concat(
+        emit_bra_b(0x06),
+        emit_mb_to_a6(2),
+        bw(0x4E75),
+        bw(0x4EBA), bw(0xFFF8),     -- JSR (d16,PC) disp=-8
+        emit_mb_to_a6(1)
+    ),
+}
+
+-- ---------- JMP (d16,PC)  (jumps to next instruction = no-op) ---------
+-- JMP (d16,PC): target = (address of displacement word) + disp.
+-- The disp word lives at test_pc+2 = $1006. To jump to the byte right
+-- AFTER the JMP (= $1008, where the bench's MOVE CCR begins), use disp=2.
+-- Using disp=0 would land back inside the JMP's own extension word and
+-- execute garbage; explicitly verified misbehaves in both MAME and TG68K.
+tests[#tests + 1] = {
+    name    = "JMP (d16,PC) disp=2  no-op (target = next instruction)",
+    preload = {},
+    test    = concat(bw(0x4EFA), bw(0x0002)),
+}
+
+-- ---------- DBF (DBRA) loop counter -----------------------------------
+-- Layout (6 bytes):
+--   $00: ADDQ.B #1,(A6)           ; ADDQ.B #1,(A6) = $5216 (2 bytes)
+--   $02: DBF D1,disp=$FFFC         ; branch back to $00 if D1.W≠-1 (4 bytes)
+--   $06: end
+-- D1 init = 2 → loop runs 3x → scratch[0]=3, D1.L = 0x0000FFFF
+tests[#tests + 1] = {
+    name    = "DBF D1,loop  (D1=2 -> counts to -1, scratch[0]=3)",
+    preload = preload_dregs({[1] = 2}),
+    test    = concat(
+        bw(0x5216),                 -- ADDQ.B #1,(A6)
+        bw(0x51C9), bw(0xFFFC)      -- DBF D1, disp=-4
+    ),
+}
+-- DBNE D1,loop with NE condition that becomes false during loop:
+-- Setup: CCR=0x04 (Z=1) so DBNE condition NE is FALSE → DB falls into decrement.
+-- D1 = 3 → DBNE decrements: 2 (branch), 1 (branch), 0 (branch), -1 (exit).
+tests[#tests + 1] = {
+    name    = "DBNE D1,loop  (Z=1 so NE always false; counts to -1)",
+    preload = concat(preload_dregs({[1] = 3}), preload_ccr(0x04)),
+    test    = concat(
+        bw(0x5216),                 -- ADDQ.B #1,(A6)
+        bw(0x56C9), bw(0xFFFC)      -- DBNE D1, disp=-4
+    ),
+}
+-- DBEQ where condition (EQ=Z=1) is TRUE: DBcc never decrements when cc true.
+-- So D1 unchanged, loop exits immediately. scratch[0] = 1 (body runs once before DBEQ).
+tests[#tests + 1] = {
+    name    = "DBEQ D1,loop  (Z=1 so EQ true; loop exits immediately)",
+    preload = concat(preload_dregs({[1] = 3}), preload_ccr(0x04)),
+    test    = concat(
+        bw(0x5216),
+        bw(0x57C9), bw(0xFFFC)      -- DBEQ D1
+    ),
+}
+
+-- ---------- Scc Dn for all 16 conditions ------------------------------
+-- Scc Dn = $50C0 | (cc<<8) | dn
+-- Use CCR=0x04 (Z=1): each condition produces $FF or $00 in Dn.B per the
+-- truth table. This exercises every condition encoding the chip implements.
+local CC_LIST = {
+    {n="ST",  cc=0x0}, {n="SF",  cc=0x1},
+    {n="SHI", cc=0x2}, {n="SLS", cc=0x3},
+    {n="SCC", cc=0x4}, {n="SCS", cc=0x5},
+    {n="SNE", cc=0x6}, {n="SEQ", cc=0x7},
+    {n="SVC", cc=0x8}, {n="SVS", cc=0x9},
+    {n="SPL", cc=0xA}, {n="SMI", cc=0xB},
+    {n="SGE", cc=0xC}, {n="SLT", cc=0xD},
+    {n="SGT", cc=0xE}, {n="SLE", cc=0xF},
+}
+for _, c in ipairs(CC_LIST) do
+    tests[#tests + 1] = {
+        name    = string.format("%s D0  (CCR=0x04, Z=1)", c.n),
+        preload = concat(preload_dregs({[0] = 0xAABBCC00}), preload_ccr(0x04)),
+        test    = bw(0x50C0 | (c.cc << 8) | 0),
+    }
+end
+
+-- ---------- LINK / UNLK net-no-op -------------------------------------
+-- LINK A0,#-16 ; UNLK A0. A0 and A7 should be unchanged from start.
+-- LINK A0,#imm = $4E50 | an + signed 16-bit imm.
+-- UNLK A0 = $4E58 | an.
+tests[#tests + 1] = {
+    name    = "LINK A0,#-16 / UNLK A0  (net no-op)",
+    preload = preload_an_scratch({[0] = 0x20}),
+    test    = concat(
+        bw(0x4E50), bw(0xFFF0),     -- LINK A0,#-16
+        bw(0x4E58)                  -- UNLK A0
+    ),
+}
+
 -- ---------- Smoke ------------------------------------------------------
 tests[#tests + 1] = {
     name    = "DBG: NOP (baseline)",
