@@ -1833,6 +1833,692 @@ tests[#tests + 1] = {
 }
 
 -- ======================================================================
+-- EXPANSION v6 -- broader EA coverage
+--
+-- Goal: exercise every operand-EA-mode decode path in TG68K. v5 hit the
+-- highest bug-surface gaps (memory-indirect, PC-rel). v6 fills in the
+-- long tail: ALU/IMM with memory destinations and memory sources;
+-- control-flow long-displacement forms; remaining DBcc conditions; more
+-- JMP/JSR EAs; RTR/RTD/PEA/LINK.L; bit-field on memory; mem-shift ROL/ROR.
+-- ======================================================================
+
+-- ---------- ALU mem-source: <op>.{B,W,L} (A6),D0 ---------------------
+-- Opmode bits 8..6 for ea->Dn: B=000, W=001, L=010 -> $0/$40/$80.
+-- ea (A6) = $16.
+local ALU_BASE = {
+    {name="ADD", base=0xD000}, {name="SUB", base=0x9000},
+    {name="AND", base=0xC000}, {name="OR",  base=0x8000},
+}
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    -- scratch[0..3] holds the longword $00010002 (so byte=$00, word=$0001, long=$00010002)
+    ram[1]=0x00; ram[2]=0x01; ram[3]=0x00; ram[4]=0x02
+    for _, op in ipairs(ALU_BASE) do
+        for _, sz in ipairs({{n="L",bits=0x0080},{n="W",bits=0x0040},{n="B",bits=0x0000}}) do
+            tests[#tests + 1] = {
+                name = string.format("%s.%s (A6),D0  mem-src (D0=0x12345678)", op.name, sz.n),
+                preload  = preload_dregs({[0] = 0x12345678}),
+                ram_init = ram,
+                test     = bw(op.base | sz.bits | (0<<9) | 0x16),
+            }
+        end
+    end
+end
+
+-- ---------- ALU mem-dest: <op>.{B,W,L} D0,(A6) ----------------------
+-- Opmode bits 8..6 for Dn->ea: B=100, W=101, L=110 -> $100/$140/$180.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    -- scratch[0..3] = $0A0B0C0D, so byte=$0A, word=$0A0B, long=$0A0B0C0D
+    ram[1]=0x0A; ram[2]=0x0B; ram[3]=0x0C; ram[4]=0x0D
+    for _, op in ipairs(ALU_BASE) do
+        for _, sz in ipairs({{n="L",bits=0x0180},{n="W",bits=0x0140},{n="B",bits=0x0100}}) do
+            tests[#tests + 1] = {
+                name = string.format("%s.%s D0,(A6)  mem-dst (D0=0xCAFEBABE)", op.name, sz.n),
+                preload  = preload_dregs({[0] = 0xCAFEBABE}),
+                ram_init = ram,
+                test     = bw(op.base | sz.bits | (0<<9) | 0x16),
+            }
+        end
+    end
+end
+
+-- EOR is Dn->ea only. opmode bits 8..6: B=100, W=101, L=110.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x0F; ram[2]=0xF0; ram[3]=0x55; ram[4]=0xAA
+    for _, sz in ipairs({{n="L",bits=0x0180},{n="W",bits=0x0140},{n="B",bits=0x0100}}) do
+        tests[#tests + 1] = {
+            name = string.format("EOR.%s D0,(A6)  mem-dst (D0=0xCAFEBABE)", sz.n),
+            preload  = preload_dregs({[0] = 0xCAFEBABE}),
+            ram_init = ram,
+            test     = bw(0xB000 | sz.bits | (0<<9) | 0x16),
+        }
+    end
+end
+
+-- ---------- Immediate-to-memory: <IMMOP>.{B,W,L} #imm,(A6) ----------
+-- Opcode: <base> | <size> | <ea>. size bits 7..6: B=00, W=$40, L=$80.
+-- Immediate follows: word (B/W; B uses low byte) or longword (L).
+local IMM_OPS_MEM = {
+    {name="ADDI", base=0x0600},
+    {name="SUBI", base=0x0400},
+    {name="ANDI", base=0x0200},
+    {name="ORI",  base=0x0000},
+    {name="EORI", base=0x0A00},
+}
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x00; ram[2]=0x00; ram[3]=0x00; ram[4]=0x10   -- long = $00000010
+    for _, op in ipairs(IMM_OPS_MEM) do
+        -- .L form
+        tests[#tests + 1] = {
+            name     = string.format("%s.L #0x12345678,(A6)", op.name),
+            preload  = {},
+            ram_init = ram,
+            test     = concat(bw(op.base | 0x0080 | 0x16), bl(0x12345678)),
+        }
+        -- .W form
+        tests[#tests + 1] = {
+            name     = string.format("%s.W #0x1234,(A6)", op.name),
+            preload  = {},
+            ram_init = ram,
+            test     = concat(bw(op.base | 0x0040 | 0x16), bw(0x1234)),
+        }
+        -- .B form (immediate is a word, low byte used)
+        tests[#tests + 1] = {
+            name     = string.format("%s.B #0x55,(A6)", op.name),
+            preload  = {},
+            ram_init = ram,
+            test     = concat(bw(op.base | 0x0000 | 0x16), bw(0x0055)),
+        }
+    end
+end
+
+-- CMPI to memory: $0C<sz><ea> + imm.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x00; ram[2]=0x00; ram[3]=0x12; ram[4]=0x34
+    tests[#tests + 1] = {
+        name     = "CMPI.L #0x00001234,(A6)  (Z=1)",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x0C00 | 0x0080 | 0x16), bl(0x00001234)),
+    }
+    tests[#tests + 1] = {
+        name     = "CMPI.W #0x1234,(A6)  (cmp word at A6 = 0x0000)",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x0C00 | 0x0040 | 0x16), bw(0x1234)),
+    }
+    tests[#tests + 1] = {
+        name     = "CMPI.B #0x00,(A6)  (Z=1)",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x0C00 | 0x0000 | 0x16), bw(0x0000)),
+    }
+end
+
+-- ---------- CMP broader sources -------------------------------------
+-- CMP.L (A6),D0 already in v5. Add (An)+/-(An)/d16(An)/PC-rel.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x12;ram[2]=0x34;ram[3]=0x56;ram[4]=0x78
+    -- CMP.L (A1)+,D0  ea=$19. opmode L,ea->Dn = $80. $B000|(0<<9)|$80|$19=$B099
+    tests[#tests + 1] = {
+        name     = "CMP.L (A1)+,D0  A1=scratch (D0=0x12345678 vs ram -> Z=1)",
+        preload  = concat(preload_dregs({[0]=0x12345678}),
+                          preload_an_scratch({[1]=0})),
+        ram_init = ram,
+        test     = bw(0xB099),
+    }
+    -- CMP.W -(A1),D0  ea=$21. opmode .W=$40. $B000|0|$40|$21=$B061
+    tests[#tests + 1] = {
+        name     = "CMP.W -(A1),D0  A1=scratch+2 (D0=0x12345678 vs ram[0..1]=0x1234 -> Z=1)",
+        preload  = concat(preload_dregs({[0]=0x12345678}),
+                          preload_an_scratch({[1]=2})),
+        ram_init = ram,
+        test     = bw(0xB061),
+    }
+    -- CMP.B d16(A6),D0  ea=$2E + word disp. .B opmode=0. $B000|0|0|$2E=$B02E
+    tests[#tests + 1] = {
+        name     = "CMP.B 3(A6),D0  (D0=0x78 vs ram[3]=0x78 -> Z=1)",
+        preload  = preload_dregs({[0]=0x00000078}),
+        ram_init = ram,
+        test     = concat(bw(0xB02E), bw(0x0003)),
+    }
+end
+
+-- ---------- BTST/BCHG/BCLR/BSET on (A6)+ and d16(A6) ----------------
+-- Dynamic mode (Dn,ea): opword = $0100 | (typ<<6) | (Dn<<9) | <ea>.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1] = 0x80
+    -- BTST D1,(A1)+  Dn=D1, typ=00, ea (A1)+ = $19. $0100|0|(1<<9)|$19 = $0319
+    tests[#tests + 1] = {
+        name     = "BTST D1,(A1)+  A1=scratch, D1=7 -> tests bit 7 of 0x80",
+        preload  = concat(preload_dregs({[1]=7}),
+                          preload_an_scratch({[1]=0})),
+        ram_init = ram,
+        test     = bw(0x0319),
+    }
+    -- BSET D1,d16(A6)  ea = $2E. $0100|(3<<6)|(1<<9)|$2E = $0100|$C0|$200|$2E = $03EE.
+    tests[#tests + 1] = {
+        name     = "BSET D1,2(A6)  D1=0 -> set bit 0 of ram[2]=0x00",
+        preload  = preload_dregs({[1]=0}),
+        ram_init = ram,
+        test     = concat(bw(0x03EE), bw(0x0002)),
+    }
+end
+
+-- ---------- Mem-shift ROL/ROR (A6)  (typ=11) ------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x80; ram[2]=0x01
+    -- ROL.W (A6) = $E700|<ea>. (A6) ea=$16 -> opword = $E7D6.
+    -- Actually mem-shift opword: $E0C0 | (typ<<9) | (dr<<8) | <ea>
+    -- ROL typ=3 dr=1: $E0C0 | $600 | $100 | $16 = $E7D6
+    -- ROR typ=3 dr=0: $E0C0 | $600 | 0    | $16 = $E6D6
+    tests[#tests + 1] = {
+        name     = "ROL.W (A6)  mem-shift single bit (ram=0x8001 -> 0x0003)",
+        preload  = {},
+        ram_init = ram,
+        test     = bw(0xE7D6),
+    }
+    tests[#tests + 1] = {
+        name     = "ROR.W (A6)  mem-shift single bit (ram=0x8001 -> 0xC000)",
+        preload  = {},
+        ram_init = ram,
+        test     = bw(0xE6D6),
+    }
+end
+
+-- ---------- Bit-field on memory: BFTST/BFEXTU/BFCHG/BFCLR/BFSET (A6) -
+-- All bit-field opwords for (A6) are $XXD6 (ea=$16):
+--   BFTST $E8D6, BFEXTU $E9D6, BFCHG $EAD6, BFCLR $ECD6, BFSET $EED6
+-- ext: dst_dn<<12 | offset_dyn<<11 | offset<<6 | width_dyn<<5 | width
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x12;ram[2]=0xFF;ram[3]=0x56;ram[4]=0x78
+    tests[#tests + 1] = {
+        name     = "BFTST (A6){8:8}  byte ram[1]=0xFF -> N=1,Z=0",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0xE8D6), bw(0x0208)),  -- off=8,w=8
+    }
+    tests[#tests + 1] = {
+        name     = "BFEXTU (A6){8:8},D1  -> D1=0xFF",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0xE9D6), bw(0x1208)),  -- dst=D1, off=8, w=8
+    }
+    tests[#tests + 1] = {
+        name     = "BFCHG (A6){8:8}  ram[1]=0xFF -> 0x00",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0xEAD6), bw(0x0208)),
+    }
+    tests[#tests + 1] = {
+        name     = "BFCLR (A6){8:8}  ram[1]=0xFF -> 0x00",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0xECD6), bw(0x0208)),
+    }
+    tests[#tests + 1] = {
+        name     = "BFSET (A6){0:8}  ram[0]=0x12 -> 0xFF",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0xEED6), bw(0x0008)),
+    }
+end
+
+-- ---------- 020 PC memory-indirect addressing -----------------------
+-- mode=7,reg=3 with full ext PC-rel + memory-indirect.
+-- Layout: opword + full-ext + bd word + BRA.B + pointer-bytes + data-bytes.
+-- We place a pointer in the test bytes (PC-rel reachable) that points
+-- into scratch RAM, then have memory-indirect read 4 bytes from there.
+
+-- ([bd.W,PC],od.W)  IIS=110 with IS=1 (no index), W od
+-- Full ext: D/A=0,reg=0,W/L=0,scale=0,full=1,BS=0,IS=1,BDSIZE=10,IIS=110
+-- = 0_000_0_00_1_0_1_10_0_110 = 0x0166
+-- bd points to the longword in test bytes; longword in test bytes is the
+-- pointer; od=0 means EA = MEM[(PC of ext)+bd].
+-- Layout:
+--   $00..1: $22 $3B  opword
+--   $02..3: $01 $66  full ext (PC base, no idx, word od, postindexed)
+--   $04..5: bd.W = +6                (target = ($1006)+6 = $100C)
+--   $06..7: od.W = 0
+--   $08..9: BRA.B disp=$06           (PC after = test_pc+$0A; +6 -> test_pc+$10)
+--   $0A..D: pointer.L = $00001810    (read at $100C..$100F)
+--   $0E..F: padding (must be NOPed or unreachable; BRA jumps past)
+-- Actually we need exactly 16 bytes to hit dump at test_pc+$10. Layout:
+--   $00..7: opword + full-ext + bd + od  (8 bytes)
+--   $08..9: BRA.B (2 bytes)
+--   $0A..D: pointer (4 bytes)
+-- = 14 bytes -> dump at $1004+$0E = $1012. BRA from $0A: PC_after=test_pc+$0C; +6 -> test_pc+$12.
+-- Want target $100C to hold pointer. So pointer must be at offset $0C.
+-- Layout (revised, 16 bytes):
+--   $00..1: $22 $3B
+--   $02..3: $01 $66
+--   $04..5: bd.W = $08  -> target = ($1006)+$08 = $100E
+--   $06..7: od.W = 0
+--   $08..9: BRA.B disp=$06  -> after-branch $100C; +6 -> $1012 = dump
+--   $0A..D: 4 bytes padding (unreached due to BRA)
+--   $0E..11: pointer $00001810 (read at $100E)
+-- = 18 bytes
+-- Hmm getting complex; skip PC memory-indirect for now -- not high-yield.
+
+-- ---------- Bcc.L (32-bit displacement, 020+) -----------------------
+-- Encoding: $6Xff + disp32. The 8-bit displacement field = $FF signals
+-- a 32-bit longword displacement follows. PC at the disp word = test_pc+2.
+-- Layout (16 bytes, dump at test_pc+$10):
+--   $00..1: $6XFF (Bcc.L opword)
+--   $02..5: disp32 (target = test_pc + $0C for taken)
+--   $06..9: MOVE.B #1,(A6)  (4 bytes; not-taken path)
+--   $0A..B: BRA.B disp=$04   (PC after = test_pc+$0C; +4 -> test_pc+$10 = dump)
+--   $0C..F: MOVE.B #2,(A6)   (4 bytes; taken path)
+local function bcc_l_test(name, cc, ccr_in)
+    return {
+        name    = name,
+        preload = preload_ccr(ccr_in),
+        test    = concat(
+            bw(0x60FF | (cc << 8)), bl(0x0000000A),
+            emit_mb_to_a6(1),
+            emit_bra_b(0x04),
+            emit_mb_to_a6(2)
+        ),
+    }
+end
+for _, cs in ipairs({
+    {n="BEQ", cc=0x7, ccr=0x04, suffix="taken (Z=1)"},
+    {n="BNE", cc=0x6, ccr=0x04, suffix="not-taken (Z=1)"},
+    {n="BCS", cc=0x5, ccr=0x01, suffix="taken (C=1)"},
+    {n="BVS", cc=0x9, ccr=0x02, suffix="taken (V=1)"},
+}) do
+    tests[#tests + 1] = bcc_l_test(string.format("%s.L  %s", cs.n, cs.suffix),
+                                    cs.cc, cs.ccr)
+end
+
+-- ---------- BRA.L (always-branch long) ------------------------------
+-- $60FF + disp32. Same layout, no condition.
+tests[#tests + 1] = {
+    name    = "BRA.L  always-skip",
+    preload = {},
+    test    = concat(
+        bw(0x60FF), bl(0x0000000A),
+        emit_mb_to_a6(1),
+        emit_bra_b(0x04),
+        emit_mb_to_a6(2)
+    ),
+}
+
+-- ---------- BSR.L / RTS round-trip ----------------------------------
+-- Layout (18 bytes, dump at test_pc+$12):
+--   $00..1: BRA.B disp=$06          (skip subroutine; PC_after=$1006,+6=$100C)
+--   $02..5: MOVE.B #2,(A6)           (subroutine body)
+--   $06..7: RTS = $4E75
+--   $08..9: $61FF (BSR.L opword)
+--   $0A..D: disp32 = $FFFFFFF4 (back to $02; PC_at_disp=$100A,+disp=$1002)
+--                   disp = $1002 - $100A = -8 = $FFFFFFF8.
+--   $0E..11: MOVE.B #1,(A6)
+-- Total = 18 bytes -> dump = test_pc+$12 = $1016.
+-- Hmm earlier counted wrong. Let me re-check:
+--   $00..1 BRA.B (2) -> 2
+--   $02..5 MOVE.B #2 (4) -> 6
+--   $06..7 RTS (2) -> 8
+--   $08..9 BSR.L op (2) -> 10
+--   $0A..D disp32 (4) -> 14
+--   $0E..11 MOVE.B #1 (4) -> 18. dump = test_pc+$12.
+-- BRA.B at $00: PC_after = $1006. disp = +6 -> $100C... but $100C lands at MOVE.B #1 not RTS.
+-- Hmm. Subroutine body needs to be reachable from the BSR.L but not in the BRA.B fall-through path.
+-- Easier: skip past subroutine to BSR site.
+-- Restructure:
+--   $00..1: BRA.B disp=$06  skip subroutine, target=$00+2+6=$08
+--   $02..5: MOVE.B #2,(A6)  sub body
+--   $06..7: RTS
+--   $08..9: $61FF  BSR.L
+--   $0A..D: disp32 = -8 (PC_at_disp=$0A, +(-8)=$02)
+--   $0E..11: MOVE.B #1,(A6)
+-- Test PC is relative; harness adds $1004. Disp is to be added to PC.
+-- All offsets above are offsets from test start (= test_pc=$1004).
+-- For BRA.B disp=+6 at offset $00: PC_after_fetch=test_pc+2; +6 = test_pc+8. ✓ (BSR.L)
+-- For BSR.L: pushes return = test_pc+$0E (next instr after BSR.L+disp32).
+--   Disp32 added to PC_at_disp = test_pc+$0A. Target = test_pc+$0A + disp32.
+--   We want target = test_pc+$02 (sub body). disp32 = -8 = $FFFFFFF8.
+-- RTS returns to test_pc+$0E. Then MOVE.B #1 runs.
+-- Total test_len = 18. dump = test_pc+$12. After MOVE.B #1 at test_pc+$0E..$11, PC = test_pc+$12 = dump. ✓
+tests[#tests + 1] = {
+    name    = "BSR.L / RTS  round-trip",
+    preload = {},
+    test    = concat(
+        emit_bra_b(0x06),              -- $00..1  BRA.B disp=+6
+        emit_mb_to_a6(2),              -- $02..5  sub body
+        bw(0x4E75),                    -- $06..7  RTS
+        bw(0x61FF), bl(0xFFFFFFF8),    -- $08..D  BSR.L disp=-8
+        emit_mb_to_a6(1)               -- $0E..11 after-return
+    ),
+}
+
+-- ---------- DBcc remaining conditions (immediate-exit case) ---------
+-- All 13 untested DBcc conditions tested with CCR set such that cc=True
+-- so DBcc never decrements D1, exits immediately. Body is ADDQ.B #1,(A6),
+-- so it runs once before DBcc; scratch[0]=1, D1 unchanged (=3).
+-- Encoding: $50C9 | (cc<<8). D1 is the counter reg.
+for _, c in ipairs({
+    {n="DBT",  cc=0x0, ccr=0x00},
+    {n="DBHI", cc=0x2, ccr=0x00},
+    {n="DBLS", cc=0x3, ccr=0x04},
+    {n="DBCC", cc=0x4, ccr=0x00},
+    {n="DBCS", cc=0x5, ccr=0x01},
+    {n="DBVC", cc=0x8, ccr=0x00},
+    {n="DBVS", cc=0x9, ccr=0x02},
+    {n="DBPL", cc=0xA, ccr=0x00},
+    {n="DBMI", cc=0xB, ccr=0x08},
+    {n="DBGE", cc=0xC, ccr=0x00},
+    {n="DBLT", cc=0xD, ccr=0x08},
+    {n="DBGT", cc=0xE, ccr=0x00},
+    {n="DBLE", cc=0xF, ccr=0x04},
+}) do
+    tests[#tests + 1] = {
+        name = string.format("%s D1,loop  cc=True (immediate exit, D1=3)", c.n),
+        preload = concat(preload_dregs({[1]=3}), preload_ccr(c.ccr)),
+        test    = concat(bw(0x5216),
+                         bw(0x50C9 | (c.cc << 8)), bw(0xFFFC)),
+    }
+end
+
+-- ---------- JMP/JSR additional EAs ----------------------------------
+-- Note: JMP (An) and JSR (An) can't be tested portably here -- they need
+-- A0 preloaded with a runtime PC, and that PC differs between MAME and
+-- TG68K (MAME harness prepends preload + init-dump, shifting test bytes).
+-- After the JMP/JSR, A0 still holds the platform-specific PC, which the
+-- bench compares and flags as a diff. JMP/JSR via (d16,PC) is already
+-- covered in v3 -- skipping (An) and (xxx).{W,L} JMP/JSR forms.
+
+-- ---------- RTR (Return-and-Restore CCR) ----------------------------
+-- $4E77. Pops CCR word THEN PC long from stack (per PRM 4-160).
+-- So push PC long FIRST (lower on stack), then CCR word on top.
+-- PEA (d16,PC) pushes address_of_disp_word + disp.
+-- Layout (10 bytes):
+--   $00..1: PEA opword            $487A
+--   $02..3: disp word             $0008  (address_of_disp=test+$02; +8 = test+$0A)
+--   $04..7: MOVE.W #$0007,-(A7)   $3F3C $0007   CCR word on top
+--   $08..9: RTR                    $4E77
+-- dump = test_pc+$0A. After RTR: CCR=$07, PC=test+$0A = dump. ✓
+tests[#tests + 1] = {
+    name    = "RTR  pop CCR=$07 + PC=(d16,PC) from stack",
+    preload = {},
+    test    = concat(
+        bw(0x487A), bw(0x0008),
+        bw(0x3F3C), bw(0x0007),
+        bw(0x4E77)
+    ),
+}
+
+-- ---------- RTD #disp (010+) ----------------------------------------
+-- $4E74 + word disp. After RTS-like pop, adds disp to SP.
+-- Layout: BSR.W to sub, sub does RTD #0 (net same as RTS).
+--   $00..1: BRA.B disp=$06  -> target $08 (after RTD)
+--   $02..5: MOVE.B #2,(A6)  sub body
+--   $06..7: RTS  -- wait we use RTD
+--   $06..9: RTD #0          ($4E74 $0000)
+--   $0A..B: BSR.W disp=$FFF8 (target = test_pc+$06? Actually $0C+disp; we want $02)
+-- Hmm structure messed up; reconstruct.
+-- Layout (16 bytes):
+--   $00..1: BRA.B disp=$08  skip sub, target=$0A (BSR)
+--   $02..5: MOVE.B #2,(A6)  sub body
+--   $06..9: RTD #0          (4 bytes)
+--   $0A..D: BSR.W disp=$FFF6 (target=test_pc+$02, sub body)
+--          PC_at_disp = test_pc+$0C; +(-$0A)=test_pc+$02. disp=$FFF6.
+--   $0E..F: pad/end
+-- Total = 14 -> dump = test_pc+$0E = $1012.
+-- BSR.W disp from PC_at_disp = test_pc+$0C. Target $02 -> disp = $02-$0C = -$0A = $FFF6.
+tests[#tests + 1] = {
+    name    = "BSR.W / RTD #0  round-trip",
+    preload = {},
+    test    = concat(
+        emit_bra_b(0x08),            -- $00..1
+        emit_mb_to_a6(2),            -- $02..5
+        bw(0x4E74), bw(0x0000),      -- $06..9  RTD #0
+        bw(0x6100), bw(0xFFF6)       -- $0A..D  BSR.W disp=-10
+    ),
+}
+-- RTD #4: net SP rises by 4 vs RTS. A7 excluded from diff so visible
+-- only via SP relative effects. Same shape.
+tests[#tests + 1] = {
+    name    = "BSR.W / RTD #4  (A7 net +4 vs RTS; A7 excluded from diff)",
+    preload = {},
+    test    = concat(
+        emit_bra_b(0x08),
+        emit_mb_to_a6(2),
+        bw(0x4E74), bw(0x0004),
+        bw(0x6100), bw(0xFFF6)
+    ),
+}
+
+-- ---------- PEA <ea> ------------------------------------------------
+-- $4840 | <ea>. Pushes effective address as long onto stack.
+-- Plant PEA then pop via MOVE.L (A7)+,D0 to verify.
+-- PEA (A6): $4856. Pushes $1800 (= SCRATCH_BASE).
+-- Then MOVE.L (A7)+,D0 = $201F. D0 should become $00001800.
+tests[#tests + 1] = {
+    name    = "PEA (A6) ; MOVE.L (A7)+,D0  (D0 should = $00001800)",
+    preload = preload_dregs({[0] = 0xDEADBEEF}),
+    test    = concat(bw(0x4856), bw(0x201F)),
+}
+-- PEA d16(A6): $486E + disp16.
+tests[#tests + 1] = {
+    name    = "PEA 16(A6) ; MOVE.L (A7)+,D0  (D0 should = $00001810)",
+    preload = preload_dregs({[0] = 0xDEADBEEF}),
+    test    = concat(bw(0x486E), bw(0x0010), bw(0x201F)),
+}
+
+-- ---------- LINK.L An,#disp32 (020+) --------------------------------
+-- $4808 | An. Same semantics as LINK.W but with 32-bit displacement.
+-- Test as net no-op with UNLK.
+tests[#tests + 1] = {
+    name    = "LINK.L A0,#-32 / UNLK A0  (net no-op, 020+)",
+    preload = preload_an_scratch({[0] = 0x20}),
+    test    = concat(
+        bw(0x4808), bl(0xFFFFFFE0),     -- LINK.L A0,#-32
+        bw(0x4E58)                       -- UNLK A0
+    ),
+}
+
+-- ---------- CHK2 out-of-bounds (traps to vec 6 / $18) ---------------
+-- Same encoding as CHK2 in-range but with D0 outside [low,high].
+do
+    local r = {}
+    for i = 1, SCRATCH_LEN do r[i] = 0 end
+    r[1]=0x00; r[2]=0x10; r[3]=0x00; r[4]=0x30
+    tests[#tests + 1] = {
+        name     = "EXC: CHK2.W (A6),D0  out-of-range (D0=0x100, vec 6 / $18)",
+        preload  = preload_dregs({[0] = 0x00000100}),
+        ram_init = r,
+        test     = concat(bw(0x02D6), bw(0x0800)),
+        raises_exception = true,
+        ccr_mask = 0xF7,    -- PRM 4-58: CHK2/CMP2 N undefined
+    }
+end
+
+-- ---------- MOVEM with (A0)+ writing to memory ----------------------
+-- MOVEM.L D0-D3,(A1)+  -- wait, postinc isn't valid for MOVEM regs->mem
+-- (only predec is). MOVEM mem->regs uses postinc (already tested in v5).
+-- Skip: 68k doesn't allow this combo.
+
+-- ---------- ABCD/SBCD register form recap (Dn,Dn already done) ------
+-- Add more samples to exercise carry / X-flag chains.
+tests[#tests + 1] = {
+    name    = "ABCD D1,D0  D1=$99 D0=$01 -> $00 with C=1",
+    preload = preload_dregs({[0]=0x00000001, [1]=0x00000099}),
+    test    = bw(0xC101),    -- ABCD D1,D0 = $C100|(0<<9)|1
+}
+tests[#tests + 1] = {
+    name    = "SBCD D1,D0  D1=$05 D0=$10 -> $05",
+    preload = preload_dregs({[0]=0x00000010, [1]=0x00000005}),
+    test    = bw(0x8101),
+}
+-- NBCD on memory
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1] = 0x42
+    tests[#tests + 1] = {
+        name     = "NBCD (A6)  ram[0]=$42 -> $58 (10-complement BCD)",
+        preload  = {},
+        ram_init = ram,
+        test     = bw(0x4816),    -- NBCD <ea> = $4800|<ea>; (A6) ea=$16
+        ccr_mask = 0xF5,           -- PRM 4-122: NBCD N+V undefined
+    }
+end
+
+-- ---------- More MOVE coverage --------------------------------------
+-- MOVE.L (xxx).L,Dn -- absolute long source.
+-- $2039 + 4-byte addr. Place data at scratch+0x20 = $1820 and read it.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[0x21]=0xCA; ram[0x22]=0xFE; ram[0x23]=0xF0; ram[0x24]=0x0D
+    tests[#tests + 1] = {
+        name     = "MOVE.L (xxx).L=$1820,D1  abs-long read",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x2039), bl(0x00001820)),
+    }
+end
+-- MOVE.L Dn,(xxx).L -- abs-long dest.
+tests[#tests + 1] = {
+    name    = "MOVE.L D0,(xxx).L=$1820  abs-long write (D0=0x12345678)",
+    preload = preload_dregs({[0] = 0x12345678}),
+    test    = concat(bw(0x23C0), bl(0x00001820)),
+}
+-- MOVE.W Dn,(xxx).W abs-short write.
+tests[#tests + 1] = {
+    name    = "MOVE.W D0,(xxx).W=$1820  abs-short write (D0=0x12345678 -> word $5678)",
+    preload = preload_dregs({[0] = 0x12345678}),
+    test    = concat(bw(0x31C0), bw(0x1820)),
+}
+
+-- ---------- MOVE from CCR / to CCR with memory ----------------------
+-- MOVE from CCR <ea>: $42C0 | <ea>. (A6) = $42D6. Writes word (high byte 0, low byte CCR).
+tests[#tests + 1] = {
+    name    = "MOVE from CCR,(A6)  (CCR=0x0F -> ram[0..1] = 0x000F)",
+    preload = preload_ccr(0x0F),
+    test    = bw(0x42D6),
+}
+-- MOVE to CCR <ea>: $44C0 | <ea>. (A6) ea=$16 -> $44D6. Reads word; low byte to CCR.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x00; ram[2]=0x1F    -- word $001F -> CCR = $1F
+    tests[#tests + 1] = {
+        name     = "MOVE (A6),CCR  reads word 0x001F -> CCR=0x1F",
+        preload  = {},
+        ram_init = ram,
+        test     = bw(0x44D6),
+    }
+end
+
+-- ---------- TST with memory EA --------------------------------------
+-- TST.B (A6) = $4A16.  TST.W (A6) = $4A56.  TST.L (A6) = $4A96.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x80;ram[2]=0x00;ram[3]=0x00;ram[4]=0x01
+    tests[#tests + 1] = {
+        name     = "TST.B (A6)  ram[0]=0x80 -> N=1,Z=0",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4A16),
+    }
+    tests[#tests + 1] = {
+        name     = "TST.W (A6)  ram[0..1]=0x8000 -> N=1,Z=0",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4A56),
+    }
+    tests[#tests + 1] = {
+        name     = "TST.L (A6)  ram[0..3]=0x80000001 -> N=1,Z=0",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4A96),
+    }
+end
+
+-- ---------- CLR with memory EA --------------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x11;ram[2]=0x22;ram[3]=0x33;ram[4]=0x44
+    tests[#tests + 1] = {
+        name     = "CLR.B (A6)  ram[0]=0x11 -> 0x00",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4216),
+    }
+    tests[#tests + 1] = {
+        name     = "CLR.W (A6)  ram[0..1]=0x1122 -> 0x0000",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4256),
+    }
+    tests[#tests + 1] = {
+        name     = "CLR.L (A6)  ram[0..3]=0x11223344 -> 0x00000000",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4296),
+    }
+end
+
+-- ---------- NEG / NOT with memory EA --------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x12;ram[2]=0x34;ram[3]=0x56;ram[4]=0x78
+    tests[#tests + 1] = {
+        name     = "NEG.L (A6)  ram[0..3]=0x12345678 -> 0xEDCBA988",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4496),    -- NEG.L <ea> = $4480|<ea>; (A6) -> $4496
+    }
+    tests[#tests + 1] = {
+        name     = "NOT.W (A6)  ram[0..1]=0x1234 -> 0xEDCB",
+        preload  = {}, ram_init = ram,
+        test     = bw(0x4656),    -- NOT.W <ea> = $4640|<ea>; (A6) -> $4656
+    }
+end
+
+-- ---------- NEGX with memory EA -------------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x00;ram[2]=0x00;ram[3]=0x00;ram[4]=0x05
+    tests[#tests + 1] = {
+        name     = "NEGX.L (A6)  ram=5, X=1 -> 0xFFFFFFFA",
+        preload  = preload_ccr(0x10),
+        ram_init = ram,
+        test     = bw(0x4096),    -- NEGX.L = $4080|<ea>
+    }
+end
+
+-- ---------- TAS additional cases (memory predec/postinc) ------------
+-- TAS doesn't support predec/postinc (byte-only, data-alterable -An/(An)+ OK)
+-- Actually TAS supports any data-alterable EA. Add (A1)+.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x00; ram[2]=0x40
+    tests[#tests + 1] = {
+        name     = "TAS (A1)+  A1=scratch+1 ram[1]=0x40 -> 0xC0, A1+=1",
+        preload  = preload_an_scratch({[1] = 1}),
+        ram_init = ram,
+        test     = bw(0x4AD9),    -- TAS (A1)+ = $4AC0|0x19
+    }
+end
+
+-- ======================================================================
 -- EXCEPTION TESTS
 --
 -- These tests deliberately trigger exceptions. The MAME harness vector
