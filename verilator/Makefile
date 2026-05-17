@@ -67,7 +67,9 @@ V_SRC = \
 	$(RTL)/tg68k/tg68k.v \
 	$(RTL)/addrController_top.v \
 	$(RTL)/addrDecoder.v \
+	$(RTL)/hmmu.v \
 	$(RTL)/dataController_top.sv \
+	$(RTL)/asc.sv \
 	$(RTL)/videoTimer.v \
 	$(RTL)/videoShifter.v \
 	sim_vram.v \
@@ -75,6 +77,7 @@ V_SRC = \
 	$(RTL)/nubus/nubus_video_highres.sv \
 	$(RTL)/via6522.sv \
 	$(RTL)/adb.sv \
+	$(RTL)/rtc.v \
 	$(RTL)/ps2_kbd.sv \
 	$(RTL)/ps2_mouse.v \
 	$(RTL)/iwm.v \
@@ -90,7 +93,7 @@ V_SRC = \
 
 C_SRC = \
 	sim_main.cpp  \
-	sim/sim_bus.cpp sim/sim_blkdevice.cpp sim/sim_clock.cpp sim/sim_console.cpp sim/sim_video.cpp sim/sim_console.cpp sim/sim_input.cpp  sim/sim_audio.cpp \
+	sim/sim_bus.cpp sim/sim_blkdevice.cpp sim/sim_clock.cpp sim/sim_console.cpp sim/sim_video.cpp sim/sim_console.cpp sim/sim_input.cpp  sim/sim_audio.cpp sim/sim_serial.cpp \
 	sim/m68kdasm.c sim/m68k_dasm_stubs.cpp \
 	sim/imgui/imgui_impl_sdl.cpp sim/imgui/imgui_impl_opengl2.cpp sim/imgui/imgui_draw.cpp sim/imgui/imgui_widgets.cpp sim/imgui/imgui_tables.cpp sim/imgui/imgui.cpp sim/imgui/ImGuiFileDialog.cpp sim/imgui/implot.cpp sim/imgui/implot_items.cpp
 

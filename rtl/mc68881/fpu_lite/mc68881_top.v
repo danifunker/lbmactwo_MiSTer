@@ -54254,7 +54254,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34438)
-      $fatal(1, "assertion failure n32185");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32186 = {1'b0, n32164};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54274,7 +54274,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34440)
-      $fatal(1, "assertion failure n32205");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32206 = {1'b0, n32158};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54294,7 +54294,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34442)
-      $fatal(1, "assertion failure n32225");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32226 = {1'b0, n32152};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54314,7 +54314,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34444)
-      $fatal(1, "assertion failure n32245");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32246 = {1'b0, n32170};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54338,7 +54338,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34446)
-      $fatal(1, "assertion failure n32269");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32270 = {1'b0, n32257};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54362,7 +54362,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34448)
-      $fatal(1, "assertion failure n32291");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32292 = {1'b0, n32279};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54386,7 +54386,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34450)
-      $fatal(1, "assertion failure n32313");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32314 = {1'b0, n32301};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54410,7 +54410,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34452)
-      $fatal(1, "assertion failure n32335");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32336 = {1'b0, n32323};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54434,7 +54434,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34454)
-      $fatal(1, "assertion failure n32357");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32358 = {1'b0, n32345};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54458,7 +54458,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34456)
-      $fatal(1, "assertion failure n32379");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32380 = {1'b0, n32367};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54482,7 +54482,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34458)
-      $fatal(1, "assertion failure n32401");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32402 = {1'b0, n32389};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54506,7 +54506,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34460)
-      $fatal(1, "assertion failure n32423");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32424 = {1'b0, n32411};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54530,7 +54530,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34462)
-      $fatal(1, "assertion failure n32445");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32446 = {1'b0, n32433};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54554,7 +54554,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34464)
-      $fatal(1, "assertion failure n32467");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32468 = {1'b0, n32455};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54578,7 +54578,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34466)
-      $fatal(1, "assertion failure n32489");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32490 = {1'b0, n32477};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54602,7 +54602,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34468)
-      $fatal(1, "assertion failure n32511");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32512 = {1'b0, n32499};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54626,7 +54626,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34470)
-      $fatal(1, "assertion failure n32533");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32534 = {1'b0, n32521};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54650,7 +54650,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34472)
-      $fatal(1, "assertion failure n32555");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32556 = {1'b0, n32543};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54674,7 +54674,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34474)
-      $fatal(1, "assertion failure n32577");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32578 = {1'b0, n32565};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54698,7 +54698,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34476)
-      $fatal(1, "assertion failure n32599");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32600 = {1'b0, n32587};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
@@ -54722,7 +54722,7 @@ module mc68881_packed_decimal_unit_Brtl
   /*# mc68881_packed_decimal_unit.vhd:176:5 */
   always @*
     if (!n34478)
-      $fatal(1, "assertion failure n32621");
+      ; // disabled generated assertion for Verilator
   /*# mc68881_packed_decimal_unit.vhd:177:50 */
   assign n32622 = {1'b0, n32609};  // uext
   /*# mc68881_packed_decimal_unit.vhd:177:50 */

@@ -40,9 +40,11 @@ public:
 	~SimVideo();
 	void UpdateTexture();
 	void CleanUp();
+	void CleanUpHeadless();
 	void StartFrame();
 	void Clock(bool hblank, bool vblank, bool hsync, bool vsync, uint32_t colour);
 	int Initialise(const char* windowTitle);
+	int InitialiseHeadless();
 };
 
 // External access to screen buffer for screenshots

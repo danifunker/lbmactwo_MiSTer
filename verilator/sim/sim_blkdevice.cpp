@@ -35,7 +35,11 @@ QData* img_size=NULL;
 
 
 void SimBlockDevice::MountDisk( std::string file, int index) {
-        disk[index].open(file.c_str(), std::ios::out | std::ios::in | std::ios::binary | std::ios::ate);
+        disk[index].open(file.c_str(), std::ios::in | std::ios::out | std::ios::binary | std::ios::ate);
+        if (!disk[index]) {
+                disk[index].clear();
+                disk[index].open(file.c_str(), std::ios::in | std::ios::binary | std::ios::ate);
+        }
         if (disk[index]) {
                 fprintf(stderr,"we are here\n");
            // we shouldn't do the actual mount here..
@@ -79,25 +83,25 @@ void SimBlockDevice::BeforeEval(int cycles)
          bytecnt += 2;
          *sd_buff_wr= 1;
          //printf("cycles %x reading %X : %X ack %x\n",cycles,*sd_buff_addr,*sd_buff_dout,*sd_ack );
-      } else if(writing && *sd_buff_addr != bytecnt/2 && (*sd_buff_addr < kBLKSZ/2)) {
-        //printf("writing disk %i at sd_buff_addr %x data %x ack %x\n",i,*sd_buff_addr,*sd_buff_din[i],*sd_ack);
+      } else if(writing && bytecnt < kBLKSZ) {
+        // Write one word per clock from the target's sector buffer. q_a is
+        // synchronous, so the next address is driven after consuming this word.
         // Write 16-bit word as 2 bytes
         unsigned short word = *(sd_buff_din[i]);
-        disk[i].put((word >> 8) & 0xFF);
-        disk[i].put(word & 0xFF);
-        *sd_buff_addr = bytecnt/2;
+        if (!Verilated::commandArgsPlusMatch("ignore_scsi_writes")) {
+          disk[i].put((word >> 8) & 0xFF);
+          disk[i].put(word & 0xFF);
+        }
+        bytecnt += 2;
+        *sd_buff_addr = (bytecnt < kBLKSZ) ? bytecnt/2 : 0;
+      } else if(writing) {
+        disk[i].flush();
+        *sd_buff_addr = 0;
+        writing = false;
       } else {
           *sd_buff_wr=0;
 
-          if (writing) {
-                  if (bytecnt>=kBLKSZ) {
-                          writing=0;
-                          //printf("writing stopped: bytecnt %x sd_buff_addr %x \n",bytecnt,*sd_buff_addr);
-                  }
-                  if (bytecnt<kBLKSZ)
-                        bytecnt += 2;  // Increment by 2 for 16-bit
-          }
-          else if (reading) {
+          if (reading) {
                 if(bytecnt >= kBLKSZ) {
                         reading = 0;
                 }
@@ -113,8 +117,8 @@ void SimBlockDevice::BeforeEval(int cycles)
 fprintf(stderr,"mounting.. %d\n",i);
            mountQueue[i]=0;
            *img_size = disk_size[i];
-           *img_readonly=0;
-fprintf(stderr,"img_size .. %ld\n",*img_size);
+           if (img_readonly) *img_readonly=1;
+fprintf(stderr,"img_size .. %llu\n",(unsigned long long)*img_size);
            disk[i].seekg(0);
            bitset(*img_mounted,i);
            ack_delay=1200;
@@ -140,6 +144,7 @@ fprintf(stderr,"mounting flag cleared  %d\n",i);
 
         disk[i].clear();
         disk[i].seekg((lba) * kBLKSZ);
+        disk[i].seekp((lba) * kBLKSZ);
       //  printf("seek %06X lba: (%x) (%d,%d) drive %d reading %d writing %d ack %x\n", (lba) * kBLKSZ,lba,lba,kBLKSZ,i,reading,writing,*sd_ack);
         bytecnt = 0;
         *sd_buff_addr = 0;

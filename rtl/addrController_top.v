@@ -11,6 +11,7 @@ module addrController_top(
 	input turbo,               // 0 = normal, 1 = faster
 	input [1:0] configROMSize,  // 0 = 64K ROM, 1 = 128K ROM, 2 = 256K ROM
 	input [1:0] configRAMSize,	// 0 = 1MB, 1 = 2MB, 2 = 4MB, 3 = 8MB RAM
+	input [1:0] glueRAMSize,    // Mac II GLUE RAM bank placement from VIA2 PA7:6
 
 	// CPU memory interface (supports 32-bit addressing for 68020/68030):
 	input [31:0] cpuAddr,
@@ -39,6 +40,7 @@ module addrController_top(
 	output selectVIA2,
 	output selectRAM,
 	output selectROM,
+	output selectSCSIDMA,
 	output selectSEOverlay,
 	output selectNuBus,
 	output selectASC,
@@ -119,10 +121,16 @@ module addrController_top(
 	// video always addresses ram
 	wire ram_access = (cpuBusControl && selectRAM) || videoBusControl;
 	wire rom_access = (cpuBusControl && selectROM);
-	
+	wire ram2m_bank_a_mirror = cpuBusControl && selectRAM &&
+	                           configRAMSize == 2'b01 &&
+	                           (glueRAMSize == 2'b00 || glueRAMSize == 2'b01) &&
+	                           cpuAddr[23:20] == 4'h2;
+
 	// ROM address clamping (simulate smaller ROM sizes)
-	// RAM address mirroring: 2MB mirrors within 4MB space (bit 21 forced to 0)
-	// so ROM's sizing algorithm detects the mirror pattern.
+	// RAM address mirroring is controlled by the Mac II GLUE bank placement
+	// latch (VIA2 PA7:6).  For the 2MB layout MAME models, only the bank-A
+	// mirror at $00200000-$002FFFFF wraps to physical bank A; the base
+	// $00000000-$001FFFFF range must remain unique for ROM RAM sizing.
 	// Other RAM sizes pass through unmodified — selectRAM gating in addrDecoder
 	// handles size limiting (out-of-range accesses BERR like real hardware).
 	assign macAddr[16] = rom_access && configROMSize == 2'b00 ? 1'b0 :     // force A16 to 0 for 64K ROM access
@@ -135,15 +143,15 @@ module addrController_top(
 	assign macAddr[19] = rom_access ? 1'b0 : addrMux[19];
 	assign macAddr[20] = rom_access ? 1'b0 : addrMux[20];
 	assign macAddr[21] = rom_access ? 1'b0 :
-									ram_access && configRAMSize == 2'b01 ? 1'b0 :  // 2MB mirror: wrap at 2MB
-									addrMux[21]; 
+									ram2m_bank_a_mirror ? 1'b0 :
+									addrMux[21];
 	
 			
 	// floppy emulation gets extra slots 0 and 1
 	assign dskReadAckInt = (extraBusControl == 1'b1) && (extra_slot_count == 0);
 	assign dskReadAckExt = (extraBusControl == 1'b1) && (extra_slot_count == 1);
 
-	assign memoryAddr = 
+	assign memoryAddr =
 		dskReadAckInt ? dskReadAddrInt + 22'h100000:   // first dsk image at 1MB
 		dskReadAckExt ? dskReadAddrExt + 22'h200000:   // second dsk image at 2MB
 		macAddr;
@@ -152,12 +160,14 @@ module addrController_top(
 	addrDecoder ad(
 		.configROMSize(configROMSize),
 		.configRAMSize(configRAMSize),
+		.glueRAMSize(glueRAMSize),
 		.address(cpuAddr),
 		._cpuAS(_cpuAS),
 		.memoryOverlayOn(memoryOverlayOn),
 		.selectRAM(selectRAM),
 		.selectROM(selectROM),
 		.selectSCSI(selectSCSI),
+		.selectSCSIDMA(selectSCSIDMA),
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),

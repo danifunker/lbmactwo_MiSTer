@@ -17,12 +17,13 @@ module via6522 (
     input  wire        clock,
     input  wire        rising,
     input  wire        falling,
+    input  wire        timer_tick,
     input  wire        reset,
     
     input  wire [3:0]  addr,
     input  wire        wen,
     input  wire        ren,
- 
+
     input  wire [7:0]  data_in,
     output reg  [7:0]  data_out,
 
@@ -55,7 +56,14 @@ module via6522 (
     output wire        cb2_t,
 
     output wire        irq,
-    output wire        sr_active  // shift register armed and counting
+    output wire        sr_active, // shift register armed and counting
+
+    // External shift register completion (Snow-style timer-based SR)
+    // When sr_ext_complete pulses, IFR bit 2 is set and shift_active clears.
+    // If sr_ext_load is also high, shift_reg is loaded from sr_ext_data.
+    input  wire        sr_ext_complete,
+    input  wire        sr_ext_load,
+    input  wire [7:0]  sr_ext_data
 );
     localparam [15:0] latch_reset_pattern = 16'h5550;
 
@@ -160,12 +168,12 @@ module via6522 (
 
     always @(*) begin
         irq_events[1] = (ca1_c ^ ca1_d) & (ca1_d ^ ca1_edge_select);
-        irq_events[0] = (ca2_c ^ ca2_d) & (ca2_d ^ ca2_edge_select);
+        irq_events[0] = !ca2_is_output & (ca2_c ^ ca2_d) & (ca2_d ^ ca2_edge_select);
         irq_events[4] = (cb1_c ^ cb1_d) & (cb1_d ^ cb1_edge_select);
-        irq_events[3] = (cb2_c ^ cb2_d) & (cb2_d ^ cb2_edge_select);
+        irq_events[3] = !cb2_is_output & (cb2_c ^ cb2_d) & (cb2_d ^ cb2_edge_select);
         
         // FIXED: Added assignments here to drive irq_events from the wires
-        irq_events[2] = serial_event;
+        irq_events[2] = serial_event | sr_ext_complete;
         irq_events[5] = timer_b_event;
         irq_events[6] = timer_a_event;
     end
@@ -360,8 +368,11 @@ module via6522 (
                 
                 4'hF: begin // ORA no handshake
                     pio_i_pra <= data_in;
-                    $display("VIA1 ORA_NH WRITE: addr=%h data_in=%h old_pra=%h",
-                        addr, data_in, pio_i_pra);
+`ifdef SIMULATION
+                    if ($test$plusargs("via_debug"))
+                        $display("VIA1 ORA_NH WRITE: addr=%h data_in=%h old_pra=%h",
+                            addr, data_in, pio_i_pra);
+`endif
                 end
                 
                 default: begin
@@ -381,9 +392,11 @@ module via6522 (
             end
             4'h1: begin // ORA
                 data_out <= ira;
-                if (ren)
+`ifdef SIMULATION
+                if (ren && $test$plusargs("via_debug"))
                     $display("VIA1 ORA READ: addr=%h ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
                         addr, ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
+`endif
             end
             4'h2: begin // DDRB
                 data_out <= pio_i_ddrb;
@@ -426,9 +439,11 @@ module via6522 (
             end
             4'hF: begin // ORA
                 data_out <= ira;
-                if (ren)
+`ifdef SIMULATION
+                if (ren && $test$plusargs("via_debug"))
                     $display("VIA1 ORA_NH READ: ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
                         ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
+`endif
             end
             default: begin
             end
@@ -447,12 +462,22 @@ module via6522 (
                                             
                 4'h1: begin // ORA
                     if (ca2_no_irq_clr == 1'b0) begin
-             
+
                         irq_flags[0] <= 1'b0;
                     end
                     irq_flags[1] <= 1'b0;
                 end
-                    
+
+                4'hF: begin // ORA no-handshake
+                    // Snow clears CA1/CA2 IFR bits on 0x0F reads too
+                    // (../snow/core/src/mac/via.rs:374-375). Real 6522 does not,
+                    // but Mac II ROM apparently expects this behavior.
+                    if (ca2_no_irq_clr == 1'b0) begin
+                        irq_flags[0] <= 1'b0;
+                    end
+                    irq_flags[1] <= 1'b0;
+                end
+
                 4'h4: begin // TA LO counter
                     irq_flags[6] <= 1'b0;
                 end
@@ -501,7 +526,7 @@ module via6522 (
     reg        timer_a_toggle = 1'b1;
     reg        timer_a_may_interrupt = 1'b0;
     always @(posedge clock) begin
-        if (falling == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             // always count, or load
                 
             if (timer_a_reload == 1'b1) begin
@@ -521,7 +546,7 @@ module via6522 (
             end
         end
         
-        if (rising == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             if (timer_a_event == 1'b1 && tmr_a_output_en == 1'b1) begin
                 timer_a_toggle <= ~timer_a_toggle;
             end
@@ -543,7 +568,7 @@ module via6522 (
     end
 
     assign timer_a_out = timer_a_toggle;
-    assign timer_a_event = rising & timer_a_reload & timer_a_may_interrupt;
+    assign timer_a_event = timer_tick & timer_a_reload & timer_a_may_interrupt;
 
     // Timer B
     reg        timer_b_reload_lo = 1'b0;
@@ -555,12 +580,12 @@ module via6522 (
         reg timer_b_decrement;
         
         timer_b_decrement = 1'b0;
-        if (rising == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             pb6_c <= port_b_i[6];
             pb6_d <= pb6_c;
         end
                         
-        if (falling == 1'b1) begin
+        if (timer_tick == 1'b1) begin
             timer_b_timeout <= 1'b0;
             timer_b_tick <= 1'b0;
 
@@ -612,7 +637,7 @@ module via6522 (
         end
     end
 
-    assign timer_b_event = rising & timer_b_timeout;
+    assign timer_b_event = timer_tick & timer_b_timeout;
     // Serial port
     reg        trigger_serial;
     reg        shift_clock_d = 1'b1;
@@ -728,6 +753,11 @@ module via6522 (
                 shift_reg <= {shift_reg[6:0], ser_cb2_c};
             end
         end
+        // Snow-style external shift completion load (kept here to avoid
+        // multi-driver on shift_reg).
+        if (sr_ext_complete == 1'b1 && sr_ext_load == 1'b1) begin
+            shift_reg <= sr_ext_data;
+        end
     end
 
     // tell people that we're ready!
@@ -764,6 +794,14 @@ module via6522 (
                     end
                 end
             end
+        end
+
+        // External shift completion (Snow-style timer-based)
+        // shift_reg and irq_flags[2] are written in their primary always blocks
+        // above to avoid Quartus multi-driver errors.
+        if (sr_ext_complete == 1'b1) begin
+            shift_active <= 1'b0;
+            bit_cnt <= 3'd0;
         end
 
         if (reset == 1'b1) begin

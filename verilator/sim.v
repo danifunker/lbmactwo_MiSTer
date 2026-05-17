@@ -76,6 +76,7 @@ module emu
 	output        debug_selectSCSI,
 	output        debug_selectSCC,
 	output        debug_selectIWM,
+	output        debug_selectASC,
 	output        debug_memoryOverlayOn,
 	output [31:0] debug_cpuAddr,
 	output [15:0] debug_cpuDataIn,    // Data from CPU to peripherals
@@ -84,11 +85,20 @@ module emu
 	output        debug_cpuBusControl,
 	output        debug_viaRd,        // VIA read enable (VMA-synchronized)
 	output        debug_viaWr,        // VIA write enable (VMA-synchronized)
+	output        debug_cpuAS,        // CPU AS signal (active low)
 	output        debug_cpuVMA,       // VMA signal (active low)
+	output        debug_cpuVPA,       // VPA signal (active low)
+	output        debug_cpuDTACK,     // DTACK signal (active low)
+	output        debug_cpuUDS,       // UDS signal (active low)
+	output        debug_cpuLDS,       // LDS signal (active low)
 	output        debug_selectVIA2,
 	output        debug_berr,
 	output [31:0] debug_vbr,
 	output  [2:0] debug_cpuIPL,
+
+	// Serial terminal interface
+	output        serial_txd,       // SCC Channel A TX output (for sim-side RX)
+	input         serial_rxd,       // SCC Channel A RX input (from sim-side TX)
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
@@ -100,9 +110,9 @@ module emu
 	// Configuration - directly from inputs (Mac II)
 	wire      status_mem = cfg_memSize;      // 0=1MB, 1=4MB
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
-	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables
-	// status_turbo=1 selects clk16 enables (16 MHz CPU), =0 selects clk8 (8 MHz)
-	wire      status_turbo = 1'b1;           // 16 MHz CPU for Mac II
+	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables.
+	// Sim plusarg +cpu8 lets us test whether boot divergence is CPU/bus pacing.
+	wire      status_turbo = !$test$plusargs("cpu8");
 	////////////////////   CLOCKS   ///////////////////
 
 	// Clock generation (clk_sys is 32.5 MHz from testbench, matching FPGA PLL)
@@ -183,13 +193,14 @@ module emu
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
-	wire [1:0] configRAMSize = 2'b10; // 4MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
+	wire [1:0] configRAMSize = 2'b01; // 2MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
 
-	// Serial Ports (not used on Mac II - uses SCC)
-	wire serialOut = 1'b1;
-	wire serialIn = 1'b1;
+	// Serial Ports — connected to serial terminal in sim_main.cpp
+	wire serialOut;              // SCC Channel A TX (driven by SCC)
+	wire serialIn = serial_rxd; // SCC Channel A RX (driven by sim)
 	wire serialCTS = 1'b0;
 	wire serialRTS;
+	assign serial_txd = serialOut;
 
 	// NuBus Video system wires
 	wire [15:0] nubusDataOut_card;
@@ -243,9 +254,17 @@ module emu
 	
 	// peripherals
 	wire vid_alt, loadPixels, pixelOut, _hblank, _vblank, hsync, vsync;
-	wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+	wire memoryOverlayOn, selectSCSI, selectSCSIDMA, scsiDREQ, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+	wire [1:0] glueRAMSize;
 	wire [15:0] dataControllerDataOut;
 
+	// MC68881 FPU coprocessor cycles use FC=7 CPU space, cpID=1.
+	// The Verilator harness uses a fast CIR-level responder for boot/debug runs.
+	wire fpuAddrMatch = (cpuFC == 3'b111) && (cpuAddr[31:16] == 16'h0002) && (cpuAddr[15:13] == 3'b001);
+	wire selectFPU = fpuAddrMatch && !_cpuAS;
+	wire [31:0] fpu_data_out;
+	wire fpu_dsack0_n, fpu_dsack1_n;
+	wire fpu_sense_n;
 
 	// floppy disk image interface
 	wire dskReadAckInt;
@@ -266,13 +285,15 @@ module emu
 		end
 	end
 
-	// VPA: assert for FC=7 (autovector), 24-bit VIA space, and 32-bit VIA/VIA2 accesses
+	// VPA: assert for FC=7 autovector cycles, except FPU coprocessor cycles.
 	wire viaAccess = selectVIA | selectVIA2;
-	assign      _cpuVPA = (cpuFC == 3'b111) ? 1'b0 :
+	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
-	// DTACK: do not assert for VIA accesses (they use VPA/VMA synchronous handshake)
-	assign      _cpuDTACK = selectNuBus ? nubusAck :
+	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
+	assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
+	                        selectNuBus ? nubusAck :
+	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
 	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
@@ -280,8 +301,9 @@ module emu
 	reg [8:0] berr_counter;
 	reg berr_out;
 	wire nubus_acked = nubus_acked_arb;  // from nubus_arbiter: card or empty-slot responded
+	wire scsi_dma_wait = selectSCSIDMA && !scsiDREQ;
 	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-	                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay;
+	                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 	wire is_cpu_space = (cpuFC == 3'b111);
 
 	always @(posedge clk_sys) begin
@@ -316,7 +338,12 @@ module emu
 	assign      cpuFC[0]      = tg68_fc0;
 	assign      cpuFC[1]      = tg68_fc1;
 	assign      cpuFC[2]      = tg68_fc2;
-	assign      cpuAddr       = tg68_a;  // Full 32-bit address
+	// Mac II HMMU: translate CPU address when VIA2 PB3 is driven low.
+	// FC=7 (CPU space / coprocessor CIR) bypasses translation.
+	wire        hmmu_active;
+	wire [31:0] cpuAddr_xlated;
+	hmmu u_hmmu(.addr_in(tg68_a), .active(hmmu_active), .addr_out(cpuAddr_xlated));
+	assign      cpuAddr       = (cpuFC == 3'b111) ? tg68_a : cpuAddr_xlated;
 	assign      cpuDataOut    = tg68_dout;
 
 	// tg68k wire declarations
@@ -333,6 +360,7 @@ module emu
 	wire [15:0] tg68_dout;
 	wire [31:0] tg68_a;
 	wire        tg68_reset_n;
+	wire        tg68_longword;
 
 	tg68k tg68k_inst (
 		.clk        ( clk_sys      ),
@@ -361,12 +389,56 @@ module emu
 		.bgack_n    ( 1'b1         ),
 
 		.ipl        ( _cpuIPL      ),
-		.berr       ( berr_out     ),
+		.berr       ( berr_effective ),
 		.cpu_halted (              ),
-		.din        ( dataControllerDataOut ),
+		.din        ( cpu_data_in  ),
 		.dout       ( tg68_dout    ),
+		.longword   ( tg68_longword ),
 		.addr       ( tg68_a       ),
-		.VBR_out    ( debug_vbr    )
+		.VBR_out    ( debug_vbr    ),
+		.berr_inhibit ( cpu_berr_inhibit ),
+		.berr_data    ( cpu_berr_data    )
+	);
+
+	// Format $B RTE: when berr_inhibit is active, suppress bus errors
+	// and provide the data input buffer value from the exception frame
+	wire cpu_berr_inhibit;
+	wire [31:0] cpu_berr_data;
+	wire berr_effective = cpu_berr_inhibit ? 1'b0 : berr_out;
+	reg [15:0] fpu_data_hold;
+	reg fpu_data_hold_valid;
+	always @(posedge clk_sys) begin
+		if (!_cpuReset) begin
+			fpu_data_hold <= 16'h0000;
+			fpu_data_hold_valid <= 1'b0;
+		end else if (!_cpuAS && selectFPU && _cpuRW) begin
+			fpu_data_hold <= fpu_data_out[15:0];
+			fpu_data_hold_valid <= 1'b1;
+		end else if (!_cpuAS && !selectFPU) begin
+			fpu_data_hold_valid <= 1'b0;
+		end
+	end
+
+	wire [15:0] cpu_data_in = cpu_berr_inhibit ? cpu_berr_data[15:0] :
+	                          selectFPU ? fpu_data_out[15:0] :
+	                          fpu_data_hold_valid ? fpu_data_hold :
+	                          dataControllerDataOut;
+
+	sim_fpu_cir_stub fpu_inst (
+		.clk          ( clk_sys              ),
+		.reset_n      ( _cpuReset            ),
+		.a_in         ( cpuAddr[5:1]         ),
+		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_out        ( fpu_data_out         ),
+		.size_n       ( 2'b01                ),
+		.as_n         ( _cpuAS               ),
+		.cs_n         ( ~fpuAddrMatch        ),
+		.rw           ( _cpuRW               ),
+		.ds_n         ( _cpuUDS & _cpuLDS    ),
+		.dsack0_n     ( fpu_dsack0_n         ),
+		.dsack1_n     ( fpu_dsack1_n         ),
+		.sense_n      ( fpu_sense_n          ),
+		.status_valid (                      )
 	);
 	
 	// CPU debug - simplified without busstate
@@ -448,6 +520,7 @@ module emu
 		.turbo(status_turbo),
 		.configROMSize(configROMSize),
 		.configRAMSize(configRAMSize),
+		.glueRAMSize(glueRAMSize),
 		.memoryAddr(memoryAddr),
 		.memoryLatch(memoryLatch),
 		._memoryUDS(_memoryUDS),
@@ -459,6 +532,7 @@ module emu
 		.dioBusControl(dioBusControl),
 		.cpuBusControl(cpuBusControl),
 		.selectSCSI(selectSCSI),
+		.selectSCSIDMA(selectSCSIDMA),
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),
@@ -512,7 +586,9 @@ module emu
 		.data_in(cpuDataOut),
 		.data_out(nubusDataOut_card),
 		.uds_lds({!_cpuUDS, !_cpuLDS}),
+		.cpu_longword(tg68_longword),
 		.rw_n(_cpuRW),
+		.cpu_as_n(_cpuAS),
 		.select(selectNuBus),
 		.ack_n(nubusAck_card),
 		.vga_r(nubus_r),
@@ -533,6 +609,7 @@ module emu
 		.vram_ready(sim_vram_ready),
 
 		.overlay_en(1'b0),
+		.monochrome(1'b0),
 
 		.ioctl_wr(ioctl_wr),
 		.ioctl_addr(ioctl_addr),
@@ -557,6 +634,7 @@ module emu
 		._cpuUDS(_cpuUDS),
 		._cpuLDS(_cpuLDS),
 		._cpuRW(_cpuRW),
+		.cpuLongword(tg68_longword),
 		._cpuVMA(_cpuVMA),
 		.selectNuBus(selectNuBus),
 		.nubusDataIn(nubusDataOut),
@@ -567,6 +645,8 @@ module emu
 		.cpuAddrRegMid(cpuAddr[6:4]),
 		.cpuAddrRegLo(cpuAddr[2:1]),
 		.selectSCSI(selectSCSI),
+		.selectSCSIDMA(selectSCSIDMA),
+		.scsiDREQ(scsiDREQ),
 		.selectSCC(selectSCC),
 		.selectIWM(selectIWM),
 		.selectVIA(selectVIA),
@@ -597,6 +677,8 @@ module emu
 		.vid_alt(vid_alt),
 
 		.memoryOverlayOn(memoryOverlayOn),
+		.glueRAMSize(glueRAMSize),
+		.hmmu_active(hmmu_active),
 
 		.ascAudioLeft(asc_audio_l),
 		.ascAudioRight(asc_audio_r),
@@ -639,7 +721,7 @@ module emu
 	always @(posedge clk_sys) begin
 		reg old_down;
 		old_down <= dio_download;
-		if(old_down && ~dio_download && dio_index == 1) begin
+		if(old_down && ~dio_download && dio_index == 2) begin
 			dsk_int_ds <= (dio_addr == 409600);
 			dsk_int_ss <= (dio_addr == 204800);
 		end
@@ -652,7 +734,7 @@ module emu
 	always @(posedge clk_sys) begin
 		reg old_down;
 		old_down <= dio_download;
-		if(old_down && ~dio_download && dio_index == 2) begin
+		if(old_down && ~dio_download && dio_index == 3) begin
 			dsk_ext_ds <= (dio_addr == 409600);
 			dsk_ext_ss <= (dio_addr == 204800);
 		end
@@ -673,9 +755,16 @@ module emu
 			dio_data <= ioctl_dout;
 			// Mac II ROM (boot0.rom, 256K = 128K words) starts at 0x40_0000 in address space
 			// In sim_ram, ROM area is at bit[21]=1, so ROM goes to 0x200000+ in sim_ram
-			// Floppy disk images use index 1 and 2
-			dio_a <= dio_index[1:0] ? {dio_index[1:0], dio_addr[18:0]} :
-				{4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words (17 bits)
+			// Floppy disk images use indices 2 and 3, but the storage
+			// slots are word offsets 0x80000 and 0x100000.
+			if (dio_index == 8'd0)
+				dio_a <= {4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words
+			else if (dio_index == 8'd1)
+				dio_a <= {2'b11, dio_addr[18:0]};    // NuBus ROM is consumed directly
+			else if (dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3)
+				dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+			else
+				dio_a <= {dio_index[6], dio_addr[19:0]};
 			ioctl_wait <= 1;
 		end
 
@@ -696,9 +785,12 @@ module emu
 	// Combinational version of dio_a for download (avoids register latency)
 	// Mac II ROM (boot0.rom, 256K) starts at 0x40_0000 in address space
 	// ROM is 256K = 128K words, using dio_addr[16:0] (17 bits)
-	// Floppy disk images at higher offsets
-	wire [20:0] dio_a_comb = dio_index[1:0] ? {dio_index[1:0], dio_addr[18:0]} :
-	                         {4'b0000, dio_addr[16:0]};  // ROM: 256K = 128K words (17 bits)
+	// Floppy disk images at word offsets 0x80000 and 0x100000.
+	wire [20:0] dio_a_floppy = {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+	wire [20:0] dio_a_comb = (dio_index == 8'd0) ? {4'b0000, dio_addr[16:0]} :
+	                         (dio_index == 8'd1) ? {2'b11, dio_addr[18:0]} :
+	                         ((dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3) ? dio_a_floppy :
+	                          {dio_index[6], dio_addr[19:0]});
 
 	// Address mapping for sim_ram:
 	// sim_ram uses addr[21:0] for a 4M word (8MB) array
@@ -720,7 +812,15 @@ module emu
 	wire        ram_we   = download_cycle ? 1'b1                  : !_ramWE;
 	wire        ram_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 	wire [15:0] ram_do_raw;
-	wire [15:0] ram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux : ram_do_raw;
+	wire [21:0] ram_next_word_addr = ram_addr[21:0] + 22'd1;
+	wire [15:0] ram_odd_word_do = {ram_do_raw[7:0], ram.mem[ram_next_word_addr][15:8]};
+	wire        ram_odd_full_read = !download_cycle && !(dskReadAckInt || dskReadAckExt) &&
+	                                ram_oe && !ram_we && memoryAddr[0] &&
+	                                !_memoryUDS && !_memoryLDS;
+	wire [15:0] ram_do   = download_cycle ? 16'hffff :
+	                       (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux :
+	                       ram_odd_full_read ? ram_odd_word_do :
+	                       ram_do_raw;
 	wire [15:0] extra_rom_data_demux = memoryAddr[0] ?
 						   {ram_do_raw[7:0],ram_do_raw[7:0]}:{ram_do_raw[15:8],ram_do_raw[15:8]};
 
@@ -753,6 +853,7 @@ module emu
 	assign debug_selectSCSI = selectSCSI;
 	assign debug_selectSCC = selectSCC;
 	assign debug_selectIWM = selectIWM;
+	assign debug_selectASC = selectASC;
 	assign debug_memoryOverlayOn = memoryOverlayOn;
 	assign debug_cpuAddr = cpuAddr;  // Full 32-bit address for Mac II
 	assign debug_cpuDataIn = cpuDataOut;  // CPU writes this to peripherals
@@ -761,8 +862,862 @@ module emu
 	assign debug_cpuBusControl = cpuBusControl;
 	assign debug_viaRd = (selectVIA || selectVIA2) && !_cpuVMA && _cpuRW;
 	assign debug_viaWr = (selectVIA || selectVIA2) && !_cpuVMA && !_cpuRW;
+	assign debug_cpuAS = _cpuAS;
 	assign debug_cpuVMA = _cpuVMA;
+	assign debug_cpuVPA = _cpuVPA;
+	assign debug_cpuDTACK = _cpuDTACK;
+	assign debug_cpuUDS = _cpuUDS;
+	assign debug_cpuLDS = _cpuLDS;
 	assign debug_selectVIA2 = selectVIA2;
 	assign debug_cpuIPL = _cpuIPL;
 
+`ifdef SIMULATION
+	integer lowmem_bit_raw_dbg_hits = 0;
+	integer lowmem_bset_raw_window = 0;
+	integer lowmem_bset_raw_hits = 0;
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("lowmem_bset_raw_debug") && lowmem_bset_raw_hits < 96) begin
+			if (last_fetch_pc >= 32'h4080DC84 && last_fetch_pc <= 32'h4080DC90)
+				lowmem_bset_raw_window <= 48;
+			else if (lowmem_bset_raw_window != 0)
+				lowmem_bset_raw_window <= lowmem_bset_raw_window - 1;
+
+			if (lowmem_bset_raw_window != 0 ||
+			    (last_fetch_pc >= 32'h4080DC84 && last_fetch_pc <= 32'h4080DC90)) begin
+				$display("LOWMEM_BSET_RAW[%0d] pc=%08h op=%04h k_op=%04h k_exe=%04h k_snd=%04h ms=%0d nms=%0d dec=%b exec=%b setexec=%b np=%b setnp=%b wb=%b ewb=%b eabn=%b set_eab=%b exe_eab=%b set_2nd=%b exe_2nd=%b set_bits=%b exe_bits=%b set_eaop1=%b exe_eaop1=%b phi1=%b phi2=%b core_state=%b wrap_state=%0d core_rw=%b core_addr=%08h core_dout=%04h core_uds=%b core_lds=%b bus_rw=%b bus_as=%b bus_addr=%08h bus_dout=%04h bus_uds=%b bus_lds=%b dtack=%b selRAM=%b ram_we=%b ram_addr=%07h ram_ds=%b ram_din=%04h B0B22=%02h",
+				         lowmem_bset_raw_hits,
+				         last_fetch_pc,
+				         last_fetch_opcode,
+				         tg68k_inst.tg68k.opcode,
+				         tg68k_inst.tg68k.exe_opcode,
+				         tg68k_inst.tg68k.sndopc,
+				         tg68k_inst.tg68k.micro_state,
+				         tg68k_inst.tg68k.next_micro_state,
+				         tg68k_inst.tg68k.decodeopc,
+				         tg68k_inst.tg68k.execopc,
+				         tg68k_inst.tg68k.setexecopc,
+				         tg68k_inst.tg68k.nextpass,
+				         tg68k_inst.tg68k.setnextpass,
+				         tg68k_inst.tg68k.write_back,
+				         tg68k_inst.tg68k.exec_write_back,
+				         tg68k_inst.tg68k.ea_build_now,
+				         tg68k_inst.tg68k.set[42],
+				         tg68k_inst.tg68k.set_exec[42],
+				         tg68k_inst.tg68k.set[71],
+				         tg68k_inst.tg68k.set_exec[71],
+				         tg68k_inst.tg68k.set[14],
+				         tg68k_inst.tg68k.set_exec[14],
+				         tg68k_inst.tg68k.set[26],
+				         tg68k_inst.tg68k.set_exec[26],
+				         cpu_en_p,
+				         cpu_en_n,
+				         tg68k_inst.tg68_busstate,
+				         tg68k_inst.s_state,
+				         tg68k_inst.tg68_rw,
+				         tg68k_inst.tg68_addr,
+				         tg68_dout,
+				         tg68k_inst.tg68_uds_n,
+				         tg68k_inst.tg68_lds_n,
+				         _cpuRW,
+				         _cpuAS,
+				         cpuAddr,
+				         cpuDataOut,
+				         _cpuUDS,
+				         _cpuLDS,
+				         _cpuDTACK,
+				         selectRAM,
+				         ram_we,
+				         ram_addr,
+				         ram_ds,
+				         ram_din,
+				         ram_do_raw[15:8]);
+				lowmem_bset_raw_hits <= lowmem_bset_raw_hits + 1;
+			end
+		end
+
+		if ($test$plusargs("lowmem_bit_raw_debug") && lowmem_bit_raw_dbg_hits < 256) begin
+			if ((last_fetch_pc >= 32'h4080DC80 && last_fetch_pc <= 32'h4080DC92) ||
+			    (tg68k_inst.tg68_addr[31:1] == 31'h00000591) ||
+			    (tg68_a[31:1] == 31'h00000591) ||
+			    (ram_addr[21:0] == 22'h000591 && ram_we)) begin
+				$display("LOWMEM_RAW[%0d] pc=%08h op=%04h phi1=%b phi2=%b core_state=%b wrap_state=%0d core_rw=%b core_addr=%08h core_dout=%04h core_uds=%b core_lds=%b bus_rw=%b bus_as=%b bus_addr=%08h bus_dout=%04h bus_uds=%b bus_lds=%b dtack=%b selRAM=%b ram_we=%b ram_addr=%07h ram_ds=%b ram_din=%04h B0B22=%02h",
+				         lowmem_bit_raw_dbg_hits,
+				         last_fetch_pc,
+				         last_fetch_opcode,
+				         cpu_en_p,
+				         cpu_en_n,
+				         tg68k_inst.tg68_busstate,
+				         tg68k_inst.s_state,
+				         tg68k_inst.tg68_rw,
+				         tg68k_inst.tg68_addr,
+				         tg68_dout,
+				         tg68k_inst.tg68_uds_n,
+				         tg68k_inst.tg68_lds_n,
+				         _cpuRW,
+				         _cpuAS,
+				         cpuAddr,
+				         cpuDataOut,
+				         _cpuUDS,
+				         _cpuLDS,
+				         _cpuDTACK,
+				         selectRAM,
+				         ram_we,
+				         ram_addr,
+				         ram_ds,
+				         ram_din,
+				         ram_do_raw[15:8]);
+				lowmem_bit_raw_dbg_hits <= lowmem_bit_raw_dbg_hits + 1;
+			end
+		end
+	end
+
+	function [31:0] tg68_dbg_reg(input [3:0] idx);
+		tg68_dbg_reg = {tg68k_inst.tg68k.regfile_n2[idx], tg68k_inst.tg68k.regfile_n1[idx]};
+	endfunction
+
+	function [31:0] asc_dbg_hash_a;
+		integer idx;
+		begin
+			asc_dbg_hash_a = 32'h811c9dc5;
+			for (idx = 0; idx < 1024; idx = idx + 1)
+				asc_dbg_hash_a = (asc_dbg_hash_a ^ dc0.asc_inst.ram_a[idx]) * 32'h01000193;
+		end
+	endfunction
+
+	function [31:0] asc_dbg_hash_b;
+		integer idx;
+		begin
+			asc_dbg_hash_b = 32'h811c9dc5;
+			for (idx = 0; idx < 1024; idx = idx + 1)
+				asc_dbg_hash_b = (asc_dbg_hash_b ^ dc0.asc_inst.ram_b[idx]) * 32'h01000193;
+		end
+	endfunction
+
+	task asc_dbg_state(input [31:0] pc, input [31:0] hit);
+		begin
+			$display("[ASC_STATE] hit=%0d pc=%08h d2=%08h d3=%08h d4=%08h d7=%08h a0=%08h a3=%08h mode=%02h ctl=%02h fifo_mode=%02h fifo_irq=%02h wt=%02h vol=%02h clk=%02h fa_wp=%03h fa_rp=%03h fa_cnt=%04h fb_wp=%03h fb_rp=%03h fb_cnt=%04h hash_a=%08h hash_b=%08h a0_0f=%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h b0_0f=%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h_%02h%02h%02h%02h",
+			         hit, pc,
+			         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd3),
+			         tg68_dbg_reg(4'd4), tg68_dbg_reg(4'd7),
+			         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd11),
+			         dc0.asc_inst.asc_mode,
+			         dc0.asc_inst.asc_control,
+			         dc0.asc_inst.asc_fifo_mode,
+			         dc0.asc_inst.asc_fifo_irq,
+			         dc0.asc_inst.asc_wt_control,
+			         dc0.asc_inst.asc_volume,
+			         dc0.asc_inst.asc_clock_rate,
+			         dc0.asc_inst.fifo_a_wr_ptr,
+			         dc0.asc_inst.fifo_a_rd_ptr,
+			         dc0.asc_inst.fifo_a_count,
+			         dc0.asc_inst.fifo_b_wr_ptr,
+			         dc0.asc_inst.fifo_b_rd_ptr,
+			         dc0.asc_inst.fifo_b_count,
+			         asc_dbg_hash_a(), asc_dbg_hash_b(),
+			         dc0.asc_inst.ram_a[0], dc0.asc_inst.ram_a[1],
+			         dc0.asc_inst.ram_a[2], dc0.asc_inst.ram_a[3],
+			         dc0.asc_inst.ram_a[4], dc0.asc_inst.ram_a[5],
+			         dc0.asc_inst.ram_a[6], dc0.asc_inst.ram_a[7],
+			         dc0.asc_inst.ram_a[8], dc0.asc_inst.ram_a[9],
+			         dc0.asc_inst.ram_a[10], dc0.asc_inst.ram_a[11],
+			         dc0.asc_inst.ram_a[12], dc0.asc_inst.ram_a[13],
+			         dc0.asc_inst.ram_a[14], dc0.asc_inst.ram_a[15],
+			         dc0.asc_inst.ram_b[0], dc0.asc_inst.ram_b[1],
+			         dc0.asc_inst.ram_b[2], dc0.asc_inst.ram_b[3],
+			         dc0.asc_inst.ram_b[4], dc0.asc_inst.ram_b[5],
+			         dc0.asc_inst.ram_b[6], dc0.asc_inst.ram_b[7],
+			         dc0.asc_inst.ram_b[8], dc0.asc_inst.ram_b[9],
+			         dc0.asc_inst.ram_b[10], dc0.asc_inst.ram_b[11],
+			         dc0.asc_inst.ram_b[12], dc0.asc_inst.ram_b[13],
+			         dc0.asc_inst.ram_b[14], dc0.asc_inst.ram_b[15]);
+		end
+	endtask
+
+	reg [31:0] asc_state_prev_pc;
+	reg [31:0] asc_state_hits;
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("asc_state_debug") && last_fetch_pc != asc_state_prev_pc) begin
+			asc_state_prev_pc <= last_fetch_pc;
+			if (last_fetch_pc == 32'h40805E4A ||
+			    last_fetch_pc == 32'h40805F14 ||
+			    last_fetch_pc == 32'h40805F28 ||
+			    last_fetch_pc == 32'h40805F5C ||
+			    last_fetch_pc == 32'h40805F60 ||
+			    last_fetch_pc == 32'h40805F78) begin
+				asc_state_hits <= asc_state_hits + 1'd1;
+				if (asc_state_hits < 32 ||
+				    last_fetch_pc == 32'h40805E4A ||
+				    last_fetch_pc == 32'h40805F14 ||
+				    last_fetch_pc == 32'h40805F78 ||
+				    tg68_dbg_reg(2) == 32'h00001095 ||
+				    tg68_dbg_reg(2) == 32'h00000DF1 ||
+				    asc_state_hits[10:0] == 11'h000)
+					asc_dbg_state(last_fetch_pc, asc_state_hits);
+			end
+		end
+	end
+
+	reg [31:0] asc_rom_dbg_prev_pc;
+	reg [31:0] asc_rom_dbg_bus_count;
+	reg [31:0] asc_rom_dbg_f5c_hits;
+	reg        asc_rom_dbg_bus_active;
+
+	function asc_rom_dbg_interesting_pc;
+		input [31:0] pc;
+		begin
+			asc_rom_dbg_interesting_pc = (pc == 32'h40805E4A ||
+			                              pc == 32'h40805E70 ||
+			                              pc == 32'h40805E74 ||
+			                              pc == 32'h40805E78 ||
+			                              pc == 32'h40805E7C ||
+			                              pc == 32'h40805E80 ||
+			                              pc == 32'h40805E82 ||
+			                              pc == 32'h40805E84 ||
+			                              pc == 32'h40805E8C ||
+			                              pc == 32'h40805E94 ||
+			                              pc == 32'h40805ED6 ||
+			                              pc == 32'h40805EE6 ||
+			                              pc == 32'h40805F14 ||
+			                              pc == 32'h40805F28 ||
+			                              pc == 32'h40805F5C ||
+			                              pc == 32'h40805F60 ||
+			                              pc == 32'h40805F78);
+		end
+	endfunction
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("asc_rom_debug")) begin
+			if (last_fetch_pc != asc_rom_dbg_prev_pc) begin
+				asc_rom_dbg_prev_pc <= last_fetch_pc;
+				if (asc_rom_dbg_interesting_pc(last_fetch_pc)) begin
+					$display("[ASC_ROM_PC] pc=%08h d0=%08h d1=%08h d2=%08h d3=%08h d4=%08h d7=%08h a0=%08h a3=%08h a4=%08h",
+					         last_fetch_pc,
+					         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+					         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd3),
+					         tg68_dbg_reg(4'd4), tg68_dbg_reg(4'd7),
+					         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd11),
+					         tg68_dbg_reg(4'd12));
+				end
+				if (last_fetch_pc == 32'h40805F5C) begin
+					asc_rom_dbg_f5c_hits <= asc_rom_dbg_f5c_hits + 1'd1;
+					if (asc_rom_dbg_f5c_hits[7:0] == 8'h00) begin
+						$display("[ASC_ROM_PROGRESS] f5c_hits=%0d d3=%08h d4=%08h d7=%08h a0=%08h",
+						         asc_rom_dbg_f5c_hits,
+						         tg68_dbg_reg(4'd3), tg68_dbg_reg(4'd4),
+						         tg68_dbg_reg(4'd7), tg68_dbg_reg(4'd8));
+					end
+				end
+			end
+
+			if (tg68_as_n || !selectASC || (_cpuUDS && _cpuLDS)) begin
+				asc_rom_dbg_bus_active <= 1'b0;
+			end else if (!asc_rom_dbg_bus_active && asc_rom_dbg_bus_count < 128) begin
+				asc_rom_dbg_bus_active <= 1'b1;
+				$display("[ASC_ROM_BUS] pc=%08h rw=%b addr=%08h din=%04h dout=%04h ds=%b d3=%08h d7=%08h",
+				         last_fetch_pc, _cpuRW, cpuAddr, cpuDataOut,
+				         dataControllerDataOut, {~_cpuUDS, ~_cpuLDS},
+				         tg68_dbg_reg(4'd3), tg68_dbg_reg(4'd7));
+				asc_rom_dbg_bus_count <= asc_rom_dbg_bus_count + 1'd1;
+			end
+		end
+	end
+
+	reg [31:0] asc_entry_dbg_prev_pc;
+	reg [31:0] asc_entry_dbg_hits;
+
+	function asc_entry_dbg_interesting_pc;
+		input [31:0] pc;
+		begin
+			asc_entry_dbg_interesting_pc = (pc == 32'h408000D0 ||
+			                                pc == 32'h40802CDC ||
+			                                pc == 32'h40802CE2 ||
+			                                pc == 32'h40802CE4 ||
+			                                pc == 32'h40802CEA ||
+			                                pc == 32'h40802CEE ||
+			                                pc == 32'h40805E4A ||
+			                                pc == 32'h40805E5C ||
+			                                pc == 32'h40805E62 ||
+			                                pc == 32'h40805E66 ||
+			                                pc == 32'h40805E68 ||
+			                                pc == 32'h40805E6E ||
+			                                pc == 32'h40805E70);
+		end
+	endfunction
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("asc_entry_debug") && last_fetch_pc != asc_entry_dbg_prev_pc) begin
+			asc_entry_dbg_prev_pc <= last_fetch_pc;
+			if (asc_entry_dbg_interesting_pc(last_fetch_pc) && asc_entry_dbg_hits < 128) begin
+				$display("[ASC_ENTRY] hit=%0d pc=%08h d0=%08h d7=%08h a0=%08h a3=%08h a4=%08h a6=%08h pa=%02h ira=%02h ddra=%02h",
+				         asc_entry_dbg_hits, last_fetch_pc,
+				         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd7),
+				         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd11),
+				         tg68_dbg_reg(4'd12), tg68_dbg_reg(4'd14),
+				         dc0.via.pio_i_pra, dc0.via.ira, dc0.via.pio_i_ddra);
+				asc_entry_dbg_hits <= asc_entry_dbg_hits + 1'd1;
+			end
+		end
+	end
+
+	reg [31:0] ramtest_dbg_prev_pc;
+	reg [31:0] ramtest_dbg_hits;
+	reg        ramtest_dbg_bus_active;
+	reg [31:0] ramtest_dbg_bus_hits;
+
+	function ramtest_dbg_interesting_pc;
+		input [31:0] pc;
+		begin
+			ramtest_dbg_interesting_pc = (pc == 32'h40802BBC ||
+			                              pc == 32'h40802BF0 ||
+			                              pc == 32'h40802C10 ||
+			                              pc == 32'h40802C28 ||
+			                              pc == 32'h40802C3C ||
+			                              pc == 32'h40802CDC ||
+			                              pc == 32'h40803714 ||
+			                              pc == 32'h40803734 ||
+			                              pc == 32'h40803760 ||
+			                              pc == 32'h4080378E ||
+			                              pc == 32'h40803794 ||
+			                              pc == 32'h4080379A ||
+			                              pc == 32'h4080379E ||
+			                              pc == 32'h408037A0 ||
+			                              pc == 32'h408037A2 ||
+			                              pc == 32'h408037A4 ||
+			                              pc == 32'h408037A6 ||
+			                              pc == 32'h408037A8 ||
+			                              pc == 32'h408037AA);
+		end
+	endfunction
+
+	task ramtest_dbg_state;
+		input [31:0] pc;
+		input [31:0] hit;
+		begin
+			$display("[RAMTEST] hit=%0d pc=%08h d0=%08h d1=%08h d2=%08h d3=%08h d4=%08h d5=%08h d6=%08h d7=%08h a0=%08h a1=%08h a2=%08h a3=%08h a4=%08h a6=%08h via2_pa_o=%02h via2_pa_i=%02h via2_ddra=%02h via2_ira=%02h glue=%02b m0=%04h%04h m8=%04h%04h msp=%04h%04h mtop=%04h%04h",
+			         hit, pc,
+			         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+			         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd3),
+			         tg68_dbg_reg(4'd4), tg68_dbg_reg(4'd5),
+			         tg68_dbg_reg(4'd6), tg68_dbg_reg(4'd7),
+			         tg68_dbg_reg(4'd8), tg68_dbg_reg(4'd9),
+			         tg68_dbg_reg(4'd10), tg68_dbg_reg(4'd11),
+			         tg68_dbg_reg(4'd12), tg68_dbg_reg(4'd14),
+			         dc0.via2_pa_o, dc0.via2_pa_i, dc0.via2.pio_i_ddra,
+			         dc0.via2.ira, glueRAMSize,
+			         ram.mem[22'h000000], ram.mem[22'h000001],
+			         ram.mem[22'h000004], ram.mem[22'h000005],
+			         ram.mem[22'h0ffe80], ram.mem[22'h0ffe81],
+			         ram.mem[22'h0ffffe], ram.mem[22'h0fffff]);
+		end
+	endtask
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("ramtest_debug")) begin
+			if (last_fetch_pc != ramtest_dbg_prev_pc) begin
+				ramtest_dbg_prev_pc <= last_fetch_pc;
+				if (ramtest_dbg_interesting_pc(last_fetch_pc) &&
+				    (last_fetch_pc != 32'h4080378E || tg68_dbg_reg(4'd5) <= 32'd4) &&
+				    ramtest_dbg_hits < 240) begin
+					ramtest_dbg_state(last_fetch_pc, ramtest_dbg_hits);
+					ramtest_dbg_hits <= ramtest_dbg_hits + 1'd1;
+				end
+			end
+
+			if ($test$plusargs("ramtest_bus_debug")) begin
+				if (tg68_as_n || (!selectRAM && !selectROM) || (_cpuUDS && _cpuLDS)) begin
+					ramtest_dbg_bus_active <= 1'b0;
+				end else if (!ramtest_dbg_bus_active &&
+				             last_fetch_pc >= 32'h40803710 &&
+				             last_fetch_pc <= 32'h408037AA &&
+				             ramtest_dbg_bus_hits < 96) begin
+					ramtest_dbg_bus_active <= 1'b1;
+					$display("[RAMTEST_BUS] hit=%0d pc=%08h rw=%b tg68_a=%08h cpuAddr=%08h memAddr=%06h ramAddr=%07h din=%04h dout=%04h ramdo=%04h ds=%b selRAM=%b selROM=%b overlay=%b",
+					         ramtest_dbg_bus_hits, last_fetch_pc, _cpuRW,
+					         tg68_a, cpuAddr, memoryAddr, ram_addr,
+					         cpuDataOut, dataControllerDataOut, ram_do_raw,
+					         {~_cpuUDS, ~_cpuLDS}, selectRAM, selectROM,
+					         memoryOverlayOn);
+					ramtest_dbg_bus_hits <= ramtest_dbg_bus_hits + 1'd1;
+				end
+			end
+		end
+	end
+
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("via2_debug") && !_cpuVMA && selectVIA2 && E_falling) begin
+			$display("[VIA2_%s] pc=%08h addr=%08h reg=%1h data=%04h ds=%b pa_o=%02h pa_i=%02h ddra=%02h ira=%02h glue=%02b",
+			         _cpuRW ? "RD" : "WR", last_fetch_pc, cpuAddr, cpuAddr[12:9],
+			         _cpuRW ? dataControllerDataOut : cpuDataOut,
+			         {~_cpuUDS, ~_cpuLDS},
+			         dc0.via2_pa_o, dc0.via2_pa_i, dc0.via2.pio_i_ddra,
+			         dc0.via2.ira, glueRAMSize);
+		end
+	end
+`endif
+
+`ifdef SIMULATION
+	function adb_via_pc_watch;
+		input [31:0] pc;
+		begin
+			adb_via_pc_watch = ((pc >= 32'h40806D00 && pc <= 32'h40806EFF) ||
+			                    (pc >= 32'h4080DD00 && pc <= 32'h4080DEFF));
+		end
+	endfunction
+
+	task adb_via_dbg_state;
+		input [8*12-1:0] tag;
+		begin
+			$display("[ADB_VIA_STATE] tag=%0s pc=%08h d0=%08h d1=%08h d2=%08h a0=%08h via_prb=%02h via_ddrb=%02h via_irb=%02h via_pbi=%02h acr=%02h pcr=%02h sr=%02h ifr=%02h ier=%02h irq=%b st=%b adb_int_n=%b cmd=%02h valid=%b processed=%b resp_len=%0d resp_idx=%0d sr_timer=%0d sr_dir=%b sr_shadow=%02h kbd_to_mac=%02h",
+			         tag, last_fetch_pc,
+			         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+			         tg68_dbg_reg(4'd2), tg68_dbg_reg(4'd8),
+			         dc0.via.pio_i_prb, dc0.via.pio_i_ddrb,
+			         dc0.via.irb, dc0.via.port_b_i,
+			         dc0.via.acr, dc0.via.pcr, dc0.via.shift_reg,
+			         {dc0.via.irq_out, dc0.via.irq_flags}, {1'b1, dc0.via.irq_mask}, dc0.viaIrq,
+			         {dc0.ADBST1, dc0.ADBST0}, dc0._ADBint,
+			         dc0.adb.cmd_byte, dc0.adb.cmd_valid, dc0.adb.cmd_processed,
+			         dc0.adb.resp_len, dc0.adb.resp_idx,
+			         dc0.via1_shift_timer, dc0.via1_shift_dir,
+			         dc0.via1_sr_shadow, dc0.kbd_to_mac);
+		end
+	endtask
+
+	reg [31:0] adb_via_prev_pc;
+	reg [15:0] adb_via_prints;
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("adb_via_debug")) begin
+			if (last_fetch_pc != adb_via_prev_pc) begin
+				adb_via_prev_pc <= last_fetch_pc;
+				if (adb_via_pc_watch(last_fetch_pc) && adb_via_prints < 16'd300) begin
+					adb_via_dbg_state("pc");
+					adb_via_prints <= adb_via_prints + 1'd1;
+				end
+			end
+
+			if ((dc0.via.ren || dc0.via.wen) && dc0.via.falling && adb_via_prints < 16'd900) begin
+				$display("[ADB_VIA_BUS] pc=%08h rw=%b reg=%01h addr=%08h din=%02h dout=%02h prb=%02h ddrb=%02h irb=%02h pbi=%02h acr=%02h pcr=%02h sr=%02h ifr=%02h ier=%02h st=%b adb_int_n=%b timer=%0d shadow=%02h kbd=%02h",
+				         last_fetch_pc, dc0.via.ren, dc0.via.addr, cpuAddr,
+				         dc0.via.data_in, dc0.via.data_out,
+				         dc0.via.pio_i_prb, dc0.via.pio_i_ddrb,
+				         dc0.via.irb, dc0.via.port_b_i,
+				         dc0.via.acr, dc0.via.pcr, dc0.via.shift_reg,
+				         {dc0.via.irq_out, dc0.via.irq_flags}, {1'b1, dc0.via.irq_mask},
+				         {dc0.ADBST1, dc0.ADBST0}, dc0._ADBint,
+				         dc0.via1_shift_timer, dc0.via1_sr_shadow, dc0.kbd_to_mac);
+				adb_via_prints <= adb_via_prints + 1'd1;
+			end
+
+			if ((dc0.adb_din_strobe || dc0.adb_dout_strobe || dc0.via1_sr_ext_complete) && adb_via_prints < 16'd900) begin
+				$display("[ADB_VIA_EVT] pc=%08h din_stb=%b din=%02h dout_stb=%b dout=%02h sr_done=%b sr_load=%b st=%b adb_int_n=%b cmd=%02h valid=%b processed=%b resp_len=%0d resp_idx=%0d",
+				         last_fetch_pc, dc0.adb_din_strobe, dc0.adb_din,
+				         dc0.adb_dout_strobe, dc0.adb_dout,
+				         dc0.via1_sr_ext_complete, dc0.via1_sr_ext_load,
+				         {dc0.ADBST1, dc0.ADBST0}, dc0._ADBint,
+				         dc0.adb.cmd_byte, dc0.adb.cmd_valid, dc0.adb.cmd_processed,
+				         dc0.adb.resp_len, dc0.adb.resp_idx);
+				adb_via_prints <= adb_via_prints + 1'd1;
+			end
+		end
+	end
+`endif
+
+
+`ifdef LEGACY_DEBUG
+	// Dump interrupt dispatch table when ROM enables CA1/CA2 IRQs (IER=0x03).
+	// The dispatcher at $40806080 does JSR through a table; bits 0/1 map to
+	// CA2/CA1. If those entries are RTS stubs, nothing ever clears IFR.
+	// We also watch for the target of JSR (A0) at $408060AA by logging
+	// the next fetch.
+	reg [6:0] dbg_ier_d;
+	reg dbg_dumped;
+	integer di;
+	always @(posedge clk_sys) begin
+		dbg_ier_d <= dc0.via.irq_mask;
+		if (!dbg_dumped && dc0.via.irq_mask == 7'h03 && dbg_ier_d != 7'h03) begin
+			dbg_dumped <= 1'b1;
+			$display("[DUMP] IER just became 03 — RAM bytes 0x0180..0x01FF:");
+			for (di = 22'h00C0; di < 22'h0100; di = di + 1)
+				$display("  word[%04h] byte[%04h] = %04h", di[11:0], di[11:0]<<1, ram.mem[di]);
+			$display("[DUMP] RAM bytes 0x1FFE0..0x1FFFF (A3 area):");
+			for (di = 22'hFFF0; di < 22'h10000; di = di + 1)
+				$display("  word[%05h] byte[%05h] = %04h", di[19:0], di[19:0]<<1, ram.mem[di]);
+		end
+	end
+
+	// Log handler target: when PC is at $408060AA (JSR (A0)), the next PC
+	// that is fetched will be the handler address the dispatcher jumped to.
+	reg [31:0] last_fetch_pc_d;
+	reg dbg_waiting_target;
+	always @(posedge clk_sys) begin
+		last_fetch_pc_d <= last_fetch_pc;
+		if (last_fetch_pc == 32'h408060AA && last_fetch_pc_d != 32'h408060AA)
+			dbg_waiting_target <= 1'b1;
+		else if (dbg_waiting_target && last_fetch_pc != 32'h408060AA
+		         && last_fetch_pc != last_fetch_pc_d) begin
+			$display("[JSR_TGT] dispatcher JSR target PC = %08h", last_fetch_pc);
+			dbg_waiting_target <= 1'b0;
+		end
+	end
+
+	// Probe ASC register-bank writes ($50F14800..$50F1481F): mode/control/
+	// volume etc. — tells us if POST actually programmed the chime.
+	reg [31:0] asc_reg_writes;
+	always @(posedge clk_sys) begin
+		if (!tg68_as_n && !tg68_rw
+		    && tg68_a[31:12] == 20'h50F14
+		    && tg68_a[11]                      // $800..$FFF range
+		    && asc_reg_writes < 40) begin
+			$display("[ASC_REGWR] PC=%08h addr=%08h data=%04h ds=%b",
+			         last_fetch_pc, tg68_a, memoryDataOut,
+			         {~_memoryUDS, ~_memoryLDS});
+			asc_reg_writes <= asc_reg_writes + 1;
+		end
+	end
+
+	// Probe entry to the SCC-polling dispatch routine. Start address
+	// $40803280 is a generous window to catch the JSR target / routine
+	// entry point. Log the last 6 distinct PCs before first entry.
+	reg        saw_33xx;
+	reg [31:0] pre_33xx [0:7];
+	reg [2:0]  pre_33xx_idx;
+	always @(posedge clk_sys) begin
+		if (!saw_33xx) begin
+			pre_33xx[pre_33xx_idx] <= last_fetch_pc;
+			pre_33xx_idx <= pre_33xx_idx + 1;
+			if (last_fetch_pc >= 32'h40803280 && last_fetch_pc <= 32'h40803290) begin
+				saw_33xx <= 1'b1;
+				$display("[MONITOR_ENTRY] first fetch in range = %08h", last_fetch_pc);
+				$display("  history[-7]=%08h", pre_33xx[(pre_33xx_idx+1) & 3'h7]);
+				$display("  history[-6]=%08h", pre_33xx[(pre_33xx_idx+2) & 3'h7]);
+				$display("  history[-5]=%08h", pre_33xx[(pre_33xx_idx+3) & 3'h7]);
+				$display("  history[-4]=%08h", pre_33xx[(pre_33xx_idx+4) & 3'h7]);
+				$display("  history[-3]=%08h", pre_33xx[(pre_33xx_idx+5) & 3'h7]);
+				$display("  history[-2]=%08h", pre_33xx[(pre_33xx_idx+6) & 3'h7]);
+				$display("  history[-1]=%08h", pre_33xx[(pre_33xx_idx+7) & 3'h7]);
+			end
+		end
+	end
+
+	// Call-chain probe for the stuck SCC Rx poll.
+	// $408032A0 is the polling routine's entry; $40803304 is its JMP (A6)
+	// exit. The PC fetched after $40803304 is the caller's return address.
+	// Capture (a) how many times we enter $408032A0, and (b) the first 8
+	// distinct return addresses observed after the JMP (A6).
+	reg [31:0] poll_entry_count;
+	reg [31:0] poll_entry_last_fetch;  // PC just before $408032A0
+	reg        poll_entry_seen;
+	reg [31:0] poll_ret_count;
+	reg        poll_ret_pending;
+	always @(posedge clk_sys) begin
+		// Entry edge into $408032A0
+		if (last_fetch_pc == 32'h408032A0 && !poll_entry_seen) begin
+			poll_entry_seen <= 1'b1;
+			poll_entry_count <= poll_entry_count + 1;
+			if (poll_entry_count < 8)
+				$display("[POLL_ENTRY] #%0d  prev_fetch=%08h (caller side)",
+				         poll_entry_count, poll_entry_last_fetch);
+		end else if (last_fetch_pc != 32'h408032A0) begin
+			poll_entry_seen <= 1'b0;
+			poll_entry_last_fetch <= last_fetch_pc;
+		end
+
+		// Arm capture of PC after JMP (A6) at $40803304
+		if (last_fetch_pc == 32'h40803304)
+			poll_ret_pending <= 1'b1;
+		else if (poll_ret_pending) begin
+			if (last_fetch_pc != 32'h40803304) begin
+				poll_ret_pending <= 1'b0;
+				if (poll_ret_count < 8) begin
+					poll_ret_count <= poll_ret_count + 1;
+					$display("[POLL_RET ] #%0d  JMP (A6) went to PC=%08h",
+					         poll_ret_count, last_fetch_pc);
+				end
+			end
+		end
+	end
+
+	// RAM-test tracker: count JSRs into $40802BBC (orchestrator) and log
+	// every bus write whose data word is $6DB6 (the test pattern's high
+	// half). Each run of the pattern starts writes at A2 (bank boundary)
+	// ascending to A1. First $6DB6 write of a run = where the test began.
+	reg [31:0] bbc_entries;
+	reg        bbc_pc_seen;
+	reg [31:0] pat_writes;
+	reg [31:0] pat_reads;
+	reg [31:0] pat_we_pulses;
+	always @(posedge clk_sys) begin
+		if (last_fetch_pc == 32'h40802BBC && !bbc_pc_seen) begin
+			bbc_pc_seen <= 1'b1;
+			bbc_entries <= bbc_entries + 1;
+			$display("[BBC_ENTRY] #%0d  prev=%08h", bbc_entries, post_prev_pc);
+		end else if (last_fetch_pc != 32'h40802BBC) begin
+			bbc_pc_seen <= 1'b0;
+		end
+		// Reads in $0..$40 but ONLY while inside RAM-test routine $40803700-$40803800.
+		if (!tg68_as_n && tg68_rw && tg68_a < 32'h40
+		    && last_fetch_pc[31:8] == 24'h408037
+		    && pat_reads < 24) begin
+			$display("[PAT_RD] #%0d PC=%08h tg68_a=%08h cpuAddr=%08h selROM=%b selRAM=%b",
+			         pat_reads, last_fetch_pc, tg68_a, cpuAddr,
+			         !_romOE, !_ramOE);
+			pat_reads <= pat_reads + 1;
+		end
+		// Probe actual ram_we pulses during the RAM test (PC inside $40803700-$40803800)
+		if (ram_we && ram_addr < 25'h20
+		    && last_fetch_pc[31:8] == 24'h408037
+		    && pat_we_pulses < 20) begin
+			$display("[RAM_WE] #%0d PC=%08h ram_addr=%07h ram_din=%04h ds=%b",
+			         pat_we_pulses, last_fetch_pc, ram_addr, ram_din, ram_ds);
+			pat_we_pulses <= pat_we_pulses + 1;
+		end
+		if (!tg68_as_n && !tg68_rw && memoryDataOut == 16'h6DB6
+		    && pat_writes < 20) begin
+			$display("[PAT_WR] #%0d PC=%08h tg68_a=%08h cpuAddr=%08h overlay=%b selROM=%b selRAM=%b",
+			         pat_writes, last_fetch_pc, tg68_a, cpuAddr,
+			         memoryOverlayOn, !_romOE, !_ramOE);
+			pat_writes <= pat_writes + 1;
+		end
+	end
+
+	// POST failure probe: ring-buffer of the last 16 distinct fetched PCs,
+	// dumped on first fetch of $40802C3C (POST failure entry point). The PC
+	// just before $40802C3C (typically a BNE.W inside $40802AFA..$40802B7C)
+	// uniquely identifies which POST subroutine reported failure.
+	reg [31:0] post_hist [0:15];
+	reg [3:0]  post_hist_idx;
+	reg [31:0] post_prev_pc;
+	reg        post_fail_seen;
+	integer    post_i;
+	always @(posedge clk_sys) begin
+		if (!post_fail_seen && last_fetch_pc != post_prev_pc) begin
+			post_hist[post_hist_idx] <= last_fetch_pc;
+			post_hist_idx <= post_hist_idx + 4'd1;
+			post_prev_pc  <= last_fetch_pc;
+			if (last_fetch_pc == 32'h40802C3C) begin
+				post_fail_seen <= 1'b1;
+				$display("[POST_FAIL] reached $40802C3C failure entry");
+				$display("  ram.mem[0]=%04h [1]=%04h [2]=%04h [3]=%04h [4]=%04h [5]=%04h [6]=%04h [7]=%04h",
+				         ram.mem[0], ram.mem[1], ram.mem[2], ram.mem[3],
+				         ram.mem[4], ram.mem[5], ram.mem[6], ram.mem[7]);
+				for (post_i = 0; post_i < 16; post_i = post_i + 1) begin
+					$display("  hist[-%0d] = %08h",
+					         16 - post_i,
+					         post_hist[(post_hist_idx + post_i[3:0]) & 4'hF]);
+				end
+			end
+		end
+	end
+
+	// $408032AC entry tracker + 16-PC ring before first entry
+	reg [31:0] tac_ring [0:15];
+	reg [3:0]  tac_idx;
+	reg [31:0] tac_prev_pc;
+	reg        tac_seen;
+	integer    tac_i;
+	always @(posedge clk_sys) begin
+		if (!tac_seen && last_fetch_pc != tac_prev_pc) begin
+			tac_ring[tac_idx] <= last_fetch_pc;
+			tac_idx <= tac_idx + 1;
+			tac_prev_pc <= last_fetch_pc;
+			if (last_fetch_pc == 32'h408032AC) begin
+				tac_seen <= 1;
+				$display("[TAC_ENTRY] first hit $408032AC, 16 PCs leading:");
+				for (tac_i = 0; tac_i < 16; tac_i = tac_i + 1)
+					$display("  [-%0d] %08h", 16 - tac_i,
+					         tac_ring[(tac_idx + tac_i[3:0]) & 4'hF]);
+			end
+		end
+	end
+
+	// VBR change tracker — log every transition with the new value + PC.
+	// VBR should only change on MOVEC to VBR; an odd/misaligned value is a bug.
+	reg [31:0] vbr_prev;
+	always @(posedge clk_sys) begin
+		if (debug_vbr != vbr_prev) begin
+			$display("[VBR_CHG] %08h -> %08h at PC=%08h (odd=%b)",
+			         vbr_prev, debug_vbr, last_fetch_pc, debug_vbr[0]);
+			vbr_prev <= debug_vbr;
+		end
+	end
+
+	// IRQ + throughput profiler. Counts IPL assert edges per level and
+	// instruction fetches per report window.
+	reg [31:0] prof_cyc;
+	reg [31:0] prof_fetches;
+	reg [31:0] prof_irq1, prof_irq2, prof_irq4, prof_irq7;
+	reg [2:0]  prof_ipl_prev;
+	reg [31:0] prof_fetch_prev;
+	always @(posedge clk_sys) begin
+		prof_cyc <= prof_cyc + 1;
+		if (last_fetch_pc != prof_fetch_prev) begin
+			prof_fetches <= prof_fetches + 1;
+			prof_fetch_prev <= last_fetch_pc;
+		end
+		// _cpuIPL active-low: count edges where IPL goes from 7 (inactive)
+		// down to a lower value (assertion).
+		if (prof_ipl_prev == 3'b111 && _cpuIPL != 3'b111) begin
+			case (_cpuIPL)
+				3'b110: prof_irq1 <= prof_irq1 + 1;
+				3'b101: prof_irq2 <= prof_irq2 + 1;
+				3'b011: prof_irq4 <= prof_irq4 + 1;
+				3'b000: prof_irq7 <= prof_irq7 + 1;
+				default: ;
+			endcase
+		end
+		prof_ipl_prev <= _cpuIPL;
+		// Report every ~16M sys_clks (~0.5 sec wall)
+		if (prof_cyc[23:0] == 24'h000000 && prof_cyc != 0) begin
+			$display("[PROF] cyc=%0d fetches=%0d irq1=%0d irq2=%0d irq4=%0d irq7=%0d",
+			         prof_cyc, prof_fetches, prof_irq1, prof_irq2, prof_irq4, prof_irq7);
+		end
+	end
+
+	// Outer wavetable-scramble loop progress: count $40805F5C hits (the
+	// dbra D2 at loop bottom). If the counter climbs, we're progressing.
+	reg [31:0] f5c_hits;
+	reg [31:0] f14_hits;
+	reg [31:0] f5c_last_report;
+	reg [31:0] f5c_prev_pc;
+	always @(posedge clk_sys) begin
+		if (last_fetch_pc == 32'h40805F5C && f5c_prev_pc != 32'h40805F5C)
+			f5c_hits <= f5c_hits + 1;
+		if (last_fetch_pc == 32'h40805F14 && f5c_prev_pc != 32'h40805F14) begin
+			f14_hits <= f14_hits + 1;
+			$display("[F14_ENTRY #%0d] prev_pc=%08h", f14_hits, f5c_prev_pc);
+		end
+		f5c_prev_pc <= last_fetch_pc;
+		if ((f5c_hits - f5c_last_report) >= 256) begin
+			$display("[F5C_PROGRESS] hits=%0d f14=%0d", f5c_hits, f14_hits);
+			f5c_last_report <= f5c_hits;
+		end
+	end
+
+	// Late boot polling loop at $408268F2/$408268F8. The ROM polls bit 6 of
+	// (A3+$10); log A3 and the translated bus address/data to identify the
+	// device holding boot.
+	reg [7:0] poll268_prints = 8'd0;
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("poll268_debug") && poll268_prints < 8'd80) begin
+			if (last_fetch_pc >= 32'h408268d8 && last_fetch_pc <= 32'h40826930) begin
+				$display("[POLL268] pc=%08h op=%04h addr=%08h rw=%b din=%04h dout=%04h d0=%08h d1=%08h d5=%08h d7=%08h a3=%08h a4=%08h hmmu=%b selSCSI=%b selSCC=%b selVIA=%b selVIA2=%b selNuBus=%b selRAM=%b",
+				         last_fetch_pc, tg68k_inst.tg68k.opc_in, cpuAddr,
+				         _cpuRW, cpuDataIn, cpuDataOut,
+				         tg68_dbg_reg(4'd0), tg68_dbg_reg(4'd1),
+				         tg68_dbg_reg(4'd5), tg68_dbg_reg(4'd7),
+				         tg68_dbg_reg(4'd11), tg68_dbg_reg(4'd12),
+				         hmmu_active, selectSCSI, selectSCC, selectVIA,
+				         selectVIA2, selectNuBus, selectRAM);
+				poll268_prints <= poll268_prints + 1'd1;
+			end
+		end
+	end
+
+	// Test-routine entry/exit counter: how many times does $40803714 (start)
+	// fire vs $408037AA (JMP (A6) return)? Also log first 8 orchestrator
+	// PC transitions after each return to see pass/fail branch decision.
+	reg [15:0] test_enter_cnt;
+	reg [15:0] test_exit_cnt;
+	reg [31:0] test_last_pc;
+	reg [3:0]  post_ret_window;
+	always @(posedge clk_sys) begin
+		if (last_fetch_pc != test_last_pc) begin
+			test_last_pc <= last_fetch_pc;
+			if (last_fetch_pc == 32'h40803714) begin
+				test_enter_cnt <= test_enter_cnt + 1;
+				$display("[TEST_ENTER #%0d] pc=%08h", test_enter_cnt, last_fetch_pc);
+			end
+			if (last_fetch_pc == 32'h408037AA) begin
+				test_exit_cnt <= test_exit_cnt + 1;
+				$display("[TEST_EXIT #%0d] pc=%08h", test_exit_cnt, last_fetch_pc);
+				post_ret_window <= 4'd8;
+			end
+			if (post_ret_window != 0 && last_fetch_pc != 32'h408037AA) begin
+				$display("[POST_RET] pc=%08h (win=%0d)", last_fetch_pc, post_ret_window);
+				post_ret_window <= post_ret_window - 1;
+			end
+		end
+	end
+`endif
+
+endmodule
+
+module sim_fpu_cir_stub
+(
+	input         clk,
+	input         reset_n,
+	input  [4:0]  a_in,
+	input  [31:0] d_in,
+	output reg [31:0] d_out,
+	input  [1:0]  size_n,
+	input         as_n,
+	input         cs_n,
+	input         rw,
+	input         ds_n,
+	output        dsack0_n,
+	output        dsack1_n,
+	output        sense_n,
+	output        status_valid
+);
+	localparam [4:0] CIR_RESPONSE  = 5'd0;
+	localparam [4:0] CIR_SAVE      = 5'd2;
+	localparam [4:0] CIR_RESTORE   = 5'd3;
+	localparam [4:0] CIR_OPWORD    = 5'd4;
+	localparam [4:0] CIR_COMMAND   = 5'd5;
+	localparam [4:0] CIR_CONDITION = 5'd7;
+	localparam [4:0] CIR_OPERAND   = 5'd8;
+
+	localparam [15:0] RESP_NULL = 16'h2000;
+	localparam [15:0] FRAME_NULL = 16'h0000;
+
+	wire active = !as_n && !cs_n && !ds_n;
+	assign dsack0_n = ~active;
+	assign dsack1_n = 1'b1;
+	assign sense_n = 1'b0;
+	assign status_valid = 1'b1;
+
+	reg active_d;
+	reg [15:0] opword;
+	reg [15:0] command;
+	reg [15:0] condition;
+	reg [15:0] restore_format;
+
+	always @(*) begin
+		case (a_in)
+			CIR_RESPONSE: d_out = {16'h0000, RESP_NULL};
+			CIR_SAVE:     d_out = {16'h0000, FRAME_NULL};
+			CIR_OPERAND:  d_out = 32'h00000000;
+			default:      d_out = {16'h0000, RESP_NULL};
+		endcase
+	end
+
+	always @(posedge clk) begin
+		if (!reset_n) begin
+			active_d <= 1'b0;
+			opword <= 16'h0000;
+			command <= 16'h0000;
+			condition <= 16'h0000;
+			restore_format <= FRAME_NULL;
+		end else begin
+			active_d <= active;
+			if (active && !active_d && !rw) begin
+				case (a_in)
+					CIR_OPWORD:    opword <= d_in[15:0];
+					CIR_COMMAND:   command <= d_in[15:0];
+					CIR_CONDITION: condition <= d_in[15:0];
+					CIR_RESTORE:   restore_format <= d_in[15:0];
+					default: ;
+				endcase
+				if ($test$plusargs("fpu_stub_debug")) begin
+					$display("[FPU_STUB_WR] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h",
+					         a_in, d_in[15:0], opword, command, condition, restore_format);
+				end
+			end
+			if (active && !active_d && rw && $test$plusargs("fpu_stub_debug")) begin
+				$display("[FPU_STUB_RD] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h size_n=%b",
+				         a_in, d_out[15:0], opword, command, condition, restore_format, size_n);
+			end
+		end
+	end
 endmodule

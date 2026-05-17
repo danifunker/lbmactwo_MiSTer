@@ -24,10 +24,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input _cpuUDS,
 	input _cpuLDS,
 	input _cpuRW,
+	input cpuLongword,
 	output [15:0] cpuDataOut,
 
 	// peripherals:
 	input selectSCSI,
+	input selectSCSIDMA,
+	output scsiDREQ,
 	input selectSCC,
 	input selectIWM,
 	input selectVIA,
@@ -76,6 +79,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// misc
 	output memoryOverlayOn,
+	output [1:0] glueRAMSize,
+
+	// Mac II HMMU enable (VIA2 PB3 low → 24-bit translated mode)
+	output hmmu_active,
+
 	input [1:0] insertDisk,
 	input [1:0] diskSides,
 	output [1:0] diskEject,
@@ -127,7 +135,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire [15:0] via2DataOut;
 	wire [15:0] iwmDataOut;
 	wire [7:0] sccDataOut;
-	wire [7:0] scsiDataOut;
+	wire [15:0] scsiDataOut;
 	wire [7:0] ascDataOut;
 	wire asc_irq_n;
 	wire mouseX1, mouseX2, mouseY1, mouseY2, mouseButton;
@@ -144,28 +152,32 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	always @(posedge clk32) if (cpuBusControl && memoryLatch) cpu_data <= memoryDataIn;
 
 	// CPU-side data output mux
-	assign cpuDataOut = selectASC ? { ascDataOut, 8'hEF } :
+	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
 							  selectIWM ? iwmDataOut :
 							  selectVIA ? viaDataOut :
 							  selectVIA2 ? via2DataOut :
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
-							  selectSCSI ? { scsiDataOut, 8'hEF } :
+							  selectSCSI ? scsiDataOut :
 							  (cpuBusControl && memoryLatch) ? memoryDataIn : cpu_data;
 
 	// Memory-side
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
-	ncr5380 #(SCSI_DEVS) scsi(
+	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
 		.bus_rs(cpuAddrRegMid),
-		.ior(!_cpuUDS),
-		.iow(!_cpuLDS),
-		.dack(cpuAddrRegHi[0]),   // A9
-		.wdata(cpuDataIn[15:8]),
+		.ior(_cpuRW && !_cpuUDS),
+		.iow(!_cpuRW && !_cpuUDS),
+		.dack(selectSCSIDMA),
+		.dma_word(!_cpuUDS && !_cpuLDS),
+		.dma_longword(cpuLongword),
+		.dma_second_word(cpuAddrRegLo[0]),
+		.dreq(scsiDREQ),
+		.wdata(cpuDataIn),
 		.rdata(scsiDataOut),
 
 		// connections to io controller
@@ -187,11 +199,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.clk        (clk32),
 		.reset      (!_cpuReset),
 		.addr       (cpuAddrASC),
-		.data_in    (cpuDataIn[15:8]),
+		.data_in    (cpuDataIn),
 		.data_out   (ascDataOut),
 		.cs         (selectASC),
 		.rw         (_cpuRW),
-		.ds         (!_cpuUDS),
+		.uds        (!_cpuUDS),
+		.lds        (!_cpuLDS),
 		.audio_left (ascAudioLeft),
 		.audio_right(ascAudioRight),
 		.irq_n      (asc_irq_n)
@@ -235,45 +248,84 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	//port A
 	// VIA1 port A external input values (active when direction = input)
-	// Bits [2:0] = model sense, bit 6 = model6 sense
-	// Directly from Snow emulator via1_a_in() per model:
-	//   Mac Plus/SE:      0x7F (all pulled high)
-	//   Mac II:           0x01 (model=1, model6=0)
-	//   Mac II FDHD:      0x01 (model=1, model6=0, different ROM handles SWIM)
-	//   Mac IIx:          0x00 (model=0, model6=0)
-	//   Mac IIcx/SE30:    0x43 (model=3, model6=1)
+	// VIA1 PA external inputs. PA7 is supplied separately by SCC WReq.
+	// MAME's Mac II family reads PA as:
+	//   Mac II/FDHD/IIx:  0x81 (PA7 high, PA0 high)
+	//   Mac IIcx/SE30:   0xC1 (PA7 high, PA6 high, PA0 high)
 	reg [6:0] via_pa_ext;
 	always @(*) begin
 		case (macModel)
 			3'd0, 3'd1:  via_pa_ext = 7'h7F; // Mac Plus, SE: all pulled high
-			3'd2, 3'd3:  via_pa_ext = 7'h03; // Mac II, Mac II FDHD: model=1, bit1=1 (no dongle)
-			3'd4:         via_pa_ext = 7'h00; // Mac IIx: model=0
-			3'd5, 3'd6:  via_pa_ext = 7'h43; // Mac IIcx, SE/30: model=3, model6=1
+			3'd2, 3'd3,
+			3'd4:         via_pa_ext = 7'h01; // Mac II, Mac II FDHD, Mac IIx
+			3'd5, 3'd6:  via_pa_ext = 7'h41; // Mac IIcx, SE/30
 			default:      via_pa_ext = 7'h7F;
 		endcase
 	end
 	// For output bits (oe=1): read back the output value
 	// For input bits (oe=0): read the external hardware value
 	assign via_pa_i = {sccWReq, (via_pa_oe[6:0] & via_pa_o[6:0]) | (~via_pa_oe[6:0] & via_pa_ext)};
-	assign driveSel = machineType ? ~via_pa_oe[4] | via_pa_o[4] : 1'b1;
+	// Mac II drive selection is handled by the IWM devsel register. PA4 is
+	// memory overlay on Mac II, so it must not gate the internal floppy.
+	assign driveSel = 1'b1;
 	// Mac II uses VIA PA4 for overlay (same as Mac Plus, NOT Mac SE's SEOverlay)
 	assign memoryOverlayOn = ~via_pa_oe[4] | via_pa_o[4];
 	assign SEL = ~via_pa_oe[5] | via_pa_o[5];
 	assign vid_alt = ~via_pa_oe[6] | via_pa_o[6];
 
 	//port B
-	assign via_pb_i = {1'b1, {3{machineType}} | {_hblank, mouseY2, mouseX2}, machineType ? _ADBint : mouseButton, 2'b11, rtcdat_o};
+	// Mac II VIA1 PB external inputs match MAME macii_state::via_in_b():
+	//   PB3 = 1 when no ADB interrupt is pending, PB0 = RTC data, other bits 0.
+	// Output bits still read back via via6522's DDR/output mux.
+	wire rtcdat_o;
+	wire rtc_cko;
+	assign via_pb_i = machineType ? {4'b0000, _ADBint, 2'b00, rtcdat_o}
+	                              : {1'b1, _hblank, mouseY2, mouseX2, mouseButton, 2'b11, rtcdat_o};
 
 	// VIA2 PB7 output chains to VIA1 CA1 (60.15 Hz timer → 1-second interrupt)
 	wire via2_pb7_to_via1_ca1;
 	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
 
-	assign viaDataOut[7:0] = 8'hEF;
+	// Mac II VIAs run at C7M/10 ~= 783.36 kHz in MAME and hardware, not at
+	// the 32.5 MHz system clock. Keep register access on the CPU/E strobes,
+	// but gate VIA timer countdowns with this average-rate enable.
+	localparam [31:0] VIA_TIMER_HZ = 32'd783360;
+	localparam [31:0] SYS_CLK_HZ = 32'd32500000;
+`ifdef SIMULATION
+	reg [31:0] via_timer_hz = VIA_TIMER_HZ;
+	initial begin
+		integer hz;
+		if ($value$plusargs("via_timer_hz=%d", hz) && hz > 0)
+			via_timer_hz = hz[31:0];
+	end
+	wire [31:0] via_timer_step = via_timer_hz;
+`else
+	wire [31:0] via_timer_step = VIA_TIMER_HZ;
+`endif
+	reg [31:0] via_timer_acc = 32'd0;
+	reg via_timer_tick = 1'b0;
+	always @(posedge clk32) begin
+		if (!_cpuReset) begin
+			via_timer_acc <= 32'd0;
+			via_timer_tick <= 1'b0;
+		end else if (via_timer_acc >= (SYS_CLK_HZ - via_timer_step)) begin
+			via_timer_acc <= via_timer_acc + via_timer_step - SYS_CLK_HZ;
+			via_timer_tick <= 1'b1;
+		end else begin
+			via_timer_acc <= via_timer_acc + via_timer_step;
+			via_timer_tick <= 1'b0;
+		end
+	end
+
+	// Mac II VIA reads mirror the 8-bit VIA register on both 68000 byte lanes
+	// (matching MAME's `(data & 0xff) | (data << 8)` handlers).
+	assign viaDataOut[7:0] = viaDataOut[15:8];
 
 	via6522 via(
 		.clock      (clk32),
 		.rising     (E_rising),
 		.falling    (E_falling),
+		.timer_tick (via_timer_tick),
 		.reset      (!_cpuReset),
 
 		.addr       (cpuAddrRegHi),
@@ -295,7 +347,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via1_ca1),
-		.ca2_i      (onesec),
+		.ca2_i      (rtc_cko),
 
 		.cb1_i      (kbdclk),
 		.cb2_i      (cb2_i),
@@ -303,8 +355,74 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (cb2_t),
 
 		.irq        (viaIrq),
-		.sr_active  (via1_sr_active)
+		.sr_active  (via1_sr_active),
+
+		// Snow-style timer-based SR completion
+		.sr_ext_complete (via1_sr_ext_complete),
+		.sr_ext_load     (via1_sr_ext_load),
+		.sr_ext_data     (via1_sr_ext_data)
 	);
+
+`ifdef SIMULATION
+	// VIA1 IRQ instrumentation — log every IFR/IER change so we can
+	// identify which bit is re-asserting the level-1 autovector IRQ.
+	reg [6:0] via1_ifr_d, via1_ier_d;
+	reg       via1_irq_d;
+	reg       onesec_d, pb7_d, ca1_c_d, ca2_c_d;
+	reg [31:0] onesec_edges, pb7_edges, ca1_edges, ca2_edges;
+	reg [31:0] via1_ora_reads, via1_ora_writes;
+	reg [31:0] via1_ifr_writes, via1_ier_writes, via1_any_reads, via1_any_writes;
+	reg [63:0] cyc;
+	always @(posedge clk32) begin
+		cyc <= cyc + 1;
+		via1_ifr_d <= via.irq_flags;
+		via1_ier_d <= via.irq_mask;
+		via1_irq_d <= viaIrq;
+		onesec_d   <= rtc_cko;
+		pb7_d      <= via2_pb_o[7];
+		ca1_c_d    <= via.ca1_c;
+		ca2_c_d    <= via.ca2_c;
+
+		// Edge counters — Mac II expectations at 32.5 MHz:
+		//   RTC CKO:       1 Hz square wave edges every ~16.25M cycles
+		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~540K cycles
+		//   ca1_c (=PB7):  same as PB7
+		//   ca2_c (=RTC CKO): same as RTC CKO
+		if (rtc_cko && !onesec_d)        onesec_edges <= onesec_edges + 1;
+		if (via2_pb_o[7] !== pb7_d)      pb7_edges    <= pb7_edges    + 1;
+		if (via.ca1_c && !ca1_c_d)       ca1_edges    <= ca1_edges    + 1;
+		if (via.ca2_c && !ca2_c_d)       ca2_edges    <= ca2_edges    + 1;
+
+		// VIA1 register accesses
+		if (via.falling) begin
+			if (via.ren) via1_any_reads  <= via1_any_reads  + 1;
+			if (via.wen) via1_any_writes <= via1_any_writes + 1;
+			if (via.addr == 4'h1 && via.ren) via1_ora_reads  <= via1_ora_reads  + 1;
+			if (via.addr == 4'h1 && via.wen) via1_ora_writes <= via1_ora_writes + 1;
+			if (via.addr == 4'hD && via.wen) via1_ifr_writes <= via1_ifr_writes + 1;
+			if (via.addr == 4'hE && via.wen) via1_ier_writes <= via1_ier_writes + 1;
+		end
+
+		if ($test$plusargs("via_debug") && via.irq_flags !== via1_ifr_d)
+			$display("[VIA1 IFR] cyc=%0d ifr=%02h->%02h ier=%02h irq=%b",
+			         cyc, via1_ifr_d, via.irq_flags, via.irq_mask, viaIrq);
+		if ($test$plusargs("via_debug") && via.irq_mask !== via1_ier_d)
+			$display("[VIA1 IER] cyc=%0d ier=%02h->%02h ifr=%02h irq=%b",
+			         cyc, via1_ier_d, via.irq_mask, via.irq_flags, viaIrq);
+		if ($test$plusargs("via_debug") && viaIrq !== via1_irq_d)
+			$display("[VIA1 IRQ] cyc=%0d irq=%b->%b ifr=%02h ier=%02h",
+			         cyc, via1_irq_d, viaIrq, via.irq_flags, via.irq_mask);
+
+		// Periodic stats dump
+		if ($test$plusargs("via_debug") && cyc != 0 && cyc[23:0] == 24'h0)
+			$display("[STATS] cyc=%0d onesec=%0d pb7=%0d ca1=%0d ca2=%0d anyR=%0d anyW=%0d oraR=%0d oraW=%0d ifrW=%0d ierW=%0d ifr=%02h ier=%02h",
+			         cyc, onesec_edges, pb7_edges, ca1_edges, ca2_edges,
+			         via1_any_reads, via1_any_writes,
+			         via1_ora_reads, via1_ora_writes,
+			         via1_ifr_writes, via1_ier_writes,
+			         via.irq_flags, via.irq_mask);
+	end
+`endif
 
 	// VIA2 - NuBus interrupt routing, RAM sizing, timer chain
 	wire [7:0] via2_pa_i, via2_pa_o, via2_pa_oe;
@@ -320,6 +438,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// When DDR is output, loopback the output latch; when input, return HW config.
 	// PA[5:0] are NuBus slot IRQ state (active-low, directly from video card slot E = bit 5)
 	wire [1:0] ram_size_via = configRAMSize[1] ? 2'b01 : 2'b00; // 4MB/8MB->01, 1MB/2MB->00
+	assign glueRAMSize = via2_pa_o[7:6];
 	assign via2_pa_i = {(via2_pa_oe[7] ? via2_pa_o[7] : ram_size_via[1]),
 	                    (via2_pa_oe[6] ? via2_pa_o[6] : ram_size_via[0]),
 	                    (via2_pa_o[5] & via2_pa_oe[5]) | (nubus_irq_n & ~via2_pa_oe[5]),
@@ -332,15 +451,21 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// VIA2 PB7 drives VIA1 CA1 for 60.15 Hz timer chain
 	assign via2_pb7_to_via1_ca1 = via2_pb_o[7];
 
+	// VIA2 PB3: Mac II HMMU/AMU enable — active when PB3 is driven low
+	// (DDRB[3]=1, ORB[3]=0). Matches MAME macii.cpp `set_hmmu_enable` and
+	// Snow bus.rs `amu_active` gating.
+	assign hmmu_active = via2_pb_oe[3] & ~via2_pb_o[3];
+
 	// VIA2 CA1: NuBus IRQ aggregator (active-low when any slot asserts IRQ)
 	wire via2_ca1 = nubus_irq_n;  // directly from video card for now (Phase 1)
 
-	assign via2DataOut[7:0] = 8'hEF;
+	assign via2DataOut[7:0] = via2DataOut[15:8];
 
 	via6522 via2(
 		.clock      (clk32),
 		.rising     (E_rising),
 		.falling    (E_falling),
+		.timer_tick (via_timer_tick),
 		.reset      (!_cpuReset),
 
 		.addr       (cpuAddrRegHi),
@@ -370,13 +495,16 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (),
 
 		.irq        (via2Irq),
-		.sr_active  ()           // not used for VIA2
+		.sr_active  (),          // not used for VIA2
+
+		.sr_ext_complete (1'b0),
+		.sr_ext_load     (1'b0),
+		.sr_ext_data     (8'h00)
 	);
 
 	wire _rtccs   = ~via_pb_oe[2] | via_pb_o[2];
 	wire rtcck    = ~via_pb_oe[1] | via_pb_o[1];
 	wire rtcdat_i = ~via_pb_oe[0] | via_pb_o[0];
-	wire rtcdat_o;
 
 	rtc pram (
 		.clk        (clk32),
@@ -385,7 +513,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		._cs        (_rtccs),
 		.ck         (rtcck),
 		.dat_i      (rtcdat_i),
-		.dat_o      (rtcdat_o)
+		.dat_o      (rtcdat_o),
+		.cko        (rtc_cko)
 	);
 
 	wire _ADBint;
@@ -393,6 +522,91 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire ADBST1 = ~via_pb_oe[5] | via_pb_o[5];
 	wire ADBListen;
 	wire via1_sr_active;
+
+	// Snow-style timer-based VIA1 shift register completion.
+	// The real VIA SR depends on CB1 clocking (kbdclk) which in turn depends
+	// on via1_sr_active rising — but SR arming itself has verilator timing
+	// issues with wen/falling overlap. This bypass mimics Snow's approach:
+	// detect SR/ACR writes at the bus level and complete the shift after
+	// a ~3ms delay (matching Snow's SHIFT_DELAY).
+	wire via1_wr = selectVIA && !_cpuVMA && !_cpuRW;
+	wire via1_sr_wr = via1_wr && cpuAddrRegHi == 4'hA;  // SR write (reg $A)
+	wire via1_acr_wr = via1_wr && cpuAddrRegHi == 4'hB; // ACR write (reg $B)
+
+	reg [2:0] via1_acr_shift_mode;
+	reg [7:0] via1_sr_shadow;
+	reg [16:0] via1_shift_timer;
+	reg via1_shift_dir;              // 1 = shift-out, 0 = shift-in
+	reg via1_sr_ext_complete;
+	reg via1_sr_ext_load;
+	reg [7:0] via1_sr_ext_data;
+	reg via1_sr_out_done;            // pulses when shift-out timer expires
+
+	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin.
+	localparam SHIFT_DELAY = 17'd100000;
+
+	always @(posedge clk32) begin
+		if (!_cpuReset) begin
+			via1_acr_shift_mode <= 3'b000;
+			via1_sr_shadow <= 8'h00;
+			via1_shift_timer <= 17'd0;
+			via1_shift_dir <= 1'b0;
+			via1_sr_ext_complete <= 1'b0;
+			via1_sr_ext_load <= 1'b0;
+			via1_sr_ext_data <= 8'h00;
+			via1_sr_out_done <= 1'b0;
+		end else begin
+			via1_sr_ext_complete <= 1'b0;
+			via1_sr_ext_load <= 1'b0;
+			via1_sr_out_done <= 1'b0;
+
+			// Track ACR writes — shadow the shift mode bits
+			if (via1_acr_wr) begin
+				via1_acr_shift_mode <= cpuDataIn[12:10]; // bits [4:2] of byte
+				// ACR changed to shift-out mode: start timer
+				if (cpuDataIn[12:10] == 3'b111 && via1_acr_shift_mode != 3'b111) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b1;
+				end
+				// ACR changed to shift-in mode: start timer for response
+				else if (cpuDataIn[12:10] == 3'b011 && via1_acr_shift_mode != 3'b011) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b0;
+				end
+				// ACR changed to disabled: cancel any pending shift
+				else if (cpuDataIn[12:10] == 3'b000) begin
+					via1_shift_timer <= 17'd0;
+				end
+			end
+
+			// Track SR writes — shadow the data and (re)start timer
+			if (via1_sr_wr) begin
+				via1_sr_shadow <= cpuDataIn[15:8];
+				if (via1_acr_shift_mode == 3'b111) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b1;
+				end
+				if (via1_acr_shift_mode == 3'b011) begin
+					via1_shift_timer <= SHIFT_DELAY;
+					via1_shift_dir <= 1'b0;
+				end
+			end
+
+			// Countdown and complete
+			if (via1_shift_timer > 17'd1) begin
+				via1_shift_timer <= via1_shift_timer - 17'd1;
+			end else if (via1_shift_timer == 17'd1) begin
+				via1_shift_timer <= 17'd0;
+				via1_sr_ext_complete <= 1'b1;
+				via1_sr_out_done <= via1_shift_dir;
+				if (!via1_shift_dir) begin
+					// Shift-in complete: load response into SR
+					via1_sr_ext_load <= 1'b1;
+					via1_sr_ext_data <= kbd_to_mac;
+				end
+			end
+		end
+	end
 
 	reg kbdclk;
 	reg [10:0] kbdclk_count;
@@ -414,7 +628,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// receiving. This prevents the clock from starting prematurely (before ADB
 	// response data is loaded) when the VIA SR is re-armed but the ORB state
 	// transition hasn't happened yet.
-	wire kbd_clk_active = (kbd_transmitting && !kbd_wait_receiving) || kbd_receiving;
+	// Mac II uses Snow-style atomic SR byte delivery via via1_sr_ext_complete;
+	// path B (CB1 bit-bang) is disabled entirely on Mac II to avoid racing
+	// path A. See docs/adb_shift_plan.md.
+	wire kbd_clk_active = !machineType &&
+	                      ((kbd_transmitting && !kbd_wait_receiving) || kbd_receiving);
 	always @(posedge clk32) begin
 		if (clk8_en_p) begin
 			if (kbd_clk_active) begin
@@ -457,20 +675,22 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// ADB response: buffer the byte, defer clocking until VIA1 SR is armed.
 			// The ROM reads/writes VIA1 SR to arm the shift register (shift_active=1)
 			// before expecting CB1 clocks. Starting immediately would race ahead.
+			// Mac II: stash ADB response byte for path A (3 ms SR timer)
+			// to deliver via sr_ext_data = kbd_to_mac. Do NOT start path B.
 			if (adb_dout_strobe && machineType) begin
 				kbd_to_mac <= adb_dout;
-				adb_recv_pending <= 1;
-			end
-			if (adb_recv_pending && via1_sr_active && !kbd_receiving && !kbd_transmitting) begin
-				kbd_receiving <= 1;
-				adb_recv_pending <= 0;
-				kbd_bitcnt <= 0;
 			end
 
 			kbd_out_strobe <= 0;
 			adb_din_strobe <= 0;
 			kbdclk_d <= kbdclk;
 			via1_sr_active_d <= via1_sr_active;
+
+			// Snow-style shift-out completion: deliver byte to ADB transceiver
+			if (via1_sr_out_done && machineType) begin
+				adb_din_strobe <= 1;
+				adb_din <= via1_sr_shadow;
+			end
 
 			// Only the Macintosh can initiate communication over the keyboard lines. On
 			// power-up of either the Macintosh or the keyboard, the Macintosh is in
@@ -487,13 +707,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// Only start when VIA is shifting OUT (cb2_t=1). When VIA is shifting IN
 			// (cb2_t=0, ACR mode 011), we must NOT start kbd_transmitting — instead
 			// kbd_receiving will start via adb_recv_pending to drive response data on CB2.
-			if (machineType && !kbd_transmitting && !kbd_receiving) begin
-				ADBListenD <= ADBListen;
-				if ((!ADBListenD && ADBListen) || (!via1_sr_active_d && via1_sr_active && cb2_t)) begin
-					kbd_transmitting <= 1;
-					kbd_bitcnt <= 0;
-				end
-			end
+			// Mac II path-B start trigger removed: path A (via1_sr_out_done →
+			// adb_din_strobe) delivers the shifted-out byte to the ADB
+			// transceiver 3 ms after the SR write. See docs/adb_shift_plan.md.
 
 			// The last bit of the command leaves the keyboard data line low; the
 			// Macintosh then indicates it's ready to receive the keyboard's response by

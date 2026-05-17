@@ -4,7 +4,10 @@
 // ROM: 341-0660.bin (8KB)
 // 640x480, 1/2/4/8 bpp, 30.24 MHz pixel clock
 
-module nubus_video_highres (
+module nubus_video_highres #(
+    parameter SLOT_ID = 4'hE,
+    parameter DEFAULT_MONOCHROME = 1'b0
+) (
     input clk,
     input reset,
 
@@ -13,7 +16,9 @@ module nubus_video_highres (
     input [15:0] data_in,
     output reg [15:0] data_out,
     input [1:0] uds_lds,
+    input cpu_longword,
     input rw_n,
+    input cpu_as_n,
     input select,
     output reg ack_n,
     output reg nmrq_n,
@@ -44,6 +49,7 @@ module nubus_video_highres (
 
     // Overlay control (MiSTer OSD)
     input        overlay_en,
+    input        monochrome,
 
     // Pixel clock enable output
     output       ce_pixel
@@ -55,7 +61,6 @@ module nubus_video_highres (
     //   Super slot:    $FE00_0000 - $FEFF_FFFF (addr[31:28] == F, [27:24] == E)
     // Mac II ROM probes standard slot space for declaration ROMs.
     // ========================================================================
-    localparam SLOT_ID = 4'hE;
     wire in_our_slot = (addr[31:28] == SLOT_ID) ||
                        (addr[31:28] == 4'hF && addr[27:24] == SLOT_ID);
 
@@ -79,11 +84,11 @@ module nubus_video_highres (
     // Declaration ROM — 8KB (4096 x 16-bit words), on-chip
     //
     // NuBus byte-lane mapping: 341-0660 ROM file is an inverted single-lane
-    // ROM originally on NuBus lane 0 (D31-D24).  Format byte $1E (inverted
-    // $E1 = MAME lane 0).  Since our FPGA uses a 16-bit data bus, lane 0
-    // is inaccessible.  We remap to lane 3 (D7-D0) by de-inverting all
-    // bytes and overriding the format byte to $78 (lane 3, non-inverted).
-    // Each ROM byte occupies one lane-3 position per 4-byte NuBus word,
+    // ROM originally on NuBus lane 0 (D31-D24).  Format byte $1E de-inverts
+    // to $E1, which advertises lane 0.  MAME's install_declaration_rom()
+    // keeps that lane; on our 16-bit CPU bus, lane 0 is represented by the
+    // upper byte of the even 16-bit word.
+    // Each ROM byte occupies one lane-0 position per 4-byte NuBus word,
     // so 8KB ROM → 32KB address space at top of slot: $FF8000-$FFFFFF.
     //
     // MAME mirrors the ROM across all 16MB of slot space (mirror_all_mb=true).
@@ -102,35 +107,26 @@ module nubus_video_highres (
     always @(posedge clk)
         rom_rdata <= rom[addr[14:3]];
 
-    // ROM byte-lane remapping for 16-bit bus
+    // ROM byte-lane mapping for the 16-bit CPU bus
     //
     // The 341-0660 ROM file is stored INVERTED (format byte $1E at pos -1,
     // inversion marker $FF at pos -2).  MAME's install_declaration_rom
-    // detects this and XORs all bytes with $FF to de-invert, then uses
-    // the de-inverted format byte $E1 to select lane 0.
-    //
-    // Our FPGA serves data on lane 3 (D7-D0 of 16-bit bus), so we:
-    //   1. De-invert all bytes (XOR $FF)
-    //   2. Override format byte to $78 (lane 3, non-inverted)
-    //      ~$78 = $87: upper=$8 (ROM size), lower=$7=0111 (lane 3 has data)
-    //
-    // After remapping, the Slot Manager sees:
-    //   - Format byte $78 at position -1
-    //   - Inversion marker $00 at position -2 (non-inverted)
-    //   - Test pattern $5A932BC7 (standard non-inverted)
+    // detects this and XORs all bytes with $FF to de-invert, then exposes the
+    // de-inverted format byte $E1 on NuBus lane 0.
     wire [7:0] rom_byte_raw = addr[2] ? rom_rdata[7:0] : rom_rdata[15:8];
     wire [7:0] rom_byte_deinv = rom_byte_raw ^ 8'hFF;  // De-invert
-    // Format byte is the last byte: ROM word 4095, low byte (addr[2]==1)
-    wire is_format_byte = (addr[14:3] == 12'hFFF) && addr[2];
-    wire [7:0] rom_byte_out = is_format_byte ? 8'h78 : rom_byte_deinv;
-    // Only lane 3 responds (addr[1:0] == 3, i.e. D7-D0 on the 16-bit bus)
-    wire rom_lane_valid = (addr[1:0] == 2'b11);
+    wire [7:0] rom_byte_out = rom_byte_deinv;
+    // Only lane 0 responds. On the 16-bit CPU bus this is D15-D8 at even
+    // byte addresses (addr[1:0] == 0).
+    wire rom_lane_valid = (addr[1:0] == 2'b00);
 
     // ROM Download — boot1.rom (ioctl_index 1), 8KB
     // No byte-swap: ioctl_data[15:8] = even file byte, [7:0] = odd file byte,
     // which matches our rom_byte_out selection via addr[2].
     // synthesis translate_off
     integer rom_load_count = 0;
+    integer vbl_debug_count = 0;
+    integer vram_debug_count = 0;
     // synthesis translate_on
     always @(posedge clk) begin
         if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
@@ -167,6 +163,9 @@ module nubus_video_highres (
     // Bt453 RAMDAC state
     reg [7:0] ramdac_addr;
     reg [1:0] ramdac_rgb;   // 0=R, 1=G, 2=B
+    reg [31:0] ramdac_last_addr;
+    reg [15:0] ramdac_last_data;
+    reg ramdac_dup_phase;
 
     // VBL interrupt
     reg irq_active;
@@ -176,6 +175,14 @@ module nubus_video_highres (
     // NuBus ack timing
     reg [2:0] ack_delay;
     reg rom_read_pending;  // Set when ROM read in progress (ack_delay=3 path)
+    reg [31:0] ack_addr;
+    reg [15:0] ack_data_in;
+    reg [1:0] ack_uds_lds;
+    reg ack_rw_n;
+    wire bus_key_changed = (addr != ack_addr) ||
+                           (!rw_n && data_in != ack_data_in) ||
+                           (uds_lds != ack_uds_lds) ||
+                           (rw_n != ack_rw_n);
 
     // ========================================================================
     // Decoded register values
@@ -274,7 +281,9 @@ module nubus_video_highres (
     // ========================================================================
     // VBL interrupt generation
     // ========================================================================
-    wire vbl_pulse = clk_video_en && (h_cnt == 0) && (v_cnt == V_RES);
+    // MAME schedules the m2hires slot IRQ at screen position (m_vres - 1, 0),
+    // one scanline before screen().vblank() becomes true.
+    wire vbl_pulse = clk_video_en && (h_cnt == 0) && (v_cnt == V_RES - 1);
 
     always @(posedge clk) begin
         if (reset) begin
@@ -321,21 +330,60 @@ module nubus_video_highres (
     // Which byte within the 16-bit word (0=high byte, 1=low byte, big-endian)
     wire fetch_byte_sel = fetch_byte_addr[0];
 
+    wire [10:0] pixels_per_word =
+        (mode == 2'd0) ? 11'd16 :
+        (mode == 2'd1) ? 11'd8 :
+        (mode == 2'd2) ? 11'd4 : 11'd2;
+
+    wire [10:0] prefetch_x = h_cnt + pixels_per_word;
+    wire prefetch_visible = video_en && (v_cnt < V_RES) && (prefetch_x < H_RES);
+    wire [9:0] prefetch_h_byte =
+        (mode == 2'd0) ? {3'd0, prefetch_x[9:3]} :
+        (mode == 2'd1) ? {2'd0, prefetch_x[9:2]} :
+        (mode == 2'd2) ? {1'd0, prefetch_x[9:1]} :
+                         prefetch_x[9:0];
+    wire [20:0] prefetch_byte_addr = base_byte + v_byte_offset + {11'd0, prefetch_h_byte};
+    wire [18:0] prefetch_word_addr = prefetch_byte_addr[19:1];
+
+    reg [15:0] vram_cache0;
+    reg [15:0] vram_cache1;
+    reg [18:0] vram_cache0_word;
+    reg [18:0] vram_cache1_word;
+    reg vram_cache0_valid;
+    reg vram_cache1_valid;
+    reg vram_cache_replace;
+    reg [18:0] video_fetch_word;
+
+    wire display_word_cached0 = vram_cache0_valid && (vram_cache0_word == fetch_word_addr);
+    wire display_word_cached1 = vram_cache1_valid && (vram_cache1_word == fetch_word_addr);
+    wire prefetch_word_cached0 = vram_cache0_valid && (vram_cache0_word == prefetch_word_addr);
+    wire prefetch_word_cached1 = vram_cache1_valid && (vram_cache1_word == prefetch_word_addr);
+    wire video_fetch_cached = display_word_cached0 || display_word_cached1;
+    wire prefetch_cached = prefetch_word_cached0 || prefetch_word_cached1;
+    wire [18:0] video_fetch_target = video_fetch_cached ? prefetch_word_addr : fetch_word_addr;
+    wire video_fetch_valid = video_en && !blanking &&
+                             ((!video_fetch_cached && (fetch_word_addr < VRAM_SIZE)) ||
+                              (prefetch_visible && !prefetch_cached && (prefetch_word_addr < VRAM_SIZE)));
+
     // ========================================================================
     // SDRAM state machine — video fetch + CPU access
     // ========================================================================
-    localparam S_IDLE           = 3'd0;
-    localparam S_VIDEO_FETCH    = 3'd1;
-    localparam S_VIDEO_WAIT     = 3'd2;
-    localparam S_CPU_WRITE      = 3'd3;
-    localparam S_CPU_WRITE_WAIT = 3'd4;
-    localparam S_CPU_READ       = 3'd5;
-    localparam S_CPU_READ_WAIT  = 3'd6;
+    localparam S_IDLE               = 4'd0;
+    localparam S_VIDEO_FETCH        = 4'd1;
+    localparam S_VIDEO_WAIT         = 4'd2;
+    localparam S_CPU_WRITE          = 4'd3;
+    localparam S_CPU_WRITE_WAIT     = 4'd4;
+    localparam S_CPU_READ           = 4'd5;
+    localparam S_CPU_READ_WAIT      = 4'd6;
+    localparam S_CPU_RMW_READ       = 4'd7;
+    localparam S_CPU_RMW_READ_WAIT  = 4'd8;
+    localparam S_CPU_RMW_WRITE      = 4'd9;
 
-    reg [2:0] state;
-    reg [15:0] vram_cache;
-    reg vram_cache_valid;
-    reg [18:0] last_fetch_word;
+    reg [3:0] state;
+    reg [18:0] cpu_write_word;
+    reg [15:0] cpu_write_data;
+    reg [15:0] cpu_write_merged;
+    reg [1:0] cpu_write_strobes;
 
     wire [18:0] cpu_vram_word = addr[19:1];  // CPU byte addr → word addr
 
@@ -369,15 +417,31 @@ module nubus_video_highres (
             vram_wr <= 1'b0;
             vram_addr <= 25'd0;
             vram_dout <= 16'd0;
-            vram_cache <= 16'd0;
-            vram_cache_valid <= 1'b0;
-            last_fetch_word <= 19'h7FFFF;
+            vram_cache0 <= 16'd0;
+            vram_cache1 <= 16'd0;
+            vram_cache0_word <= 19'h7FFFF;
+            vram_cache1_word <= 19'h7FFFF;
+            vram_cache0_valid <= 1'b0;
+            vram_cache1_valid <= 1'b0;
+            vram_cache_replace <= 1'b0;
+            video_fetch_word <= 19'd0;
+            cpu_write_word <= 19'd0;
+            cpu_write_data <= 16'd0;
+            cpu_write_merged <= 16'd0;
+            cpu_write_strobes <= 2'b00;
             ack_n <= 1'b1;
             ack_delay <= 3'd0;
             rom_read_pending <= 1'b0;
+            ack_addr <= 32'd0;
+            ack_data_in <= 16'd0;
+            ack_uds_lds <= 2'b00;
+            ack_rw_n <= 1'b1;
             data_out <= 16'd0;
             ramdac_addr <= 8'd0;
             ramdac_rgb <= 2'd0;
+            ramdac_last_addr <= 32'd0;
+            ramdac_last_data <= 16'd0;
+            ramdac_dup_phase <= 1'b0;
             vbl_disable <= 1'b1;
             for (i = 0; i < 16; i = i + 1)
                 registers[i] <= 32'd0;
@@ -395,8 +459,16 @@ module nubus_video_highres (
 
                 S_VIDEO_WAIT: begin
                     if (vram_ready) begin
-                        vram_cache <= vram_din;  // Raw data — NOT inverted for display
-                        vram_cache_valid <= 1'b1;
+                        if (vram_cache_replace) begin
+                            vram_cache1 <= vram_din;  // Raw data — NOT inverted for display
+                            vram_cache1_word <= video_fetch_word;
+                            vram_cache1_valid <= 1'b1;
+                        end else begin
+                            vram_cache0 <= vram_din;  // Raw data — NOT inverted for display
+                            vram_cache0_word <= video_fetch_word;
+                            vram_cache0_valid <= 1'b1;
+                        end
+                        vram_cache_replace <= ~vram_cache_replace;
                         vram_rd <= 1'b0;
                         state <= S_IDLE;
                     end
@@ -406,27 +478,44 @@ module nubus_video_highres (
                     vram_rd <= 1'b0;
                     vram_wr <= 1'b0;
 
-                    // Priority: CPU access > video fetch
+                    if (cpu_as_n && !ack_n) begin
+                        ack_n <= 1'b1;
+                        ack_delay <= 3'd0;
+                    end else if (select && in_our_slot && !ack_n && ack_delay == 3'd0 && bus_key_changed) begin
+                        ack_n <= 1'b1;
+                    end
+
+                    // Priority: CPU access > opportunistic video fetch.  This
+                    // still is not a full local-VRAM scanout model, but it keeps
+                    // boot timing stable while the NuBus write path is tested.
                     // VRAM/regs/RAMDAC/VBL checked first; ROM is fallback
                     // (MAME: mirror_all_mb=true mirrors ROM across entire 16MB slot space)
-                    if (select && in_our_slot && ack_n && ack_delay == 3'd0) begin
+                    if (!cpu_as_n && select && in_our_slot && ack_n && ack_delay == 3'd0) begin
+                        ack_addr <= addr;
+                        ack_data_in <= data_in;
+                        ack_uds_lds <= uds_lds;
+                        ack_rw_n <= rw_n;
                         // synthesis translate_off
-                        if (addr_is_regs && !rw_n)
-                            $display("NUBUS: WR REG[%0d] addr=%h data_in=%h addr[1]=%b",
-                                addr[5:2], addr, data_in, addr[1]);
-                        else if (addr_is_ramdac && !rw_n)
-                            $display("NUBUS: WR RAMDAC addr=%h addr[2]=%b data=%h rgb=%0d clut_addr=%0d",
-                                addr, addr[2], data_in, ramdac_rgb, ramdac_addr);
-                        else if (addr_is_vblctl)
-                            $display("NUBUS: WR VBL_CTL addr=%h addr[4]=%b", addr, addr[4]);
-                        else if (addr_is_vram && !rw_n)
-                            ; // too noisy — uncomment if needed
-                        else if (addr_is_ramdac && rw_n)
-                            $display("NUBUS: RD RAMDAC/VBL addr=%h", addr);
-                        else if (rw_n)
-                            $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h raw=%h out=%h lane=%0d data_out=%h",
-                                addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
-                                addr[1:0], rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF);
+`ifdef SIMULATION
+                        if ($test$plusargs("nubus_debug")) begin
+                            if (addr_is_regs && !rw_n)
+                                $display("NUBUS: WR REG[%0d] addr=%h data_in=%h addr[1]=%b",
+                                    addr[5:2], addr, data_in, addr[1]);
+                            else if (addr_is_ramdac && !rw_n)
+                                $display("NUBUS: WR RAMDAC addr=%h addr[2]=%b data=%h rgb=%0d clut_addr=%0d",
+                                    addr, addr[2], data_in, ramdac_rgb, ramdac_addr);
+                            else if (addr_is_vblctl)
+                                $display("NUBUS: WR VBL_CTL addr=%h addr[4]=%b", addr, addr[4]);
+                            else if (addr_is_vram && !rw_n)
+                                ; // too noisy - uncomment if needed
+                            else if (addr_is_ramdac && rw_n)
+                                $display("NUBUS: RD RAMDAC/VBL addr=%h", addr);
+                            else if (rw_n)
+                                $display("NUBUS: RD ROM addr=%h rom_word[%0d]=%h raw=%h out=%h lane=%0d data_out=%h",
+                                    addr, addr[14:3], rom[addr[14:3]], rom_byte_raw, rom_byte_out,
+                                    addr[1:0], rom_lane_valid ? {rom_byte_out, 8'hFF} : 16'hFFFF);
+                        end
+`endif
                         // synthesis translate_on
                         // ---------------------------------------------------
                         // VRAM write ($x0_0000 - $x7_FFFF)
@@ -434,8 +523,40 @@ module nubus_video_highres (
                         if (!rw_n && addr_is_vram) begin
                             if (cpu_vram_word < VRAM_SIZE) begin
                                 vram_addr <= VRAM_BASE + {6'd0, cpu_vram_word};
-                                vram_dout <= ~data_in;  // Invert on write (MAME: data ^= 0xFFFFFFFF)
-                                state <= S_CPU_WRITE;
+                                cpu_write_word <= cpu_vram_word;
+                                cpu_write_data <= ~data_in;  // Invert on write (MAME: data ^= 0xFFFFFFFF)
+                                cpu_write_strobes <= uds_lds;
+                                if (uds_lds == 2'b11) begin
+                                    cpu_write_merged <= ~data_in;
+                                    vram_dout <= ~data_in;
+                                    // Apple NuBus longword transfers through a 16-bit local
+                                    // interface are presented as two halfword operations
+                                    // (+0 then +2). Store only the addressed halfword here;
+                                    // the following bus cycle supplies the other half.
+                                    // synthesis translate_off
+`ifdef SIMULATION
+                                    if ($test$plusargs("nubus_vram_debug") && vram_debug_count < 240) begin
+                                        $display("NUBUS_VRAM_WR addr=%h word=%h data=%h stored=%h strobes=%b long=%b",
+                                            addr, cpu_vram_word, data_in, ~data_in, uds_lds, cpu_longword);
+                                        vram_debug_count = vram_debug_count + 1;
+                                    end
+`endif
+                                    // synthesis translate_on
+                                    state <= S_CPU_WRITE;
+                                end else if (uds_lds != 2'b00) begin
+                                    // synthesis translate_off
+`ifdef SIMULATION
+                                    if ($test$plusargs("nubus_vram_debug") && vram_debug_count < 240) begin
+                                        $display("NUBUS_VRAM_RMW addr=%h word=%h data=%h strobes=%b long=%b",
+                                            addr, cpu_vram_word, data_in, uds_lds, cpu_longword);
+                                        vram_debug_count = vram_debug_count + 1;
+                                    end
+`endif
+                                    // synthesis translate_on
+                                    state <= S_CPU_RMW_READ;
+                                end else begin
+                                    ack_delay <= 3'd2;
+                                end
                             end else begin
                                 ack_delay <= 3'd2;
                             end
@@ -491,22 +612,30 @@ module nubus_video_highres (
                         // byte-wide NuBus peripherals at even addresses.
                         // ---------------------------------------------------
                         else if (!rw_n && addr_is_ramdac) begin
-                            if (addr[2] == 1'b0) begin
-                                // Set RAMDAC address, reset RGB counter
-                                ramdac_addr <= ~data_in[15:8];
-                                ramdac_rgb <= 2'd0;
+                            if (ramdac_dup_phase && ramdac_last_addr == addr && ramdac_last_data == data_in) begin
+                                ramdac_dup_phase <= 1'b0;
                             end else begin
-                                // Write palette R/G/B sequentially
-                                case (ramdac_rgb)
-                                    2'd0: clut[ramdac_addr][23:16] <= ~data_in[15:8]; // R
-                                    2'd1: clut[ramdac_addr][15:8]  <= ~data_in[15:8]; // G
-                                    2'd2: begin
-                                        clut[ramdac_addr][7:0] <= ~data_in[15:8];     // B
-                                        ramdac_addr <= ramdac_addr + 8'd1;            // Auto-increment
-                                    end
-                                    default: ;
-                                endcase
-                                ramdac_rgb <= (ramdac_rgb == 2'd2) ? 2'd0 : ramdac_rgb + 2'd1;
+                                ramdac_last_addr <= addr;
+                                ramdac_last_data <= data_in;
+                                ramdac_dup_phase <= 1'b1;
+
+                                if (addr[2] == 1'b0) begin
+                                    // Set RAMDAC address, reset RGB counter
+                                    ramdac_addr <= ~data_in[15:8];
+                                    ramdac_rgb <= 2'd0;
+                                end else begin
+                                    // Write palette R/G/B sequentially
+                                    case (ramdac_rgb)
+                                        2'd0: clut[ramdac_addr][23:16] <= ~data_in[15:8]; // R
+                                        2'd1: clut[ramdac_addr][15:8]  <= ~data_in[15:8]; // G
+                                        2'd2: begin
+                                            clut[ramdac_addr][7:0] <= ~data_in[15:8];     // B
+                                            ramdac_addr <= ramdac_addr + 8'd1;            // Auto-increment
+                                        end
+                                        default: ;
+                                    endcase
+                                    ramdac_rgb <= (ramdac_rgb == 2'd2) ? 2'd0 : ramdac_rgb + 2'd1;
+                                end
                             end
                             ack_delay <= 3'd2;
                         end
@@ -529,6 +658,17 @@ module nubus_video_highres (
                             end else begin
                                 data_out <= 16'd0;
                             end
+                            // synthesis translate_off
+`ifdef SIMULATION
+                            if ($test$plusargs("vbl_debug") && vbl_debug_count < 240) begin
+                                $display("NUBUS_VBL_R addr=%h data=%h h=%0d v=%0d vblank=%b irq=%b dis=%b",
+                                    addr,
+                                    (addr[15:2] == 14'h0004) ? (addr[1] ? 16'h0000 : {14'd0, 1'b1, (v_cnt >= V_RES) ? 1'b1 : 1'b0}) : 16'h0000,
+                                    h_cnt, v_cnt, (v_cnt >= V_RES), irq_active, vbl_disable);
+                                vbl_debug_count = vbl_debug_count + 1;
+                            end
+`endif
+                            // synthesis translate_on
                             ack_delay <= 3'd2;
                         end
                         // ---------------------------------------------------
@@ -545,6 +685,15 @@ module nubus_video_highres (
                                 vbl_disable <= 1'b0;
                                 irq_clear <= 1'b1;
                             end
+                            // synthesis translate_off
+`ifdef SIMULATION
+                            if ($test$plusargs("vbl_debug") && vbl_debug_count < 240) begin
+                                $display("NUBUS_VBL_W addr=%h data=%h h=%0d v=%0d irq=%b dis=%b clear=%b",
+                                    addr, data_in, h_cnt, v_cnt, irq_active, vbl_disable, !addr[4]);
+                                vbl_debug_count = vbl_debug_count + 1;
+                            end
+`endif
+                            // synthesis translate_on
                             ack_delay <= 3'd2;
                         end
                         // ---------------------------------------------------
@@ -567,20 +716,17 @@ module nubus_video_highres (
                     //     $display("NUBUS: SELECT but NOT our slot! addr=%h [31:28]=%h [27:24]=%h",
                     //         addr, addr[31:28], addr[27:24]);
                     // synthesis translate_on
-                    end else if (!select && !ack_n) begin
+                    end else if ((!select || cpu_as_n) && !ack_n) begin
                         // CPU deasserted select — end transaction
                         ack_n <= 1'b1;
                         ack_delay <= 3'd0;
 
-                    end else if (video_en && !blanking &&
-                                 fetch_word_addr != last_fetch_word &&
-                                 fetch_word_addr < VRAM_SIZE) begin
-                        // Video prefetch during active display
-                        vram_addr <= VRAM_BASE + {6'd0, fetch_word_addr};
-                        last_fetch_word <= fetch_word_addr;
-                        vram_cache_valid <= 1'b0;
+                    end else if (!select && video_fetch_valid) begin
+                        vram_addr <= VRAM_BASE + {6'd0, video_fetch_target};
+                        video_fetch_word <= video_fetch_target;
                         vram_rd <= 1'b1;
                         state <= S_VIDEO_FETCH;
+
                     end
                 end
 
@@ -591,6 +737,10 @@ module nubus_video_highres (
 
                 S_CPU_WRITE_WAIT: begin
                     if (vram_ready) begin
+                        if (vram_cache0_valid && vram_cache0_word == cpu_write_word)
+                            vram_cache0 <= cpu_write_merged;
+                        if (vram_cache1_valid && vram_cache1_word == cpu_write_word)
+                            vram_cache1 <= cpu_write_merged;
                         vram_wr <= 1'b0;
                         ack_delay <= 3'd2;
                         state <= S_IDLE;
@@ -611,14 +761,36 @@ module nubus_video_highres (
                     end
                 end
 
+                S_CPU_RMW_READ: begin
+                    vram_rd <= 1'b1;
+                    state <= S_CPU_RMW_READ_WAIT;
+                end
+
+                S_CPU_RMW_READ_WAIT: begin
+                    if (vram_ready) begin
+                        vram_rd <= 1'b0;
+                        cpu_write_merged <= {
+                            cpu_write_strobes[1] ? cpu_write_data[15:8] : vram_din[15:8],
+                            cpu_write_strobes[0] ? cpu_write_data[7:0]  : vram_din[7:0]
+                        };
+                        state <= S_CPU_RMW_WRITE;
+                    end
+                end
+
+                S_CPU_RMW_WRITE: begin
+                    vram_dout <= cpu_write_merged;
+                    vram_wr <= 1'b1;
+                    state <= S_CPU_WRITE_WAIT;
+                end
+
                 default: state <= S_IDLE;
             endcase
 
             // Latch ROM read data one cycle before ack
-            // Byte lane 3: ROM data on D7-D0, $FF on D15-D8
-            // Non-lane-3 addresses return $FFFF (empty lanes)
+            // Byte lane 0: ROM data on D15-D8, $FF on D7-D0.
+            // Non-lane-0 addresses return $FFFF (empty lanes).
             if (ack_delay == 3'd2 && rom_read_pending) begin
-                data_out <= rom_lane_valid ? {8'hFF, rom_byte_out} : 16'hFFFF;
+                data_out <= rom_lane_valid ? {rom_byte_out, 8'hFF} : 16'hFFFF;
                 rom_read_pending <= 1'b0;
             end
         end
@@ -631,28 +803,36 @@ module nubus_video_highres (
     // and uses them as CLUT indices. The RAMDAC palette compensates for the
     // inversion — the ROM driver programs pen[0]=white, pen[1]=black for 1bpp.
     //
-    // We read raw SDRAM data into vram_cache (no inversion) and extract pixel
-    // indices based on mode, then look up in CLUT.
+    // We read raw SDRAM data into an address-tagged cache (no inversion) and
+    // extract pixel indices based on mode, then look up in CLUT.
     // ========================================================================
 
     // Delay h_cnt bits and byte select for pipeline alignment
     reg [2:0] h_cnt_d;
     reg byte_sel_d;
     reg blanking_d;
+    reg display_word_cached_d;
+    reg vram_cache_any_valid_d;
+    reg [15:0] display_cache_word_d;
+
+    wire [15:0] display_cache_word =
+        display_word_cached0 ? vram_cache0 :
+        display_word_cached1 ? vram_cache1 :
+        vram_cache1_valid ? vram_cache1 : vram_cache0;
 
     always @(posedge clk) begin
         if (clk_video_en) begin
             h_cnt_d <= h_cnt[2:0];
-            // Select which byte of the 16-bit word we're reading
-            // Big-endian: high byte first. byte_sel=0 → [15:8], byte_sel=1 → [7:0]
-            byte_sel_d <= (mode == 2'd0) ? h_cnt[3] :
-                          (mode == 2'd1) ? h_cnt[2] :
-                          (mode == 2'd2) ? h_cnt[1] : h_cnt[0];
+            display_word_cached_d <= video_fetch_cached;
+            vram_cache_any_valid_d <= vram_cache0_valid || vram_cache1_valid;
+            display_cache_word_d <= display_cache_word;
+            // Big-endian: high byte first. byte_sel=0 -> [15:8], byte_sel=1 -> [7:0]
+            byte_sel_d <= fetch_byte_sel;
             blanking_d <= blanking;
         end
     end
 
-    wire [7:0] vram_byte = byte_sel_d ? vram_cache[7:0] : vram_cache[15:8];
+    wire [7:0] vram_byte = byte_sel_d ? display_cache_word_d[7:0] : display_cache_word_d[15:8];
 
     // Extract pixel index from byte based on mode
     reg [7:0] pixel_idx;
@@ -690,15 +870,18 @@ module nubus_video_highres (
     end
 
     // CLUT lookup and output
-    wire pixel_valid = video_en && !blanking_d && vram_cache_valid;
-    assign vga_r = pixel_valid ? clut[pixel_idx][23:16] : 8'd0;
-    assign vga_g = pixel_valid ? clut[pixel_idx][15:8]  : 8'd0;
-    assign vga_b = pixel_valid ? clut[pixel_idx][7:0]   : 8'd0;
+    wire pixel_valid = video_en && !blanking_d && (display_word_cached_d || vram_cache_any_valid_d);
+    wire mono_mode = DEFAULT_MONOCHROME || monochrome;
+    wire [7:0] mono_pixel = pixel_idx[0] ? 8'h22 : 8'hee;
+    assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16]) : 8'd0;
+    assign vga_g = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])  : 8'd0;
+    assign vga_b = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])   : 8'd0;
 
     // ========================================================================
     // Debug: video pipeline state (synthesis translate_off)
     // ========================================================================
     // synthesis translate_off
+`ifdef SIMULATION
     reg debug_printed_regs;
     reg [10:0] debug_prev_v_cnt;
     initial begin
@@ -708,7 +891,7 @@ module nubus_video_highres (
 
     always @(posedge clk) begin
         // Print register state once when video_en first goes high
-        if (video_en && !debug_printed_regs) begin
+        if ($test$plusargs("video_debug") && video_en && !debug_printed_regs) begin
             debug_printed_regs <= 1;
             $display("VIDEO_EN: video enabled! mode_raw=%0d mode=%0d base=%0d stride=%0d",
                 mode_raw, mode, vram_base_offset, vram_stride);
@@ -717,15 +900,17 @@ module nubus_video_highres (
         end
 
         // Print first few pixels of each new frame (v_cnt==0, h_cnt < 16)
-        if (clk_video_en && video_en && v_cnt == 0 && h_cnt < 16 && debug_prev_v_cnt != 0) begin
-            $display("VIDEO_PIX: h=%0d v=%0d cache=%h cache_valid=%b byte_sel=%b vram_byte=%h pixel_idx=%0d rgb=%h%h%h",
-                h_cnt, v_cnt, vram_cache, vram_cache_valid, byte_sel_d,
+        if ($test$plusargs("video_debug") && clk_video_en && video_en && v_cnt == 0 && h_cnt < 16 && debug_prev_v_cnt != 0) begin
+            $display("VIDEO_PIX: h=%0d v=%0d word=%h cached=%b byte_sel=%b vram_byte=%h pixel_idx=%0d rgb=%h%h%h",
+                h_cnt, v_cnt, fetch_word_addr,
+                display_word_cached_d, byte_sel_d,
                 vram_byte, pixel_idx, vga_r, vga_g, vga_b);
         end
 
         if (clk_video_en)
             debug_prev_v_cnt <= v_cnt;
     end
+`endif
     // synthesis translate_on
 
 endmodule

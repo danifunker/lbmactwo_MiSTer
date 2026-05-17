@@ -33,8 +33,13 @@ module tg68k (
 	output cpu_halted,
 	input [15:0] din,
 	output [15:0] dout,
+	output longword,
 	output reg [31:0] addr,
-	output [31:0] VBR_out
+	output [31:0] VBR_out,
+
+	// Format $B RTE: suppress next BERR, provide data instead
+	output berr_inhibit,
+	output [31:0] berr_data
 );
 
 wire  [1:0] tg68_busstate;
@@ -219,6 +224,8 @@ TG68KdotC_Kernel tg68k (
 	.berr           ( berr          ),
 	.clr_berr       (               ),
 	.cpu_halted     ( cpu_halted    ),
+	.berr_inhibit   ( berr_inhibit  ),
+	.berr_data      ( berr_data     ),
 	.CPU            ( cpu           ), // 00->68000  01->68010  11->68020(only some parts - yet)
 	.addr_out       ( tg68_addr     ),
 	.data_write     ( dout          ),
@@ -226,6 +233,7 @@ TG68KdotC_Kernel tg68k (
 	.nLDS           ( tg68_lds_n    ),
 	.nWr            ( tg68_rw       ),
 	.busstate       ( tg68_busstate ), // 00-> fetch code 10->read data 11->write data 01->no memaccess
+	.longword       ( longword      ),
 	.nResetOut      ( reset_n       ),
 	.FC             ( fc            ),
 	.VBR_out        ( VBR_out       )

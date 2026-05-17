@@ -98,12 +98,14 @@
 module addrDecoder(
 	input [1:0] configROMSize,
 	input [1:0] configRAMSize,	// 0=1MB, 1=2MB, 2+=4MB
+	input [1:0] glueRAMSize,
 	input [31:0] address,
 	input _cpuAS,
 	input memoryOverlayOn,
 	output reg selectRAM,
 	output reg selectROM,
 	output reg selectSCSI,
+	output reg selectSCSIDMA,
 	output reg selectSCC,
 	output reg selectIWM,
 	output reg selectVIA,
@@ -117,6 +119,7 @@ module addrDecoder(
 		selectRAM = 0;
 		selectROM = 0;
 		selectSCSI = 0;
+		selectSCSIDMA = 0;
 		selectSCC = 0;
 		selectIWM = 0;
 		selectVIA = 0;
@@ -133,7 +136,7 @@ module addrDecoder(
 		// Also treat $80xxxxxx as 24-bit: the Slot Manager flags sResource entry
 		// pointers with BSET #7 (byte 0), turning $0000xxxx into $8000xxxx.
 		// On real Mac II this bus-errors and the handler strips bit 31; since
-		// TG68K doesn't handle bus errors in 68020 mode, mirror $80→$00 instead.
+		// TG68K doesn't fully implement format $B fault address, mirror $80→$00 instead.
 		if (address[31:24] != 8'h00 && address[31:24] != 8'hFF
 		    && address[31:24] != 8'h80) begin
 			// Standard NuBus Slot Space: $9000_0000 - $EEFF_FFFF
@@ -160,7 +163,8 @@ module addrDecoder(
 			// Mac II 32-bit I/O space: $50F0_xxxx only
 			// Real hardware confirms $5000_xxxx does NOT mirror — falls through to RAM
 			// Only $50Fx_xxxx decodes as I/O; $51E0_0000 bus errors (not periodic)
-			// VIA1: +$0000, VIA2: +$2000, SCC: +$4000, SCSI: +$10000, IWM: +$16000
+			// VIA1: +$0000, VIA2: +$2000, SCC: +$4000,
+			// SCSI pseudo-DMA: +$6000 and +$12000, SCSI regs: +$10000, IWM: +$16000
 			else if (address[31:20] == 12'h50F) begin
 				if (address[19:13] == 7'b0000_000)       // +$00_0000: VIA1
 					selectVIA = !_cpuAS;
@@ -168,8 +172,15 @@ module addrDecoder(
 					selectVIA2 = !_cpuAS;
 				else if (address[19:13] == 7'b0000_010)  // +$00_4000: SCC
 					selectSCC = !_cpuAS;
-				else if (address[19:14] == 6'b0001_00)   // +$01_0000: SCSI
+				else if (address[19:12] == 8'h06) begin  // +$00_6000: SCSI pseudo-DMA
 					selectSCSI = !_cpuAS;
+					selectSCSIDMA = !_cpuAS;
+				end
+				else if (address[19:14] == 6'b0001_00) begin // +$01_0000: SCSI
+					selectSCSI = !_cpuAS;
+					if (address[19:13] == 7'b0001_001)   // +$01_2000: SCSI pseudo-DMA
+						selectSCSIDMA = !_cpuAS;
+				end
 				else if (address[19:13] == 7'b0001_010)  // +$01_4000: ASC
 					selectASC = !_cpuAS;
 				else if (address[19:13] == 7'b0001_011)  // +$01_6000: IWM/SWIM
@@ -190,9 +201,11 @@ module addrDecoder(
 		// Peripherals remain accessible via 32-bit addresses ($40000000 ROM,
 		// $50F00000 I/O) which are decoded in the 32-bit section above.
 		//
-		// RAM ranges (with mirroring for ROM detection):
+		// RAM ranges:
 		//   1MB: $00-$0F only (no mirror)
-		//   2MB: $00-$3F (mirrored in 4MB space, addr wraps at 2MB)
+		//   2MB: dynamic Mac II GLUE layout from VIA2 PA7:6:
+		//        00/01 = $00-$2F (2MB physical plus 1MB bank-A mirror)
+		//        10/11 = $00-$0F only while ROM probes invalid bank-B placements
 		//   4MB: $00-$3F (no mirror)
 		//   8MB: $00-$7F (no mirror, overrides 24-bit ROM/SCSI)
 		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF || address[31:24] == 8'h80) begin
@@ -201,7 +214,8 @@ module addrDecoder(
 			// Overlay mode is handled separately below
 			if (!memoryOverlayOn && (
 				(configRAMSize == 2'b00 && address[23:20] == 4'h0) ||                // 1MB: $00-$0F
-				(configRAMSize == 2'b01 && address[23:22] == 2'b00) ||               // 2MB: $00-$3F (mirrored)
+				(configRAMSize == 2'b01 && (glueRAMSize == 2'b00 || glueRAMSize == 2'b01) && address[23:20] <= 4'h2) ||
+				(configRAMSize == 2'b01 && (glueRAMSize == 2'b10 || glueRAMSize == 2'b11) && address[23:20] == 4'h0) ||
 				(configRAMSize == 2'b10 && address[23:22] == 2'b00) ||               // 4MB: $00-$3F
 				(configRAMSize == 2'b11 && address[23]    == 1'b0)))                  // 8MB: $00-$7F
 			begin
@@ -273,8 +287,15 @@ module addrDecoder(
 							selectVIA2 = !_cpuAS;
 						else if (address[19:13] == 7'b0000_010)  // SCC
 							selectSCC = !_cpuAS;
-						else if (address[19:14] == 6'b0001_00)   // SCSI
+						else if (address[19:12] == 8'h06) begin  // SCSI pseudo-DMA
 							selectSCSI = !_cpuAS;
+							selectSCSIDMA = !_cpuAS;
+						end
+						else if (address[19:14] == 6'b0001_00) begin // SCSI
+							selectSCSI = !_cpuAS;
+							if (address[19:13] == 7'b0001_001)   // SCSI pseudo-DMA
+								selectSCSIDMA = !_cpuAS;
+						end
 						else if (address[19:13] == 7'b0001_010)  // ASC
 							selectASC = !_cpuAS;
 						else if (address[19:13] == 7'b0001_011)  // IWM/SWIM

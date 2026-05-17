@@ -5397,9 +5397,9 @@ module TG68K_ALU
   /* TG68K_ALU.vhd:1282:17  */
   assign n2229 = n2226 ? 1'b1 : 1'b0;
   /* TG68K_ALU.vhd:1294:47  */
-  assign n2235 = micro_state != 7'b1011010;
+  assign n2235 = micro_state != 7'b1011100;
   /* TG68K_ALU.vhd:1298:47  */
-  assign n2238 = micro_state == 7'b1010101;
+  assign n2238 = micro_state == 7'b1010111;
   /* TG68K_ALU.vhd:1300:65  */
   assign n2239 = dividend[63]; // extract
   /* TG68K_ALU.vhd:1300:53  */
@@ -5419,7 +5419,7 @@ module TG68K_ALU
   /* TG68K_ALU.vhd:1298:33  */
   assign n2251 = n2238 ? 1'b0 : n2248;
   /* TG68K_ALU.vhd:1311:47  */
-  assign n2254 = micro_state == 7'b1010110;
+  assign n2254 = micro_state == 7'b1011000;
   /* TG68K_ALU.vhd:1312:72  */
   assign n2255 = OP2out[31]; // extract
   /* TG68K_ALU.vhd:1312:77  */

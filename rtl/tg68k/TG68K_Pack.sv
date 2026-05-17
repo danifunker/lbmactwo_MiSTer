@@ -128,7 +128,7 @@ package TG68K_Pack;
     rtd1, rtd2, trap00, trap0, trap1, trap2, trap3, 
     cas1, cas2, cas21, cas22, cas23, cas24, cas25, cas26, cas27, cas28,
     chk20, chk21, chk22, chk23, chk24,
-    trap4, trap5, trap6, movec1, moves0, moves1, 
+    trap4, trap5, trap6, trap_berr20, rte_berr20, movec1, moves0, moves1,
     movep1, movep2, movep3, movep4, movep5, rota1, bf1,
     pmove_decode, pmove_decode_wait, pmove_mem_to_mmu_hi, 
     pmove_mmu_to_mem_hi, pmove_mem_to_mmu_lo, pmove_mmu_to_mem_lo, 

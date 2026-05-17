@@ -20,20 +20,20 @@ module sim_ram
 	input [31:0]        debug_pc    // CPU PC for watchpoint logging
 );
 
-// 1MB of RAM (512K words of 16 bits) + ROM space
+// 4MB of RAM (2M words of 16 bits) + ROM space
 // Upper address bits select ROM vs RAM area
-// ROM area (addr[21:20]=01) uses full 256K words for 512KB ROM
-// RAM area: 512K words (addr[18:0]). Accesses beyond 1MB return 0
+// ROM area (addr[21]=1) uses 256K words for 512KB ROM + disk images
+// RAM area: 2M words (addr[20:0]). Accesses beyond 4MB return 0
 // and writes are ignored — matches real hardware (BERR/no response).
-reg [15:0] mem [0:4194303];  // Keep full array for ROM storage
+reg [15:0] mem [0:4194303];  // 4M words: 2M RAM + 2M ROM/disk
 
-// RAM range check: addr[21:20]==00 and addr[19]==0 means within 1MB
+// RAM range check: addr[21]==0 means within 4MB RAM space (2M words)
 // ROM/other: addr[21] set (ROM downloads, ROM reads, disk reads)
-wire ram_in_range = (addr[21:20] == 2'b00) && (addr[19] == 1'b0);
+wire ram_in_range = (addr[21] == 1'b0);
 wire is_rom = addr[21];
 
 // Combinational read - no latency, data available immediately when oe is asserted
-wire [21:0] effective_addr = is_rom ? addr[21:0] : {3'b0, addr[18:0]};
+wire [21:0] effective_addr = is_rom ? addr[21:0] : {1'b0, addr[20:0]};
 assign dout = (ram_in_range || is_rom) ? mem[effective_addr] : 16'h0000;
 
 // Simple synchronous read/write
@@ -42,9 +42,12 @@ reg [21:0] last_wr_addr;
 reg [15:0] last_wr_data;
 reg        last_wr_valid;
 integer    wr_count = 0;
+integer    lowram_writes = 0;
 integer    vram_rd_count = 0;
 
 integer vram_wr_count = 0;
+integer testrd_count = 0;
+integer ram_size_dbg_count = 0;
 
 always @(posedge clk) begin
 	// Writes are allowed even during reset (needed for ROM loading)
@@ -57,37 +60,54 @@ always @(posedge clk) begin
 		last_wr_valid <= 1;
 		wr_count <= wr_count + 1;
 		// Debug first 20 writes, then every 100000th
-		if (wr_count < 20 || wr_count % 100000 == 0)
+		if ($test$plusargs("ram_debug") && (wr_count < 20 || wr_count % 100000 == 0))
 			$display("sim_ram WR[%0d]: addr=%h din=%h ds=%b",
 				wr_count, addr[21:0], din, ds);
 		// Debug VRAM writes (VRAM is at 0x1A0000-0x1DFFFF word address = 0x340000-0x3BFFFF byte)
 		if (addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin
-			if (vram_wr_count < 20 || vram_wr_count % 1000 == 0)
+			if ($test$plusargs("ram_debug") && (vram_wr_count < 20 || vram_wr_count % 1000 == 0))
 				$display("sim_ram VRAM_WR[%0d]: addr=%h (line %0d) din=%h ds=%b",
 					vram_wr_count, addr[21:0], (addr[21:0] - 22'h1A0000) >> 9, din, ds);
 			vram_wr_count <= vram_wr_count + 1;
 		end
 		// Debug all writes in non-ROM area to see where CPU is writing
-		if (wr_count >= 20 && wr_count < 50 && addr[21] == 0)
+		if ($test$plusargs("ram_debug") && wr_count >= 20 && wr_count < 50 && addr[21] == 0)
 			$display("sim_ram WR[%0d]: addr=%h din=%h ds=%b (after ROM)",
 				wr_count, addr[21:0], din, ds);
+		// Trace first 60 writes made by the RAM-test pattern instruction at $40803744
+		if ($test$plusargs("ram_debug") && debug_pc == 32'h40803744 && addr[21] == 0
+		    && addr[21:0] >= 22'h000400 && lowram_writes < 80) begin
+			$display("TEST_WR[%0d]: addr=%h din=%h ds=%b wr_count=%0d",
+				lowram_writes, addr[21:0], din, ds, wr_count);
+			lowram_writes <= lowram_writes + 1;
+		end
 		// Watchpoint: low memory system globals used by Slot Manager
 		// $0A50 (SRsrcTblPtr) = CPU byte addr → word addr $0528
 		// $0B9A (flag) = word addr $05CD
 		// Bus error vector at $0008 = word addr $0004
-		if (addr[21:0] == 22'h000528 || addr[21:0] == 22'h000529)
+		if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h000528 || addr[21:0] == 22'h000529))
 			$display("WATCH $0A50: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
-		if (addr[21:0] == 22'h0005CD)
+		if ($test$plusargs("ram_debug") && addr[21:0] == 22'h0005CD)
 			$display("WATCH $0B9A: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
-		if ((addr[21:0] == 22'h000004 || addr[21:0] == 22'h000005)
+		if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h000004 || addr[21:0] == 22'h000005)
 		    && (din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
 		        && din != 16'hffff && din != 16'h0000))
 			$display("WATCH BERR_VEC: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
 				addr[21:0], din, ds, debug_pc, wr_count);
-		// sResource table at $2000 (word addr $1000-$1020)
-		if (addr[21:0] >= 22'h001000 && addr[21:0] < 22'h001020
+		if ($test$plusargs("ram_size_debug") && debug_pc >= 32'h408039aa && debug_pc <= 32'h408039fc
+		    && addr[21:0] < 22'h002000 && ram_size_dbg_count < 120) begin
+			$display("RAM_SIZE_WR[%0d]: PC=%h addr=%h eff=%h din=%h ds=%b",
+				ram_size_dbg_count, debug_pc, addr[21:0], effective_addr, din, ds);
+			ram_size_dbg_count <= ram_size_dbg_count + 1;
+		end
+		// WLCS marker at byte $0CFC = word addr $067E/$067F
+			if ($test$plusargs("ram_debug") && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
+				$display("WATCH WLCS: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
+					addr[21:0], din, ds, debug_pc, wr_count);
+			// sResource table at $2000 (word addr $1000-$1020)
+		if ($test$plusargs("ram_debug") && addr[21:0] >= 22'h001000 && addr[21:0] < 22'h001020
 		    && din != 16'hb6db && din != 16'h6db6 && din != 16'hdb6d
 		    && din != 16'hffff)
 			$display("WATCH sRsrc@2000: WR addr=%h din=%h ds=%b PC=%h (wr#%0d)",
@@ -98,9 +118,27 @@ always @(posedge clk) begin
 		last_wr_valid <= 0;
 		// Don't reset wr_count so we can track all writes
 	end else begin
+		// Watch WLCS reads at byte $0CFC = word addr $067E/$067F
+		if ($test$plusargs("ram_debug") && oe && (addr[21:0] == 22'h00067E || addr[21:0] == 22'h00067F))
+			$display("WATCH WLCS: RD addr=%h dout=%h PC=%h",
+				addr[21:0], mem[{3'b0, addr[18:0]}], debug_pc);
+		// RAM-test readback probe: PC inside $40803xxx test routine and
+		// addr in top-of-4MB tested range ($1FFE80..$1FFFFF word)
+		if ($test$plusargs("ram_debug") && oe && debug_pc >= 32'h4080378E && debug_pc <= 32'h408037AA
+		    && testrd_count < 200) begin
+			$display("TEST_RD[%0d]: PC=%h addr=%h dout=%h",
+				testrd_count, debug_pc, addr[21:0], mem[effective_addr]);
+			testrd_count <= testrd_count + 1;
+		end
+		if ($test$plusargs("ram_size_debug") && oe && debug_pc >= 32'h408039aa && debug_pc <= 32'h408039fc
+		    && addr[21:0] < 22'h002000 && ram_size_dbg_count < 120) begin
+			$display("RAM_SIZE_RD[%0d]: PC=%h addr=%h eff=%h dout=%h",
+				ram_size_dbg_count, debug_pc, addr[21:0], effective_addr, mem[effective_addr]);
+			ram_size_dbg_count <= ram_size_dbg_count + 1;
+		end
 		// Debug video reads (VRAM is at 0x1A0000 = 0x340000 >> 1 in word address)
 		if (oe && addr[21:0] >= 22'h1A0000 && addr[21:0] < 22'h1E0000) begin
-			if (vram_rd_count < 50)
+			if ($test$plusargs("ram_debug") && vram_rd_count < 50)
 				$display("sim_ram VRAM_RD[%0d]: addr=%h (line %0d) dout=%h",
 					vram_rd_count, addr[21:0], (addr[21:0] - 22'h1A0000) >> 9, mem[addr[21:0]]);
 			vram_rd_count <= vram_rd_count + 1;
@@ -130,15 +168,6 @@ end
 initial begin
 	// Memory will be initialized by the simulation testbench
 	// via ioctl_download mechanism
-
-	// Skip RAM test: write "WLCS" marker at byte address $0CFC
-	// (same approach as Snow emulator). The Mac II ROM checks this
-	// at $E4 and $1A0 — if present, both RAM tests are skipped.
-	// Without this, the aliasing test fails because our sim wraps
-	// at 1MB instead of generating BERR like real hardware.
-	// Byte addr $0CFC = word addr $067E/$067F
-	mem[22'h00067E] = 16'h574C;  // "WL"
-	mem[22'h00067F] = 16'h5343;  // "CS"
 end
 /* verilator lint_on UNUSED */
 // verilator tracing_on

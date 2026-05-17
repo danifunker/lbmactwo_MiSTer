@@ -72,19 +72,27 @@ module iwm
 	wire advanceDriveHead; // prevents overrun when debugging, does not exit on a real Mac!
 	reg [7:0] writeData;
 	reg [7:0] readDataLatch;
+	reg [11:0] readDataArmDelay;
 	wire _iwmBusy, _writeUnderrun;
 	assign _iwmBusy = 1'b1; // for writes, a value of 1 here indicates the IWM write buffer is empty
 	assign _writeUnderrun = 1'b1;
 
-	// floppy disk drives 
-	reg diskEnableExt, diskEnableInt;
-	reg diskEnableExtNext, diskEnableIntNext;
+	// floppy disk drives
+	// The IWM has one active/motor latch and one drive-select latch. MAME's
+	// iwm_device switches the active drive when SELECT changes while active,
+	// rather than keeping separate enables latched per drive.
+	reg diskEnable;
+	reg diskEnableNext;
+	wire diskEnableInt = diskEnable & ~selectExternalDrive;
+	wire diskEnableExt = diskEnable & selectExternalDrive;
+	wire diskEnableIntNext = diskEnableNext & ~selectExternalDriveNext;
+	wire diskEnableExtNext = diskEnableNext & selectExternalDriveNext;
 	wire newByteReadyInt;
-	wire [7:0] readDataInt;
-	wire senseInt = readDataInt[7]; // bit 7 doubles as the sense line here
+	wire [7:0] readDataInt /*verilator public_flat_rd*/;
+	wire senseInt;
 	wire newByteReadyExt;
-	wire [7:0] readDataExt;
-	wire senseExt = readDataExt[7]; // bit 7 doubles as the sense line here
+	wire [7:0] readDataExt /*verilator public_flat_rd*/;
+	wire senseExt;
 	
 	floppy floppyInt
 	(
@@ -101,8 +109,10 @@ module iwm
 		._enable(~(diskEnableInt & driveSel)),
 		.writeData(writeData),
 		.readData(readDataInt),
+		.sense(senseInt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyInt),
+		.drivePresent(1'b1),
 		.insertDisk(insertDisk[0]),
 		.diskSides(diskSides[0]),
 		.diskEject(diskEject[0]),	
@@ -114,7 +124,7 @@ module iwm
 		.dskReadAck(dskReadAckInt),
 		.dskReadData(dskReadData)
 	);
-		
+
 	floppy floppyExt
 	(
 		.clk(clk),
@@ -130,8 +140,12 @@ module iwm
 		._enable(~diskEnableExt),
 		.writeData(writeData),
 		.readData(readDataExt),
+		.sense(senseExt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyExt),
+		// Match MAME's add_35_nc external connector: no external drive is
+		// installed unless one is explicitly configured.
+		.drivePresent(1'b0),
 		.insertDisk(insertDisk[1]),
 		.diskSides(diskSides[1]),
 		.diskEject(diskEject[1]),
@@ -146,6 +160,10 @@ module iwm
 	
 	wire [7:0] readData = selectExternalDrive ? readDataExt : readDataInt;
 	wire newByteReady = selectExternalDrive ? newByteReadyExt : newByteReadyInt;
+	wire anyDiskEnable = diskEnable;
+	wire selectedDiskEnableNext = diskEnableNext;
+	wire anyDiskEnableNext = diskEnableNext;
+	wire readDataArmed = (readDataArmDelay == 12'd0);
 	
 	reg [4:0] iwmMode;
 	/* IWM mode register: S C M H L
@@ -178,8 +196,7 @@ module iwm
 		ca1Next <= ca1;
 		ca2Next <= ca2;
 		lstrbNext <= lstrb;
-		diskEnableExtNext <= diskEnableExt;
-		diskEnableIntNext <= diskEnableInt;
+		diskEnableNext <= diskEnable;
 		selectExternalDriveNext <= selectExternalDrive;
 		q6Next <= q6;
 		q7Next <= q7;
@@ -195,10 +212,7 @@ module iwm
 				3'h3: // lstrb
 					lstrbNext <= cpuAddrRegHi[0];
 				3'h4: // disk enable
-					if (selectExternalDrive)
-						diskEnableExtNext <= cpuAddrRegHi[0];
-					else
-						diskEnableIntNext <= cpuAddrRegHi[0];
+					diskEnableNext <= cpuAddrRegHi[0];
 				3'h5: // external drive
 					selectExternalDriveNext <= cpuAddrRegHi[0];
 				3'h6: // Q6 
@@ -216,8 +230,7 @@ module iwm
 			ca1 <= 0;
 			ca2 <= 0;
 			lstrb <= 0;
-			diskEnableExt <= 0;
-			diskEnableInt <= 0;
+			diskEnable <= 0;
 			selectExternalDrive <= 0;
 			q6 <= 0;
 			q7 <= 0;
@@ -227,8 +240,7 @@ module iwm
 			ca1 <= ca1Next;
 			ca2 <= ca2Next;
 			lstrb <= lstrbNext;
-			diskEnableExt <= diskEnableExtNext;
-			diskEnableInt <= diskEnableIntNext;
+			diskEnable <= diskEnableNext;
 			selectExternalDrive <= selectExternalDriveNext;
 			q6 <= q6Next;
 			q7 <= q7Next;
@@ -240,11 +252,11 @@ module iwm
 		dataOutLo = 8'hEF;
 		
 		// reading any IWM address returns state as selected by Q7 and Q6
-		case ({q7Next,q6Next}) 
+		case ({q7Next,q6Next})
 			2'b00: // data-in register (from disk drive) - MSB is 1 when data is valid
-				dataOutLo <= readDataLatch;
+				dataOutLo <= anyDiskEnableNext ? (anyDiskEnable ? readDataLatch : 8'h00) : 8'hFF;
 			2'b01: // IWM status register - read only
-				dataOutLo <= { (selectExternalDriveNext ? senseExt : senseInt), 1'b0, diskEnableExt & diskEnableInt, iwmMode }; 
+				dataOutLo <= { (selectExternalDriveNext ? senseExt : senseInt), 1'b0, selectedDiskEnableNext, iwmMode };
 			2'b10: // handshake - read only
 				dataOutLo <= { _iwmBusy, _writeUnderrun, 6'b000000 };
 			2'b11: // IWM mode register when not enabled (write-only), or (write?) data register when enabled
@@ -263,7 +275,7 @@ module iwm
 				// writing to any IWM address modifies state as selected by Q7 and Q6
 				case ({q7Next,q6Next})
 					2'b11: begin
-						if (diskEnableExt | diskEnableInt)
+						if (diskEnable)
 							writeData <= dataInByte;
 						else
 							iwmMode <= dataInByte[4:0];
@@ -275,26 +287,43 @@ module iwm
 
 	// Manage incoming bytes from the disk drive
 	wire iwmRead = (_cpuRW == 1'b1 && selectIWM == 1'b1 && iwmAccess);
-	reg [3:0] readLatchClearTimer; 
+	reg [3:0] readLatchClearTimer;
+	reg diskEnableReadD;
 	always @(posedge clk or negedge _reset) begin
-		if (_reset == 1'b0) begin	
+		if (_reset == 1'b0) begin
 			readDataLatch <= 0;
 			readLatchClearTimer <= 0;
-		end 
+			readDataArmDelay <= 0;
+			diskEnableReadD <= 0;
+		end
 		else if(cen) begin
+			diskEnableReadD <= anyDiskEnable;
+
+			if (readDataArmDelay != 0) begin
+				readDataArmDelay <= readDataArmDelay - 1'b1;
+			end
+
 			// a countdown timer governs how long after a data latch read before the latch is cleared
 			if (readLatchClearTimer != 0) begin
 				readLatchClearTimer <= readLatchClearTimer - 1'b1;
 			end
 
+			// MAME clears the IWM data register when the controller enters active
+			// read mode. Avoid exposing stale idle-drive data on the motor-on access.
+			if ((!anyDiskEnable && anyDiskEnableNext) || (!diskEnableReadD && anyDiskEnable)) begin
+				readDataLatch <= 0;
+				readLatchClearTimer <= 0;
+				readDataArmDelay <= 12'h400;
+			end
+
 			// the conclusion of a valid CPU read from the IWM will start the timer to clear the latch
-			if (iwmRead && readDataLatch[7]) begin
+			else if (iwmRead && readDataLatch[7]) begin
 				readLatchClearTimer <= 4'hD; // clear latch 14 clocks after the conclusion of a valid read
 			end
 
 			// when the drive indicates that a new byte is ready, latch it
 			// NOTE: the real IWM must self-synchronize with the incoming data to determine when to latch it
-			if (newByteReady) begin
+			if (anyDiskEnable && readDataArmed && newByteReady) begin
 				readDataLatch <= readData;
 			end
 			else if (readLatchClearTimer == 1'b1) begin
@@ -302,5 +331,6 @@ module iwm
 			end
 		end
 	end
-	assign advanceDriveHead = readLatchClearTimer == 1'b1; // prevents overrun when debugging, does not exist on a real Mac!
+	assign advanceDriveHead = (readLatchClearTimer == 1'b1) ||
+	                          (anyDiskEnable && !readDataArmed && newByteReady); // prevents overrun when debugging, does not exist on a real Mac!
 endmodule

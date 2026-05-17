@@ -226,6 +226,7 @@ localparam CONF_STR = {
 	"O45,Memory,1MB,2MB,4MB,8MB;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
+	"O13,NuBus Video,Color,B&W;",
 	"-;",
 	"R0,Reset & Apply CPU+Memory;",
 	"-;",
@@ -237,6 +238,7 @@ localparam CONF_STR = {
 
 wire status_turbo = 1'b1; // Mac II always runs at 16MHz
 wire status_overlay_en = status[6];
+wire status_video_mono = status[13];
 
 ////////////////////   CLOCKS   ///////////////////
 
@@ -462,7 +464,8 @@ wire [15:0] memoryDataOut;
 wire memoryLatch;
 
 // peripherals
-wire memoryOverlayOn, selectSCSI, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+wire memoryOverlayOn, selectSCSI, selectSCSIDMA, scsiDREQ, selectSCC, selectIWM, selectVIA, selectVIA2, selectRAM, selectROM, selectSEOverlay, selectASC;
+wire [1:0] glueRAMSize;
 wire [15:0] dataControllerDataOut;
 
 // MC68881 FPU
@@ -517,6 +520,7 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
+                        selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
                         (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
@@ -552,7 +556,13 @@ assign      _cpuVMA       = tg68_vma_n;
 assign      cpuFC[0]      = tg68_fc0;
 assign      cpuFC[1]      = tg68_fc1;
 assign      cpuFC[2]      = tg68_fc2;
-assign      cpuAddr       = tg68_a;
+// Mac II HMMU address translation: VIA2 PB3 low enables 24-bit mapping
+// onto the 32-bit bus. Bypassed for FC=7 CPU-space cycles (coprocessor
+// CIR dialog must see the raw address).
+wire        hmmu_active;
+wire [31:0] cpuAddr_xlated;
+hmmu u_hmmu(.addr_in(tg68_a), .active(hmmu_active), .addr_out(cpuAddr_xlated));
+assign      cpuAddr       = (cpuFC == 3'b111) ? tg68_a : cpuAddr_xlated;
 assign      cpuDataOut    = tg68_dout;
 
 wire        tg68_rw;
@@ -568,13 +578,15 @@ wire        tg68_fc2;
 wire [15:0] tg68_dout;
 wire [31:0] tg68_a;
 wire        tg68_reset_n;
+wire        tg68_longword;
 
 // Bus error timeout — undecoded addresses trigger bus error after ~8us
 reg [8:0] berr_counter;
 reg berr_out;
 wire nubus_acked = selectNuBus & ~nubusAck;  // NuBus card actually responding
+wire scsi_dma_wait = selectSCSIDMA && !scsiDREQ;
 wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
+                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 wire is_cpu_space = (cpuFC == 3'b111);
 
 always @(posedge clk_sys) begin
@@ -595,6 +607,27 @@ always @(posedge clk_sys) begin
 			berr_counter <= berr_counter + 1'd1;
 	end
 end
+
+// TG68K samples read data at the end of the bus cycle.  Hold FPU read data
+// after AS releases so the CPU does not see the normal data-controller mux.
+reg [15:0] fpu_data_hold;
+reg fpu_data_hold_valid;
+always @(posedge clk_sys) begin
+	if (!_cpuReset) begin
+		fpu_data_hold <= 16'h0000;
+		fpu_data_hold_valid <= 1'b0;
+	end else if (!_cpuAS && selectFPU && _cpuRW) begin
+		fpu_data_hold <= fpu_data_out[15:0];
+		fpu_data_hold_valid <= 1'b1;
+	end else if (!_cpuAS && !selectFPU) begin
+		fpu_data_hold_valid <= 1'b0;
+	end
+end
+
+wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
+                          selectFPU ? fpu_data_out[15:0] :
+                          fpu_data_hold_valid ? fpu_data_hold :
+                          dataControllerDataOut;
 
 tg68k tg68k_inst (
 	.clk        ( clk_sys      ),
@@ -623,11 +656,17 @@ tg68k tg68k_inst (
 	.bgack_n    ( 1'b1         ),
 
 	.ipl        ( _cpuIPL      ),
-	.berr       ( berr_out     ),
-	.din        ( selectFPU ? fpu_data_out[15:0] : dataControllerDataOut ),
-	.dout       ( tg68_dout    ),
-	.addr       ( tg68_a       )
+	.berr       ( berr_inhibit_active ? 1'b0 : berr_out ),
+		.din        ( cpu_data_in   ),
+		.dout       ( tg68_dout    ),
+		.longword   ( tg68_longword ),
+		.addr       ( tg68_a       ),
+	.berr_inhibit ( berr_inhibit_active ),
+	.berr_data    ( berr_data_out      )
 );
+
+wire berr_inhibit_active;
+wire [31:0] berr_data_out;
 
 // MC68881 FPU - CIR dialog mode (coprocessor protocol via TG68K)
 // Data bus: TG68K is 16-bit; CIR protocol uses d_in[15:0] for writes, d_out[15:0] for reads
@@ -667,6 +706,7 @@ addrController_top ac0
 	.turbo(status_turbo),
 	.configROMSize(2'b10), // Mac II always uses 256K ROM
 	.configRAMSize(configRAMSize),
+	.glueRAMSize(glueRAMSize),
 	.memoryAddr(memoryAddr),
 	.memoryLatch(memoryLatch),
 	._memoryUDS(_memoryUDS),
@@ -678,6 +718,7 @@ addrController_top ac0
 	.dioBusControl(dioBusControl),
 	.cpuBusControl(cpuBusControl),
 	.selectSCSI(selectSCSI),
+	.selectSCSIDMA(selectSCSIDMA),
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),
@@ -711,7 +752,9 @@ nubus_video_highres nubus_card (
 	.data_in(cpuDataOut),
 	.data_out(nubusDataOut_card),
 	.uds_lds({!_cpuUDS, !_cpuLDS}),
+	.cpu_longword(tg68_longword),
 	.rw_n(_cpuRW),
+	.cpu_as_n(_cpuAS),
 	.select(selectNuBus),
 	.ack_n(nubusAck_card),
 	.vga_r(nubus_r),
@@ -733,6 +776,7 @@ nubus_video_highres nubus_card (
 	.vram_ready(arb_vram_ready),
 
 	.overlay_en(status_overlay_en),
+	.monochrome(status_video_mono),
 
 	.ioctl_wr(ioctl_write),
 	.ioctl_addr(ioctl_addr),
@@ -757,6 +801,7 @@ dataController_top #(SCSI_DEVS) dc0
 	._cpuUDS(_cpuUDS),
 	._cpuLDS(_cpuLDS),
 	._cpuRW(_cpuRW),
+	.cpuLongword(tg68_longword),
 	._cpuVMA(_cpuVMA),
 	.selectNuBus(selectNuBus),
 	.nubusDataIn(nubusDataOut),
@@ -767,6 +812,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.cpuAddrRegMid(cpuAddr[6:4]),  // for SCSI
 	.cpuAddrRegLo(cpuAddr[2:1]),
 	.selectSCSI(selectSCSI),
+	.selectSCSIDMA(selectSCSIDMA),
+	.scsiDREQ(scsiDREQ),
 	.selectSCC(selectSCC),
 	.selectIWM(selectIWM),
 	.selectVIA(selectVIA),
@@ -801,6 +848,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.vid_alt(vid_alt),
 
 	.memoryOverlayOn(memoryOverlayOn),
+	.glueRAMSize(glueRAMSize),
+	.hmmu_active(hmmu_active),
 
 	.ascAudioLeft(asc_audio_l),
 	.ascAudioRight(asc_audio_r),
@@ -908,9 +957,9 @@ always @(posedge clk_sys) begin
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
 			dio_a <= {3'b000, dio_addr[17:0]}; // Map to 0 (Slot 0 offset 0)
 		else if (dio_index == 1) // boot1.rom - NuBus video ROM (passed directly to nubus_video)
-			dio_a <= dio_addr[20:0]; // Pass through to ioctl interface
-		else if (dio_index[1:0] == 2 || dio_index[1:0] == 3) // Floppy disk images at index 2,3
-			dio_a <= {dio_index[1:0], dio_addr[18:0]};
+			dio_a <= {2'b11, dio_addr[18:0]}; // Park unused SDRAM copy away from ROM/floppies
+		else if (dio_index[1:0] == 2 || dio_index[1:0] == 3) // Floppy disk images at indices 2,3
+			dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
 		else
 			dio_a <= {dio_index[6], dio_addr[17:0]};
 

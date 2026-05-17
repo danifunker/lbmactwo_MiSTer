@@ -135,6 +135,9 @@ entity TG68KdotC_Kernel is
 		FC							: out std_logic_vector(2 downto 0);
 		clr_berr					: out std_logic;
 		cpu_halted				: out std_logic;
+		-- Format $B RTE: suppress next BERR, provide data instead
+		berr_inhibit			: out std_logic;
+		berr_data				: out std_logic_vector(31 downto 0);
 -- for debug
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
@@ -279,6 +282,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal set_vectoraddr	: bit;
 	signal writeSR				: bit;
 	signal trap_berr			: bit;
+	signal berr_frame_cnt		: integer range 0 to 20 := 0;
 	signal trap_illegal		: bit;
 	signal trap_addr_error	: bit;
 	signal trap_priv			: bit;
@@ -296,6 +300,16 @@ architecture logic of TG68KdotC_Kernel is
 	signal halted				: std_logic;
 	signal berr_seen_low		: std_logic;
 	signal useStackframe2	: std_logic;
+
+	-- Format $B bus error frame: latched bus cycle info
+	signal berr_fault_addr   : std_logic_vector(31 downto 0);
+	signal berr_rw           : std_logic;  -- 1=read, 0=write
+	signal berr_sz           : std_logic_vector(1 downto 0);  -- 00=long, 01=byte, 10=word
+	signal berr_fc_latch     : std_logic_vector(2 downto 0);
+	-- Format $B RTE: data input buffer mechanism
+	signal berr_ssw_df       : std_logic;  -- DF bit from SSW read during RTE
+	signal berr_data_buf     : std_logic_vector(31 downto 0);  -- data input buffer from frame
+	signal berr_inhibit_int  : std_logic;  -- suppress next bus error, provide berr_data_buf
 	
 	signal set_stop			: bit;
 	signal stop					: bit;
@@ -468,6 +482,8 @@ ALU: TG68K_ALU
 	nLDS <= memmaskmux(4);
 	clkena_lw <= '1' WHEN clkena_in='1' AND memmaskmux(3)='1' AND halted='0' ELSE '0';
 	clr_berr <= '1' WHEN setopcode='1' AND trap_berr='1' ELSE '0';
+	berr_inhibit <= berr_inhibit_int;
+	berr_data <= berr_data_buf;
 	
 	PROCESS (clk, nReset)
 	BEGIN
@@ -831,11 +847,11 @@ PROCESS (clk)
 				END IF;
 				-- FScc/FTRAPcc: latch condition result from FPU response
 				IF micro_state = cp_cond_eval THEN
-					cp_cond_true <= last_data_read(0);
+					cp_cond_true <= data_in(0);
 				END IF;
 				-- cpSAVE format word capture
 				IF micro_state = cp_save_rd_fmt THEN
-					cp_save_fmt <= last_data_read(15 downto 0);
+					cp_save_fmt <= data_in(15 downto 0);
 				END IF;
 				-- cpSAVE/cpRESTORE frame word counter
 				IF micro_state = cp_save_decode THEN
@@ -859,7 +875,7 @@ PROCESS (clk)
 				END IF;
 				-- Coprocessor transfer count management
 				IF micro_state = cp_idle_resp THEN
-					cp_xfer_cnt <= last_data_read(12 downto 10);
+					cp_xfer_cnt <= data_in(12 downto 10);
 				ELSIF (micro_state = cp_xfer_to OR micro_state = cp_xfer_from) AND cp_xfer_cnt /= "000" THEN
 					cp_xfer_cnt <= cp_xfer_cnt - 1;
 				END IF;
@@ -931,6 +947,9 @@ PROCESS (clk)
 					IF	useStackframe2='1' THEN
 						-- stack frame format #2
 						data_write_tmp(15 downto 0) <= "0010" & trap_vector(11 downto 0); --TH
+					elsif trap_berr='1' then
+						-- stack frame format $B (bus error, 68020)
+						data_write_tmp(15 downto 0) <= "1011" & trap_vector(11 downto 0);
 					else
 						data_write_tmp(15 downto 0) <= "0000" & trap_vector(11 downto 0);
 						writePCnext <= trap_trap OR trap_trapv OR exec(trap_chk) OR Z_error;
@@ -987,11 +1006,27 @@ PROCESS (clk)
 					data_write_tmp <= last_data_read;
 				ELSIF writeSR='1'THEN
 					data_write_tmp(15 downto 0) <= trap_SR(7 downto 0)& Flags(7 downto 0);
-				ELSE	
+				ELSE
 					data_write_tmp <= OP2out;
 				END IF;
-			END IF;	
-		END IF;	
+				-- Format $B frame: override data at specific offsets
+				-- berr_frame_cnt=0 → SP+8: {internal_reg, SSW}
+				-- berr_frame_cnt=2 → SP+16: fault address
+				-- all others → 0
+				IF micro_state = trap_berr20 OR next_micro_state = trap_berr20 THEN
+					CASE berr_frame_cnt IS
+						WHEN 0 =>
+							-- SSW: {FC(1),FB(0),RC(0),RB(0), 3'b0,DF(1), RMW(0),RW,SZ[1:0],0,FC[2:0]}
+							data_write_tmp <= X"0000" & "0000" & "000" & '1' &
+							                  '0' & berr_rw & berr_sz & '0' & berr_fc_latch;
+						WHEN 2 =>
+							data_write_tmp <= berr_fault_addr;
+						WHEN OTHERS =>
+							data_write_tmp <= (OTHERS => '0');
+					END CASE;
+				END IF;
+			END IF;
+		END IF;
 	END PROCESS;
 	
 -----------------------------------------------------------------------------
@@ -1297,7 +1332,25 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							trap_trace <= '1';
 						ELSIF make_berr='1' THEN
 							trap_berr <= '1';
-						ELSE	
+							-- Latch bus cycle info for format $B frame
+							berr_fault_addr <= addr;
+							-- state="10" is read, state="11" is write
+							IF state = "10" THEN
+								berr_rw <= '1';
+							ELSE
+								berr_rw <= '0';
+							END IF;
+							-- FC is an output port; latch supervisor bit from FlagsSR
+							-- FC(2)=supervisor, FC(1:0)=data/program
+							berr_fc_latch <= FlagsSR(5) & state(1) & (NOT state(1) OR state(0));
+							-- TG68K datatype: 00=byte, 01=word, 10=long
+							-- SSW size: 00=long, 01=byte, 10=word
+							CASE exe_datatype IS
+								WHEN "00" => berr_sz <= "01"; -- byte
+								WHEN "01" => berr_sz <= "10"; -- word
+								WHEN OTHERS => berr_sz <= "00"; -- long
+							END CASE;
+						ELSE
 							rIPL_nr <= IPL_nr;
 							IPL_vec <= "00011"&IPL_nr;            --	TH		
 							trap_interrupt <= '1';
@@ -1609,7 +1662,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		 build_bcd, set_Z_error, trapd, movem_run, last_data_read, set, set_V_Flag, z_error, trap_trace, trap_interrupt,
 		 SVmode, preSVmode, stop, long_done, ea_only, setstate, addrvalue, execOPC, exec_write_back, exe_datatype,
 		 datatype, interrupt, c_out, trapmake, rot_cnt, brief, addr, trap_trapv, last_data_in, use_VBR_Stackframe,
-		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr)
+		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr, berr_frame_cnt)
 	BEGIN
 		TG68_PC_brw <= '0';	
 		setstate <= "00";
@@ -1701,12 +1754,16 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		END IF;
 		
 		IF interrupt='1' AND trap_berr='1' THEN
-			next_micro_state <= trap0;
+			IF use_VBR_Stackframe='1' THEN
+				next_micro_state <= trap_berr20;
+			ELSE
+				next_micro_state <= trap0;
+			END IF;
 			IF preSVmode='0' THEN
 				set(changeMode) <= '1';
 			END IF;
 			setstate <= "01";
-		END IF;	
+		END IF;
 		IF trapmake='1' AND trapd='0' THEN
 			IF cpu(1)='1' AND (trap_trapv='1' OR set_Z_error='1' OR exec(trap_chk)='1') THEN
 				next_micro_state <= trap00;
@@ -1874,7 +1931,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						END IF;
 						IF opcode(8)='0' THEN
 							IF decodeOPC='1' THEN
-								next_micro_state <= nop;
+								next_micro_state <= andi;
 								set(get_2ndOPC) <= '1';
 								set(ea_build) <= '1';
 							END IF;
@@ -3304,7 +3361,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 --				
 ---- 1111 ----------------------------------------------------------------------------
 			WHEN "1111" =>
-				IF cpu(1)='1' AND opcode(11 downto 9)/="000" THEN
+				IF decodeOPC='1' AND cpu(1)='1' AND opcode(11 downto 9)/="000" THEN
 					-- Valid coprocessor ID (non-zero)
 					datatype <= "01"; -- word for CIR access
 					IF opcode(8 downto 6)="000" THEN
@@ -3390,7 +3447,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						trap_1111 <= '1';
 						trapmake <= '1';
 					END IF;
-				ELSE
+				ELSIF decodeOPC='1' THEN
 					-- cpID=000 or not 68020 mode
 					trap_1111 <= '1';
 					trapmake <= '1';
@@ -3462,9 +3519,38 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		IF rising_edge(clk) THEN
 	        IF Reset='1' THEN
 				micro_state <= ld_nn;
+				berr_frame_cnt <= 0;
+				berr_inhibit_int <= '0';
+				berr_ssw_df <= '0';
+				berr_data_buf <= (OTHERS => '0');
 			ELSIF clkena_lw='1' THEN
 				trapd <= trapmake;
 				micro_state <= next_micro_state;
+				IF next_micro_state = trap_berr20 AND micro_state /= trap_berr20 THEN
+					berr_frame_cnt <= 20;
+				ELSIF next_micro_state = rte_berr20 AND micro_state /= rte_berr20 THEN
+					berr_frame_cnt <= 19;
+					-- Latch SSW from SP+8: rte4 just read it, available in last_data_read
+					-- SSW is in the low word, DF is bit 8
+					berr_ssw_df <= last_data_read(8);
+				ELSIF (micro_state = trap_berr20 OR micro_state = rte_berr20) AND berr_frame_cnt > 0 THEN
+					berr_frame_cnt <= berr_frame_cnt - 1;
+				END IF;
+				-- During rte_berr20: latch data input buffer when cnt=10
+				IF micro_state = rte_berr20 AND berr_frame_cnt = 10 THEN
+					berr_data_buf <= last_data_read;
+				END IF;
+				-- After rte_berr20 completes: if DF was cleared by handler,
+				-- set berr_inhibit so re-executed instruction uses saved data
+				IF micro_state = rte_berr20 AND next_micro_state = nop THEN
+					IF berr_ssw_df = '0' THEN
+						berr_inhibit_int <= '1';
+					END IF;
+				END IF;
+				-- Clear berr_inhibit after one instruction completes
+				IF berr_inhibit_int = '1' AND setopcode = '1' THEN
+					berr_inhibit_int <= '0';
+				END IF;
 			END IF;
 		END IF;
 
@@ -3999,7 +4085,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					datatype <= "01";
 					writeSR <= '1';
 					next_micro_state <= trap3;
-					
+
+					WHEN trap_berr20 =>	-- 68020 format $B: push 84 bytes of extended frame
+						set(presub) <= '1';
+						setstackaddr <='1';
+						setstate <= "11";
+						datatype <= "10";
+						writeSR <= '1';
+						IF berr_frame_cnt > 0 THEN
+							next_micro_state <= trap_berr20;
+						ELSE
+							next_micro_state <= trap0;
+						END IF;
+
 										-- return from exception - RTE
 										-- fetch PC and status register from stack
 										-- 010+ fetches another word containing
@@ -4048,12 +4146,30 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						set(postadd) <= '1';
 						setstackaddr <= '1';
 						next_micro_state <= rte5;
+					elsif last_data_in(15 downto 12)="1011" then
+											  -- format $B: skip 84 bytes of extended frame
+						setstate <= "10";
+						datatype <= "10";
+						set(postadd) <= '1';
+						setstackaddr <= '1';
+						next_micro_state <= rte_berr20;
 					else
 						datatype <= "01";
 						next_micro_state <= nop;
 					end if;
 				WHEN rte5 =>            -- RTE
 					next_micro_state <= nop;
+
+				WHEN rte_berr20 =>	-- RTE format $B: skip remaining extended frame
+					set(postadd) <= '1';
+					setstackaddr <= '1';
+					setstate <= "10";
+					datatype <= "10";
+					IF berr_frame_cnt > 0 THEN
+						next_micro_state <= rte_berr20;
+					ELSE
+						next_micro_state <= nop;
+					END IF;
 -------------------------------------
 
 				WHEN rtd1 =>		-- RTD
@@ -4265,11 +4381,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN cp_idle_resp =>
 					-- Decode response from last_data_read
 					setstate <= "01";      -- idle (no bus access)
-					CASE last_data_read(15 downto 13) IS
+					CASE data_in(15 downto 13) IS
 						WHEN "000" =>      -- Busy: re-read
 							next_micro_state <= cp_read_resp;
 						WHEN "001" =>      -- Null: done
-							NULL;          -- next_micro_state defaults to idle
+							next_micro_state <= idle;
 						WHEN "011" =>      -- Transfer to coprocessor
 							next_micro_state <= cp_xfer_to;
 						WHEN "100" =>      -- Transfer from coprocessor
@@ -4336,7 +4452,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					ELSIF cp_frame_cnt = "0000000" THEN
 						-- Format word just written (or null frame)
 						cp_an_writeback <= '1';
-						-- done - return to idle
+						next_micro_state <= idle;
 					ELSE
 						-- More data words to read from CIR
 						next_micro_state <= cp_save_rd_cir;
@@ -4389,6 +4505,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					IF last_data_read(15 downto 8) = X"00" THEN
 						-- Null frame: done, writeback An
 						cp_an_writeback <= '1';
+						next_micro_state <= idle;
 					ELSE
 						-- Non-null frame: read data words from memory
 						next_micro_state <= cp_restore_rd_mem;
@@ -4429,25 +4546,26 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN cp_cond_eval =>
 					-- Decode response and act on condition result
 					setstate <= "01";      -- idle
-					CASE last_data_read(15 downto 13) IS
+					CASE data_in(15 downto 13) IS
 						WHEN "000" =>      -- Busy: re-read
 							next_micro_state <= cp_cond_resp;
 						WHEN "001" =>      -- Null: condition result in bit 0
+							next_micro_state <= idle;
 							IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
 								-- FBcc: branch if condition true
-								IF last_data_read(0) = '1' THEN
+								IF data_in(0) = '1' THEN
 									cp_do_branch <= '1';
 								END IF;
 							ELSIF exe_opcode(8 downto 6) = "001" THEN
 								IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
 									-- FTRAPcc: trap if condition true
-									IF last_data_read(0) = '1' THEN
+									IF data_in(0) = '1' THEN
 										trap_trapv <= '1';
 										trapmake <= '1';
 									END IF;
 								ELSIF exe_opcode(5 downto 3) = "001" THEN
 									-- FDBcc: if condition false, decrement Dn and maybe branch
-									IF last_data_read(0) = '0' THEN
+									IF data_in(0) = '0' THEN
 										data_is_source <= '1';
 										set(OP2out_one) <= '1';
 										next_micro_state <= cp_fdbcc_dec;
@@ -4477,6 +4595,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- cp_cond_true was latched from response bit 0
 					setstate <= "01";      -- idle
 					cp_fscc_writeback <= '1';
+					next_micro_state <= idle;
 
 				WHEN cp_fscc_wr_mem =>
 					-- Write FScc result byte ($FF or $00) to memory EA
@@ -4484,6 +4603,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					set_cp_memaddr <= '1';  -- use cp_ea_addr for address
 					setstate <= "11";       -- bus write
 					datatype <= "00";       -- byte
+					next_micro_state <= idle;
 
 				WHEN cp_fdbcc_disp =>
 					-- PC fetch: read displacement word (state defaults to "00")
@@ -4501,6 +4621,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						cp_do_branch <= '1';
 						skipFetch <= '1';
 						next_micro_state <= nop;
+					ELSE
+						next_micro_state <= idle;
 					END IF;
 					-- c_out(1)='0': Dn wrapped to $FFFF (-1), fall through (done)
 

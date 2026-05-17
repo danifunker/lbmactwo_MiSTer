@@ -359,7 +359,7 @@ always @(posedge clk) begin
 		end
 
 		// PS2 mouse input handling
-		if (mouseStrobe) begin
+		if (mouseStrobe && (mouseXraw != 9'd0 || mouseYraw != 9'd0 || mouseBtn != mouseButton)) begin
 			// Clamp mouse deltas to 7-bit signed range
 			if (~mouseXraw[8] & |mouseXraw[7:6]) mouseX <= 7'h3F;
 			else if (mouseXraw[8] & ~mouseXraw[6]) mouseX <= 7'h40;
@@ -377,7 +377,13 @@ end
 
 // PS2 mouse input handling
 reg mstb;
-always @(posedge clk) if (clk_en) mstb <= ps2_mouse[24];
+always @(posedge clk) begin
+	if (reset) begin
+		mstb <= ps2_mouse[24];
+	end else if (clk_en) begin
+		mstb <= ps2_mouse[24];
+	end
+end
 
 wire       mouseStrobe = mstb ^ ps2_mouse[24];
 wire [8:0] mouseXraw = {ps2_mouse[4], ps2_mouse[15:8]};
@@ -386,14 +392,18 @@ wire       mouseBtn = ps2_mouse[0];
 
 // PS2 keyboard input handling
 reg       keyStrobe;
+reg       kstb;
 reg [7:0] keyData;
 wire      press = ps2_key[9];
 wire      capslock_key = (ps2_key[8:0] == 'h58);
 
 always @(posedge clk) begin
-	reg kstb;
-
-	if (clk_en) begin
+	if (reset) begin
+		kstb <= ps2_key[10];
+		keyStrobe <= 1'b0;
+		keyData <= 8'h7f;
+		capslock <= 1'b0;
+	end else if (clk_en) begin
 		kstb <= ps2_key[10];
 		if (kstb ^ ps2_key[10]) begin
 			case(ps2_key[8:0]) // Scan Code Set 2 → ADB scan codes

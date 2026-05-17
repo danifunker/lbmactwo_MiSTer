@@ -1,0 +1,2027 @@
+{
+  "baseline_path": "/tmp/fpu_corpus.json",
+  "candidate_path": "/tmp/fpu_hw_full.jsonl",
+  "baseline_count": 270,
+  "candidate_count": 270,
+  "common_count": 270,
+  "match_count": 170,
+  "pass_rate": 0.6296296296296297,
+  "categories": {
+    "match": 170,
+    "trailing_bits": 29,
+    "nan_encoding": 14,
+    "inf_handling": 7,
+    "special_value": 18,
+    "cc_only": 0,
+    "smoke_fpinit": 1,
+    "unknown": 31
+  },
+  "per_op": {
+    "smoke": {
+      "total": 1,
+      "match": 0,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 1,
+      "unknown": 0,
+      "pass_rate": 0.0
+    },
+    "FABS": {
+      "total": 11,
+      "match": 11,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "FADD": {
+      "total": 12,
+      "match": 12,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "FATAN": {
+      "total": 5,
+      "match": 0,
+      "trailing_bits": 1,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 4,
+      "pass_rate": 0.0
+    },
+    "FCMP": {
+      "total": 12,
+      "match": 10,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 2,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.8333333333333334
+    },
+    "FCOS": {
+      "total": 5,
+      "match": 2,
+      "trailing_bits": 3,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.4
+    },
+    "FDIV": {
+      "total": 12,
+      "match": 9,
+      "trailing_bits": 0,
+      "nan_encoding": 1,
+      "inf_handling": 0,
+      "special_value": 1,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.75
+    },
+    "FETOX": {
+      "total": 5,
+      "match": 0,
+      "trailing_bits": 4,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.0
+    },
+    "FETOXM1": {
+      "total": 5,
+      "match": 0,
+      "trailing_bits": 4,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.0
+    },
+    "FGETEXP": {
+      "total": 11,
+      "match": 5,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 4,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 2,
+      "pass_rate": 0.45454545454545453
+    },
+    "FGETMAN": {
+      "total": 11,
+      "match": 8,
+      "trailing_bits": 0,
+      "nan_encoding": 2,
+      "inf_handling": 0,
+      "special_value": 1,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.7272727272727273
+    },
+    "FINT": {
+      "total": 11,
+      "match": 7,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 2,
+      "special_value": 2,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.6363636363636364
+    },
+    "FINTRZ": {
+      "total": 11,
+      "match": 7,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 2,
+      "special_value": 2,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.6363636363636364
+    },
+    "FLOG10": {
+      "total": 5,
+      "match": 1,
+      "trailing_bits": 3,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.2
+    },
+    "FLOG2": {
+      "total": 5,
+      "match": 2,
+      "trailing_bits": 2,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.4
+    },
+    "FLOGN": {
+      "total": 5,
+      "match": 2,
+      "trailing_bits": 2,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.4
+    },
+    "FLOGNP1": {
+      "total": 5,
+      "match": 0,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 1,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 4,
+      "pass_rate": 0.0
+    },
+    "FMOD": {
+      "total": 12,
+      "match": 5,
+      "trailing_bits": 0,
+      "nan_encoding": 3,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 4,
+      "pass_rate": 0.4166666666666667
+    },
+    "FMOVE": {
+      "total": 1,
+      "match": 1,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "FMUL": {
+      "total": 12,
+      "match": 10,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 2,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.8333333333333334
+    },
+    "FNEG": {
+      "total": 11,
+      "match": 10,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 1,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.9090909090909091
+    },
+    "FREM": {
+      "total": 12,
+      "match": 5,
+      "trailing_bits": 0,
+      "nan_encoding": 3,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 4,
+      "pass_rate": 0.4166666666666667
+    },
+    "FSCALE": {
+      "total": 12,
+      "match": 10,
+      "trailing_bits": 0,
+      "nan_encoding": 1,
+      "inf_handling": 1,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.8333333333333334
+    },
+    "FSGLDIV": {
+      "total": 12,
+      "match": 8,
+      "trailing_bits": 0,
+      "nan_encoding": 1,
+      "inf_handling": 1,
+      "special_value": 1,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.6666666666666666
+    },
+    "FSGLMUL": {
+      "total": 12,
+      "match": 10,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 2,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.8333333333333334
+    },
+    "FSIN": {
+      "total": 5,
+      "match": 1,
+      "trailing_bits": 3,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.2
+    },
+    "FSQRT": {
+      "total": 11,
+      "match": 9,
+      "trailing_bits": 0,
+      "nan_encoding": 2,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.8181818181818182
+    },
+    "FSUB": {
+      "total": 12,
+      "match": 11,
+      "trailing_bits": 0,
+      "nan_encoding": 1,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 0.9166666666666666
+    },
+    "FTAN": {
+      "total": 5,
+      "match": 1,
+      "trailing_bits": 3,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.2
+    },
+    "FTENTOX": {
+      "total": 5,
+      "match": 1,
+      "trailing_bits": 1,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 3,
+      "pass_rate": 0.2
+    },
+    "FTST": {
+      "total": 11,
+      "match": 11,
+      "trailing_bits": 0,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 0,
+      "pass_rate": 1.0
+    },
+    "FTWOTOX": {
+      "total": 5,
+      "match": 1,
+      "trailing_bits": 3,
+      "nan_encoding": 0,
+      "inf_handling": 0,
+      "special_value": 0,
+      "cc_only": 0,
+      "smoke_fpinit": 0,
+      "unknown": 1,
+      "pass_rate": 0.2
+    }
+  },
+  "tests": [
+    {
+      "name": "DBG: MOVEQ #5,D0 (no FPU)",
+      "op": "smoke",
+      "category": "smoke_fpinit",
+      "detail": "FP0 hw=7fff0000ffffffffffffffff mame=000000000000000000000000"
+    },
+    {
+      "name": "FABS.X FP0 (e)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (neg_inf)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (neg_one)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (neg_zero)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (pi)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (pos_half)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (pos_inf)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (pos_one)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (pos_two)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (pos_zero)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FABS.X FP0 (qnan)",
+      "op": "FABS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (big,tiny)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pi,e)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_one,qnan)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FADD.X FP1,FP0 (ten,pos_three)",
+      "op": "FADD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FATAN.X FP0 (pi)",
+      "op": "FATAN",
+      "category": "unknown",
+      "detail": "FP0 hw=3fff0000a19dc51916ee9526 mame=3ffd00009dc8562429e8b074 CC hw=00 mame=00"
+    },
+    {
+      "name": "FATAN.X FP0 (pi_quarter)",
+      "op": "FATAN",
+      "category": "unknown",
+      "detail": "FP0 hw=3ffe0000aa702602e8350341 mame=3ffe0000e7af8f415a9c810a CC hw=00 mame=00"
+    },
+    {
+      "name": "FATAN.X FP0 (pos_half)",
+      "op": "FATAN",
+      "category": "unknown",
+      "detail": "FP0 hw=3ffd0000ed63382b0dda7b74 mame=3fff00008db70c975df22363 CC hw=00 mame=00"
+    },
+    {
+      "name": "FATAN.X FP0 (pos_one)",
+      "op": "FATAN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...2168c241 mame=...2168c235"
+    },
+    {
+      "name": "FATAN.X FP0 (pos_zero)",
+      "op": "FATAN",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3fff0000c90fdaa22168c235 CC hw=04 mame=00"
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (big,tiny)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pi,e)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FCMP",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00000000000000000000 CC hw=04 mame=09"
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FCMP",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00000000000000000000 CC hw=00 mame=02"
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_one,qnan)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCMP.X FP1,FP0 (ten,pos_three)",
+      "op": "FCMP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCOS.X FP0 (pi)",
+      "op": "FCOS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FCOS.X FP0 (pi_quarter)",
+      "op": "FCOS",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...f9de647c mame=...f9de6484"
+    },
+    {
+      "name": "FCOS.X FP0 (pos_half)",
+      "op": "FCOS",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...dbea7d05 mame=...dbea7cee"
+    },
+    {
+      "name": "FCOS.X FP0 (pos_one)",
+      "op": "FCOS",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...a8345ca9 mame=...a8345c92"
+    },
+    {
+      "name": "FCOS.X FP0 (pos_zero)",
+      "op": "FCOS",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (big,tiny)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pi,e)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FDIV",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FDIV",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FDIV",
+      "category": "unknown",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_one,qnan)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FDIV.X FP1,FP0 (ten,pos_three)",
+      "op": "FDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FETOX.X FP0 (pi)",
+      "op": "FETOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...8499cd00 mame=...8499ccf8"
+    },
+    {
+      "name": "FETOX.X FP0 (pi_quarter)",
+      "op": "FETOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...38e553e0 mame=...38e540f6"
+    },
+    {
+      "name": "FETOX.X FP0 (pos_half)",
+      "op": "FETOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...f034de55 mame=...f034de44"
+    },
+    {
+      "name": "FETOX.X FP0 (pos_one)",
+      "op": "FETOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...a2bb4a8c mame=...a2bb4a9b"
+    },
+    {
+      "name": "FETOX.X FP0 (pos_zero)",
+      "op": "FETOX",
+      "category": "unknown",
+      "detail": "FP0 hw=3fff00008000000000000000 mame=000000000000000000000000 CC hw=00 mame=04"
+    },
+    {
+      "name": "FETOXM1.X FP0 (pi)",
+      "op": "FETOXM1",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...8499cd00 mame=...8499ccf8"
+    },
+    {
+      "name": "FETOXM1.X FP0 (pi_quarter)",
+      "op": "FETOXM1",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...71caa7c0 mame=...71ca81ec"
+    },
+    {
+      "name": "FETOXM1.X FP0 (pos_half)",
+      "op": "FETOXM1",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...e069bc53 mame=...e069bc88"
+    },
+    {
+      "name": "FETOXM1.X FP0 (pos_one)",
+      "op": "FETOXM1",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...45769519 mame=...45769536"
+    },
+    {
+      "name": "FETOXM1.X FP0 (pos_zero)",
+      "op": "FETOXM1",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=bfff00008000000000000000 CC hw=04 mame=08"
+    },
+    {
+      "name": "FGETEXP.X FP0 (e)",
+      "op": "FGETEXP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETEXP.X FP0 (neg_inf)",
+      "op": "FGETEXP",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff0000ffffffffffffffff mame=c00d00008000000000000000 CC hw=01 mame=08"
+    },
+    {
+      "name": "FGETEXP.X FP0 (neg_one)",
+      "op": "FGETEXP",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=c00e00008000000000000000 CC hw=04 mame=08"
+    },
+    {
+      "name": "FGETEXP.X FP0 (neg_zero)",
+      "op": "FGETEXP",
+      "category": "special_value",
+      "detail": "FP0 hw=800000000000000000000000 mame=400d00008002000000000000 CC hw=0c mame=00"
+    },
+    {
+      "name": "FGETEXP.X FP0 (pi)",
+      "op": "FGETEXP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETEXP.X FP0 (pos_half)",
+      "op": "FGETEXP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETEXP.X FP0 (pos_inf)",
+      "op": "FGETEXP",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff0000ffffffffffffffff mame=400d00008000000000000000 CC hw=01 mame=00"
+    },
+    {
+      "name": "FGETEXP.X FP0 (pos_one)",
+      "op": "FGETEXP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETEXP.X FP0 (pos_two)",
+      "op": "FGETEXP",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETEXP.X FP0 (pos_zero)",
+      "op": "FGETEXP",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=c00c0000fffc000000000000 CC hw=04 mame=08"
+    },
+    {
+      "name": "FGETEXP.X FP0 (qnan)",
+      "op": "FGETEXP",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff0000c000000000000000 mame=400d00008000000000000000 CC hw=01 mame=00"
+    },
+    {
+      "name": "FGETMAN.X FP0 (e)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (neg_inf)",
+      "op": "FGETMAN",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FGETMAN.X FP0 (neg_one)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (neg_zero)",
+      "op": "FGETMAN",
+      "category": "special_value",
+      "detail": "FP0 hw=800000000000000000000000 mame=bfff00000000000000000000 CC hw=0c mame=08"
+    },
+    {
+      "name": "FGETMAN.X FP0 (pi)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (pos_half)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (pos_inf)",
+      "op": "FGETMAN",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FGETMAN.X FP0 (pos_one)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (pos_two)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (pos_zero)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FGETMAN.X FP0 (qnan)",
+      "op": "FGETMAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (e)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (neg_inf)",
+      "op": "FINT",
+      "category": "inf_handling",
+      "detail": "hw=inf, mame=non-inf; FP0 mame=000000000000000000000000"
+    },
+    {
+      "name": "FINT.X FP0 (neg_one)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (neg_zero)",
+      "op": "FINT",
+      "category": "special_value",
+      "detail": "FP0 hw=800000000000000000000000 mame=000000000000000000000000 CC hw=0c mame=04"
+    },
+    {
+      "name": "FINT.X FP0 (pi)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (pos_half)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (pos_inf)",
+      "op": "FINT",
+      "category": "inf_handling",
+      "detail": "hw=inf, mame=non-inf; FP0 mame=000000000000000000000000"
+    },
+    {
+      "name": "FINT.X FP0 (pos_one)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (pos_two)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (pos_zero)",
+      "op": "FINT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINT.X FP0 (qnan)",
+      "op": "FINT",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff0000c000000000000000 mame=c01e00008000000000000000 CC hw=01 mame=08"
+    },
+    {
+      "name": "FINTRZ.X FP0 (e)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (neg_inf)",
+      "op": "FINTRZ",
+      "category": "inf_handling",
+      "detail": "hw=inf, mame=non-inf; FP0 mame=c01e00008000000000000000"
+    },
+    {
+      "name": "FINTRZ.X FP0 (neg_one)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (neg_zero)",
+      "op": "FINTRZ",
+      "category": "special_value",
+      "detail": "FP0 hw=800000000000000000000000 mame=000000000000000000000000 CC hw=0c mame=04"
+    },
+    {
+      "name": "FINTRZ.X FP0 (pi)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (pos_half)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (pos_inf)",
+      "op": "FINTRZ",
+      "category": "inf_handling",
+      "detail": "hw=inf, mame=non-inf; FP0 mame=c01e00008000000000000000"
+    },
+    {
+      "name": "FINTRZ.X FP0 (pos_one)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (pos_two)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (pos_zero)",
+      "op": "FINTRZ",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FINTRZ.X FP0 (qnan)",
+      "op": "FINTRZ",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff0000c000000000000000 mame=c01e00008000000000000000 CC hw=01 mame=08"
+    },
+    {
+      "name": "FLOG10.X FP0 (pi)",
+      "op": "FLOG10",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...dd1dd80e mame=...dd1dd80b"
+    },
+    {
+      "name": "FLOG10.X FP0 (pi_quarter)",
+      "op": "FLOG10",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...6a085c92 mame=...6a085c93"
+    },
+    {
+      "name": "FLOG10.X FP0 (pos_half)",
+      "op": "FLOG10",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...fbcff799 mame=...fbcff798"
+    },
+    {
+      "name": "FLOG10.X FP0 (pos_one)",
+      "op": "FLOG10",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FLOG10.X FP0 (pos_zero)",
+      "op": "FLOG10",
+      "category": "unknown",
+      "detail": "FP0 hw=ffff00000000000000000000 mame=ffff00008000000000000000 CC hw=0a mame=0a"
+    },
+    {
+      "name": "FLOG2.X FP0 (pi)",
+      "op": "FLOG2",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...c6efbade mame=...c6efbadd"
+    },
+    {
+      "name": "FLOG2.X FP0 (pi_quarter)",
+      "op": "FLOG2",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...e441148a mame=...e441148b"
+    },
+    {
+      "name": "FLOG2.X FP0 (pos_half)",
+      "op": "FLOG2",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FLOG2.X FP0 (pos_one)",
+      "op": "FLOG2",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FLOG2.X FP0 (pos_zero)",
+      "op": "FLOG2",
+      "category": "unknown",
+      "detail": "FP0 hw=ffff00000000000000000000 mame=ffff00008000000000000000 CC hw=0a mame=0a"
+    },
+    {
+      "name": "FLOGN.X FP0 (pi)",
+      "op": "FLOGN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...3d0de863 mame=...3d0de862"
+    },
+    {
+      "name": "FLOGN.X FP0 (pi_quarter)",
+      "op": "FLOGN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...a60c8a4c mame=...a60c8a4e"
+    },
+    {
+      "name": "FLOGN.X FP0 (pos_half)",
+      "op": "FLOGN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FLOGN.X FP0 (pos_one)",
+      "op": "FLOGN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FLOGN.X FP0 (pos_zero)",
+      "op": "FLOGN",
+      "category": "unknown",
+      "detail": "FP0 hw=ffff00000000000000000000 mame=ffff00008000000000000000 CC hw=0a mame=0a"
+    },
+    {
+      "name": "FLOGNP1.X FP0 (pi)",
+      "op": "FLOGNP1",
+      "category": "unknown",
+      "detail": "FP0 hw=3fff0000b5e5f684f8057787 mame=3fff0000928682473d0de862 CC hw=00 mame=00"
+    },
+    {
+      "name": "FLOGNP1.X FP0 (pi_quarter)",
+      "op": "FLOGNP1",
+      "category": "unknown",
+      "detail": "FP0 hw=3ffe0000946361d3cff14c08 mame=bffc0000f75cad84a60c8a4e CC hw=00 mame=08"
+    },
+    {
+      "name": "FLOGNP1.X FP0 (pos_half)",
+      "op": "FLOGNP1",
+      "category": "unknown",
+      "detail": "FP0 hw=3ffd0000cf991f65fcc25f95 mame=bffe0000b17217f7d1cf79ac CC hw=00 mame=08"
+    },
+    {
+      "name": "FLOGNP1.X FP0 (pos_one)",
+      "op": "FLOGNP1",
+      "category": "unknown",
+      "detail": "FP0 hw=3ffe0000b17217f7d1cf79ac mame=000000000000000000000000 CC hw=00 mame=04"
+    },
+    {
+      "name": "FLOGNP1.X FP0 (pos_zero)",
+      "op": "FLOGNP1",
+      "category": "inf_handling",
+      "detail": "mame=inf, hw=non-inf; FP0 hw=000000000000000000000000"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (big,tiny)",
+      "op": "FMOD",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3fa000000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pi,e)",
+      "op": "FMOD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FMOD",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FMOD",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FMOD",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3f7f00000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FMOD",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3f7f00000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FMOD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FMOD",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_one,qnan)",
+      "op": "FMOD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FMOD",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3f7f00000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FMOD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMOD.X FP1,FP0 (ten,pos_three)",
+      "op": "FMOD",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMOVE.L #1,FP0 (sanity)",
+      "op": "FMOVE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (big,tiny)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pi,e)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FMUL",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FMUL",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_one,qnan)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FMUL.X FP1,FP0 (ten,pos_three)",
+      "op": "FMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (e)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (neg_inf)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (neg_one)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (neg_zero)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (pi)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (pos_half)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (pos_inf)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (pos_one)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (pos_two)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (pos_zero)",
+      "op": "FNEG",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FNEG.X FP0 (qnan)",
+      "op": "FNEG",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff0000c000000000000000 mame=ffff0000c000000000000000 CC hw=01 mame=09"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (big,tiny)",
+      "op": "FREM",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3fa000000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pi,e)",
+      "op": "FREM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FREM",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FREM",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FREM",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3f7f00000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FREM",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3f7f00000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FREM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FREM",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_one,qnan)",
+      "op": "FREM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FREM",
+      "category": "unknown",
+      "detail": "FP0 hw=000000000000000000000000 mame=3f7f00000000000000000000 CC hw=04 mame=00"
+    },
+    {
+      "name": "FREM.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FREM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FREM.X FP1,FP0 (ten,pos_three)",
+      "op": "FREM",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (big,tiny)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pi,e)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FSCALE",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FSCALE",
+      "category": "inf_handling",
+      "detail": "hw=inf, mame=non-inf; FP0 mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_one,qnan)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSCALE.X FP1,FP0 (ten,pos_three)",
+      "op": "FSCALE",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (big,tiny)",
+      "op": "FSGLDIV",
+      "category": "inf_handling",
+      "detail": "mame=inf, hw=non-inf; FP0 hw=407f00008000000000000000"
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pi,e)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FSGLDIV",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FSGLDIV",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FSGLDIV",
+      "category": "unknown",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_one,qnan)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLDIV.X FP1,FP0 (ten,pos_three)",
+      "op": "FSGLDIV",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (big,tiny)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pi,e)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FSGLMUL",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FSGLMUL",
+      "category": "special_value",
+      "detail": "FP0 hw=7fff00000000000000000000 mame=7fff00008000000000000000 CC hw=02 mame=02"
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_one,qnan)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSGLMUL.X FP1,FP0 (ten,pos_three)",
+      "op": "FSGLMUL",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSIN.X FP0 (pi)",
+      "op": "FSIN",
+      "category": "unknown",
+      "detail": "FP0 hw=bfbf00008000000000000000 mame=bfc00000c000000000000000 CC hw=08 mame=08"
+    },
+    {
+      "name": "FSIN.X FP0 (pi_quarter)",
+      "op": "FSIN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...f9de648d mame=...f9de6485"
+    },
+    {
+      "name": "FSIN.X FP0 (pos_half)",
+      "op": "FSIN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...582f7ef3 mame=...582f7f44"
+    },
+    {
+      "name": "FSIN.X FP0 (pos_one)",
+      "op": "FSIN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...4867700f mame=...48677021"
+    },
+    {
+      "name": "FSIN.X FP0 (pos_zero)",
+      "op": "FSIN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (e)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (neg_inf)",
+      "op": "FSQRT",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FSQRT.X FP0 (neg_one)",
+      "op": "FSQRT",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FSQRT.X FP0 (neg_zero)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (pi)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (pos_half)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (pos_inf)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (pos_one)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (pos_two)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (pos_zero)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSQRT.X FP0 (qnan)",
+      "op": "FSQRT",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (big,tiny)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pi,e)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_inf,pos_inf)",
+      "op": "FSUB",
+      "category": "nan_encoding",
+      "detail": "hw=canonical NaN, mame=non-canonical NaN; FP0 hw=7fff0000ffffffffffffffff mame=ffff0000c000000000000000"
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_inf,pos_one)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_one,neg_one)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_one,pos_one)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_one,pos_two)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_one,pos_zero)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_one,qnan)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_two,pos_one)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (pos_zero,pos_one)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FSUB.X FP1,FP0 (ten,pos_three)",
+      "op": "FSUB",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTAN.X FP0 (pi)",
+      "op": "FTAN",
+      "category": "unknown",
+      "detail": "FP0 hw=3fbf00008000000000000000 mame=3fc00000c000000000000000 CC hw=00 mame=00"
+    },
+    {
+      "name": "FTAN.X FP0 (pi_quarter)",
+      "op": "FTAN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...0000000c mame=...00000000"
+    },
+    {
+      "name": "FTAN.X FP0 (pos_half)",
+      "op": "FTAN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...9a3a51dd mame=...9a3a5219"
+    },
+    {
+      "name": "FTAN.X FP0 (pos_one)",
+      "op": "FTAN",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...f71d2d93 mame=...f71d2dc5"
+    },
+    {
+      "name": "FTAN.X FP0 (pos_zero)",
+      "op": "FTAN",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTENTOX.X FP0 (pi)",
+      "op": "FTENTOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...f2a25e37 mame=...f2a25e39"
+    },
+    {
+      "name": "FTENTOX.X FP0 (pi_quarter)",
+      "op": "FTENTOX",
+      "category": "unknown",
+      "detail": "FP0 hw=40010000c33b100c07f5e6a5 mame=40010000c33b100ba7d2b0f6 CC hw=00 mame=00"
+    },
+    {
+      "name": "FTENTOX.X FP0 (pos_half)",
+      "op": "FTENTOX",
+      "category": "unknown",
+      "detail": "FP0 hw=40000000ca62c1d6d2da9495 mame=40000000ca62c1d6d2b8383e CC hw=00 mame=00"
+    },
+    {
+      "name": "FTENTOX.X FP0 (pos_one)",
+      "op": "FTENTOX",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTENTOX.X FP0 (pos_zero)",
+      "op": "FTENTOX",
+      "category": "unknown",
+      "detail": "FP0 hw=3fff00008000000000000000 mame=000000000000000000000000 CC hw=00 mame=04"
+    },
+    {
+      "name": "FTST.X FP0 (e)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (neg_inf)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (neg_one)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (neg_zero)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (pi)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (pos_half)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (pos_inf)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (pos_one)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (pos_two)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (pos_zero)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTST.X FP0 (qnan)",
+      "op": "FTST",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTWOTOX.X FP0 (pi)",
+      "op": "FTWOTOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...337c1a6b mame=...337c1a6e"
+    },
+    {
+      "name": "FTWOTOX.X FP0 (pi_quarter)",
+      "op": "FTWOTOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...c17095eb mame=...c17095d0"
+    },
+    {
+      "name": "FTWOTOX.X FP0 (pos_half)",
+      "op": "FTWOTOX",
+      "category": "trailing_bits",
+      "detail": "differ in last bytes; hw=...f9de6476 mame=...f9de6484"
+    },
+    {
+      "name": "FTWOTOX.X FP0 (pos_one)",
+      "op": "FTWOTOX",
+      "category": "match",
+      "detail": null
+    },
+    {
+      "name": "FTWOTOX.X FP0 (pos_zero)",
+      "op": "FTWOTOX",
+      "category": "unknown",
+      "detail": "FP0 hw=3fff00008000000000000000 mame=000000000000000000000000 CC hw=00 mame=04"
+    }
+  ]
+}

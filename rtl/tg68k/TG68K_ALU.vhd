@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 --                                                                          --
--- Copyright (c) 2009-2020 Tobias Gubener                                   -- 
+-- Copyright (c) 2009-2020 Tobias Gubener                                   --
 -- Patches by MikeJ, Till Harbaum, Rok Krajnk, ...                          --
 -- Subdesign fAMpIGA by TobiFlex                                            --
 --                                                                          --
@@ -29,10 +29,10 @@ use work.TG68K_Pack.all;
 
 entity TG68K_ALU is
 generic(
-		MUL_Mode : integer;			--0=>16Bit,	1=>32Bit,	2=>switchable with CPU(1),	3=>no MUL,  
-		MUL_Hardware : integer;		--0=>no,		1=>yes,  
-		DIV_Mode : integer;			--0=>16Bit,	1=>32Bit,	2=>switchable with CPU(1),	3=>no DIV,  
-		BarrelShifter :integer		--0=>no,		1=>yes,		2=>switchable with CPU(1)  
+		MUL_Mode : integer;			--0=>16Bit,	1=>32Bit,	2=>switchable with CPU(1),	3=>no MUL,
+		MUL_Hardware : integer;		--0=>no,		1=>yes,
+		DIV_Mode : integer;			--0=>16Bit,	1=>32Bit,	2=>switchable with CPU(1),	3=>no DIV,
+		BarrelShifter :integer		--0=>no,		1=>yes,		2=>switchable with CPU(1)
 		);
 	port(clk						: in std_logic;
 		Reset						: in std_logic;
@@ -61,7 +61,7 @@ generic(
 		last_data_read			: in std_logic_vector(15 downto 0);
 		data_read				: in std_logic_vector(15 downto 0);
 		FlagsSR					: in std_logic_vector(7 downto 0);
-		micro_state				: in micro_states;  
+		micro_state				: in micro_states;
 		bf_ext_in				: in std_logic_vector(7 downto 0);
 		bf_ext_out				: out std_logic_vector(7 downto 0);
 		bf_shift					: in std_logic_vector(5 downto 0);
@@ -95,7 +95,7 @@ architecture logic of TG68K_ALU is
 	signal set_Flags			: std_logic_vector(3 downto 0);	--NZVC
 	signal CCRin				: std_logic_vector(7 downto 0);
 	signal last_Flags1		: std_logic_vector(3 downto 0);	--NZVC
-    
+
 --BCD
 	signal bcd_pur				: std_logic_vector(9 downto 0);
 	signal bcd_kor				: std_logic_vector(8 downto 0);
@@ -108,7 +108,7 @@ architecture logic of TG68K_ALU is
 	signal result_div_pre	: std_logic_vector(31 downto 0);
 	signal set_mV_Flag		: std_logic;
 	signal V_Flag				: bit;
-	
+
 	signal rot_rot				: std_logic;
 	signal rot_lsb				: std_logic;
 	signal rot_msb				: std_logic;
@@ -122,7 +122,7 @@ architecture logic of TG68K_ALU is
 	signal one_bit_in			: std_logic;
 	signal bchg					: std_logic;
 	signal bset					: std_logic;
-	
+
 	signal mulu_sign			: std_logic;
 	signal mulu_signext		: std_logic_vector(16 downto 0);
 	signal muls_msb			: std_logic;
@@ -130,7 +130,7 @@ architecture logic of TG68K_ALU is
 	signal FAsign				: std_logic;
 	signal faktorA				: std_logic_vector(31 downto 0);
 	signal faktorB				: std_logic_vector(31 downto 0);
-	
+
 	signal div_reg				: std_logic_vector(63 downto 0);
 	signal div_quot			: std_logic_vector(63 downto 0);
 	signal div_ovl				: std_logic;
@@ -194,13 +194,13 @@ architecture logic of TG68K_ALU is
 	signal asl_over			: std_logic_vector(32 downto 0);
 	signal asl_over_xor		: std_logic_vector(32 downto 0);
 	signal asr_sign			: std_logic_vector(32 downto 0);
-	signal msb					: std_logic;  
+	signal msb					: std_logic;
 	signal ring					: std_logic_vector(5 downto 0);
 	signal ALU					: std_logic_vector(31 downto 0);
 	signal BSout				: std_logic_vector(31 downto 0);
-	signal bs_V					: std_logic;  
-	signal bs_C					: std_logic;  
-	signal bs_X					: std_logic;  
+	signal bs_V					: std_logic;
+	signal bs_C					: std_logic;
+	signal bs_X					: std_logic;
 
 
 BEGIN
@@ -219,21 +219,21 @@ PROCESS (OP2out, reg_QB, opcode, OP1out, OP1in, exe_datatype, addsub_q, execOPC,
 				ALUout <= bf_ffo_offset - bf_firstbit;
 			END IF;
 		END IF;
-		
+
 		OP1in <= addsub_q;
-		IF exec(opcABCD)='1' OR exec(opcSBCD)='1' THEN	
+		IF exec(opcABCD)='1' OR exec(opcSBCD)='1' THEN
 			OP1in(7 downto 0) <= bcd_a(7 downto 0);
 		ELSIF exec(opcMULU)='1' AND MUL_Mode/=3 THEN
 			IF MUL_Hardware=0 THEN
 				IF exec(write_lowlong)='1' AND (MUL_Mode=1 OR MUL_Mode=2) THEN
-					OP1in <= result_mulu(31 downto 0);	
-				ELSE	
+					OP1in <= result_mulu(31 downto 0);
+				ELSE
 					OP1in <= result_mulu(63 downto 32);
-				END IF;		
+				END IF;
 			ELSE
 				IF exec(write_lowlong)='1' THEN --AND (MUL_Mode=1 OR MUL_Mode=2) THEN
-					OP1in <= result_mulu(31 downto 0);	
-				ELSE	
+					OP1in <= result_mulu(31 downto 0);
+				ELSE
 --					OP1in <= result_mulu(63 downto 32);
 					OP1in <= mulu_reg(31 downto 0);
 				END IF;
@@ -241,12 +241,12 @@ PROCESS (OP2out, reg_QB, opcode, OP1out, OP1in, exe_datatype, addsub_q, execOPC,
 		ELSIF exec(opcDIVU)='1' AND DIV_Mode/=3 THEN
 			IF exe_opcode(15)='1' OR DIV_Mode=0 THEN
 --			IF exe_opcode(15)='1' THEN
-				OP1in <= result_div(47 downto 32)&result_div(15 downto 0);	--word 
+				OP1in <= result_div(47 downto 32)&result_div(15 downto 0);	--word
 			ELSE		--64bit
 				IF exec(write_reminder)='1' THEN
 					OP1in <= result_div(63 downto 32);
-				ELSE	
-					OP1in <= result_div(31 downto 0);	
+				ELSE
+					OP1in <= result_div(31 downto 0);
 				END IF;
 			END IF;
 		ELSIF exec(opcOR)='1' THEN
@@ -254,7 +254,7 @@ PROCESS (OP2out, reg_QB, opcode, OP1out, OP1in, exe_datatype, addsub_q, execOPC,
 		ELSIF exec(opcAND)='1' THEN
 			OP1in <= OP2out AND OP1out;
 		ELSIF exec(opcScc)='1' THEN
-			OP1in(7 downto 0) <= (others=>exe_condition); 
+			OP1in(7 downto 0) <= (others=>exe_condition);
 		ELSIF exec(opcEOR)='1' THEN
 			OP1in <= OP2out XOR OP1out;
 --		ELSIF exec(alu_move)='1' OR exec(exg)='1' THEN
@@ -265,24 +265,24 @@ PROCESS (OP2out, reg_QB, opcode, OP1out, OP1in, exe_datatype, addsub_q, execOPC,
 			OP1in <= rot_out;
 		ELSIF exec(exec_BS)='1' THEN
 			OP1in <= BSout;
-		ELSIF exec(opcSWAP)='1' THEN	
+		ELSIF exec(opcSWAP)='1' THEN
 			OP1in <= OP1out(15 downto 0)& OP1out(31 downto 16);
 		ELSIF exec(opcBITS)='1' THEN
-			OP1in <= bits_out;	
+			OP1in <= bits_out;
 		ELSIF exec(opcBF)='1' THEN
 			OP1in <= bf_datareg;		--new bitfieldvector for bfins - for others the old bitfieldvector
 		ELSIF exec(opcMOVESR)='1' THEN
 			OP1in(7 downto 0) <= Flags;
 			IF exe_opcode(9)='1' THEN
 				OP1in(15 downto 8) <= "00000000";
-			ELSE	
+			ELSE
 				OP1in(15 downto 8) <= FlagsSR;
 			END IF;
-		ELSIF exec(opcPACK)='1' THEN	
+		ELSIF exec(opcPACK)='1' THEN
 			OP1in(7 downto 0) <= addsub_q(11 downto 8) & addsub_q(3 downto 0);
 		END IF;
 	END PROCESS;
-	
+
 -----------------------------------------------------------------------------
 -- addsub
 -----------------------------------------------------------------------------
@@ -290,20 +290,20 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 	     notaddsub_b, add_result, c_in, sndOPC, non_aligned, check_aligned)
 	BEGIN
 		addsub_a <= OP1out;
-		IF exec(get_bfoffset)='1' THEN	
+		IF exec(get_bfoffset)='1' THEN
 			IF sndOPC(11)='1' THEN
 				addsub_a <= OP1out(31)&OP1out(31)&OP1out(31)&OP1out(31 downto 3);
 			ELSE
 				addsub_a <= "000000000000000000000000000000"&sndOPC(10 downto 9);
-			END IF;	
+			END IF;
 		END IF;
-		
+
 		IF exec(subidx)='1' THEN
 			opaddsub <= '1';
 		ELSE
 			opaddsub <= '0';
 		END IF;
-		
+
 		c_in(0) <='0';
 		addsub_b <= OP2out;
 		IF exec(opcUNPACK)='1' THEN
@@ -317,11 +317,11 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 				ELSE
 					addsub_b <= "00000000000000000000000000000100";
 				END IF;
-			ELSE 
+			ELSE
 				addsub_b <= "00000000000000000000000000000010";
 			END IF;
-		ELSE	
-			IF (exec(use_XZFlag)='1' AND Flags(4)='1') OR exec(opcCHK)='1' THEN 
+		ELSE
+			IF (exec(use_XZFlag)='1' AND Flags(4)='1') OR exec(opcCHK)='1' THEN
 				c_in(0) <= '1';
 			END IF;
 			opaddsub <= exec(addsub);
@@ -353,41 +353,41 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 		c_in(1) <= add_result(9) XOR addsub_a(8) XOR addsub_b(8);
 		c_in(2) <= add_result(17) XOR addsub_a(16) XOR addsub_b(16);
 		c_in(3) <= add_result(33);
-		addsub_q <= add_result(32 downto 1); 
+		addsub_q <= add_result(32 downto 1);
 		addsub_ofl(0) <= (c_in(1) XOR add_result(8) XOR addsub_a(7) XOR addsub_b(7));		--V Byte
 		addsub_ofl(1) <= (c_in(2) XOR add_result(16) XOR addsub_a(15) XOR addsub_b(15));	--V Word
 		addsub_ofl(2) <= (c_in(3) XOR add_result(32) XOR addsub_a(31) XOR addsub_b(31));	--V Long
 		c_out <= c_in(3 downto 1);
 	END PROCESS;
-	
+
 ------------------------------------------------------------------------------
 --ALU
-------------------------------------------------------------------------------		
+------------------------------------------------------------------------------
 PROCESS (OP1out, OP2out, CPU, exec, add_result, bcd_pur, bcd_a, bcd_kor, halve_carry, c_in)
 	BEGIN
 --BCD_ARITH-------------------------------------------------------------------
 --04.04.2017 by Tobiflex - BCD handling with all undefined behavior!
 		bcd_pur <= c_in(1)&add_result(8 downto 0);
 		bcd_kor <= "000000000";
-		halve_carry <= OP1out(4) XOR OP2out(4) XOR bcd_pur(5); 
+		halve_carry <= OP1out(4) XOR OP2out(4) XOR bcd_pur(5);
 		IF halve_carry='1' THEN
 			bcd_kor(3 downto 0) <= "0110"; --  -6
 		END IF;
 		IF bcd_pur(9)='1' THEN
 			bcd_kor(7 downto 4) <= "0110"; --  -60
 		END IF;
-		IF exec(opcABCD)='1' THEN	
-			Vflag_a <= NOT bcd_pur(8) AND bcd_a(7); 
+		IF exec(opcABCD)='1' THEN
+			Vflag_a <= NOT bcd_pur(8) AND bcd_a(7);
 --			bcd_pur <= ('0'&OP1out(7 downto 0)&'1') + ('0'&OP2out(7 downto 0)&Flags(4));
 			bcd_a <= bcd_pur(9 downto 1) + bcd_kor;
 			IF (bcd_pur(4) AND (bcd_pur(3) OR bcd_pur(2)))='1' THEN
 				bcd_kor(3 downto 0) <= "0110"; --  +6
 			END IF;
 			IF (bcd_pur(8) AND (bcd_pur(7) OR bcd_pur(6) OR (bcd_pur(5) AND bcd_pur(4) AND (bcd_pur(3) OR bcd_pur(2)))))='1' THEN
-				bcd_kor(7 downto 4) <= "0110"; --  +60 
+				bcd_kor(7 downto 4) <= "0110"; --  +60
 			END IF;
-		ELSE --opcSBCD	
-			Vflag_a <= bcd_pur(8) AND NOT bcd_a(7); 
+		ELSE --opcSBCD
+			Vflag_a <= bcd_pur(8) AND NOT bcd_a(7);
 --			bcd_pur <= ('0'&OP1out(7 downto 0)&'0') - ('0'&OP2out(7 downto 0)&Flags(4));
 			bcd_a <= bcd_pur(9 downto 1) - bcd_kor;
 		END IF;
@@ -396,13 +396,13 @@ PROCESS (OP1out, OP2out, CPU, exec, add_result, bcd_pur, bcd_a, bcd_kor, halve_c
 		END IF;
 		bcd_a_carry <= bcd_pur(9) OR bcd_a(8);
 	END PROCESS;
-			
+
 -----------------------------------------------------------------------------
 -- Bits
 -----------------------------------------------------------------------------
 PROCESS (clk, exe_opcode, OP1out, OP2out, reg_QB, one_bit_in, bchg, bset, bit_Number, sndOPC)
 	BEGIN
-		IF rising_edge(clk) THEN		
+		IF rising_edge(clk) THEN
 	        IF  clkena_lw = '1' THEN
 				bchg <= '0';
 				bset <= '0';
@@ -411,11 +411,11 @@ PROCESS (clk, exe_opcode, OP1out, OP2out, reg_QB, one_bit_in, bchg, bset, bit_Nu
 						bchg <= '1';
 					WHEN "11" =>					--bset
 						bset <= '1';
-					WHEN OTHERS => NULL;			
+					WHEN OTHERS => NULL;
 				END CASE;
 			END IF;
-		END IF;		
-		
+		END IF;
+
 		IF exe_opcode(8)='0' THEN
 			IF exe_opcode(5 downto 4)="00" THEN
 				bit_number <= sndOPC(4 downto 0);
@@ -429,7 +429,7 @@ PROCESS (clk, exe_opcode, OP1out, OP2out, reg_QB, one_bit_in, bchg, bset, bit_Nu
 				bit_number <= "00"&reg_QB(2 downto 0);
 			END IF;
 		END IF;
-						
+
 		one_bit_in <= OP1out(conv_integer(bit_Number));
 		bits_out <= OP1out;
 		bits_out(conv_integer(bit_Number)) <= (bchg AND NOT one_bit_in) OR bset ;
@@ -437,13 +437,13 @@ PROCESS (clk, exe_opcode, OP1out, OP2out, reg_QB, one_bit_in, bchg, bset, bit_Nu
 
 -----------------------------------------------------------------------------
 -- Bit Field
------------------------------------------------------------------------------	
+-----------------------------------------------------------------------------
 
-PROCESS (clk, mux, mask, bitnr, bf_ins, bf_bchg, bf_bset, bf_exts, bf_shift, inmux0, inmux1, inmux2, inmux3, bf_set2, OP1out, OP2out, 
-			result_tmp, bf_ext_in, mask_not_zero, exec, shift, datareg, bf_NFlag, result, reg_QB, unshifted_bitmask, bf_d32, bf_s32, 
+PROCESS (clk, mux, mask, bitnr, bf_ins, bf_bchg, bf_bset, bf_exts, bf_shift, inmux0, inmux1, inmux2, inmux3, bf_set2, OP1out, OP2out,
+			result_tmp, bf_ext_in, mask_not_zero, exec, shift, datareg, bf_NFlag, result, reg_QB, unshifted_bitmask, bf_d32, bf_s32,
 			shifted_bitmask, bf_loffset, bitmaskmux0, bitmaskmux1, bitmaskmux2, bitmaskmux3, bf_width)
 	BEGIN
-		IF rising_edge(clk) THEN		
+		IF rising_edge(clk) THEN
 			IF clkena_lw = '1' THEN
 				bf_bset <= '0';
 				bf_bchg <= '0';
@@ -452,7 +452,7 @@ PROCESS (clk, mux, mask, bitnr, bf_ins, bf_bchg, bf_bset, bf_exts, bf_shift, inm
 				bf_fffo <= '0';
 				bf_d32 <= '0';
 				bf_s32 <= '0';
---		000-bftst, 001-bfextu, 010-bfchg, 011-bfexts, 100-bfclr, 101-bfff0, 110-bfset, 111-bfins	
+--		000-bftst, 001-bfextu, 010-bfchg, 011-bfexts, 100-bfclr, 101-bfff0, 110-bfset, 111-bfins
 				IF opcode(5 downto 4) ="00" THEN
 					  bf_s32 <= '1';
 				END IF;
@@ -472,132 +472,132 @@ PROCESS (clk, mux, mask, bitnr, bf_ins, bf_bchg, bf_bset, bf_exts, bf_shift, inm
 				bf_ext_out <= result(39 downto 32);
 			END IF;
 		END IF;
-		
+
 		IF bf_ins='1' THEN
 			datareg <= reg_QB;
 		ELSE
 			datareg <= bf_set2;
 		END IF;
-		
-		
+
+
 -- create bitmask for operation
 -- unshifted bitmask '0' => bit is in the Bitfieldvector
 --					 '1' => bit isn't in the Bitfieldvector
 -- Example bf_with=11    => "11111111 11111111 11111000 00000000"
--- datareg 
-		unshifted_bitmask <= (OTHERS => '0'); 
+-- datareg
+		unshifted_bitmask <= (OTHERS => '0');
 		FOR i in 0 to 31 LOOP
 			IF i>bf_width(4 downto 0) THEN
-				datareg(i) <= '0'; 
-				unshifted_bitmask(i) <= '1'; 			 
-			END IF;	
+				datareg(i) <= '0';
+				unshifted_bitmask(i) <= '1';
+			END IF;
 		END LOOP;
-		
+
 		bf_NFlag <= datareg(conv_integer(bf_width));
 		IF bf_exts='1' AND bf_NFlag='1' THEN
 			bf_datareg <= datareg OR unshifted_bitmask;
-		ELSE	
+		ELSE
 			bf_datareg <= datareg;
-		END IF;	
-		
+		END IF;
+
 -- shift bitmask for operation
-		IF bf_loffset(4)='1' THEN 
+		IF bf_loffset(4)='1' THEN
 			bitmaskmux3 <= unshifted_bitmask(15 downto 0)&unshifted_bitmask(31 downto 16);
-		ELSE	
+		ELSE
 			bitmaskmux3 <= unshifted_bitmask;
 		END IF;
-		IF bf_loffset(3)='1' THEN 
+		IF bf_loffset(3)='1' THEN
 			bitmaskmux2(31 downto 0) <= bitmaskmux3(23 downto 0)&bitmaskmux3(31 downto 24);
-		ELSE	
+		ELSE
 			bitmaskmux2(31 downto 0) <= bitmaskmux3;
 		END IF;
-		IF bf_loffset(2)='1' THEN 
+		IF bf_loffset(2)='1' THEN
 			bitmaskmux1 <= bitmaskmux2&"1111";
-			IF bf_d32='1' THEN 
+			IF bf_d32='1' THEN
 				bitmaskmux1(3 downto 0) <= bitmaskmux2(31 downto 28);
 			END IF;
-		ELSE	
+		ELSE
 			bitmaskmux1 <= "1111"&bitmaskmux2;
 		END IF;
-		IF bf_loffset(1)='1' THEN 
+		IF bf_loffset(1)='1' THEN
 			bitmaskmux0 <= bitmaskmux1&"11";
-			IF bf_d32='1' THEN 
+			IF bf_d32='1' THEN
 				bitmaskmux0(1 downto 0) <= bitmaskmux1(31 downto 30);
 			END IF;
 		ELSE
 			bitmaskmux0 <= "11"&bitmaskmux1;
 		END IF;
-		IF bf_loffset(0)='1' THEN 
+		IF bf_loffset(0)='1' THEN
 			shifted_bitmask <= '1'&bitmaskmux0&'1';
-			IF bf_d32='1' THEN 
+			IF bf_d32='1' THEN
 				shifted_bitmask(0) <= bitmaskmux0(31);
 			END IF;
 		ELSE
 			shifted_bitmask <= "11"&bitmaskmux0;
 		END IF;
-		
-		
--- shift for ins 
+
+
+-- shift for ins
 		shift <= bf_ext_in&OP2out;
-		IF bf_s32='1' THEN 
+		IF bf_s32='1' THEN
 			shift(39 downto 32) <= OP2out(7 downto 0);
 		END IF;
-			
-		IF bf_shift(0)='1' THEN 
+
+		IF bf_shift(0)='1' THEN
 			inmux0 <= shift(0)&shift(39 downto 1);
-		ELSE	
+		ELSE
 			inmux0 <= shift;
 		END IF;
-		IF bf_shift(1)='1' THEN 
+		IF bf_shift(1)='1' THEN
 			inmux1 <= inmux0(1 downto 0)&inmux0(39 downto 2);
 		ELSE
 			inmux1 <= inmux0;
 		END IF;
-		IF bf_shift(2)='1' THEN 
+		IF bf_shift(2)='1' THEN
 			inmux2 <= inmux1(3 downto 0)&inmux1(39 downto 4);
-		ELSE	
+		ELSE
 			inmux2 <= inmux1;
 		END IF;
-		IF bf_shift(3)='1' THEN 
+		IF bf_shift(3)='1' THEN
 			inmux3 <= inmux2(7 downto 0)&inmux2(31 downto 8);
-		ELSE	
+		ELSE
 			inmux3 <= inmux2(31 downto 0);
 		END IF;
-		IF bf_shift(4)='1' THEN 
+		IF bf_shift(4)='1' THEN
 			bf_set2(31 downto 0) <= inmux3(15 downto 0)&inmux3(31 downto 16);
-		ELSE	
+		ELSE
 			bf_set2(31 downto 0) <= inmux3;
 		END IF;
-		
+
 		IF bf_ins='1' THEN
 			result(31 downto 0) <= bf_set2;
 			result(39 downto 32) <= bf_set2(7 downto 0);
 		ELSIF bf_bchg='1' THEN
 			result(31 downto 0) <= NOT OP2out;
 			result(39 downto 32) <= NOT bf_ext_in;
-		ELSE	
+		ELSE
 			result <= (OTHERS => '0');
 		END IF;
 		IF bf_bset='1' THEN
 			result <= (OTHERS => '1');
 		END IF;
--- 		
+--
 		IF bf_ins='1' THEN
 			result_tmp <= bf_ext_in&OP1out;
-		ELSE	
+		ELSE
 			result_tmp <= bf_ext_in&OP2out;
 		END IF;
 		FOR i in 0 to 39 LOOP
-			IF shifted_bitmask(i)='1' THEN	
+			IF shifted_bitmask(i)='1' THEN
 				result(i) <= result_tmp(i);   --restore old data
-			END IF;	
+			END IF;
 		END LOOP;
-		
---BFFFO	
+
+--BFFFO
 		mask <= datareg;
 		bf_firstbit <= ('0'&bitnr)+mask_not_zero;
 		bitnr <= "11111";
-		mask_not_zero <= '1'; 
+		mask_not_zero <= '1';
 		IF mask(31 downto 28)="0000" THEN
 			IF mask(27 downto 24)="0000" THEN
 				IF mask(23 downto 20)="0000" THEN
@@ -635,19 +635,19 @@ PROCESS (clk, mux, mask, bitnr, bf_ins, bf_bchg, bf_bset, bf_exts, bf_shift, inm
 		ELSE
 			mux <= mask(31 downto 28);
 		END IF;
-		
+
 		IF mux(3 downto 2)="00" THEN
 			bitnr(1) <= '0';
 			IF mux(1)='0' THEN
 				bitnr(0) <= '0';
 				IF mux(0)='0' THEN
-					mask_not_zero <= '0'; 
-				END IF;	
-			END IF;	
-		ELSE		
+					mask_not_zero <= '0';
+				END IF;
+			END IF;
+		ELSE
 			IF mux(3)='0' THEN
 				bitnr(0) <= '0';
-			END IF;	
+			END IF;
 		END  IF;
 	END PROCESS;
 
@@ -665,7 +665,7 @@ PROCESS (exe_opcode, OP1out, Flags, rot_bits, rot_msb, rot_lsb, rot_rot, exec, B
 						rot_rot <= OP1out(31);
 			WHEN OTHERS => NULL;
 		END CASE;
-	
+
 		CASE rot_bits IS
 			WHEN "00" =>					--ASL, ASR
 						rot_lsb <= '0';
@@ -681,13 +681,13 @@ PROCESS (exe_opcode, OP1out, Flags, rot_bits, rot_msb, rot_lsb, rot_rot, exec, B
 						rot_msb <= OP1out(0);
 			WHEN OTHERS => NULL;
 		END CASE;
-	
+
 		IF exec(rot_nop)='1' THEN
 			rot_out <= OP1out;
 			rot_X <= Flags(4);
 			IF rot_bits="10" THEN	--ROXL, ROXR
 				rot_C <= Flags(4);
-			ELSE	
+			ELSE
 				rot_C <= '0';
 			END IF;
 		ELSE
@@ -704,7 +704,7 @@ PROCESS (exe_opcode, OP1out, Flags, rot_bits, rot_msb, rot_lsb, rot_rot, exec, B
 						rot_out(7) <= rot_msb;
 					WHEN "01"|"11" =>				--Word
 						rot_out(15) <= rot_msb;
-					WHEN OTHERS => NULL;	
+					WHEN OTHERS => NULL;
 				END CASE;
 			END IF;
 			IF BarrelShifter/=0 THEN
@@ -712,11 +712,11 @@ PROCESS (exe_opcode, OP1out, Flags, rot_bits, rot_msb, rot_lsb, rot_rot, exec, B
 			END IF;
 		END IF;
 	END PROCESS;
-		
+
 -----------------------------------------------------------------------------
 -- Barrel Shifter
------------------------------------------------------------------------------	
-process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, result_bs, exe_opcode, vector, 
+-----------------------------------------------------------------------------
+process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, result_bs, exe_opcode, vector,
          rot_bits, Flags, bs_C, msb, hot_msb, asl_over, asl_over_xor, ALU, asr_sign, exec)
 	begin
 		ring <= "100000";
@@ -740,8 +740,8 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 							ring <= "100000";
 				WHEN OTHERS => NULL;
 			END CASE;
-		END IF;	
-		
+		END IF;
+
 		IF exe_opcode(7 downto 6)="11" OR exec(exec_BS)='0' THEN
 			bs_shift <="000001";
 		ELSIF exe_opcode(5)='1' THEN
@@ -755,7 +755,7 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 			END IF;
 		END IF;
 
--- calc V-Flag by ASL		
+-- calc V-Flag by ASL
 		bit_msb <= "000000";
 		hot_msb <= (OTHERS =>'0');
 		hot_msb(conv_integer(bit_msb)) <= '1';
@@ -770,12 +770,12 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 				asl_over_xor(16) <= '0';
 			WHEN OTHERS => NULL;
 		END CASE;
-		asl_over <= asl_over_xor - ('0'&hot_msb(31 downto 0));	
+		asl_over <= asl_over_xor - ('0'&hot_msb(31 downto 0));
 		bs_V <= '0';
 		IF rot_bits="00" AND exe_opcode(8)='1' THEN --ASL
 			bs_V <= not asl_over(32);
 		END IF;
-		
+
 		bs_X <= bs_C;
 		IF exe_opcode(8)='0' THEN --right shift
 			bs_C <= result_bs(31);
@@ -790,7 +790,7 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 				WHEN OTHERS => NULL;
 			END CASE;
 		END IF;
-		
+
 		ALU <= (others=>'-');
 		IF rot_bits="11" THEN --RO L/R
 			bs_X <= Flags(4);
@@ -829,7 +829,7 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 				ALU <= result_bs(31 downto 0);
 			END IF;
 		END IF;
-		
+
 		IF(bs_shift = "000000") THEN
 			IF rot_bits="10" THEN --ROX L/R
 				bs_C <= Flags(4);
@@ -840,7 +840,7 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 			bs_V <= '0';
 		END IF;
 
--- calc shift count		
+-- calc shift count
 		-- bs_shift_mod <= std_logic_vector(unsigned(bs_shift) rem unsigned(ring));
 		-- replace the divider with logic
 		CASE ring IS
@@ -895,7 +895,7 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 			IF bs_shift = ring THEN
 				IF exe_opcode(8)='0' THEN  --right shift
 					bit_nr <= 32-ring;
-				ELSE	
+				ELSE
 					bit_nr <= ring;
 				END IF;
 			END IF;
@@ -903,16 +903,16 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 				IF exe_opcode(8)='0' THEN  --right shift
 					bit_nr <= "000000";
 					bs_C <= '0';
-				ELSE	
+				ELSE
 					bit_nr <= ring+1;
 				END IF;
 			END IF;
 		END IF;
-		
--- calc ASR sign		
+
+-- calc ASR sign
 		BSout <= ALU;
-		asr_sign <= (OTHERS =>'0');	
-		asr_sign(32 downto 1) <= asr_sign(31 downto 0) OR hot_msb(31 downto 0);	
+		asr_sign <= (OTHERS =>'0');
+		asr_sign(32 downto 1) <= asr_sign(31 downto 0) OR hot_msb(31 downto 0);
 		IF rot_bits="00" AND exe_opcode(8)='0' AND msb='1' THEN --ASR
 			BSout <= ALU or asr_sign(32 downto 1);
 			IF bs_shift > ring THEN
@@ -943,14 +943,14 @@ process (OP1out, OP2out, opcode, bit_nr, bit_msb, bs_shift, bs_shift_mod, ring, 
 				END IF;
 			WHEN OTHERS => NULL;
 		END CASE;
-		result_bs <= std_logic_vector(unsigned('0'&X"00000000"&vector) sll to_integer(unsigned(bit_nr(5 downto 0)))); 
+		result_bs <= std_logic_vector(unsigned('0'&X"00000000"&vector) sll to_integer(unsigned(bit_nr(5 downto 0))));
 
   end process;
 
-  
+
 ------------------------------------------------------------------------------
 --CCR op
-------------------------------------------------------------------------------		
+------------------------------------------------------------------------------
 PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, flag_z, OP1IN, c_out, addsub_ofl,
 	     bcd_a, bcd_a_carry, Vflag_a, exec)
 	BEGIN
@@ -960,13 +960,13 @@ PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, fl
 			CCRin <= Flags XOR last_data_read(7 downto 0);
 		ELSIF exec(oriSR)='1' THEN
 			CCRin <= Flags OR last_data_read(7 downto 0);
-		ELSE	
+		ELSE
 			CCRin <= OP2out(7 downto 0);
-		END IF;	
-		
+		END IF;
+
 ------------------------------------------------------------------------------
 --Flags
-------------------------------------------------------------------------------		
+------------------------------------------------------------------------------
 		flag_z <= "000";
 		IF exec(use_XZFlag)='1' AND flags(2)='0' THEN
 			flag_z <= "000";
@@ -975,15 +975,15 @@ PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, fl
 			IF OP1in(15 downto 8)="00000000" THEN
 				flag_z(1) <= '1';
 				IF OP1in(31 downto 16)="0000000000000000" THEN
-					flag_z(2) <= '1';	
+					flag_z(2) <= '1';
 				END IF;
 			END IF;
 		END IF;
-		
+
 --					--Flags NZVC
 		IF exe_datatype="00" THEN 						--Byte
 			set_flags <= OP1IN(7)&flag_z(0)&addsub_ofl(0)&c_out(0);
-			IF exec(opcABCD)='1' OR exec(opcSBCD)='1' THEN	
+			IF exec(opcABCD)='1' OR exec(opcSBCD)='1' THEN
 				set_flags(0) <= bcd_a_carry;
 				set_flags(1) <= Vflag_a;
 			END IF;
@@ -992,23 +992,23 @@ PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, fl
 		ELSE 						--Word
 			set_flags <= OP1IN(15)&flag_z(1)&addsub_ofl(1)&c_out(1);
 		END IF;
-		
-		IF rising_edge(clk) THEN		
+
+		IF rising_edge(clk) THEN
 			IF Reset='1' THEN
-				Flags(7 downto 0) <= "00000000"; 
+				Flags(7 downto 0) <= "00000000";
 			ELSIF clkena_lw = '1' THEN
 				IF exec(directSR)='1' OR set_stop='1' THEN
 					Flags(7 downto 0) <= data_read(7 downto 0);
-				END IF;	
+				END IF;
 				IF exec(directCCR)='1' THEN
 					Flags(7 downto 0) <= data_read(7 downto 0);
-				END IF;	
-				
+				END IF;
+
 				IF exec(opcROT)='1' AND decodeOPC='0' THEN
-					asl_VFlag <= ((set_flags(3) XOR rot_rot) OR asl_VFlag);	
-				ELSE	
+					asl_VFlag <= ((set_flags(3) XOR rot_rot) OR asl_VFlag);
+				ELSE
 					asl_VFlag <= '0';
-				END IF;	
+				END IF;
 				IF exec(to_CCR)='1' THEN
 					Flags(7 downto 0) <= CCRin(7 downto 0);			--CCR
 				ELSIF Z_error='1' THEN
@@ -1026,15 +1026,15 @@ PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, fl
 					IF exec(opcADD)='1' THEN
 						Flags(4) <= set_flags(0);
 					ELSIF exec(opcROT)='1' AND rot_bits/="11" AND exec(rot_nop)='0' THEN
-						Flags(4) <= rot_X; 	
+						Flags(4) <= rot_X;
 					ELSIF exec(exec_BS)='1' THEN
-						Flags(4) <= BS_X; 	
+						Flags(4) <= BS_X;
 					END IF;
-					
+
 					IF (exec(opcCMP) OR exec(alu_setFlags))='1' THEN
 						Flags(3 downto 0) <= set_flags;
 					ELSIF exec(opcDIVU)='1' AND DIV_Mode/=3 THEN
-						IF V_Flag='1' THEN	
+						IF V_Flag='1' THEN
 							Flags(3 downto 0) <= "1010";
 						ELSIF exe_opcode(15)='1' OR DIV_Mode=0 THEN
 							Flags(3 downto 0) <= OP1IN(15)&flag_z(1)&"00";
@@ -1056,25 +1056,25 @@ PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, fl
 						Flags(3 downto 2) <= set_flags(3 downto 2);
 						IF exec(opcBF)='1' THEN
 							Flags(3) <= bf_NFlag;
-						END IF;	
+						END IF;
 					ELSIF exec(opcROT)='1' THEN
 						Flags(3 downto 2) <= set_flags(3 downto 2);
 						Flags(0) <= rot_C;
 						IF rot_bits="00" AND ((set_flags(3) XOR rot_rot) OR asl_VFlag)='1' THEN		--ASL/ASR
 							Flags(1) <= '1';
-						ELSE		
+						ELSE
 							Flags(1) <= '0';
-						END IF;	
+						END IF;
 					ELSIF exec(exec_BS)='1' THEN
 						Flags(3 downto 2) <= set_flags(3 downto 2);
 						Flags(0) <= BS_C;
 						Flags(1) <= BS_V;
 					ELSIF exec(opcBITS)='1' THEN
-						Flags(2) <= NOT one_bit_in;	
+						Flags(2) <= NOT one_bit_in;
 					ELSIF exec(opcCHK2)='1' THEN		--micro_state = chk23
 --micro_state	 chk21   chk22   chk23
 --OP1out      		UB		R			R
---OP2out				LB		LB			UB					
+--OP2out				LB		LB			UB
 ----lower bound first
 						IF last_Flags1(0)='0' THEN			--unsigned OP
 							Flags(0) <= Flags(0) OR (NOT set_flags(0) AND NOT set_flags(2));
@@ -1083,30 +1083,30 @@ PROCESS (clk, Reset, exe_opcode, exe_datatype, Flags, last_data_read, OP2out, fl
 						END IF;
 						Flags(1) <= '0';
 						Flags(2) <= Flags(2) OR set_flags(2);
-						Flags(3) <= NOT last_Flags1(0); 
+						Flags(3) <= NOT last_Flags1(0);
 					ELSIF exec(opcCHK)='1' THEN
 						IF exe_datatype="01" THEN 						--Word
 							Flags(3) <= OP1out(15);
-						ELSE	
+						ELSE
 							Flags(3) <= OP1out(31);
-						END IF;	
+						END IF;
 						IF OP1out(15 downto 0)=X"0000" AND (exe_datatype="01" OR OP1out(31 downto 16)=X"0000") THEN
 							Flags(2) <='1';
-						ELSE	
+						ELSE
 							Flags(2) <='0';
-						END IF;	
+						END IF;
 						Flags(1) <= '0';
 						Flags(0) <= '0';
 					END IF;
-				END IF;	
-			END IF;	
+				END IF;
+			END IF;
 			Flags(7 downto 5) <= "000";
-		END IF;	
+		END IF;
 	END PROCESS;
-	
+
 ---------------------------------------------------------------------------------
 ------ MULU/MULS
----------------------------------------------------------------------------------	
+---------------------------------------------------------------------------------
 PROCESS (exe_opcode, OP2out, muls_msb, mulu_reg, FAsign, mulu_sign, reg_QA, faktorA, faktorB, result_mulu, signedOP)
 --PROCESS (exec, reg_QA, OP2out, faktorA, faktorB, signedOP)
 	BEGIN
@@ -1115,12 +1115,12 @@ PROCESS (exe_opcode, OP2out, muls_msb, mulu_reg, FAsign, mulu_sign, reg_QA, fakt
 		IF MUL_Mode=0 THEN	-- 16 Bit
 			IF signedOP='1' AND reg_QA(15)='1' THEN
 				faktorA <= X"FFFFFFFF";
-			ELSE	
+			ELSE
 				faktorA <= X"00000000";
 			END IF;
 			IF signedOP='1' AND OP2out(15)='1' THEN
 				faktorB <= X"FFFFFFFF";
-			ELSE	
+			ELSE
 				faktorB <= X"00000000";
 			END IF;
 			result_mulu(63 downto 0) <= (faktorA(15 downto 0) & reg_QA(15 downto 0)) * (faktorB(15 downto 0) & OP2out(15 downto 0));
@@ -1128,25 +1128,25 @@ PROCESS (exe_opcode, OP2out, muls_msb, mulu_reg, FAsign, mulu_sign, reg_QA, fakt
 			IF exe_opcode(15)='1' THEN	-- 16 Bit
 				IF signedOP='1' AND reg_QA(15)='1' THEN
 					faktorA <= X"FFFFFFFF";
-				ELSE	
+				ELSE
 					faktorA <= X"00000000";
 				END IF;
 				IF signedOP='1' AND OP2out(15)='1' THEN
 					faktorB <= X"FFFFFFFF";
-				ELSE	
+				ELSE
 					faktorB <= X"00000000";
 				END IF;
-			ELSE	
+			ELSE
 				faktorA(15 downto 0) <= reg_QA(31 downto 16);
 				faktorB(15 downto 0) <= OP2out(31 downto 16);
 				IF signedOP='1' AND reg_QA(31)='1' THEN
 					faktorA(31 downto 16) <= X"FFFF";
-				ELSE	
+				ELSE
 					faktorA(31 downto 16) <= X"0000";
 				END IF;
 				IF signedOP='1' AND OP2out(31)='1' THEN
 					faktorB(31 downto 16) <= X"FFFF";
-				ELSE	
+				ELSE
 					faktorB(31 downto 16) <= X"0000";
 				END IF;
 			END IF;
@@ -1155,7 +1155,7 @@ PROCESS (exe_opcode, OP2out, muls_msb, mulu_reg, FAsign, mulu_sign, reg_QA, fakt
 --	END PROCESS;
 -------------------------------------------------------------------------------
 ---- MULU/MULS
--------------------------------------------------------------------------------	
+-------------------------------------------------------------------------------
 --PROCESS (exe_opcode, OP2out, muls_msb, mulu_reg, FAsign, mulu_sign, reg_QA, faktorB, result_mulu, signedOP)
 --	BEGIN
 	ELSE
@@ -1163,49 +1163,49 @@ PROCESS (exe_opcode, OP2out, muls_msb, mulu_reg, FAsign, mulu_sign, reg_QA, fakt
 			muls_msb <= mulu_reg(63);
 		ELSE
 			muls_msb <= '0';
-		END IF;	
-		
+		END IF;
+
 		IF signedOP='1' AND faktorB(31)='1' THEN
 			mulu_sign <= '1';
 		ELSE
 			mulu_sign <= '0';
-		END IF;	
-		
+		END IF;
+
 		IF MUL_Mode=0 THEN	-- 16 Bit
-			result_mulu(63 downto 32) <= muls_msb&mulu_reg(63 downto 33);	
-			result_mulu(15 downto 0) <= 'X'&mulu_reg(15 downto 1);	
+			result_mulu(63 downto 32) <= muls_msb&mulu_reg(63 downto 33);
+			result_mulu(15 downto 0) <= 'X'&mulu_reg(15 downto 1);
 			IF mulu_reg(0)='1' THEN
 				IF FAsign='1' THEN
-					result_mulu(63 downto 47) <= (muls_msb&mulu_reg(63 downto 48)-(mulu_sign&faktorB(31 downto 16)));	
+					result_mulu(63 downto 47) <= (muls_msb&mulu_reg(63 downto 48)-(mulu_sign&faktorB(31 downto 16)));
 				ELSE
-					result_mulu(63 downto 47) <= (muls_msb&mulu_reg(63 downto 48)+(mulu_sign&faktorB(31 downto 16)));	
+					result_mulu(63 downto 47) <= (muls_msb&mulu_reg(63 downto 48)+(mulu_sign&faktorB(31 downto 16)));
 				END IF;
-			END IF;	
+			END IF;
 		ELSE				-- 32 Bit
-			result_mulu(63 downto 0) <= muls_msb&mulu_reg(63 downto 1);	
+			result_mulu(63 downto 0) <= muls_msb&mulu_reg(63 downto 1);
 			IF mulu_reg(0)='1' THEN
 				IF FAsign='1' THEN
-					result_mulu(63 downto 31) <= (muls_msb&mulu_reg(63 downto 32)-(mulu_sign&faktorB));	
+					result_mulu(63 downto 31) <= (muls_msb&mulu_reg(63 downto 32)-(mulu_sign&faktorB));
 				ELSE
-					result_mulu(63 downto 31) <= (muls_msb&mulu_reg(63 downto 32)+(mulu_sign&faktorB));	
+					result_mulu(63 downto 31) <= (muls_msb&mulu_reg(63 downto 32)+(mulu_sign&faktorB));
 				END IF;
-			END IF;	
+			END IF;
 		END IF;
 		IF exe_opcode(15)='1' OR MUL_Mode=0 THEN
 			faktorB(31 downto 16) <= OP2out(15 downto 0);
 			faktorB(15 downto 0) <= (OTHERS=>'0');
-		ELSE	
+		ELSE
 			faktorB <= OP2out;
 		END IF;
 	END IF;
 		IF (result_mulu(63 downto 32)=X"00000000" AND (signedOP='0' OR result_mulu(31)='0')) OR
 			(result_mulu(63 downto 32)=X"FFFFFFFF" AND signedOP='1' AND result_mulu(31)='1') THEN
 			set_mV_Flag <= '0';
-		ELSE	
+		ELSE
 			set_mV_Flag <= '1';
 		END IF;
 	END PROCESS;
-	
+
 PROCESS (clk)
 	BEGIN
 		IF rising_edge(clk) THEN
@@ -1219,22 +1219,22 @@ PROCESS (clk)
 						ELSE
 							FAsign <= '0';
 							mulu_reg(31 downto 0) <= reg_QA;
-						END IF;	
+						END IF;
 					ELSIF exec(opcMULU)='0' THEN
-						mulu_reg <= result_mulu(63 downto 0);	
+						mulu_reg <= result_mulu(63 downto 0);
 					END IF;
-				ELSE	
+				ELSE
 					mulu_reg(31 downto 0) <= result_mulu(63 downto 32);
 				END IF;
 			END IF;
 		END IF;
 	END PROCESS;
-		
+
 -------------------------------------------------------------------------------
 ---- DIVU/DIVS
 -------------------------------------------------------------------------------
-		
-PROCESS (execOPC, OP1out, OP2out, div_reg, div_neg, div_bit, div_sub, div_quot, OP1_sign, div_over, result_div, reg_QA, opcode, sndOPC, divs, exe_opcode, reg_QB, 
+
+PROCESS (execOPC, OP1out, OP2out, div_reg, div_neg, div_bit, div_sub, div_quot, OP1_sign, div_over, result_div, reg_QA, opcode, sndOPC, divs, exe_opcode, reg_QB,
 	     signedOP, nozero, div_qsign, OP2outext, result_div_pre)
 	BEGIN
 		divs <= (opcode(15) AND opcode(8)) OR (NOT opcode(15) AND sndOPC(11));
@@ -1250,7 +1250,7 @@ PROCESS (execOPC, OP1out, OP2out, div_reg, div_neg, div_bit, div_sub, div_quot, 
 			END IF;
 			div_qsign <= result_div_pre(31);
 		END IF;
-		IF signedOP='1' OR opcode(15)='0' THEN 
+		IF signedOP='1' OR opcode(15)='0' THEN
 			OP2outext <= OP2out(31 downto 16);
 		ELSE
 			OP2outext <= (OTHERS=> '0');
@@ -1259,34 +1259,34 @@ PROCESS (execOPC, OP1out, OP2out, div_reg, div_neg, div_bit, div_sub, div_quot, 
 			div_sub <= (div_reg(63 downto 31))+('1'&OP2out(31 downto 0));
 		ELSE
 			div_sub <= (div_reg(63 downto 31))-('0'&OP2outext(15 downto 0)&OP2out(15 downto 0));
-		END IF;	
+		END IF;
 		IF DIV_Mode=0 THEN
 			div_bit <= div_sub(16);
 		ELSE
 			div_bit <= div_sub(32);
 		END IF;
 		IF div_bit='1' THEN
-			div_quot(63 downto 32) <= div_reg(62 downto 31);	
+			div_quot(63 downto 32) <= div_reg(62 downto 31);
 		ELSE
-			div_quot(63 downto 32) <= div_sub(31 downto 0);	
-		END IF;	
+			div_quot(63 downto 32) <= div_sub(31 downto 0);
+		END IF;
 		div_quot(31 downto 0) <= div_reg(30 downto 0)&NOT div_bit;
-		
+
 		IF div_neg='1' THEN
 			result_div_pre(31 downto 0) <= 0-div_quot(31 downto 0);
 
 		ELSE
 			result_div_pre(31 downto 0) <= div_quot(31 downto 0);
-		END IF;	
-		
+		END IF;
+
 		IF (((nozero='1' OR div_bit='0') AND signedOP='1' AND (OP2out(31) XOR OP1_sign XOR div_qsign)='1' )	--Overflow DIVS
 			OR (signedOP='0' AND div_over(32)='0')) AND DIV_Mode/=3 THEN	--Overflow DIVU
 			set_V_Flag <= '1';
-		ELSE	
+		ELSE
 			set_V_Flag <= '0';
 		END IF;
 	END PROCESS;
-	
+
 PROCESS (clk)
 	BEGIN
 		IF rising_edge(clk) THEN
@@ -1303,18 +1303,18 @@ PROCESS (clk)
 					ELSE
 						OP1_sign <= '0';
 						div_reg <= dividend;
-					END IF;	
+					END IF;
 				ELSE
-					div_reg <= div_quot;	
+					div_reg <= div_quot;
 					nozero <= NOT div_bit OR nozero;
 				END IF;
 				IF micro_state=div2 THEN
 					div_neg <= signedOP AND (OP2out(31) XOR OP1_sign);
 					IF DIV_Mode=0 THEN
 						div_over(32 downto 16) <= ('0'&div_reg(47 downto 32))-('0'&OP2out(15 downto 0));
-					ELSE	
+					ELSE
 						div_over <= ('0'&div_reg(63 downto 32))-('0'&OP2outext(15 downto 0)&OP2out(15 downto 0));
-					END IF;	
+					END IF;
 				END IF;
 				IF exec(write_reminder)='0' THEN
 					result_div(31 downto 0) <= result_div_pre;
@@ -1322,7 +1322,7 @@ PROCESS (clk)
 						result_div(63 downto 32) <= 0-div_quot(63 downto 32);
 					ELSE
 						result_div(63 downto 32) <= div_quot(63 downto 32);
-					END IF;	
+					END IF;
 				END IF;
 			END IF;
 		END IF;
