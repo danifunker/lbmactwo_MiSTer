@@ -541,3 +541,83 @@ SingleStepTests/
     ├── sim_main.cpp
     └── Makefile
 ```
+
+---
+
+## B-4: fpu_lite silently corrupts results for unsupported ops
+
+**Status:** confirmed via cpu_fpu bench, 2026-05-17.
+**Severity:** Mac II compatibility blocker for any software using transcendentals or the 6 lite-gated ALU ops.
+
+### What's broken
+
+`rtl/mc68881/vhdl/mc68881_fpu_lite.vhd` (the production FPU) returns a
+"done" Null Primary (CIR response = $0900, no exception) for these ops
+instead of raising an F-line trap, AND writes 0 to the destination FP
+register:
+
+- FMOD ($21), FREM ($25), FSGLDIV ($24), FSGLMUL ($27)
+- FGETEXP ($1E), FGETMAN ($1F)
+- All transcendentals: FSIN, FCOS, FTAN, FASIN, FACOS, FATAN, FSINH,
+  FCOSH, FTANH, FATANH, FETOX, FETOXM1, FLOGN, FLOGNP1, FLOG10, FLOG2,
+  FTWOTOX, FTENTOX, FSINCOS
+
+The CPU sees a successful instruction completion. No exception primary,
+no F-line trap, no software-fallback opportunity. SANE / ROM math
+routines that issue `FSIN x` get back 0 silently.
+
+### Why this isn't just "missing instructions"
+
+A real 68040 also lacks transcendentals — but it raises an F-line
+unimplemented-instruction trap so the OS can call FPSP (Motorola's
+Floating-Point Support Package) to emulate the op in software. The lite
+FPU here does NOT raise that trap, so no FPSP-style emulation can work.
+
+### Regression artifact
+
+`cpu_fpu/fline_trap_regression.json` — 24 tests, one per unsupported op.
+Each test installs an F-line vector at $002C that sets D7=1, then
+executes the op. Currently all 24 fail (D7=0, fall-through to STOP).
+When the FPU is patched, all 24 should pass.
+
+Run:
+```
+./obj_dir/Vcpu_fpu_tests fline_trap_regression.json
+```
+
+### Recommended fix (FPU side)
+
+In `68881-fpga/src/mc68881_top.vhd`, detect when the decoded opmode
+maps to a lite-disabled FPU_OP and return an Exception primary
+(`CIR_RESP_EXCEPT_PRE` + vector 11) on the FIRST response read
+instead of going through CIR_EXECUTE_DONE → Null Primary. The CPU's
+`cp_idle_resp` ELSE branch already raises trap_1111 for that primary
+type (verified working for malformed responses).
+
+Roughly 30 lines: add a new state CIR_UNIMPLEMENTED reached from
+CIR_DECODE when `op_supported(eff_op_sel)` is false; that state asserts
+the exception primary until the CPU reads it.
+
+### Where this lives in the build
+
+- **Quartus FPGA:** `files.qip` -> `rtl/mc68881/mc68881.qip` -> the VHDL
+  sources. Any VHDL fix is picked up automatically.
+- **cpu_fpu Verilator bench:** uses generated
+  `rtl/mc68881/fpu_lite/mc68881_top.v` from
+  `68881-fpga/scripts/convert_to_verilog.sh`. Re-run after VHDL edits.
+- **verilator/sim.v top sim:** instantiates `sim_fpu_cir_stub`, NOT the
+  real FPU. FPU changes don't affect that sim.
+
+### Where the recent TG68K work lives (for sync reference)
+
+The cp_branch_apply microstate and FBcc target-PC fix from this session
+are in `rtl/tg68k/TG68KdotC_Kernel.vhd` and `TG68K_Pack.vhd`. Picked up
+by:
+- **Quartus FPGA:** automatic (VHDL is canonical via `TG68K.qip`).
+- **All Verilator sims (cpu_fpu, tg68k, fpu, verilator/sim.v):** need
+  `bash rtl/tg68k/convert_to_verilog.sh` to regenerate the `.v` files
+  that the sims actually consume. The regenerated files are committed
+  alongside the VHDL changes.
+
+Nothing extra needs to be added to the FPGA build to consume the
+recent TG68K changes; they ride on the existing QIP/VHDL flow.
