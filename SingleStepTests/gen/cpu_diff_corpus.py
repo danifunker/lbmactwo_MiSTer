@@ -18,6 +18,10 @@ Comparison fields (per snapshot.final):
               platform-dependent residue from the C invoke_program JSR)
   - ccr       (8-bit condition code register)
   - ram[64]   (scratch RAM window written by the test)
+  - pc        (compared as DELTA = final.pc - initial.pc; both sides
+              produce absolute addresses but in different RAM layouts,
+              so only the delta = test instruction length is invariant).
+              Skipped when either side lacks the field (older corpora).
 
 Categories:
   - match          : identical on all compared fields
@@ -32,6 +36,9 @@ Categories:
   - areg_diff      : address register diff (typically A0/A1, since the dump
                      epilogue clobbers them; also catches MOVEA / LEA bugs)
   - ram_diff       : scratch RAM bytes differ (memory write went wrong)
+  - pc_diff        : PC delta differs (test instruction effective length
+                     diverged -- branch behavior, exception unwinding,
+                     prefetch differences)
   - sign_extension : a D-reg's low 16/8 bits match but upper bits diverge
                      consistent with sign vs zero extension
   - unknown        : uncategorized divergence
@@ -101,8 +108,31 @@ def classify(name, baseline_final, cand_final, baseline_init, cand_init):
     ccr_diff = bf['ccr'] != cf['ccr']
     ram_diff = bf.get('ram', []) != cf.get('ram', [])
 
-    if not d_diffs and not a_diffs and not ccr_diff and not ram_diff:
+    # PC compared as delta (final - initial). The absolute PCs live in
+    # different RAM layouts on each platform; the delta = test
+    # instruction length is the only platform-invariant. Skip when
+    # either side omits pc (older corpora, or the Mac bench's privileged
+    # MOVE SR/USP fields stay absent on purpose).
+    pc_diff = False
+    pc_detail = None
+    if 'pc' in bf and 'pc' in cf and 'pc' in baseline_init and 'pc' in cand_init:
+        b_delta = (bf['pc'] - baseline_init['pc']) & 0xFFFFFFFF
+        c_delta = (cf['pc'] - cand_init['pc']) & 0xFFFFFFFF
+        if b_delta != c_delta:
+            pc_diff = True
+            pc_detail = (f"PC delta base={b_delta} cand={c_delta}"
+                         f" (base abs {bf['pc']:#x} cand abs {cf['pc']:#x})")
+
+    if not d_diffs and not a_diffs and not ccr_diff and not ram_diff \
+       and not pc_diff:
         return ("match", None)
+
+    # PC-only divergence: data and flags identical, but the test
+    # instruction "ate" a different number of bytes. Strong signal of a
+    # branch/exception bug.
+    if pc_diff and not d_diffs and not a_diffs and not ccr_diff \
+       and not ram_diff:
+        return ("pc_diff", pc_detail)
 
     if not d_diffs and not a_diffs and not ram_diff and ccr_diff:
         return ("ccr_only",
@@ -147,12 +177,12 @@ def classify(name, baseline_final, cand_final, baseline_init, cand_init):
 
     return ("unknown",
             f"D diff={d_diffs} A diff={a_diffs} ccr_diff={ccr_diff} "
-            f"ram_diff={ram_diff}")
+            f"ram_diff={ram_diff} pc_diff={pc_diff}")
 
 
 CATEGORY_ORDER = ['match', 'skipped', 'ccr_only', 'flag_only',
                   'dreg_diff', 'areg_diff', 'ram_diff',
-                  'sign_extension', 'unknown']
+                  'pc_diff', 'sign_extension', 'unknown']
 
 CATEGORY_HELP = {
     'match':           "candidate matches baseline byte-for-byte",
@@ -162,6 +192,7 @@ CATEGORY_HELP = {
     'dreg_diff':       "D-register value(s) differ",
     'areg_diff':       "A-register (A0..A6) differs",
     'ram_diff':        "scratch RAM bytes differ",
+    'pc_diff':         "PC delta differs (test instruction length diverged)",
     'sign_extension':  "low 16/8 bits match; upper bits diverge",
     'unknown':         "uncategorized divergence",
 }
@@ -223,14 +254,14 @@ def render_terminal(rep, verbose=False):
             pct = 100.0 * n / rep['common_count']
             print(f"  {c:<16} {n:>4}  ({pct:5.1f}%)")
     print("\n=== per-op breakdown ===")
-    short = ['match','skip','ccr','flag','dreg','areg','ram','sext','unk']
+    short = ['match','skip','ccr','flag','dreg','areg','ram','pc','sext','unk']
     print("{:<10}  ".format("op") +
           " ".join(f"{s:>5}" for s in short) + f"  {'total':>6}")
     for op in sorted(rep['per_op']):
         d = rep['per_op'][op]
         cells = [d['match'], d['skipped'], d['ccr_only'], d['flag_only'],
                  d['dreg_diff'], d['areg_diff'], d['ram_diff'],
-                 d['sign_extension'], d['unknown']]
+                 d['pc_diff'], d['sign_extension'], d['unknown']]
         print("  {:<8}  ".format(op) +
               " ".join(f"{v:>5}" for v in cells) + f"  {d['total']:>6}")
     if verbose:
@@ -263,14 +294,14 @@ def render_markdown(rep):
             pct = 100.0 * n / rep['common_count']
             print(f"| `{c}` | {n} | {pct:.1f}% | {CATEGORY_HELP[c]} |")
     print("\n## Per-op breakdown\n")
-    print("| op | total | match | skip | ccr | flag | dreg | areg | ram | sext | unk | pass% |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    print("| op | total | match | skip | ccr | flag | dreg | areg | ram | pc | sext | unk | pass% |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for op in sorted(rep['per_op']):
         d = rep['per_op'][op]
         pct = 100.0 * d['pass_rate']
         print(f"| `{op}` | {d['total']} | {d['match']} | {d['skipped']} | "
               f"{d['ccr_only']} | {d['flag_only']} | {d['dreg_diff']} | "
-              f"{d['areg_diff']} | {d['ram_diff']} | "
+              f"{d['areg_diff']} | {d['ram_diff']} | {d['pc_diff']} | "
               f"{d['sign_extension']} | {d['unknown']} | {pct:.0f}% |")
 
 

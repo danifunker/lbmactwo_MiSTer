@@ -29,6 +29,13 @@ module cpu_fpu_tests
    output        fpu_dsack0_n_obs,
    output        fpu_dsack1_n_obs,
 
+   // Architectural CPU taps (mirror of tg68k_tests.v). The CPU here is
+   // wrapped in tg68k.v, so the kernel sits one hierarchy level deeper:
+   // cpu_fpu_tests.cpu.tg68k.<wire>.
+   output [31:0] pc_out,
+   output [15:0] sr_out,
+   output [31:0] usp_out,
+
    // CPU internal taps for FPU dispatch debugging.
    output [7:0]  dbg_micro_state,
    output [31:0] dbg_cp_xfer_data,
@@ -131,6 +138,12 @@ module cpu_fpu_tests
    assign dbg_cp_do_branch     = cpu.tg68k.cp_do_branch;
    assign dbg_cp_branch_target = cpu.tg68k.cp_branch_target;
    assign dbg_pc               = cpu.tg68k.tg68_pc;
+
+   // Architectural CPU taps (mirror of tg68k_tests.v). pc_out duplicates
+   // dbg_pc; sr_out and usp_out are unique to this set.
+   assign pc_out  = cpu.tg68k.tg68_pc;
+   assign sr_out  = {cpu.tg68k.flagssr, cpu.tg68k.flags};
+   assign usp_out = cpu.tg68k.usp;
 
    // -------------------- CPU bus signals --------------------------------
    wire [31:0] cpu_addr;
