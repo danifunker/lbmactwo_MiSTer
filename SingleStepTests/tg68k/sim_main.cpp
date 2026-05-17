@@ -319,14 +319,19 @@ int main(int argc, char** argv, char** env) {
         std::string fail_reason;
         if (!saw_ccr_write) fail_reason = "timeout (no CCR dump observed)";
 
-        // CCR
+        // CCR (with per-test mask: bits cleared in ccr_mask are
+        // PRM-undefined for this op and excluded from comparison).
         if (pass) {
-            uint8_t got = ram[0x1901];
-            uint8_t exp = final_["ccr"].get<unsigned>() & 0xFF;
+            uint8_t mask = spec->ccr_mask;
+            uint8_t got  = ram[0x1901] & mask;
+            uint8_t exp  = (final_["ccr"].get<unsigned>() & 0xFF) & mask;
             if (got != exp) {
-                char buf[80];
-                snprintf(buf, sizeof(buf), "CCR: got 0x%02X, expected 0x%02X",
-                         got, exp);
+                char buf[96];
+                snprintf(buf, sizeof(buf),
+                         "CCR: got 0x%02X, expected 0x%02X (mask 0x%02X)",
+                         ram[0x1901],
+                         final_["ccr"].get<unsigned>() & 0xFF,
+                         mask);
                 fail_reason = buf; pass = false;
             }
         }

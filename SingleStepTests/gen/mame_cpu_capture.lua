@@ -439,11 +439,18 @@ local MULDIV_SAMPLES = {
 }
 for _, op in ipairs(MULDIV_OPS) do
     for i, s in ipairs(MULDIV_SAMPLES) do
+        -- Sample #2 (0xFFFF / 0xFFFF) overflows for DIVS.W; PRM page 4-95
+        -- says N and Z are undefined when DIVS/DIVU overflows or divides by
+        -- zero. MAME and TG68K disagree on Z (and would disagree on N),
+        -- so mask them out for the DIVS overflow case.
+        local mask = nil
+        if i == 2 and op.name == "DIVS" then mask = 0xF3 end  -- ignore N(0x08)+Z(0x04)
         tests[#tests + 1] = {
             name = string.format("%s.W D1,D0 (#%d Dn=0x%08X Dm=0x%08X)",
                                  op.name, i, s.dn_v, s.dm_v),
             preload = preload_dregs({[0] = s.dn_v, [1] = s.dm_v}),
             test    = bw(op.op | (0 << 9) | 1),
+            ccr_mask = mask,
         }
     end
 end
@@ -1383,6 +1390,449 @@ tests[#tests + 1] = {
 }
 
 -- ======================================================================
+-- EXPANSION v5 -- TG68K bug-hunting batch
+--
+-- Targets the highest-bug-surface gaps from cpu_isa_catalog.md:
+--   * 020 full-extension addressing in memory-indirect forms
+--     ([bd,An]+od) and ([bd,An,Xn]+od) -- never tested before
+--   * PC-relative source EAs: (d16,PC), (d8,PC,Xn), (bd,PC,Xn)
+--   * Absolute-short (xxx).W with sign-extension
+--   * EXG (Dn,Dn / An,An / Dn,An)
+--   * MOVE byte/word memory variants (previously only .L tested)
+--   * MOVEM with -(An) / (An)+ (only (A6) tested before)
+--   * ADDA / SUBA / CMPA mem,An and Dn,An (only #imm,An tested)
+--   * Shift sizes .B and .W for all 8 ops (only .L tested broadly)
+--   * TAS Dn and TAS (A6) -- atomic test-and-set
+--   * CHK2.W / CMP2.W with in-bounds & on-boundary cases
+--   * TRAPV with V=0 (falls through, not an exception)
+-- ======================================================================
+
+-- ---------- 020 memory-indirect addressing (preindexed / postindexed) -
+-- Pointer placed at scratch[0..3] = $00001808 (scratch+8).
+-- Target longword placed at scratch[8..11] = $DEADCAFE.
+do
+    local function ram_with_ptr_and_value(ptr_off, val_off, value)
+        local r = {}
+        for i = 1, SCRATCH_LEN do r[i] = 0 end
+        local ptr_abs = SCRATCH_BASE + val_off
+        r[ptr_off + 1] = (ptr_abs >> 24) & 0xFF
+        r[ptr_off + 2] = (ptr_abs >> 16) & 0xFF
+        r[ptr_off + 3] = (ptr_abs >>  8) & 0xFF
+        r[ptr_off + 4] =  ptr_abs        & 0xFF
+        r[val_off + 1] = (value >> 24) & 0xFF
+        r[val_off + 2] = (value >> 16) & 0xFF
+        r[val_off + 3] = (value >>  8) & 0xFF
+        r[val_off + 4] =  value        & 0xFF
+        return r
+    end
+
+    -- MOVE.L ([bd.W,A6]),D1  -- memory indirect, no index (IS=1), no od.
+    -- Full ext: D/A=0 reg=000 W/L=0 scale=00 full=1 BS=0 IS=1 BDSIZE=10 IIS=101
+    -- = 0_000_0_00_1_0_1_10_0_101 = 0x0165
+    -- bd word = 0; pointer at A6+0 -> reads value pointer points to.
+    tests[#tests + 1] = {
+        name     = "MOVE.L ([bd.W,A6]),D1  memind no-idx no-od (->DEADCAFE)",
+        preload  = {},
+        ram_init = ram_with_ptr_and_value(0, 8, 0xDEADCAFE),
+        test     = concat(bw(0x2236), bw(0x0165), bw(0x0000)),
+    }
+
+    -- MOVE.L ([bd.W,A6],D0.L*2,od.W),D1 -- postindexed with scaled index + word od.
+    -- IIS=110 (postindexed, word od); W/L=1; scale=01.
+    -- = 0_000_1_01_1_0_0_10_0_110 = 0x0B26
+    -- bd=0, od=0. EA = MEM[A6] + D0*2.
+    --   Pointer at A6+0 = $1800 itself -> read =>$1800; +D0(=4)*2=8 -> $1808 -> read 0xDEADCAFE.
+    do
+        local r = ram_with_ptr_and_value(0, 8, 0xDEADCAFE)
+        -- Override pointer to $1800 so post-index lands at $1808.
+        r[1] = 0x00; r[2] = 0x00; r[3] = 0x18; r[4] = 0x00
+        tests[#tests + 1] = {
+            name     = "MOVE.L ([bd.W,A6],D0.L*2,od.W),D1  postindexed scaled+od (D0=4)",
+            preload  = preload_dregs({[0] = 4}),
+            ram_init = r,
+            test     = concat(bw(0x2236), bw(0x0B26), bw(0x0000), bw(0x0000)),
+        }
+    end
+
+    -- MOVE.L ([bd.W,A6,D0.L*2],od.W),D1 -- preindexed (index THEN indirect)
+    -- IIS=010 (preindexed word od); W/L=1; scale=01.
+    -- = 0_000_1_01_1_0_0_10_0_010 = 0x0B22
+    -- bd=0, od=0. EA = MEM[A6 + D0*2].
+    --   D0=2 -> MEM[$1804] = pointer at scratch[4..7]; we place $00001808 there
+    --   -> read longword at $1808 = $0BADC0DE.
+    do
+        local r = ram_with_ptr_and_value(4, 8, 0x0BADC0DE)
+        tests[#tests + 1] = {
+            name     = "MOVE.L ([bd.W,A6,D0.L*2],od.W),D1  preindexed scaled+od (D0=2)",
+            preload  = preload_dregs({[0] = 2}),
+            ram_init = r,
+            test     = concat(bw(0x2236), bw(0x0B22), bw(0x0000), bw(0x0000)),
+        }
+    end
+
+    -- MOVE.L ([bd.L,A6],D0.L*4,od.L),D1 -- postindexed, LONG bd and LONG od (all zero).
+    -- IIS=111 (postindexed long od); W/L=1; scale=10(*4).
+    -- = 0_000_1_10_1_0_0_11_0_111 = 0x0D37
+    -- bd.L = 0; od.L = 0. EA = MEM[A6+0] + D0*4 = $1800 + D0*4.
+    --   D0=2, pointer at A6+0 -> $1800; +D0*4(8) = $1808 -> 0xCAFEF00D.
+    do
+        local r = ram_with_ptr_and_value(0, 8, 0xCAFEF00D)
+        r[1] = 0x00; r[2] = 0x00; r[3] = 0x18; r[4] = 0x00
+        tests[#tests + 1] = {
+            name     = "MOVE.L ([bd.L,A6],D0.L*4,od.L),D1  postindexed long+long (D0=2)",
+            preload  = preload_dregs({[0] = 2}),
+            ram_init = r,
+            test     = concat(bw(0x2236), bw(0x0D37),
+                              bl(0x00000000), bl(0x00000000)),
+        }
+    end
+end
+
+-- ---------- PC-relative addressing source EAs --------------------------
+-- We embed the data inside the test bytes and use a BRA.B to jump past
+-- it so the CPU never executes the data. All PC-rel modes use opword
+-- mode=7 (reg=2 for d16,PC; reg=3 for d8/bd-indexed PC).
+--
+-- Test layout (sized so the BRA.B lands exactly at the dump epilogue):
+--   $00..: MOVE.L (...),D1            -- opword + ext (+ maybe bd word)
+--   $XX..: BRA.B disp                 -- skip over the data words
+--   $YY..: 4 bytes of data (0x11223344)
+
+-- (d16,PC) -- opword=$223A; ext=disp16. PC at ext word = test_pc+2.
+-- Layout (10 bytes):
+--   off 0..1: $22 $3A          opword
+--   off 2..3: $00 $04          ext = +4 -> EA = test_pc+2+4 = test_pc+6
+--   off 4..5: $60 $04          BRA.B disp=+4 -> after-branch PC = test_pc+10
+--   off 6..9: $11 $22 $33 $44  data read by MOVE.L
+-- dump_pc = test_pc+10 (after the 10-byte test).
+tests[#tests + 1] = {
+    name    = "MOVE.L (d16,PC),D1  disp=4 -> reads 0x11223344",
+    preload = {},
+    test    = concat(bw(0x223A), bw(0x0004),
+                     bw(0x6004),
+                     bw(0x1122), bw(0x3344)),
+}
+
+-- (d8,PC,Dn.W) -- brief PC-indexed. opword=$223B; brief ext word.
+-- Brief ext: D/A=0, reg=0(D0), W/L=0(W), scale=0, full=0, disp=byte.
+-- D0=0, disp=4 -> target = test_pc+2 + 4 = test_pc+6 (data).
+tests[#tests + 1] = {
+    name    = "MOVE.L (d8,PC,D0.W),D1  brief PC-idx (D0=0, disp=4)",
+    preload = preload_dregs({[0] = 0}),
+    test    = concat(bw(0x223B), bw(0x0004),
+                     bw(0x6004),
+                     bw(0x1122), bw(0x3344)),
+}
+
+-- (bd.W,PC,Dn.W) -- full PC-indexed. opword=$223B; full ext.
+-- Full ext: D/A=0 reg=0 W/L=0 scale=00 full=1 BS=0 IS=0 BDSIZE=10 IIS=000
+-- = 0_000_0_00_1_0_0_10_0_000 = 0x0120
+-- bd=word. PC at full-ext word = test_pc+2. Layout grows by 2 bytes vs brief.
+--   off 0: $22 $3B
+--   off 2: $01 $20            full ext
+--   off 4: $00 $06            bd = 6 (target = (test_pc+2)+6 = test_pc+8)
+--   off 6: $60 $04            BRA.B (PC_after=test_pc+8; +4 -> test_pc+12=dump)
+--   off 8: data
+tests[#tests + 1] = {
+    name    = "MOVE.L (bd.W,PC,D0.W),D1  full PC-idx (D0=0, bd=6)",
+    preload = preload_dregs({[0] = 0}),
+    test    = concat(bw(0x223B), bw(0x0120), bw(0x0006),
+                     bw(0x6004),
+                     bw(0x1122), bw(0x3344)),
+}
+
+-- ---------- Absolute-short addressing source (xxx).W -----------------
+-- MOVE.L (xxx).W,D1 = opword $2238 + word abs addr (sign-extended to 32-bit).
+-- Use $1820 = scratch+0x20 (positive 16-bit so no sign-ext surprise).
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[0x21] = 0x12; ram[0x22] = 0x34; ram[0x23] = 0x56; ram[0x24] = 0x78
+    tests[#tests + 1] = {
+        name     = "MOVE.L (xxx).W=$1820,D1  abs-short read",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x2238), bw(0x1820)),
+    }
+end
+
+-- ---------- EXG (Dn,Dn / An,An / Dn,An) ------------------------------
+-- EXG Dx,Dy: $C140 | (Rx<<9) | Ry  (opmode=01000)
+-- EXG Ax,Ay: $C148 | (Rx<<9) | Ry  (opmode=01001)
+-- EXG Dx,Ay: $C188 | (Rx<<9) | Ry  (opmode=10001)
+tests[#tests + 1] = {
+    name    = "EXG D1,D0  (D1=0xCAFE D0=0xBABE)",
+    preload = preload_dregs({[0] = 0x0000BABE, [1] = 0x0000CAFE}),
+    test    = bw(0xC340),   -- Rx=D1<<9 -> $C100|$200|$40|0 = $C340
+}
+tests[#tests + 1] = {
+    -- EXG Ax,Ay: $C100 | (Rx<<9) | (9<<3) | Ry.  For A2,A3: $C54B.
+    name    = "EXG A2,A3  (A2=scratch+4 A3=scratch+8)",
+    preload = preload_an_scratch({[2] = 4, [3] = 8}),
+    test    = bw(0xC54B),
+}
+tests[#tests + 1] = {
+    name    = "EXG D1,A0  (D1=0xDEADBEEF A0=scratch)",
+    preload = concat(preload_dregs({[1] = 0xDEADBEEF}),
+                     preload_an_scratch({[0] = 0})),
+    test    = bw(0xC388),   -- Rx=D1<<9=$200, opmode<<3=$88, Ry=A0=0 -> $C388
+}
+
+-- ---------- MOVE byte/word memory variants ----------------------------
+-- MOVE.W Dm,(A6): mode_dst=2,reg_dst=6 -> $3080 | (6<<9) | dm = $3C80|dm
+-- For D0 src: $3C80.
+-- MOVE.B Dm,(A6): $1080 | (6<<9) | dm = $1C80|dm. For D0: $1C80.
+-- MOVE.W d16(A6),Dn: src mode=5,reg=6 -> ea=$2E. opword = $3000|(dn<<9)|$2E
+--   = $302E for D0.
+-- MOVE.B (A6)+,Dn: src mode=3,reg=6 -> ea=$1E. opword = $1000|(dn<<9)|$1E = $101E for D0.
+tests[#tests + 1] = {
+    name    = "MOVE.W D0,(A6)  (D0=0xAABB1234 -> [A6]=0x1234)",
+    preload = preload_dregs({[0] = 0xAABB1234}),
+    test    = bw(0x3C80),
+}
+tests[#tests + 1] = {
+    name    = "MOVE.B D0,(A6)  (D0=0xAABBCCDD -> [A6]=0xDD)",
+    preload = preload_dregs({[0] = 0xAABBCCDD}),
+    test    = bw(0x1C80),
+}
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0xAA; ram[2]=0xBB; ram[3]=0xCC; ram[4]=0xDD
+    tests[#tests + 1] = {
+        name     = "MOVE.W 0(A6),D0  (reads word 0xAABB)",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x302E), bw(0x0000)),
+    }
+    tests[#tests + 1] = {
+        name     = "MOVE.B (A1)+,D0  A1=scratch (reads byte 0xAA, A1+=1)",
+        preload  = preload_an_scratch({[1] = 0}),
+        ram_init = ram,
+        test     = bw(0x1019),    -- MOVE.B (A1)+,D0
+    }
+    tests[#tests + 1] = {
+        name     = "MOVE.W -(A1),D0  A1=scratch+4 (reads word 0xCCDD, A1-=2)",
+        preload  = preload_an_scratch({[1] = 4}),
+        ram_init = ram,
+        test     = bw(0x3021),    -- MOVE.W -(A1),D0
+    }
+end
+
+-- ---------- MOVEM with -(An) and (An)+ --------------------------------
+-- MOVEM.L D0-D3,-(A1): regs->predec mem. opword = $48A0 | reg.
+-- Mask order for predec is REVERSED: bit 0 = A7, bit 15 = D0. For D0-D3
+-- (the low 4 D regs) -> mask bits 12..15 set -> mask = $F000.
+-- A1 must be high enough that 4 predecs (4*4=16 bytes) stay in scratch.
+-- A1 = scratch+0x20 -> writes scratch[$1C..$1F],[$18..$1B],[$14..$17],[$10..$13].
+tests[#tests + 1] = {
+    name    = "MOVEM.L D0-D3,-(A1)  predec  A1=scratch+0x20",
+    preload = concat(
+        preload_dregs({[0]=0xAAAAAAAA,[1]=0xBBBBBBBB,[2]=0xCCCCCCCC,[3]=0xDDDDDDDD}),
+        preload_an_scratch({[1] = 0x20})),
+    test    = concat(bw(0x48E1), bw(0xF000)),
+    -- opword = $4880 | size=$40 | <ea>=0x21 (mode=4,reg=1) = $48E1.
+}
+-- MOVEM.L (A1)+,D4-D7: mem->postinc regs. opword = $4CD9 (size=L, ea=mode=3,reg=1=0x19).
+-- mask for postinc: bit 0=D0,bit 15=A7. D4-D7 -> bits 4..7 = $00F0.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    -- 16 bytes of pattern at scratch[0..15].
+    ram[1]=0xAA;ram[2]=0xAA;ram[3]=0xAA;ram[4]=0xAA
+    ram[5]=0xBB;ram[6]=0xBB;ram[7]=0xBB;ram[8]=0xBB
+    ram[9]=0xCC;ram[10]=0xCC;ram[11]=0xCC;ram[12]=0xCC
+    ram[13]=0xDD;ram[14]=0xDD;ram[15]=0xDD;ram[16]=0xDD
+    tests[#tests + 1] = {
+        name     = "MOVEM.L (A1)+,D4-D7  postinc  A1=scratch",
+        preload  = preload_an_scratch({[1] = 0}),
+        ram_init = ram,
+        test     = concat(bw(0x4CD9), bw(0x00F0)),
+    }
+end
+
+-- ---------- ADDA/SUBA/CMPA Dn,An and mem,An --------------------------
+-- ADDA.L Dn,An = $D1C0 | (an<<9) | dn (size=L). For D0,A0: $D1C0.
+-- SUBA.L Dn,An = $91C0 | ...
+-- CMPA.L Dn,An = $B1C0 | ...
+-- ADDA.L (A1),A0 = $D1D1 (ea=$11)
+tests[#tests + 1] = {
+    name    = "ADDA.L D0,A0  (D0=0x100, A0=scratch -> A0+=0x100)",
+    preload = concat(preload_dregs({[0] = 0x00000100}),
+                     preload_an_scratch({[0] = 0})),
+    test    = bw(0xD1C0),
+}
+tests[#tests + 1] = {
+    name    = "SUBA.L D0,A0  (D0=0x10, A0=scratch+0x20 -> A0-=0x10)",
+    preload = concat(preload_dregs({[0] = 0x00000010}),
+                     preload_an_scratch({[0] = 0x20})),
+    test    = bw(0x91C0),
+}
+tests[#tests + 1] = {
+    name    = "ADDA.W D0,A0  (D0=0xFFFFFFFE sign-ext to .L; A0=scratch+0x20)",
+    preload = concat(preload_dregs({[0] = 0xFFFFFFFE}),
+                     preload_an_scratch({[0] = 0x20})),
+    test    = bw(0xD0C0),    -- ADDA.W = $D0C0 | (an<<9) | <ea>
+}
+tests[#tests + 1] = {
+    name    = "CMPA.L D0,A0  (D0=scratch+8, A0=scratch+8 -> Z=1)",
+    preload = concat(preload_dregs({[0] = SCRATCH_BASE + 8}),
+                     preload_an_scratch({[0] = 8})),
+    test    = bw(0xB1C0),
+}
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x00;ram[2]=0x00;ram[3]=0x00;ram[4]=0x10
+    tests[#tests + 1] = {
+        name     = "ADDA.L (A1),A0  A0=scratch+0x20, A1=scratch (reads $10)",
+        preload  = preload_an_scratch({[0] = 0x20, [1] = 0}),
+        ram_init = ram,
+        test     = bw(0xD1D1),
+    }
+end
+
+-- ---------- Shift sizes .B and .W (immediate count and Dm,Dn) ---------
+-- We only had .L coverage broadly. Add .W and .B for a representative
+-- subset: ASL/ASR/LSR/ROL.
+-- Encoding: $E000 | (cnt<<9) | (dr<<8) | (size<<6) | (ir<<5) | (typ<<3) | dn
+-- size: .B=00, .W=01. ir=0 (imm), ir=1 (reg).
+for _, sd in ipairs({
+    {name="ASL", dr=1, typ=0},
+    {name="ASR", dr=0, typ=0},
+    {name="LSR", dr=0, typ=1},
+    {name="ROL", dr=1, typ=3},
+}) do
+    -- .W #4,Dn imm form
+    local op_w_imm = 0xE000 | (4<<9) | (sd.dr<<8) | (1<<6) | (0<<5) | (sd.typ<<3) | 0
+    tests[#tests + 1] = {
+        name    = string.format("%s.W #4,D0  (D0=0x12345678)", sd.name),
+        preload = preload_dregs({[0] = 0x12345678}),
+        test    = bw(op_w_imm),
+    }
+    -- .B Dm,Dn reg form
+    local op_b_reg = 0xE000 | (1<<9) | (sd.dr<<8) | (0<<6) | (1<<5) | (sd.typ<<3) | 0
+    tests[#tests + 1] = {
+        name    = string.format("%s.B D1,D0  reg-count (D0=0x000000F0, D1=2)", sd.name),
+        preload = preload_dregs({[0] = 0x000000F0, [1] = 2}),
+        test    = bw(op_b_reg),
+    }
+end
+
+-- ---------- TAS (atomic test-and-set) --------------------------------
+-- TAS <ea>: $4AC0 | <ea>. Sets N from MSB and Z from value==0 of source,
+-- then sets bit 7 of source. Byte-size only.
+tests[#tests + 1] = {
+    name    = "TAS D0  (D0=0x00 -> Z=1, D0.B=0x80)",
+    preload = preload_dregs({[0] = 0x00000000}),
+    test    = bw(0x4AC0),
+}
+tests[#tests + 1] = {
+    name    = "TAS D0  (D0=0x7F -> N=0,Z=0; D0.B=0xFF)",
+    preload = preload_dregs({[0] = 0x0000007F}),
+    test    = bw(0x4AC0),
+}
+tests[#tests + 1] = {
+    name    = "TAS D0  (D0=0x80 -> N=1,Z=0; D0.B=0x80)",
+    preload = preload_dregs({[0] = 0x00000080}),
+    test    = bw(0x4AC0),
+}
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1] = 0x40   -- byte at scratch[0] = 0x40 -> after TAS = 0xC0
+    tests[#tests + 1] = {
+        name     = "TAS (A6)  (ram[0]=0x40 -> N=0,Z=0; ram[0]=0xC0)",
+        preload  = {},
+        ram_init = ram,
+        test     = bw(0x4AD6),  -- $4AC0|0x16
+    }
+end
+
+-- ---------- CHK2 / CMP2 (bounds in memory) ---------------------------
+-- opword: $00C0 | (size<<9) | <ea>; size: B=00,W=01,L=10.
+-- ext: D/A(1) reg(3) opmode(1) 0... -> CHK2 opmode=1, CMP2 opmode=0.
+-- CHK2/CMP2 read the two bounds from <ea> as adjacent operand-size values
+-- (low first, then high).
+-- For .W (size=$2): opword $02C0 | <ea>. (A6) ea=$16 -> opword=$02D6.
+-- Bounds at scratch: low=$0010 (word at 0..1), high=$0030 (word at 2..3).
+-- ext for D0,CMP2.W: D/A=0,reg=0,opmode=0 -> ext=$0000.
+-- ext for D0,CHK2.W: opmode=1 -> ext=$0800.
+do
+    local r = {}
+    for i = 1, SCRATCH_LEN do r[i] = 0 end
+    r[1]=0x00; r[2]=0x10; r[3]=0x00; r[4]=0x30   -- low=$10, high=$30
+    -- PRM page 4-58 (CMP2/CHK2): N is undefined; only Z and C are spec'd.
+    -- TG68K leaves N from internal subtract result; MAME clears it.
+    local MASK_NO_N = 0xF7
+    tests[#tests + 1] = {
+        name     = "CMP2.W (A6),D0  in-range  (D0=0x20, bounds[$10,$30])",
+        preload  = preload_dregs({[0] = 0x00000020}),
+        ram_init = r,
+        test     = concat(bw(0x02D6), bw(0x0000)),
+        ccr_mask = MASK_NO_N,
+    }
+    tests[#tests + 1] = {
+        name     = "CMP2.W (A6),D0  on-boundary  (D0=0x10 -> Z=1)",
+        preload  = preload_dregs({[0] = 0x00000010}),
+        ram_init = r,
+        test     = concat(bw(0x02D6), bw(0x0000)),
+        ccr_mask = MASK_NO_N,
+    }
+    tests[#tests + 1] = {
+        name     = "CMP2.W (A6),D0  out-of-range  (D0=0x100 -> C=1)",
+        preload  = preload_dregs({[0] = 0x00000100}),
+        ram_init = r,
+        test     = concat(bw(0x02D6), bw(0x0000)),
+        ccr_mask = MASK_NO_N,
+    }
+    tests[#tests + 1] = {
+        name     = "CHK2.W (A6),D0  in-range  (D0=0x20, no trap)",
+        preload  = preload_dregs({[0] = 0x00000020}),
+        ram_init = r,
+        test     = concat(bw(0x02D6), bw(0x0800)),
+        ccr_mask = MASK_NO_N,
+    }
+end
+
+-- ---------- TRAPV with V=0 (does NOT trap) ---------------------------
+-- TRAPV traps only when V=1. With V=0 it's a no-op (modulo cycles).
+tests[#tests + 1] = {
+    name    = "TRAPV  V=0 (no trap, falls through)",
+    preload = preload_ccr(0x00),   -- V=0
+    test    = bw(0x4E76),
+}
+
+-- ---------- More CMP forms (mem source) ------------------------------
+-- CMP.L (A6),D0: src mode=2,reg=6 ea=$16 -> $B080|<dn-9>|$16 -> for D0: $B096
+-- CMP.W (A6)+,D0: ea=$1E -> $B05E
+do
+    local r = {}
+    for i = 1, SCRATCH_LEN do r[i] = 0 end
+    r[1]=0x12;r[2]=0x34;r[3]=0x56;r[4]=0x78
+    tests[#tests + 1] = {
+        name     = "CMP.L (A6),D0  (D0=0x12345678 vs ram=0x12345678 -> Z=1)",
+        preload  = preload_dregs({[0] = 0x12345678}),
+        ram_init = r,
+        test     = bw(0xB096),
+    }
+end
+
+-- ---------- ADDQ/SUBQ on An (no flags affected) ----------------------
+-- ADDQ.L #1,A0 = $5088 | An. Per PRM, when dst is An, the operation is
+-- always .L (regardless of size field) and flags are NOT affected.
+tests[#tests + 1] = {
+    name    = "ADDQ.L #5,A0  (A0=scratch+0x10 -> +5; CCR unaffected)",
+    preload = concat(preload_an_scratch({[0] = 0x10}), preload_ccr(0x1F)),
+    test    = bw(0x5A88),    -- ADDQ.L #5,A0 = $5088|(5<<9)|0 = $5A88
+}
+tests[#tests + 1] = {
+    name    = "SUBQ.L #3,A1  (A1=scratch+0x10 -> -3; CCR unaffected)",
+    preload = concat(preload_an_scratch({[1] = 0x10}), preload_ccr(0x1F)),
+    test    = bw(0x5789),    -- SUBQ.L #3,A1 = $5180|(3<<9)|1 = $5789
+}
+
+-- ======================================================================
 -- EXCEPTION TESTS
 --
 -- These tests deliberately trigger exceptions. The MAME harness vector
@@ -1551,6 +2001,9 @@ local function emit_tests_h(path)
     f:write("    unsigned char privileged;        /* 0 or 1 -- Mac bench skips */\n")
     f:write("    unsigned char raises_exception;  /* 0 or 1 -- Mac bench skips; TG68K + MAME run\n")
     f:write("                                      * (vector table is set up to land at the dump). */\n")
+    f:write("    unsigned char ccr_mask;          /* bits to compare in CCR; 0xFF = compare all.\n")
+    f:write("                                      * Clear a bit (e.g. 0xF7 = ignore N) when the PRM\n")
+    f:write("                                      * declares that flag undefined for this op. */\n")
     f:write("} CpuTestSpec;\n\n")
     -- Note: NOT `static const`. THINK C places const arrays in the CODE
     -- resource, which has a hard 32KB-per-segment ceiling. Plain `static`
@@ -1576,10 +2029,12 @@ local function emit_tests_h(path)
         end
         local priv = t.privileged and 1 or 0
         local exc  = t.raises_exception and 1 or 0
+        local mask = t.ccr_mask or 0xFF
         f:write(string.format("    {%q,\n", t.name))
         f:write(string.format("      %s, %d,\n", pre_str, #t.preload))
         f:write(string.format("      %s, %d,\n", tst_str, #t.test))
-        f:write(string.format("      %s, %d, %d, %d},\n", ram_str, ram_n, priv, exc))
+        f:write(string.format("      %s, %d, %d, %d, 0x%02X},\n",
+            ram_str, ram_n, priv, exc, mask))
     end
     f:write("};\n\n")
     f:write("#define CPU_N_TESTS "
