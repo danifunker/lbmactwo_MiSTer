@@ -424,10 +424,23 @@ module emu
 	                          fpu_data_hold_valid ? fpu_data_hold :
 	                          dataControllerDataOut;
 
+	// CIR register address remapping (mirrors LBMacTwo.sv):
+	//   Standard reg 0 (Response) -> mc68881_top reg 13
+	//   Standard reg 2 (Save)     -> mc68881_top reg 12
+	//   Standard reg 3 (Restore)  -> mc68881_top reg 28
+	wire [4:0] fpu_addr_remapped = (cpuAddr[5:1] == 5'd0) ? 5'd13 :
+	                               (cpuAddr[5:1] == 5'd2) ? 5'd12 :
+	                               (cpuAddr[5:1] == 5'd3) ? 5'd28 :
+	                               cpuAddr[5:1];
+
+`ifdef USE_FPU_STUB
+	// CIR-protocol no-op stub (Makefile: USE_FPU_STUB=1). Accepts writes,
+	// always returns "done". Doesn't compute anything; useful when running
+	// non-FPU software and skipping FPU area/runtime cost.
 	sim_fpu_cir_stub fpu_inst (
 		.clk          ( clk_sys              ),
 		.reset_n      ( _cpuReset            ),
-		.a_in         ( cpuAddr[5:1]         ),
+		.a_in         ( cpuAddr[5:1]         ),  // stub doesn't need remap
 		.d_in         ( {16'h0000, cpuDataOut} ),
 		.d_out        ( fpu_data_out         ),
 		.size_n       ( 2'b01                ),
@@ -440,6 +453,27 @@ module emu
 		.sense_n      ( fpu_sense_n          ),
 		.status_valid (                      )
 	);
+`else
+	// Real MC68881 (lite variant — same FPU instantiated in production
+	// LBMacTwo.sv). Default for this sim so functional FPU behavior is
+	// tested. Has the B-4 F-line trap fix for unsupported ops.
+	mc68881_top fpu_inst (
+		.clk          ( clk_sys              ),
+		.reset_n      ( _cpuReset            ),
+		.a_in         ( fpu_addr_remapped    ),
+		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_out        ( fpu_data_out         ),
+		.size_n       ( 2'b01                ),
+		.as_n         ( _cpuAS               ),
+		.cs_n         ( ~fpuAddrMatch        ),
+		.rw           ( _cpuRW               ),
+		.ds_n         ( _cpuUDS & _cpuLDS    ),
+		.dsack0_n     ( fpu_dsack0_n         ),
+		.dsack1_n     ( fpu_dsack1_n         ),
+		.sense_n      ( fpu_sense_n          ),
+		.status_valid (                      )
+	);
+`endif
 	
 	// CPU debug - simplified without busstate
 	reg [31:0] last_fetch_pc;

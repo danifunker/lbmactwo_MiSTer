@@ -12,7 +12,17 @@ V_DEFINE = +define+debug=1 +define+SIMULATION=1 +define+USE_EGRET_CPU=1  -CFLAGS
 	-I$(RTL)/egret \
         --timing
 # Suppress common warnings that don't affect simulation correctness
-V_DEFINE += -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-IMPLICIT -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER
+V_DEFINE += -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-IMPLICIT -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER -Wno-PROCASSWIRE -Wno-BLKANDNBLK -Wno-MULTIDRIVEN
+
+# FPU selector: default to the real mc68881 lite-variant FPU. Set
+#   make USE_FPU_STUB=1
+# to fall back to sim_fpu_cir_stub (a CIR-protocol no-op responder that
+# accepts writes and always returns "done"; useful for sims that run
+# non-FPU software and want to skip the FPU's logic / area cost).
+USE_FPU_STUB ?= 0
+ifeq ($(USE_FPU_STUB),1)
+  V_DEFINE += +define+USE_FPU_STUB
+endif
 #V_DEFINE += --threads 8  # this slows it way down
 V_DEFINE += --trace-fst
 V_DEFINE +=
@@ -65,6 +75,7 @@ V_SRC = \
 	$(RTL)/tg68k/TG68K_ALU.v \
 	$(RTL)/tg68k/TG68KdotC_Kernel.v \
 	$(RTL)/tg68k/tg68k.v \
+	$(RTL)/mc68881/fpu_lite/mc68881_top.v \
 	$(RTL)/addrController_top.v \
 	$(RTL)/addrDecoder.v \
 	$(RTL)/hmmu.v \
