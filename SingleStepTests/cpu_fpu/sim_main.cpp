@@ -239,12 +239,14 @@ static int run_corpus(const std::string& fname, bool trace) {
                     std::cerr << "    [cyc " << std::setw(5) << cyc
                               << "] ms=" << std::dec << int(cur_micro)
                               << " cir=" << int(top->dbg_cir_state)
-                              << " ph=" << int(top->dbg_fpu_xfer_phase)
-                              << " stg=0x" << std::hex << std::setw(8)
-                              << std::setfill('0') << stg0
-                              << " dout=0x" << std::setw(8) << top->dbg_fpu_d_out
-                              << " latch=0x" << std::setw(8) << top->dbg_fpu_rd_latch
-                              << " D1=0x" << std::setw(8) << top->dbg_d1
+                              << " op=0x" << std::hex << std::setw(4) << std::setfill('0')
+                              << top->dbg_opcode
+                              << " cond=0x" << std::setw(2)
+                              << int(top->dbg_cir_cond_reg)
+                              << " fpsr=0x" << std::setw(8) << top->dbg_fpsr
+                              << " resp=0x" << std::setw(8) << top->dbg_cir_response_reg
+                              << " din=0x" << std::setw(4) << top->dbg_data_in
+                              << " t1111=" << std::dec << int(top->dbg_trap_1111)
                               << std::dec << std::setfill(' ') << "\n";
                     prev_state_sig = cur_state_sig;
                 }

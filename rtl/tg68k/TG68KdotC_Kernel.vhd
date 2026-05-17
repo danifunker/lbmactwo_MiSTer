@@ -4679,46 +4679,61 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					next_micro_state <= cp_cond_eval;
 
 				WHEN cp_cond_eval =>
-					-- Decode response and act on condition result
+					-- Decode response for FScc/FBcc/FDBcc/FTRAPcc.
+					-- The mc68881_top stores the condition result in
+					-- cir_response_reg with bit 0 = cond_true (other bits 0).
+					-- The pending flag clears on the FIRST CPU read, so:
+					--   - BUSY (bit 15 = 1, CA=1 with Null primary): not
+					--     yet computed — re-read.
+					--   - Exception primary (bit 15 = 1 with bit 14 or 13
+					--     set, bit 12 = 0): real trap.
+					--   - Anything else (including the special
+					--     condition-result word 0x0001 or 0x0000): result
+					--     ready; bit 0 = cond_true.
 					setstate <= "01";      -- idle
-					CASE data_in(15 downto 13) IS
-						WHEN "000" =>      -- Busy: re-read
-							next_micro_state <= cp_cond_resp;
-						WHEN "001" =>      -- Null: condition result in bit 0
-							next_micro_state <= idle;
-							IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
-								-- FBcc: branch if condition true
-								IF data_in(0) = '1' THEN
-									cp_do_branch <= '1';
-								END IF;
-							ELSIF exe_opcode(8 downto 6) = "001" THEN
-								IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
-									-- FTRAPcc: trap if condition true
-									IF data_in(0) = '1' THEN
-										trap_trapv <= '1';
-										trapmake <= '1';
-									END IF;
-								ELSIF exe_opcode(5 downto 3) = "001" THEN
-									-- FDBcc: if condition false, decrement Dn and maybe branch
-									IF data_in(0) = '0' THEN
-										data_is_source <= '1';
-										set(OP2out_one) <= '1';
-										next_micro_state <= cp_fdbcc_dec;
-									END IF;
-									-- Condition true: done (no decrement, no branch)
-								ELSIF exe_opcode(5 downto 3) = "000" THEN
-									-- FScc data register
-									next_micro_state <= cp_fscc_wr;
-								ELSE
-									-- FScc memory: write result byte to EA
-									next_micro_state <= cp_fscc_wr_mem;
-								END IF;
+					IF data_in(15) = '1' AND data_in(12) = '0'
+					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
+						-- Pre/mid/post-instruction exception primary
+						-- (bits 15-13 = 101/110/111 with bit 12 = 0).
+						trap_1111 <= '1';
+						trapmake <= '1';
+					ELSIF data_in(15) = '1' AND data_in(12) = '0'
+					   AND data_in(11 downto 8) = "1001" THEN
+						-- BUSY (Null primary, CA=1): FPU still computing,
+						-- re-read.
+						next_micro_state <= cp_cond_resp;
+					ELSE
+						-- Result ready; bit 0 = cond_true.
+						next_micro_state <= idle;
+						IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
+							-- FBcc: branch if condition true
+							IF data_in(0) = '1' THEN
+								cp_do_branch <= '1';
 							END IF;
-						WHEN OTHERS =>
-							-- Exception response
-							trap_1111 <= '1';
-							trapmake <= '1';
-					END CASE;
+						ELSIF exe_opcode(8 downto 6) = "001" THEN
+							IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
+								-- FTRAPcc: trap if condition true
+								IF data_in(0) = '1' THEN
+									trap_trapv <= '1';
+									trapmake <= '1';
+								END IF;
+							ELSIF exe_opcode(5 downto 3) = "001" THEN
+								-- FDBcc: if condition false, decrement Dn and maybe branch
+								IF data_in(0) = '0' THEN
+									data_is_source <= '1';
+									set(OP2out_one) <= '1';
+									next_micro_state <= cp_fdbcc_dec;
+								END IF;
+								-- Condition true: done (no decrement, no branch)
+							ELSIF exe_opcode(5 downto 3) = "000" THEN
+								-- FScc data register
+								next_micro_state <= cp_fscc_wr;
+							ELSE
+								-- FScc memory: write result byte to EA
+								next_micro_state <= cp_fscc_wr_mem;
+							END IF;
+						END IF;
+					END IF;
 
 				WHEN cp_cond_skip =>
 					-- Skip operand word(s) for FTRAPcc before CIR dialog

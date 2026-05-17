@@ -54,7 +54,15 @@ module cpu_fpu_tests
    output [5:0]  dbg_cir_xfer_word_idx,
    output [31:0] dbg_fpu_rd_latch,
    output        dbg_fpu_xfer_phase,
-   output [31:0] dbg_fpu_d_out
+   output [31:0] dbg_fpu_d_out,
+   output [15:0] dbg_opcode,
+   output [15:0] dbg_exe_opcode,
+   output        dbg_trap_1111,
+   output        dbg_trap_illegal,
+   output        dbg_trapmake,
+   output [5:0]  dbg_cir_cond_reg,
+   output [31:0] dbg_fpsr,
+   output [31:0] dbg_cir_response_reg
    );
 
    // Hierarchical taps into the TG68K kernel inside the bus wrapper.
@@ -88,6 +96,14 @@ module cpu_fpu_tests
    assign dbg_fpu_rd_latch     = fpu_rd_latch;
    assign dbg_fpu_xfer_phase   = fpu_xfer_phase;
    assign dbg_fpu_d_out        = fpu_d_out;
+   assign dbg_opcode           = cpu.tg68k.opcode;
+   assign dbg_exe_opcode       = cpu.tg68k.exe_opcode;
+   assign dbg_trap_1111        = cpu.tg68k.trap_1111;
+   assign dbg_trap_illegal     = cpu.tg68k.trap_illegal;
+   assign dbg_trapmake         = cpu.tg68k.trapmake;
+   assign dbg_cir_cond_reg     = fpu.cir_condition_reg;
+   assign dbg_fpsr             = fpu.fpsr_reg;
+   assign dbg_cir_response_reg = fpu.cir_response_reg;
 
    // -------------------- CPU bus signals --------------------------------
    wire [31:0] cpu_addr;

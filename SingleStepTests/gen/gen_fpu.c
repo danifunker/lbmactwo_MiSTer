@@ -433,6 +433,93 @@ static int fadd_compute(int a, int b) { return a + b; }
 static int fsub_compute(int a, int b) { return a - b; }  /* FSUB FP1,FP0 = FP0 - FP1 */
 static int fmul_compute(int a, int b) { return a * b; }
 
+/* M68881 FPcc condition selector codes (6-bit). */
+#define COND_F   0x00
+#define COND_EQ  0x01
+#define COND_NE  0x0E
+#define COND_T   0x0F
+#define COND_GT  0x12
+#define COND_GE  0x13
+#define COND_LT  0x14
+#define COND_LE  0x15
+
+/* Evaluate condition for integer operand pair (assuming ordered result of
+ * FCMP fpm,fpn = FPn - FPm; FPCC bits reflect that). */
+static int eval_cond_int(uint8_t cond, int n, int m) {
+    /* fpcc: ordered comparison of FPn vs FPm. */
+    int eq = (n == m), gt = (n > m), lt = (n < m);
+    switch (cond) {
+        case COND_F:  return 0;
+        case COND_T:  return 1;
+        case COND_EQ: return eq;
+        case COND_NE: return !eq;
+        case COND_GT: return gt;
+        case COND_GE: return gt || eq;
+        case COND_LT: return lt;
+        case COND_LE: return lt || eq;
+        default:      return 0;
+    }
+}
+
+/* FCMP FPm,FPn  +  FScc.B Dx tests. Loads FPm and FPn, runs FCMP
+ * (sets FPCC), then FScc.B Dx with the chosen condition. Verifies
+ * Dx low byte is 0xFF or 0x00 per the condition. */
+static int gen_fcmp_fscc(FILE* f, int is_first, int count) {
+    static const struct { uint8_t code; const char* name; } conds[] = {
+        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
+        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
+    };
+    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(50);
+        int8_t b = r_moveq_lim(50);
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr = pick_result_reg();
+        const int     ci = (int)(r32() % NC);
+        const uint8_t cond = conds[ci].code;
+        const char*   cname = conds[ci].name;
+        const int expected = eval_cond_int(cond, a, b);
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FCMP+FS%s FP%d,FP%d (%d,%d) -> D%d #%03d",
+                 cname, src, dst, (int)a, (int)b, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\"op_b\":%d,\n", (int)a, (int)b);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        /* MOVEQ #0,Drr — clear Drr high bits so FScc.B leaves a clean byte. */
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | 0));
+        /* Load FP{dst} = a */
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(dst, FMT_L));
+        /* Load FP{src} = b */
+        BWf(moveq_d0(b));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));
+        /* FCMP FP{src},FP{dst}: ext = src<<10 | dst<<7 | opmode FCMP (0x38). */
+        BWf(0xF200);
+        BWf((uint16_t)(((src & 7) << 10) | ((dst & 7) << 7) | 0x38));
+        /* FScc.B D{rr}: opword F240 | rr; ext = condition selector. */
+        BWf((uint16_t)(0xF240 | (rr & 7)));
+        BWf((uint16_t)cond);
+        /* STOP #$2700 */
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", expected ? 0xFF : 0x00);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
 /* ---------------------------------------------------------------------- */
 int main(int argc, char** argv) {
     const char* outpath = (argc > 1) ? argv[1] : "fpu_corpus.json";
@@ -492,6 +579,9 @@ int main(int argc, char** argv) {
     total += gen_fdiv_trunc (f, first, N);
     /* Same for FSQRT with arbitrary 0..127 inputs. */
     total += gen_fsqrt_trunc(f, first, N);
+
+    /* FCMP+FScc: verifies FPCC generation and conditional-byte writeback. */
+    total += gen_fcmp_fscc  (f, first, N);
 
     fprintf(f, "\n]\n");
     fclose(f);
