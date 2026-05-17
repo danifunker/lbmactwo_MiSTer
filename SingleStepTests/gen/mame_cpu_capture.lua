@@ -3443,6 +3443,480 @@ tests[#tests + 1] = {
 }
 
 -- ======================================================================
+-- EXPANSION v9 -- more decode-path coverage
+-- ======================================================================
+
+-- ---------- Shifts .B/.W broader: ROXL/ROXR/ROL/ROR .B/.W -----------
+-- Imm-count base: $E000 | (cnt<<9) | (dr<<8) | (size<<6) | (0<<5) | (typ<<3) | Dn
+-- size: .B=00, .W=01.  typ: ASL/R=0, LSL/R=1, ROXL/R=2, ROL/R=3.
+for _, sd in ipairs({
+    {n="ROXL", dr=1, typ=2}, {n="ROXR", dr=0, typ=2},
+    {n="ROL",  dr=1, typ=3}, {n="ROR",  dr=0, typ=3},
+}) do
+    -- .W #3,D0 with X=1
+    tests[#tests + 1] = {
+        name = string.format("%s.W #3,D0 (D0=0x12340FE0, X=1)", sd.n),
+        preload = concat(preload_dregs({[0]=0x12340FE0}), preload_ccr(0x10)),
+        test = bw(0xE000 | (3<<9) | (sd.dr<<8) | (1<<6) | (0<<5) | (sd.typ<<3) | 0),
+    }
+    -- .B #5,D0
+    tests[#tests + 1] = {
+        name = string.format("%s.B #5,D0 (D0.B=0x81, X=0)", sd.n),
+        preload = preload_dregs({[0]=0xAABBCC81}),
+        test = bw(0xE000 | (5<<9) | (sd.dr<<8) | (0<<6) | (0<<5) | (sd.typ<<3) | 0),
+    }
+end
+
+-- ASL.B / LSR.B reg-count
+tests[#tests + 1] = {
+    name = "ASL.B D1,D0 (D0.B=0x40 D1=2 -> 0x00 V=1)",
+    preload = preload_dregs({[0]=0x12345640, [1]=2}),
+    test    = bw(0xE000 | (1<<9) | (1<<8) | (0<<6) | (1<<5) | (0<<3) | 0),
+}
+tests[#tests + 1] = {
+    name = "LSR.B D1,D0 (D0.B=0x80 D1=1 -> 0x40)",
+    preload = preload_dregs({[0]=0x12345680, [1]=1}),
+    test    = bw(0xE000 | (1<<9) | (0<<8) | (0<<6) | (1<<5) | (1<<3) | 0),
+}
+
+-- ---------- BCD complete carry/borrow matrix ------------------------
+-- ABCD with carry from low nibble only
+tests[#tests + 1] = {
+    name = "ABCD D1,D0 (D0=0x08+D1=0x05 -> 0x13, X=0; low-nibble carry)",
+    preload = preload_dregs({[0]=0x00000008, [1]=0x00000005}),
+    test    = bw(0xC101),
+}
+tests[#tests + 1] = {
+    name = "ABCD D1,D0 (D0=0x50+D1=0x60 -> 0x10, C=1; high-nibble carry)",
+    preload = preload_dregs({[0]=0x00000050, [1]=0x00000060}),
+    test    = bw(0xC101),
+}
+tests[#tests + 1] = {
+    name = "SBCD D1,D0 (D0=0x10-D1=0x05 -> 0x05; low borrow)",
+    preload = preload_dregs({[0]=0x00000010, [1]=0x00000005}),
+    test    = bw(0x8101),
+}
+tests[#tests + 1] = {
+    name = "SBCD D1,D0 (D0=0x05-D1=0x10-X=1 -> 0x94 C=1; high+low borrow)",
+    preload = concat(preload_dregs({[0]=0x00000005, [1]=0x00000010}), preload_ccr(0x10)),
+    test    = bw(0x8101),
+}
+
+-- ---------- NBCD various inputs ------------------------------------
+for _, s in ipairs({
+    {dn=0x00000000, name="zero"},     -- 0 - 0 = 0, Z=1 (if Z was 1 incoming)
+    {dn=0x00000099, name="99"},        -- 100 - 99 = 01
+    {dn=0x00000001, name="01"},        -- 100 - 1 = 99
+}) do
+    tests[#tests + 1] = {
+        name = string.format("NBCD D0  (D0=0x%02X, X=0)", s.dn),
+        preload = preload_dregs({[0]=s.dn}),
+        test = bw(0x4800),
+        ccr_mask = 0xF5,    -- N+V undefined (PRM 4-122)
+    }
+end
+
+-- ---------- BFFFO various inputs -----------------------------------
+for _, s in ipairs({
+    {d=0x00000001, name="bit0"},        -- D1 = 31
+    {d=0x80000000, name="bit31"},       -- D1 = 0
+    {d=0xFFFFFFFF, name="all"},          -- D1 = 0
+    {d=0x00000000, name="none"},         -- D1 = 32 (width)
+}) do
+    tests[#tests + 1] = {
+        name = string.format("BFFFO D0{0:32},D1  D0=0x%08X (%s)", s.d, s.name),
+        preload = preload_dregs({[0]=s.d}),
+        test = concat(bw(0xEDC0), bw(0x1000)),   -- dst=D1, off=0, w=32(=0)
+    }
+end
+
+-- ---------- 020 full-extension BS/IS suppress -----------------------
+-- BS=1 suppresses base register (A6 ignored), IS=1 suppresses index.
+-- ext: D/A=0 reg=0 W/L=1 scale=00 full=1 BS=1 IS=1 BDSIZE=11(L) IIS=000
+-- = 0_000_1_00_1_1_1_11_0_000 = 0x09F0
+-- Both suppressed = pure abs.L (the bd long).  But our scratch is at $1800;
+-- can use bd.L = $1800 + offset. As long as the bd reaches scratch.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0xAB;ram[2]=0xCD;ram[3]=0xEF;ram[4]=0x01
+    tests[#tests + 1] = {
+        name     = "MOVE.L (bd.L,A6_supp,Dn_supp),D1  pure bd.L (=$1800)",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x2236), bw(0x09F0), bl(0x00001800)),
+    }
+end
+
+-- IS=1 only (no index), regular base
+-- ext: BS=0 IS=1 BDSIZE=10(W) IIS=000
+-- = 0_000_0_00_1_0_1_10_0_000 = 0x0160
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[5]=0x11;ram[6]=0x22;ram[7]=0x33;ram[8]=0x44
+    tests[#tests + 1] = {
+        name     = "MOVE.L (bd.W,A6,IS=1),D1  no-index, bd=4 -> read scratch+4",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x2236), bw(0x0160), bw(0x0004)),
+    }
+end
+
+-- ---------- BSET/BCLR/BCHG static with d16(A6) memory target -------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[5]=0x55
+    tests[#tests + 1] = {
+        name = "BSET #1,4(A6)  static (ram[4]=0x55 -> 0x57)",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0x08EE), bw(0x0001), bw(0x0004)),
+        -- BSET #imm,d16(A6) = $08C0|<ea>=$2E + imm word + disp word = $08EE
+    }
+    tests[#tests + 1] = {
+        name = "BCLR #6,4(A6)  static (ram[4]=0x55 -> 0x15)",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0x08AE), bw(0x0006), bw(0x0004)),
+        -- BCLR #imm,d16(A6) = $0880|<ea>$2E
+    }
+    tests[#tests + 1] = {
+        name = "BCHG #3,4(A6)  static (ram[4]=0x55 -> 0x5D)",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0x086E), bw(0x0003), bw(0x0004)),
+        -- BCHG #imm,d16(A6) = $0840|$2E = $086E
+    }
+end
+
+-- ---------- MOVE.L #imm,(A6) / d16(A6) ------------------------------
+tests[#tests + 1] = {
+    name = "MOVE.L #0x12345678,(A6)  (immediate src, mem dst)",
+    preload  = {},
+    test = concat(bw(0x2EBC), bl(0x12345678)),
+    -- MOVE.L: opword bits 13..12=2 (.L), dst-reg<<9, dst-mode<<6, src<<3..0
+    -- dst (A6): mode=2,reg=6 -> bits 11..6 = (6<<9)|(2<<6) = $C80
+    -- src #imm: mode=7,reg=4 -> bits 5..0 = $3C
+    -- opword = $2000|$C80|$3C = $2CBC. Hmm let me recheck.
+    -- Actually for MOVE the bit pattern is: 00 SS DDD MMM mmm ddd
+    -- where SS=size, DDD=dst reg, MMM=dst mode, mmm=src mode, ddd=src reg.
+    -- .L size SS=10. dst=(A6): D=110 M=010. src=#imm: m=111 d=100.
+    -- opword = 00_10_110_010_111_100 = 0010 1100 1011 1100 = $2CBC.
+}
+-- Fix: $2CBC not $2EBC.
+tests[#tests].test = concat(bw(0x2CBC), bl(0x12345678))
+
+tests[#tests + 1] = {
+    name = "MOVE.W #0xCAFE,d16(A6)  (imm src, d16 dst)",
+    preload = {},
+    -- .W SS=11=$3000. dst d16(A6): D=110 M=101 -> bits 11..6 = (6<<9)|(5<<6) = $D40
+    -- src #imm: $3C.
+    -- opword = $3000|$D40|$3C = $3D7C. Then disp word then imm word.
+    test = concat(bw(0x3D7C), bw(0x0008), bw(0xCAFE)),
+}
+-- For MOVE with imm SRC + d16 DST, the order in PRM 4-116 is: src ext, dst ext.
+-- Imm comes first (because it's part of src ea read), then dst d16.
+-- Actually wait: MOVE.W #imm,d16(An) -- src is fetched first, then dst ext.
+-- src #imm fetches one word: the imm. dst d16(An) fetches one word: disp.
+-- So order = opword + imm + disp. Let me reorder.
+tests[#tests].test = concat(bw(0x3D7C), bw(0xCAFE), bw(0x0008))
+
+-- ---------- CHK.L (020+) -------------------------------------------
+-- CHK.L Dy,Dx = $4100 | (Dx<<9) | $80 (size=L) | Dy.  Actually:
+-- CHK opword: $4000 | (Dx<<9) | (size<<7) | $80 (was) hmm.
+-- Per PRM 4-69, CHK opword bits 8..6 = size: .W=110 ($180), .L=100 ($100).
+-- For CHK.L D1,D0: $4000|(0<<9)|(4<<6)|<ea>=$01 = $4101.
+tests[#tests + 1] = {
+    name = "CHK.L D1,D0  (D0=5,D1=10 in-bounds, no trap)",
+    preload = preload_dregs({[0]=5, [1]=10}),
+    test = bw(0x4101),
+}
+tests[#tests + 1] = {
+    name = "EXC: CHK.L D1,D0  (D0=20 > D1=10, vec 6 / $18)",
+    preload = preload_dregs({[0]=20, [1]=10}),
+    test = bw(0x4101),
+    raises_exception = true,
+}
+
+-- ---------- TRAPcc with no operand (020+) -------------------------
+-- TRAPcc: $50F8 | (cc<<8). For TRAPT (always trap, cc=0):
+-- TRAPF (never): cc=1 -- never trap.
+tests[#tests + 1] = {
+    name = "TRAPF  (cc=False, never trap)",
+    preload = {},
+    test = bw(0x51FC),    -- TRAPF = $50FC|(1<<8) -- check opword: $50FC base, cc<<8.
+    -- Hmm $50FC = base. + (cc<<8) for cc=1 -> $51FC.
+}
+tests[#tests + 1] = {
+    name = "EXC: TRAPT  (cc=True, always trap, vec 7)",
+    preload = {},
+    test = bw(0x50FC),
+    raises_exception = true,
+}
+-- TRAPcc with .W operand (immediate ignored)
+tests[#tests + 1] = {
+    name = "TRAPF.W #0  (no trap)",
+    preload = {},
+    test = concat(bw(0x51FA), bw(0x0000)),  -- TRAPF.W = $50FA|cc<<8 = $51FA
+}
+-- TRAPcc with .L operand
+tests[#tests + 1] = {
+    name = "TRAPF.L #0  (no trap)",
+    preload = {},
+    test = concat(bw(0x51FB), bl(0x00000000)),
+}
+
+-- ---------- ORI/EORI/ANDI .W and .B variants -----------------------
+tests[#tests + 1] = {
+    name = "ORI.W #0xFF00,D0  (D0=0x12340056 -> 0x1234FF56)",
+    preload = preload_dregs({[0]=0x12340056}),
+    test = concat(bw(0x0040 | 0), bw(0xFF00)),  -- ORI.W #imm,Dn = $0040|Dn
+}
+tests[#tests + 1] = {
+    name = "ANDI.B #0xF0,D0  (D0=0x12345678 -> 0x12345670)",
+    preload = preload_dregs({[0]=0x12345678}),
+    test = concat(bw(0x0200 | 0), bw(0x00F0)),
+}
+tests[#tests + 1] = {
+    name = "EORI.W #0xFFFF,D0  (D0.W=0x1234 -> 0xEDCB)",
+    preload = preload_dregs({[0]=0x12341234}),
+    test = concat(bw(0x0A40 | 0), bw(0xFFFF)),
+}
+
+-- (Bcc.W disp=0 dropped: per PRM 4-25 the branch target is PC_at_disp + 0,
+--  which lands back ON the disp word and re-fetches it as opword=$0000. That
+--  is an infinite loop, not a useful decode-path test.)
+
+-- ---------- LEA with full 020 extension ---------------------------
+-- LEA (bd.W,A6,D0.W),A1
+-- LEA opword = $43F6 (ea=$36; brief/full at ext word).
+-- Full ext: D/A=0 reg=0(D0) W/L=0(W) scale=00 full=1 BS=0 IS=0 BDSIZE=10(W) IIS=000 = 0x0120
+-- bd word follows.
+tests[#tests + 1] = {
+    name = "LEA (bd.W=$10,A6,D0.W),A1  (D0=2 -> A1 = scratch+$12)",
+    preload = preload_dregs({[0]=2}),
+    test    = concat(bw(0x43F6), bw(0x0120), bw(0x0010)),
+}
+
+-- ---------- More EXG corner combinations --------------------------
+tests[#tests + 1] = {
+    name = "EXG A0,A7  (A0=scratch A7 unchanged; A7 not diffed)",
+    preload = preload_an_scratch({[0]=0}),
+    test = bw(0xC14F),    -- EXG Ax=A0,Ay=A7: $C100|(0<<9)|$48|7 = $C14F
+}
+tests[#tests + 1] = {
+    name = "EXG D0,D7  zero+nonzero",
+    preload = preload_dregs({[0]=0, [7]=0xAABBCCDD}),
+    test = bw(0xC147),    -- EXG D0,D7: $C100|(0<<9)|$40|7 = $C147
+}
+
+-- ---------- More MOVE Dn,An / An,Dn ------------------------------
+tests[#tests + 1] = {
+    name = "MOVE.L A6,D0  (D0 := A6 = scratch)",
+    preload = {},
+    test = bw(0x200E),    -- MOVE.L An,Dn: src An mode=1 reg=6 -> $0E; dst D0 -> opword $200E
+}
+tests[#tests + 1] = {
+    name = "MOVEA.L D0,A1  (A1 := D0=0xABCDEF12)",
+    preload = preload_dregs({[0]=0xABCDEF12}),
+    test = bw(0x2240),    -- MOVEA.L Dn,An: $2040|(an<<9)|<ea>$0 = $2240 for A1
+}
+
+-- ---------- CMP.B with byte memory source ------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x42
+    tests[#tests + 1] = {
+        name = "CMP.B (A6),D0  (D0=0x42 vs ram[0]=0x42 -> Z=1)",
+        preload = preload_dregs({[0]=0xAABBCC42}),
+        ram_init = ram,
+        test = bw(0xB000 | (0<<9) | 0 | 0x16),
+    }
+end
+
+-- ---------- ADDX/SUBX .B / .W variants ---------------------------
+tests[#tests + 1] = {
+    name = "ADDX.B D1,D0  (D0.B=0xFE+D1.B=2+X=0 -> 0x00, X=C=1)",
+    preload = preload_dregs({[0]=0xAABBCCFE, [1]=0x00000002}),
+    test    = bw(0xD101),    -- ADDX.B = $D100|(D0<<9)|(0<<6)|(0<<5)|D1
+}
+tests[#tests + 1] = {
+    name = "SUBX.W D1,D0  (D0.W=0x1000-D1.W=0x0FFF-X=1 -> 0x0000, Z=1)",
+    preload = concat(preload_dregs({[0]=0x12341000, [1]=0xAABB0FFF}),
+                     preload_ccr(0x10)),
+    test    = bw(0x9141),    -- SUBX.W = $9100|(0<<9)|(1<<6)|0|1 = $9141
+}
+
+-- ---------- Cleanup: ASL/ASR .W edge cases ------------------------
+tests[#tests + 1] = {
+    name = "ASL.W #1,D0  (D0.W=0x4000 -> 0x8000 V=1,N=1)",
+    preload = preload_dregs({[0]=0xAABB4000}),
+    test    = bw(0xE000 | (1<<9) | (1<<8) | (1<<6) | (0<<5) | (0<<3) | 0),
+}
+tests[#tests + 1] = {
+    name = "ASR.W #1,D0  (D0.W=0x0001 -> 0x0000 Z=1,X=C=1)",
+    preload = preload_dregs({[0]=0xAABB0001}),
+    test    = bw(0xE000 | (1<<9) | (0<<8) | (1<<6) | (0<<5) | (0<<3) | 0),
+}
+
+-- ---------- More BFTST results ------------------------------------
+tests[#tests + 1] = {
+    name = "BFTST D0{0:32}  D0=0 -> Z=1",
+    preload = preload_dregs({[0]=0}),
+    test    = concat(bw(0xE8C0), bw(0x0000)),    -- off=0,w=32(encoded 0)
+}
+tests[#tests + 1] = {
+    name = "BFTST D0{0:1}  D0=0xFFFFFFFF -> N=1 (bit 0 = top bit)",
+    preload = preload_dregs({[0]=0xFFFFFFFF}),
+    test    = concat(bw(0xE8C0), bw(0x0001)),
+}
+
+-- ---------- More PEA ----------------------------------------------
+-- PEA (d16,PC) was used in RTR test setup; add a direct test.
+-- PEA (d16,PC) followed by MOVE.L (A7)+,D0 to read it.
+-- After PEA (d16,PC), the pushed value is platform-specific PC.
+-- Skip -- would diverge between MAME/TG68K.
+
+-- ---------- Memory shifts: LSL.W (A6) (already done in v5? yes) ----
+-- Add ASR.W (A6) which v5 covered too. Skip duplicates.
+
+-- ---------- MOVE byte/word DST=-(An) ------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    tests[#tests + 1] = {
+        name = "MOVE.B D0,-(A1)  A1=scratch+4 writes byte at scratch+3",
+        preload = concat(preload_dregs({[0]=0xAABBCCFF}),
+                         preload_an_scratch({[1]=4})),
+        ram_init = ram,
+        -- .B SS=01. dst -(A1): D=001 M=100 -> bits 11..6 = (1<<9)|(4<<6) = $300
+        -- src D0: m=000 d=000 -> bits 5..0 = 0
+        -- opword = $1000|$300|0 = $1300
+        test = bw(0x1300),
+    }
+    tests[#tests + 1] = {
+        name = "MOVE.W D0,-(A1)  A1=scratch+4 writes word at scratch+2",
+        preload = concat(preload_dregs({[0]=0xAABBFEDC}),
+                         preload_an_scratch({[1]=4})),
+        ram_init = ram,
+        -- .W SS=11. opword = $3000|$300|0 = $3300
+        test = bw(0x3300),
+    }
+end
+
+-- ---------- DIVU.L 64b dividend ----------------------------------
+tests[#tests + 1] = {
+    name = "DIVU.L D1,D0:D2  (D2:D0 = $1:00000000 / D1=$10000 -> Dq=$10000 rem=0)",
+    preload = preload_dregs({[0]=0x00000000, [1]=0x00010000, [2]=0x00000001}),
+    test = concat(bw(0x4C41), bw(0x0402)),    -- size=1, Dq=D0, Dr=D2, unsigned
+}
+
+-- ---------- MOVE.W with imm src,(An) dst --------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    tests[#tests + 1] = {
+        name = "MOVE.W #0xDEAD,(A1)  A1=scratch",
+        preload  = preload_an_scratch({[1]=0}),
+        ram_init = ram,
+        -- .W SS=11. dst (A1): M=010 D=001 -> (1<<9)|(2<<6) = $280
+        -- src #imm: $3C.  opword = $3000|$280|$3C = $32BC.  Then imm word.
+        test = concat(bw(0x32BC), bw(0xDEAD)),
+    }
+end
+
+-- ---------- ORI/ANDI on memory byte/word --------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1] = 0x10
+    tests[#tests + 1] = {
+        name = "ORI.B #0xF0,(A6)  (ram[0]=0x10 -> 0xF0)",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0x0016), bw(0x00F0)),   -- ORI.B = $0000|<ea>
+    }
+    tests[#tests + 1] = {
+        name = "ANDI.B #0x0F,(A6)  (ram[0]=0x10 -> 0x00, Z=1)",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0x0216), bw(0x000F)),
+    }
+end
+
+-- ---------- LSL mem-shift on -(An) -------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[3]=0x40;ram[4]=0x01
+    tests[#tests + 1] = {
+        name = "LSL.W -(A1)  A1=scratch+4 -> shift word at scratch+2 = 0x4001 -> 0x8002",
+        preload = preload_an_scratch({[1]=4}),
+        ram_init = ram,
+        test = bw(0xE0C0 | (1<<9) | (1<<8) | 0x21),   -- LSL.W <ea>=-A1=$21
+    }
+end
+
+-- ---------- More BSET with #imm in memory mode --------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x80;ram[5]=0x00
+    tests[#tests + 1] = {
+        name = "BSET #4,(A1)+  A1=scratch (ram[0]=0x80 -> 0x90; A1+=1)",
+        preload  = preload_an_scratch({[1]=0}),
+        ram_init = ram,
+        -- BSET #imm,(A1)+: $08C0|<ea>=$19 = $08D9. Then imm word.
+        test = concat(bw(0x08D9), bw(0x0004)),
+    }
+end
+
+-- ---------- TST.B (xxx).W abs (sign-ext addr) -- skip; absolute addr
+-- introduces MAME/TG68K mismatch.
+
+-- ---------- Long chain to exercise pipeline: MOVE.L D0,D1; MOVE.L D1,D2 -----
+tests[#tests + 1] = {
+    name = "MOVE.L D0,D1; MOVE.L D1,D2  (chain)",
+    preload = preload_dregs({[0]=0xDEADBEEF}),
+    test = concat(bw(0x2200), bw(0x2401)),
+    -- MOVE.L D0,D1: dst D1 mode=0 -> opword $2200
+    -- MOVE.L D1,D2: dst D2 mode=0 -> opword $2401
+}
+
+-- ---------- Memory-indirect with index suppress (IS=1) --------------
+-- ([bd.W,A6],od.W) -- IIS=110 (postindexed, word od), IS=1 (no index).
+-- ext: D/A=0 reg=0 W/L=0 scale=00 full=1 BS=0 IS=1 BDSIZE=10(W) IIS=110
+-- = 0_000_0_00_1_0_1_10_0_110 = 0x0166
+-- bd word + od word. Pointer at A6+bd, then +od.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    -- Pointer at scratch[0..3] = $1808.
+    ram[1]=0x00; ram[2]=0x00; ram[3]=0x18; ram[4]=0x08
+    -- Target at scratch[8+od]; choose od=4, so target at scratch+0xC.
+    ram[13]=0xFE;ram[14]=0xED;ram[15]=0xFA;ram[16]=0xCE
+    tests[#tests + 1] = {
+        name     = "MOVE.L ([bd.W=0,A6],od.W=4),D1  postindexed no-idx (->FEEDFACE)",
+        preload  = {},
+        ram_init = ram,
+        test     = concat(bw(0x2236), bw(0x0166), bw(0x0000), bw(0x0004)),
+    }
+end
+
+-- ---------- Sticky bit-shift verification: ASL.L 1 bit clears C if msb was 0 ---
+tests[#tests + 1] = {
+    name = "ASL.L #1,D0  (D0=0x7FFFFFFF -> 0xFFFFFFFE; C=0,V=1,N=1)",
+    preload = preload_dregs({[0]=0x7FFFFFFF}),
+    test    = bw(0xE000 | (1<<9) | (1<<8) | (2<<6) | (0<<5) | (0<<3) | 0),
+}
+
+-- ---------- More EXG forms with all combinations ------------------
+tests[#tests + 1] = {
+    name = "EXG D5,A5  (D5=0xCAFEBABE A5=scratch+0x10)",
+    preload = concat(preload_dregs({[5]=0xCAFEBABE}),
+                     preload_an_scratch({[5]=0x10})),
+    test    = bw(0xCB8D),    -- EXG D5,A5: $C100|(5<<9)|$88|5 = $C100|$A00|$88|5 = $CB8D
+}
+
+-- ======================================================================
 -- EXCEPTION TESTS
 --
 -- These tests deliberately trigger exceptions. The MAME harness vector
