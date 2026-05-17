@@ -518,11 +518,20 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
                       ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 // DTACK: FPU uses DSACK protocol (assert DTACK when either DSACK line goes low)
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
+// arb_mac_stall is asserted while video has the SDRAM committed; we hold
+// DTACK high (deasserted) for RAM/ROM accesses in that case so the Mac
+// CPU waits for the SDRAM cycle to actually belong to Mac before
+// latching its data.  Other access types (FPU/NuBus/SCSI/VIA) have
+// their own handshake and don't go through SDRAM, so we leave them
+// unaffected by mac_stall.
+wire ram_or_rom_dtack = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) |
+                         (status_turbo & !turbo_dtack_en)) | arb_mac_stall;
+
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
-                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+                        ram_or_rom_dtack;
 
 // Debug LED tracking - extended duration for visibility
 reg [27:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
@@ -752,6 +761,11 @@ wire        dbg_grant_video;
 wire        dbg_video_clean;
 wire [3:0]  dbg_mac_idle_cnt;
 wire [2:0]  dbg_vram_state;
+// Stall wire from the arbiter: high while a video SDRAM transaction is
+// in flight and Mac is requesting.  Gates DTACK below so Mac waits for
+// the real SDRAM data instead of latching the video's mid-transaction
+// word and executing a corrupted instruction.
+wire        arb_mac_stall;
 
 nubus_video_highres nubus_card (
 	.clk(clk_sys),
@@ -1090,7 +1104,9 @@ sdram_arbiter arbiter (
 	.dbg_grant_video(dbg_grant_video),
 	.dbg_video_clean(dbg_video_clean),
 	.dbg_mac_idle_cnt(dbg_mac_idle_cnt),
-	.dbg_vram_state(dbg_vram_state)
+	.dbg_vram_state(dbg_vram_state),
+
+	.mac_stall(arb_mac_stall)
 );
 
 // ---- JTAG debug instrumentation ----
@@ -1116,6 +1132,7 @@ debug_probes dbg (
     .arb_mac_oe     (arb_mac_oe),
     .grant_video    (dbg_grant_video),
     .video_clean    (dbg_video_clean),
+    .mac_stall      (arb_mac_stall),
 
     .arb_vram_addr  (arb_vram_addr),
     .arb_vram_rd    (arb_vram_rd),

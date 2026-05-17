@@ -7,7 +7,7 @@
 // We expose key signals for diagnosing the Mac vs Video SDRAM contention:
 //   probe 0: {cpuAddr[23:0], _cpuAS, _cpuRW, _cpuUDS, _cpuLDS, _cpuDTACK, video_en}
 //   probe 1: {memoryDataOut[15:0], arb_mac_dout[15:0]}  (Mac data bus snapshot)
-//   probe 2: {arb_mac_addr[24:0], arb_mac_we, arb_mac_oe, grant_video, video_clean}
+//   probe 2: {arb_mac_addr[23:0], arb_mac_we, arb_mac_oe, grant_video, video_clean, mac_stall, 3'd0}
 //   probe 3: {arb_vram_addr[24:0], arb_vram_rd, arb_vram_wr, arb_vram_ready, vram_state[2:0]}
 //   probe 4: {sdram_out[15:0], mac_idle_cnt[3:0], cpuAddr[31:24], 4'd0}
 //            (SDRAM data + arbiter state + high byte of PC)
@@ -31,6 +31,7 @@ module debug_probes (
     input wire        arb_mac_oe,
     input wire        grant_video,
     input wire        video_clean,
+    input wire        mac_stall,
 
     input wire [24:0] arb_vram_addr,
     input wire        arb_vram_rd,
@@ -51,6 +52,7 @@ module debug_probes (
     reg        cpuAS_n_r, cpuRW_r, cpuUDS_n_r, cpuLDS_n_r, cpuDTACK_n_r;
     reg        video_en_r;
     reg        arb_mac_we_r, arb_mac_oe_r, grant_video_r, video_clean_r;
+    reg        mac_stall_r;
     reg        arb_vram_rd_r, arb_vram_wr_r, arb_vram_ready_r;
     reg [2:0]  vram_state_r;
     reg [3:0]  mac_idle_cnt_r;
@@ -70,6 +72,7 @@ module debug_probes (
         arb_mac_oe_r     <= arb_mac_oe;
         grant_video_r    <= grant_video;
         video_clean_r    <= video_clean;
+        mac_stall_r      <= mac_stall;
         arb_vram_addr_r  <= arb_vram_addr;
         arb_vram_rd_r    <= arb_vram_rd;
         arb_vram_wr_r    <= arb_vram_wr;
@@ -117,7 +120,7 @@ module debug_probes (
         .sld_auto_instance_index ("YES")
     ) cp_probe2 (
         .probe ({arb_mac_addr_r[23:0], arb_mac_we_r, arb_mac_oe_r,
-                 grant_video_r, video_clean_r, 4'b0000}),
+                 grant_video_r, video_clean_r, mac_stall_r, 3'b000}),
         .source(),
         .source_clk(clk),
         .source_ena(1'b1)

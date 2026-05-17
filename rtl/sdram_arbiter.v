@@ -44,7 +44,15 @@ module sdram_arbiter (
     output        dbg_grant_video,
     output        dbg_video_clean,
     output [3:0]  dbg_mac_idle_cnt,
-    output [2:0]  dbg_vram_state
+    output [2:0]  dbg_vram_state,
+
+    // Stall request to Mac CPU: high while video has the SDRAM committed
+    // and Mac is trying to read.  Used to delay _cpuDTACK so Mac latches
+    // the *real* sdram_dout for its own access, not the in-flight video
+    // word.  Without this, Mac can pick up garbage and execute corrupted
+    // code (the BERR at PC=$40806A0E -> Error1Handler -> Test Manager
+    // poll loop the project's docs/new-scc.md describes).
+    output        mac_stall
 );
 
     // ------------------------------------------------------------------------
@@ -235,6 +243,15 @@ module sdram_arbiter (
     end
 
     assign vram_ready = vram_ready_latch;
+
+    // Stall Mac when video has the SDRAM bus committed.  vram_state is
+    // non-IDLE during VRAM_WAIT and VRAM_READY; during those windows
+    // sdram_dout is the video's data (or in transition), so Mac would
+    // latch garbage if its bus cycle completed.  Asserting mac_stall
+    // delays _cpuDTACK so the Mac CPU holds its bus cycle until video
+    // releases.  Only stall when Mac is actually requesting -- no point
+    // delaying a quiescent Mac.
+    assign mac_stall = (vram_state != VRAM_IDLE) & mac_active;
 
     // Debug exposures for JTAG instrumentation
     assign dbg_grant_video  = grant_video;

@@ -8,7 +8,7 @@ Probe layout (matches rtl/debug_probes.sv):
                    [2]=video_en, [1:0]=0
   probe 1 (DATA):  [31:16]=memoryDataOut, [15:0]=arb_mac_dout
   probe 2 (MAC_):  [31:8]=arb_mac_addr[23:0], [7]=arb_mac_we, [6]=arb_mac_oe,
-                   [5]=grant_video, [4]=video_clean, [3:0]=0
+                   [5]=grant_video, [4]=video_clean, [3]=mac_stall, [2:0]=0
   probe 3 (VID_):  [31:8]=arb_vram_addr[23:0], [7]=arb_vram_rd,
                    [6]=arb_vram_wr, [5]=arb_vram_ready, [4:2]=vram_state,
                    [1:0]=0
@@ -58,7 +58,7 @@ def decode(samples):
         "cpuDTACK_n", "video_en",
         "memoryDataOut", "arb_mac_dout",
         "arb_mac_addr", "arb_mac_we", "arb_mac_oe",
-        "grant_video", "video_clean",
+        "grant_video", "video_clean", "mac_stall",
         "arb_vram_addr", "arb_vram_rd", "arb_vram_wr",
         "arb_vram_ready", "vram_state",
         "sdram_out", "mac_idle_cnt",
@@ -81,6 +81,7 @@ def decode(samples):
         series["arb_mac_oe"].append((p2 >> 6) & 1)
         series["grant_video"].append((p2 >> 5) & 1)
         series["video_clean"].append((p2 >> 4) & 1)
+        series["mac_stall"].append((p2 >> 3) & 1)
         p3 = s.get(3, 0)
         series["arb_vram_addr"].append((p3 >> 8) & 0xFFFFFF)
         series["arb_vram_rd"].append((p3 >> 7) & 1)
@@ -126,6 +127,7 @@ def summarize(series, name="capture"):
     out.append(f"arb_mac_oe=1:    {fraction('arb_mac_oe', 1)*100:.1f}%")
     out.append(f"grant_video=1:   {fraction('grant_video', 1)*100:.1f}%")
     out.append(f"video_clean=1:   {fraction('video_clean', 1)*100:.1f}%")
+    out.append(f"mac_stall=1:     {fraction('mac_stall', 1)*100:.1f}%")
     out.append(f"arb_vram_rd=1:   {fraction('arb_vram_rd', 1)*100:.1f}%")
     out.append(f"arb_vram_wr=1:   {fraction('arb_vram_wr', 1)*100:.1f}%")
     out.append(f"arb_vram_ready=1:{fraction('arb_vram_ready', 1)*100:.1f}%")
