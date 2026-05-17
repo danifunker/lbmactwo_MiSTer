@@ -20,7 +20,7 @@ MUSASHI_OBJS = \
   $(MUSASHI_DIR)/m68kdasm.o \
   $(MUSASHI_DIR)/softfloat/softfloat.o
 
-all: gen
+all: gen gen_fpu
 
 # Force Musashi to be built first if its .o files are missing.
 $(MUSASHI_OBJS):
@@ -29,7 +29,12 @@ $(MUSASHI_OBJS):
 gen: gen.c $(MUSASHI_OBJS)
 	$(CC) $(CFLAGS) -o $@ gen.c $(MUSASHI_OBJS) -lm
 
+# gen_fpu doesn't need Musashi — operand math is int-preserving and
+# computed directly. Standalone build.
+gen_fpu: gen_fpu.c
+	$(CC) $(CFLAGS) -o $@ gen_fpu.c
+
 clean:
-	rm -f gen
+	rm -f gen gen_fpu
 
 .PHONY: all clean
