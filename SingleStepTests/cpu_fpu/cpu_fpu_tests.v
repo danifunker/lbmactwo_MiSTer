@@ -86,6 +86,20 @@ module cpu_fpu_tests
    // FP register file is a packed reg [639:0] = 8x80 bits. ghdl-synth
    // convention is to map VHDL array index 0 to the HIGH bits — so FP0
    // lives at bits [639:560], FP7 at bits [79:0].
+   // These taps reach into mc68881_top internals; stubbed out when
+   // USE_FPU_STUB selects sim_fpu_cir_stub (which has no such state).
+`ifdef USE_FPU_STUB
+   assign dbg_fp0 = 80'd0;
+   assign dbg_cir_move_pending = 1'b0;
+   assign dbg_cir_launch_alu   = 1'b0;
+   assign dbg_cir_state        = 5'd0;
+   assign dbg_cir_dst_reg_idx  = 3'd0;
+   assign dbg_operand_reg_1    = 80'd0;
+   assign dbg_fpu_bus_write    = 1'b0;
+   assign dbg_fpu_addr         = fpu.a_in;
+   assign dbg_cir_operand_staging = 96'd0;
+   assign dbg_cir_xfer_word_idx = 6'd0;
+`else
    assign dbg_fp0 = fpu.fp_reg_file_reg[(0)*80 +: 80];  // FP0 slot 0
    assign dbg_cir_move_pending = fpu.cir_move_pending_reg;
    assign dbg_cir_launch_alu   = fpu.cir_launch_alu;
@@ -96,6 +110,7 @@ module cpu_fpu_tests
    assign dbg_fpu_addr         = fpu.a_in;
    assign dbg_cir_operand_staging = fpu.cir_operand_staging;
    assign dbg_cir_xfer_word_idx = fpu.cir_xfer_word_idx;
+`endif
    assign dbg_fpu_rd_latch     = fpu_rd_latch;
    assign dbg_fpu_xfer_phase   = fpu_xfer_phase;
    assign dbg_fpu_d_out        = fpu_d_out;
@@ -104,9 +119,15 @@ module cpu_fpu_tests
    assign dbg_trap_1111        = cpu.tg68k.trap_1111;
    assign dbg_trap_illegal     = cpu.tg68k.trap_illegal;
    assign dbg_trapmake         = cpu.tg68k.trapmake;
+`ifdef USE_FPU_STUB
+   assign dbg_cir_cond_reg     = 6'd0;
+   assign dbg_fpsr             = 32'd0;
+   assign dbg_cir_response_reg = 32'd0;
+`else
    assign dbg_cir_cond_reg     = fpu.cir_condition_reg;
    assign dbg_fpsr             = fpu.fpsr_reg;
    assign dbg_cir_response_reg = fpu.cir_response_reg;
+`endif
    assign dbg_cp_do_branch     = cpu.tg68k.cp_do_branch;
    assign dbg_cp_branch_target = cpu.tg68k.cp_branch_target;
    assign dbg_pc               = cpu.tg68k.tg68_pc;
@@ -284,6 +305,28 @@ module cpu_fpu_tests
    assign fpu_dsack0_n_obs = fpu_dsack0_n;
    assign fpu_dsack1_n_obs = fpu_dsack1_n;
 
+`ifdef USE_FPU_STUB
+   // CIR-protocol stub: drops every FPU op into an F-line trap. Use for
+   // validating that the CPU correctly takes the trap when no real FPU
+   // logic is present; matches the configuration of verilator/sim.v.
+   sim_fpu_cir_stub fpu
+     (
+      .a_in         (fpu_addr_remapped),
+      .d_in         (fpu_d_in_eff),
+      .d_out        (fpu_d_out),
+      .size_n       (fpu_size_n),
+      .as_n         (cpu_as_n),
+      .cs_n         (fpu_cs_n_eff),
+      .rw           (cpu_rw_n),
+      .ds_n         (cpu_uds_n & cpu_lds_n),
+      .dsack0_n     (fpu_dsack0_n),
+      .dsack1_n     (fpu_dsack1_n),
+      .reset_n      (~reset),
+      .clk          (clk),
+      .sense_n      (sense_n),
+      .status_valid (fpu_status_valid)
+      );
+`else
    mc68881_top fpu
      (
       .a_in         (fpu_addr_remapped),
@@ -301,4 +344,5 @@ module cpu_fpu_tests
       .sense_n      (sense_n),
       .status_valid (fpu_status_valid)
       );
+`endif
 endmodule

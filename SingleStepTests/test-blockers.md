@@ -658,3 +658,51 @@ by:
 
 Nothing extra needs to be added to the FPGA build to consume the
 recent TG68K changes; they ride on the existing QIP/VHDL flow.
+
+---
+
+## B-5: sim_fpu_cir_stub validated as F-line trap source
+
+**Status:** validated 2026-05-17.
+**Context:** the top-level `verilator/sim.v` now defaults to the stub
+(`USE_FPU_STUB=1`) because the real FPU is too slow to simulate at
+interactive speed.
+
+### What was validated
+
+Built `SingleStepTests/cpu_fpu/` with `USE_FPU_STUB=1` and ran:
+- `fline_trap_regression.json` (24 lite-unsupported ops): 24/24 pass.
+- 6 basic ops (FADD/FSUB/FMUL/FDIV/FNEG/FSQRT/FCMP) wrapped in the same
+  trap harness: 6/6 pass.
+
+Conclusion: the stub raises an F-line emulator trap for EVERY FPU
+instruction the CPU sends to it. This is because the stub responds to
+every CIR_RESPONSE read with `0x2000`, which is neither a Null Primary
+(`bit[12]=0, bits[11:8]=1001`) nor a Transfer Primary (`bit[12]=1`), so
+the TG68K's `cp_idle_resp` ELSE branch fires `trap_1111 + trapmake` and
+the CPU vectors through $002C.
+
+### Mac II implication
+
+With the stub instantiated, the Mac OS sees an "FPU is responding but
+doesn't compute anything" device, and every F-line opcode goes to the
+F-line emulator vector. Provided the OS has an FPU software-emulation
+package installed (SANE math routines, or an Apple FPSP-equivalent),
+all FPU instructions are software-emulated. That matches how 68000
+Macs (without any FPU) operate.
+
+This makes the stub a usable choice for sim runs that don't need real
+FPU speed, with the caveat that all FPU work is done in software so
+math-heavy code paths run slower in absolute terms — but Verilator
+simulation overall is faster because the FPU's combinational logic is
+gone.
+
+### File layout
+
+- `rtl/mc68881/sim_fpu_cir_stub.v` — shared stub (was previously inline
+  in `verilator/sim.v`).
+- `verilator/Makefile`: `USE_FPU_STUB ?= 1` (default).
+- `SingleStepTests/cpu_fpu/Makefile`: `USE_FPU_STUB ?= 0` (default real
+  FPU — purpose of this bench is to exercise the real FPU).
+- Both files select the FPU via `+define+USE_FPU_STUB` driving an
+  `ifdef` around the FPU instantiation.
