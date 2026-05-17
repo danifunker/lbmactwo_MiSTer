@@ -12,7 +12,7 @@ Probe layout (matches rtl/debug_probes.sv):
   probe 3 (VID_):  [31:8]=arb_vram_addr[23:0], [7]=arb_vram_rd,
                    [6]=arb_vram_wr, [5]=arb_vram_ready, [4:2]=vram_state,
                    [1:0]=0
-  probe 4 (SDRA):  [31:16]=sdram_out, [15:12]=mac_idle_cnt, [11:0]=0
+  probe 4 (SDRA):  [31:16]=sdram_out, [15:12]=mac_idle_cnt, [11:4]=cpuAddr[31:24], [3:0]=0
 """
 
 import re
@@ -90,6 +90,9 @@ def decode(samples):
         p4 = s.get(4, 0)
         series["sdram_out"].append((p4 >> 16) & 0xFFFF)
         series["mac_idle_cnt"].append((p4 >> 12) & 0xF)
+        cpu_addr_hi = (p4 >> 4) & 0xFF
+        # Stitch full PC from probe 0's [23:0] and probe 4's [31:24]
+        series["cpuAddr"][-1] = (cpu_addr_hi << 24) | series["cpuAddr"][-1]
     return series
 
 

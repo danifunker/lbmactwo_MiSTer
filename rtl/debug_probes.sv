@@ -9,7 +9,8 @@
 //   probe 1: {memoryDataOut[15:0], arb_mac_dout[15:0]}  (Mac data bus snapshot)
 //   probe 2: {arb_mac_addr[24:0], arb_mac_we, arb_mac_oe, grant_video, video_clean}
 //   probe 3: {arb_vram_addr[24:0], arb_vram_rd, arb_vram_wr, arb_vram_ready, vram_state[2:0]}
-//   probe 4: {sdram_out[15:0], mac_idle_cnt[3:0], 12'd0}  (SDRAM data + arbiter state)
+//   probe 4: {sdram_out[15:0], mac_idle_cnt[3:0], cpuAddr[31:24], 4'd0}
+//            (SDRAM data + arbiter state + high byte of PC)
 
 module debug_probes (
     input wire        clk,
@@ -136,14 +137,14 @@ module debug_probes (
         .source_ena(1'b1)
     );
 
-    // PROBE 4: sdram dout + mac idle counter
+    // PROBE 4: sdram dout + mac idle counter + cpuAddr[31:24]
     altsource_probe #(
         .instance_id ("SDRA"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_probe4 (
-        .probe ({sdram_out_r, mac_idle_cnt_r, 12'd0}),
+        .probe ({sdram_out_r, mac_idle_cnt_r, cpuAddr_r[31:24], 4'd0}),
         .source(),
         .source_clk(clk),
         .source_ena(1'b1)

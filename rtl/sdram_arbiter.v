@@ -77,23 +77,14 @@ module sdram_arbiter (
     wire mac_active = mac_we | mac_oe;
 
     // ------------------------------------------------------------------------
-    // Mac quiescence detector
+    // Mac idle counter (kept for debug visibility; no longer gates video).
     //
-    // The previous arbiter only checked mac_active at the instant a video
-    // transaction would start.  That left a wide race window: Mac could
-    // re-assert one cycle later and then sit on the SDRAM mux for the next
-    // 4-9 cycles, during which the Mac CPU itself would latch sdram_dout
-    // from the video's in-flight transaction (mac_dout is combinational).
-    // Mac then executes a corrupted instruction, branches into the wrong
-    // ROM path, programs the wrong card mode/palette, and the user sees a
-    // moving palette-noise pattern rather than the proper desktop.
-    //
-    // Counter resets whenever Mac is active, and counts up otherwise.  We
-    // only allow a new video transaction to start once Mac has been idle
-    // for several cycles -- by then it is much less likely to re-assert
-    // before our video read window completes.  Combined with the existing
-    // video_clean tracking, this gives Mac near-absolute priority while
-    // still letting video sneak in during genuine Mac gaps.
+    // Earlier we required mac_quiescent (>=3 idle cycles) before starting a
+    // video transaction.  Real ISSP captures showed Mac CPU is bus-active
+    // ~57% of the time during boot, so the 3-cycle quiet gap rarely opens
+    // -- video reads succeeded only ~2% of the time (4/200 captures saw
+    // vram_ready=1).  Drop the gate; rely on video_clean tracking + Mac
+    // priority on the mux to keep things correct without starving video.
     // ------------------------------------------------------------------------
     reg [3:0] mac_idle_cnt;
     always @(posedge clk) begin
@@ -103,10 +94,6 @@ module sdram_arbiter (
             mac_idle_cnt <= mac_idle_cnt + 4'd1;
         end
     end
-    // Three full cycles of Mac quiet before we'll try a video transaction.
-    // At clk_sys = 32.5 MHz that is ~92 ns, comfortably less than a Mac
-    // CPU bus cycle, so we don't starve video for long.
-    wire mac_quiescent = (mac_idle_cnt >= 4'd3);
 
     // ------------------------------------------------------------------------
     // Mac vs Video arbitration
@@ -136,10 +123,9 @@ module sdram_arbiter (
     // intermittent retries are harmless.
     // ------------------------------------------------------------------------
 
-    // SDRAM signal muxes — Mac priority preserved, combinational as before.
-    // Additionally gated on mac_quiescent so we don't start a video
-    // transaction the instant before Mac re-asserts.
-    wire grant_video = mac_quiescent & !mac_active & (vram_rd | vram_wr);
+    // SDRAM signal muxes — Mac priority preserved (mac_active blocks video).
+    // No quiescence gating: empirically that starved video almost entirely.
+    wire grant_video = !mac_active & (vram_rd | vram_wr);
 
     assign sdram_addr = grant_video ? vram_addr : mac_addr;
     assign sdram_din  = grant_video ? vram_dout : mac_din;
