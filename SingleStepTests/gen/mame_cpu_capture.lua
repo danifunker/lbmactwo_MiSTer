@@ -3018,6 +3018,431 @@ tests[#tests + 1] = {
 }
 
 -- ======================================================================
+-- EXPANSION v8 -- more edge cases + EA coverage
+-- ======================================================================
+
+-- ---------- TST/CLR/NEG/NOT byte/word on memory ----------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x80; ram[2]=0x7F; ram[3]=0x01; ram[4]=0x00
+    -- TST.B (A1)+
+    tests[#tests + 1] = {
+        name = "TST.B (A1)+  ram[0]=0x80 -> N=1; A1+=1",
+        preload = preload_an_scratch({[1]=0}),
+        ram_init = ram,
+        test = bw(0x4A19),    -- TST.B (A1)+ = $4A00|$19
+    }
+    -- TST.W -(A1)
+    tests[#tests + 1] = {
+        name = "TST.W -(A1)  A1=scratch+4 (predec to scratch+2; word=0x0100)",
+        preload = preload_an_scratch({[1]=4}),
+        ram_init = ram,
+        test = bw(0x4A61),    -- TST.W -(A1) = $4A40|$21
+    }
+    -- CLR.B (A1)+
+    tests[#tests + 1] = {
+        name = "CLR.B (A1)+  A1=scratch (ram[0]=0x80 -> 0; A1+=1)",
+        preload = preload_an_scratch({[1]=0}),
+        ram_init = ram,
+        test = bw(0x4219),
+    }
+    -- NEG.B (A6)
+    tests[#tests + 1] = {
+        name = "NEG.B (A6)  ram[0]=0x80 -> 0x80 (V=1 -- min neg)",
+        preload = {},
+        ram_init = ram,
+        test = bw(0x4416),
+    }
+    -- NEG.W (A6)
+    tests[#tests + 1] = {
+        name = "NEG.W (A6)  ram[0..1]=0x807F -> 0x7F81",
+        preload = {},
+        ram_init = ram,
+        test = bw(0x4456),
+    }
+    -- NOT.B (A6)
+    tests[#tests + 1] = {
+        name = "NOT.B (A6)  ram[0]=0x80 -> 0x7F",
+        preload = {},
+        ram_init = ram,
+        test = bw(0x4616),
+    }
+    -- NOT.L (A6)
+    tests[#tests + 1] = {
+        name = "NOT.L (A6)  ram[0..3]=0x807F0100 -> 0x7F80FEFF",
+        preload = {},
+        ram_init = ram,
+        test = bw(0x4696),
+    }
+    -- NEGX.B/W (A6)
+    tests[#tests + 1] = {
+        name = "NEGX.B (A6)  ram[0]=0x05, X=1 -> 0xFA",
+        preload = preload_ccr(0x10),
+        ram_init = ram,
+        test = bw(0x4016),
+    }
+    tests[#tests + 1] = {
+        name = "NEGX.W (A6)  ram[0..1]=0x807F, X=0 -> 0x7F81",
+        preload = {},
+        ram_init = ram,
+        test = bw(0x4056),
+    }
+end
+
+-- ---------- ADD/SUB overflow corners --------------------------------
+tests[#tests + 1] = {
+    name    = "ADD.L D1,D0  pos+pos overflow (D0=0x7FFFFFFF + D1=1 -> V=1,N=1)",
+    preload = preload_dregs({[0]=0x7FFFFFFF, [1]=1}),
+    test    = bw(0xD081),
+}
+tests[#tests + 1] = {
+    name    = "ADD.L D1,D0  neg+neg overflow (D0=0x80000000 + D1=0xFFFFFFFF -> V=1)",
+    preload = preload_dregs({[0]=0x80000000, [1]=0xFFFFFFFF}),
+    test    = bw(0xD081),
+}
+tests[#tests + 1] = {
+    name    = "SUB.L D1,D0  pos-neg overflow (D0=0x7FFFFFFF - D1=0xFFFFFFFF -> V=1)",
+    preload = preload_dregs({[0]=0x7FFFFFFF, [1]=0xFFFFFFFF}),
+    test    = bw(0x9081),
+}
+tests[#tests + 1] = {
+    name    = "SUB.B D1,D0  signed overflow (D0.B=0x80 - D1.B=1 -> V=1)",
+    preload = preload_dregs({[0]=0xAA000080, [1]=0x00000001}),
+    test    = bw(0x9000 | (0<<9) | 1),
+}
+
+-- ---------- ROXL/ROXR with explicit X states ------------------------
+-- ROXL.L #1,D0 with X=0 vs X=1; the X bit feeds in.
+tests[#tests + 1] = {
+    name = "ROXL.L #1,D0  X=0 (D0=0x80000000 -> 0; X=1, C=1)",
+    preload = concat(preload_dregs({[0]=0x80000000}), preload_ccr(0x00)),
+    test    = bw(0xE000 | (1<<9) | (1<<8) | (2<<6) | (0<<5) | (2<<3) | 0),
+}
+tests[#tests + 1] = {
+    name = "ROXL.L #1,D0  X=1 (D0=0 -> 1; X=0, C=0)",
+    preload = concat(preload_dregs({[0]=0}), preload_ccr(0x10)),
+    test    = bw(0xE000 | (1<<9) | (1<<8) | (2<<6) | (0<<5) | (2<<3) | 0),
+}
+tests[#tests + 1] = {
+    name = "ROXR.L #1,D0  X=1 (D0=0 -> 0x80000000; X=0)",
+    preload = concat(preload_dregs({[0]=0}), preload_ccr(0x10)),
+    test    = bw(0xE000 | (1<<9) | (0<<8) | (2<<6) | (0<<5) | (2<<3) | 0),
+}
+
+-- ---------- DBcc full-traverse: count down to -1 --------------------
+-- DBcc Dn,disp: while cc=False, decrement Dn.W; branch if Dn != -1.
+-- D1=2, cc=False: decrement 3 times (2->1->0->-1), then exit. scratch[0]++ each iter.
+-- With CCR=0 (all clear): DBT=True (no-op exit), DBF=False (decrement all),
+-- DBHI/DBLS/DBCC/DBCS/DBVC/DBVS/DBPL/DBMI/DBGE/DBLT/DBGT/DBLE depend.
+-- We test a few with cc=False to traverse the loop.
+for _, c in ipairs({
+    {n="DBF",  cc=0x1, ccr=0x00},   -- never True -> always decrement
+    {n="DBHI", cc=0x2, ccr=0x05},   -- HI=!C&!Z; C=1,Z=1 means HI=False -> traverse
+    {n="DBVS", cc=0x9, ccr=0x00},   -- VS=V; V=0 -> False -> traverse
+    {n="DBMI", cc=0xB, ccr=0x00},   -- MI=N; N=0 -> False -> traverse
+}) do
+    tests[#tests + 1] = {
+        name = string.format("%s D1,loop  cc=False, D1=2 (3 iter -> scratch[0]=3)", c.n),
+        preload = concat(preload_dregs({[1]=2}), preload_ccr(c.ccr)),
+        test    = concat(bw(0x5216),
+                         bw(0x50C9 | (c.cc << 8)), bw(0xFFFC)),
+    }
+end
+
+-- ---------- Scc on memory with more conditions ----------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    for _, c in ipairs({
+        {n="SHI", cc=0x2, ccr=0x00},   -- HI=!C&!Z=True -> 0xFF
+        {n="SLS", cc=0x3, ccr=0x01},   -- LS=C|Z; C=1 -> True
+        {n="SVS", cc=0x9, ccr=0x02},   -- V=1 -> True
+        {n="SGE", cc=0xC, ccr=0x00},   -- N=V=0 -> True
+        {n="SGT", cc=0xE, ccr=0x00},   -- (N=V) & !Z -> True
+        {n="SLE", cc=0xF, ccr=0x04},   -- Z|... -> True
+    }) do
+        tests[#tests + 1] = {
+            name = string.format("%s (A6)  CCR=0x%02X -> ram[0]=0xFF", c.n, c.ccr),
+            preload = preload_ccr(c.ccr),
+            ram_init = ram,
+            test = bw(0x50C0 | (c.cc<<8) | 0x16),
+        }
+    end
+end
+
+-- ---------- MULS.L overflow ----------------------------------------
+-- 64-bit-result form (Dh:Dl); but 32-bit form catches overflow in V flag.
+-- MULS.L D1,D0  (32-bit result) -- ext: Dq=0, signed=1, size=0 = $0800
+tests[#tests + 1] = {
+    name = "MULS.L D1,D0  pos*pos overflow into 64b (V=1)",
+    preload = preload_dregs({[0]=0x00010000, [1]=0x00010000}),
+    test    = concat(bw(0x4C01), bw(0x0800)),
+}
+tests[#tests + 1] = {
+    name = "MULU.L D1,D0  overflow (0x10000 * 0x10000 = 0x100000000, V=1)",
+    preload = preload_dregs({[0]=0x00010000, [1]=0x00010000}),
+    test    = concat(bw(0x4C01), bw(0x0000)),
+}
+
+-- ---------- DIVS.L / DIVU.L edge cases ------------------------------
+-- 64-bit form: Dq:Dr / divisor. opword $4C41, ext: Dq<<12 | signed | size=1<<10 | Dr.
+-- For Dq=D0, Dr=D2, 64-bit signed: ext = 0|0x800|0x400|2 = $0C02.
+-- 64-bit form requires Dq:Dr = 64-bit dividend. Test exact divide.
+tests[#tests + 1] = {
+    name = "DIVS.L D1,D2:D0  64b dividend (Dr:Dq = 0:0x10000 / D1=2 -> Dq=0x8000)",
+    preload = preload_dregs({[0]=0x00010000, [1]=2, [2]=0}),
+    test    = concat(bw(0x4C41), bw(0x0C02)),
+}
+-- DIVS.L divide by zero -> trap.
+-- Already tested DIVS/DIVU.W /0. Add .L /0.
+tests[#tests + 1] = {
+    name = "EXC: DIVS.L D1,D0:D0  divide by zero (vec 5 / $14)",
+    preload = preload_dregs({[0]=0x100, [1]=0}),
+    test    = concat(bw(0x4C41), bw(0x0800)),
+    raises_exception = true,
+}
+tests[#tests + 1] = {
+    name = "EXC: DIVU.L D1,D0:D0  divide by zero (vec 5 / $14)",
+    preload = preload_dregs({[0]=0x100, [1]=0}),
+    test    = concat(bw(0x4C41), bw(0x0000)),
+    raises_exception = true,
+}
+
+-- ---------- ASR.L on negative (sign-extension) ----------------------
+tests[#tests + 1] = {
+    name = "ASR.L #1,D0  D0=0x80000000 -> 0xC0000000 (sign-fill)",
+    preload = preload_dregs({[0]=0x80000000}),
+    test    = bw(0xE000 | (1<<9) | (0<<8) | (2<<6) | (0<<5) | (0<<3) | 0),
+}
+tests[#tests + 1] = {
+    name = "ASR.L #31,D0 (cnt=8 imm; need Dm for >8). Use #7 -> 0xFF000000",
+    preload = preload_dregs({[0]=0x80000000}),
+    test    = bw(0xE000 | (7<<9) | (0<<8) | (2<<6) | (0<<5) | (0<<3) | 0),
+}
+
+-- ---------- BTST static with bit > 7 on memory (mod 8 for byte) ----
+-- For memory-EA bit ops, only B-size is allowed (PRM 4-7), and bit number
+-- is mod 8. BTST #15,(A6) -> tests bit 7 of byte.
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0x80
+    tests[#tests + 1] = {
+        name = "BTST #15,(A6)  (mod 8 = 7; bit 7 of 0x80 -> Z=0)",
+        preload = {},
+        ram_init = ram,
+        test    = concat(bw(0x0816), bw(0x000F)),
+    }
+end
+
+-- ---------- More ADDQ/SUBQ sizes -----------------------------------
+tests[#tests + 1] = {
+    name = "ADDQ.B #1,D0  (D0.B=0x7F -> 0x80, V=1)",
+    preload = preload_dregs({[0]=0xAA00007F}),
+    test    = bw(0x5000 | (1<<9) | 0),
+}
+tests[#tests + 1] = {
+    name = "ADDQ.W #2,D0  (D0.W=0x7FFF -> 0x8001, V=1)",
+    preload = preload_dregs({[0]=0xAA007FFF}),
+    test    = bw(0x5000 | (2<<9) | 0x40 | 0),
+}
+tests[#tests + 1] = {
+    name = "SUBQ.W #5,D0  (D0.W=0x0002 -> 0xFFFD, N=1,X=1,C=1)",
+    preload = preload_dregs({[0]=0xAA000002}),
+    test    = bw(0x5100 | (5<<9) | 0x40 | 0),
+}
+tests[#tests + 1] = {
+    name = "ADDQ.B #4,(A6)  byte memory dst (ram[0]=0x10 -> 0x14)",
+    preload  = {},
+    ram_init = (function()
+        local r = {}; for i = 1, SCRATCH_LEN do r[i] = 0 end
+        r[1] = 0x10
+        return r
+    end)(),
+    test = bw(0x5000 | (4<<9) | 0 | 0x16),   -- ADDQ.B #4,(A6) = $5816|$800
+}
+
+-- ---------- AND/OR/EOR mem-dest .B/.W on different EAs --------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0xAA;ram[2]=0xBB;ram[3]=0xCC;ram[4]=0xDD
+    tests[#tests + 1] = {
+        name = "AND.B D0,4(A6)  d16 dst (D0=0x0F)",
+        preload = preload_dregs({[0]=0xAABBCC0F}),
+        ram_init = ram,
+        test = concat(bw(0xC000 | (0<<9) | 0x100 | 0x2E), bw(0x0004)),
+    }
+    tests[#tests + 1] = {
+        name = "OR.W D0,(A1)+  (D0.W=0x00FF, A1=scratch)",
+        preload = concat(preload_dregs({[0]=0xAABB00FF}),
+                         preload_an_scratch({[1]=0})),
+        ram_init = ram,
+        test = bw(0x8000 | (0<<9) | 0x140 | 0x19),
+    }
+end
+
+-- ---------- MOVE with more EA combos --------------------------------
+-- MOVE.L (A1)+,(A0)+  mem-to-mem with both autoinc
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0xDE;ram[2]=0xAD;ram[3]=0xBE;ram[4]=0xEF
+    tests[#tests + 1] = {
+        name = "MOVE.L (A1)+,(A0)+  A1=scratch, A0=scratch+8",
+        preload = preload_an_scratch({[0]=8, [1]=0}),
+        ram_init = ram,
+        -- opword: $20|<dst-mode><dst-reg>|<src-mode><src-reg>
+        -- MOVE.L dst=(A0)+ mode=3 reg=0 -> dst field <ea>=$18, opword high: dst goes in 11..6 (mode), 6..3 (reg)
+        -- Actually MOVE encoding: bits 13..12 = size (.L=10), bits 11..9 = dst reg, bits 8..6 = dst mode,
+        -- bits 5..3 = src mode, bits 2..0 = src reg.
+        -- .L=2: $2000. dst (A0)+ : dst_mode=3, dst_reg=0 -> bits 11..6 = (0<<9)|(3<<6) = $0C0
+        -- src (A1)+ : src_mode=3, src_reg=1 -> bits 5..0 = (3<<3)|1 = $19
+        -- opword = $2000 | $0C0 | $19 = $20D9
+        test = bw(0x20D9),
+    }
+end
+
+-- ---------- MOVE.L Dn to -(An) write --------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    tests[#tests + 1] = {
+        name = "MOVE.L D0,-(A1)  A1=scratch+8, writes to scratch+4",
+        preload = concat(preload_dregs({[0]=0xCAFEBABE}),
+                         preload_an_scratch({[1]=8})),
+        ram_init = ram,
+        -- MOVE.L D0,-(A1): src D0 = $0, dst mode=4 reg=1 -> bits 11..6 = (1<<9)|(4<<6) = $300
+        -- opword = $2000 | $300 | $0 = $2300
+        test = bw(0x2300),
+    }
+end
+
+-- ---------- BTST/BCHG/BCLR/BSET with #imm on memory at various offsets
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[5]=0x55
+    -- BTST #2,4(A6)  static byte test bit 2 of ram[4]=0x55 -> bit 2 set -> Z=0
+    tests[#tests + 1] = {
+        name = "BTST #2,4(A6)  ram[4]=0x55 -> bit 2 set, Z=0",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0x082E), bw(0x0002), bw(0x0004)),
+    }
+end
+
+-- ---------- BFINS to memory ----------------------------------------
+do
+    local ram = {}
+    for i = 1, SCRATCH_LEN do ram[i] = 0 end
+    ram[1]=0xFF;ram[2]=0xFF
+    -- BFINS D1,(A6){0:8}  insert low 8 bits of D1 into 1st byte
+    -- ext for BFINS: src<<12 | 0 | off<<6 | 0 | w
+    tests[#tests + 1] = {
+        name = "BFINS D1,(A6){0:8}  D1=0x00 -> ram[0]=0x00",
+        preload = preload_dregs({[1]=0}),
+        ram_init = ram,
+        test = concat(bw(0xEFD6), bw(0x1008)),
+    }
+    -- BFCLR (A6){0:16}
+    tests[#tests + 1] = {
+        name = "BFCLR (A6){0:16}  ram[0..1]=0xFFFF -> 0x0000",
+        preload = {}, ram_init = ram,
+        test = concat(bw(0xECD6), bw(0x0010)),
+    }
+end
+
+-- ---------- More LEA EAs -------------------------------------------
+-- LEA d16(A6,Dn.W),A0 -- brief indexed with displacement
+tests[#tests + 1] = {
+    name = "LEA 4(A6,D0.W),A1  D0=2 -> A1 = scratch+6",
+    preload = preload_dregs({[0]=2}),
+    test    = concat(bw(0x43F6), bw(0x0004)),
+}
+
+-- ---------- ADDA/SUBA with various sizes ---------------------------
+tests[#tests + 1] = {
+    name = "SUBA.W (A1),A0  A0=scratch+0x20, A1=scratch (reads word 0x0010 sign-ext)",
+    preload = (function()
+        return concat(preload_an_scratch({[0]=0x20, [1]=0}))
+    end)(),
+    ram_init = (function()
+        local r = {}; for i = 1, SCRATCH_LEN do r[i] = 0 end
+        r[1]=0x00; r[2]=0x10
+        return r
+    end)(),
+    test = bw(0x9000 | (0<<9) | 0xC0 | 0x11),  -- SUBA.W = $90C0|(an<<9)|<ea>
+}
+
+-- ---------- More EXG combinations ----------------------------------
+tests[#tests + 1] = {
+    name = "EXG D7,D0  high/low data regs",
+    preload = preload_dregs({[0]=0x11111111, [7]=0x77777777}),
+    test = bw(0xCF40),    -- EXG D7,D0: $C100|(7<<9)|$40|0 = $CF40
+}
+tests[#tests + 1] = {
+    name = "EXG A5,D2  (D2=0x12345678 A5=scratch+0x10)",
+    preload = concat(preload_dregs({[2]=0x12345678}),
+                     preload_an_scratch({[5]=0x10})),
+    -- EXG Dn,An: $C188|(D<<9)|An.  But syntax EXG A5,D2 = swap order: per PRM,
+    -- the opmode for D-A exchange has Dn as Rx (bits 9..11) and An as Ry. So EXG A5,D2 = EXG D2,A5 effectively.
+    -- Encoding $C100|(D2<<9)|$88|A5 = $C100|$400|$88|5 = $C58D.
+    test = bw(0xC58D),
+}
+
+-- ---------- ADD/SUB Dn,An size variants -----------------------------
+tests[#tests + 1] = {
+    name = "ADDA.L #0x100,A0  imm word? No, .L imm. (A0=scratch+0x10 -> +0x100)",
+    preload = preload_an_scratch({[0]=0x10}),
+    test    = concat(bw(0xD0FC), bl(0x00000100)),  -- ADDA.L #imm,A0 = $D0FC|(an<<9). hmm  $D000|(an<<9)|opmode<<6|$3C
+    -- ADDA.L: opmode = $1C0; for A0: $D000|0|$1C0|$3C=$D1FC. Let me fix.
+}
+-- Fix ADDA.L #imm,A0 encoding to $D1FC.
+tests[#tests].test = concat(bw(0xD1FC), bl(0x00000100))
+
+-- ---------- More TAS edges ----------------------------------------
+tests[#tests + 1] = {
+    name = "TAS d16(A6)  ram[2]=0x00 -> 0x80, Z=1",
+    preload = {},
+    ram_init = (function()
+        local r = {}; for i = 1, SCRATCH_LEN do r[i] = 0 end
+        return r
+    end)(),
+    test = concat(bw(0x4AC0 | 0x2E), bw(0x0002)),   -- TAS d16(A6)
+}
+
+-- ---------- TST with PC-relative source (.B/.W/.L 020+) -----------
+-- TST.L (d16,PC) -- 020+. ea = $3A. opword $4ABA.
+-- Place 4-byte data inside test bytes, BRA past it.
+-- Layout (10 bytes):
+--   $00..1: $4A BA          opword
+--   $02..3: $00 04          disp -> data at test_pc+2+4=test_pc+6
+--   $04..5: $60 04          BRA.B skip to test_pc+$0A
+--   $06..9: 4 bytes data (0x80000001)
+tests[#tests + 1] = {
+    name = "TST.L (d16,PC)  data=0x80000001 -> N=1",
+    preload = {},
+    test = concat(bw(0x4ABA), bw(0x0004),
+                  bw(0x6004),
+                  bw(0x8000), bw(0x0001)),
+}
+
+-- ---------- Bcc.B with disp = -2 (branch to self) is the well-known
+-- BRA.B forbidden encoding; skip.
+
+-- ---------- BRA.B with maximum positive 8-bit displacement -----------
+-- BRA.B disp = $7F = 127. Layout: BRA.B (2) + 125 padding + ... too big.
+-- Skip; we have enough Bcc coverage.
+
+-- ---------- Final smoke: long chain of NOPs to exercise prefetch ----
+tests[#tests + 1] = {
+    name = "NOP x 4  (test prefetch over 4 sequential NOPs)",
+    preload = {},
+    test = concat(bw(0x4E71), bw(0x4E71), bw(0x4E71), bw(0x4E71)),
+}
+
+-- ======================================================================
 -- EXCEPTION TESTS
 --
 -- These tests deliberately trigger exceptions. The MAME harness vector
