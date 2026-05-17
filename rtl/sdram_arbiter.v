@@ -38,7 +38,13 @@ module sdram_arbiter (
     input  [15:0] sdram_dout,
     output  [1:0] sdram_ds,
     output        sdram_we,
-    output        sdram_oe
+    output        sdram_oe,
+
+    // Debug outputs (for JTAG ISSP probes / SignalTap)
+    output        dbg_grant_video,
+    output        dbg_video_clean,
+    output [3:0]  dbg_mac_idle_cnt,
+    output [2:0]  dbg_vram_state
 );
 
     // ------------------------------------------------------------------------
@@ -243,5 +249,11 @@ module sdram_arbiter (
     end
 
     assign vram_ready = vram_ready_latch;
+
+    // Debug exposures for JTAG instrumentation
+    assign dbg_grant_video  = grant_video;
+    assign dbg_video_clean  = video_clean;
+    assign dbg_mac_idle_cnt = mac_idle_cnt;
+    assign dbg_vram_state   = vram_state;
 
 endmodule

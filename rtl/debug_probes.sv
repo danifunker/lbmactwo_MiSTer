@@ -1,0 +1,152 @@
+// JTAG-readable debug probes via altsource_probe.
+//
+// Each probe is read from CLI with:
+//   quartus_stp_tcl -t scripts/issp_read.tcl <probe_index>
+// Or via SystemConsole / In-System Sources & Probes Editor.
+//
+// We expose key signals for diagnosing the Mac vs Video SDRAM contention:
+//   probe 0: {cpuAddr[23:0], _cpuAS, _cpuRW, _cpuUDS, _cpuLDS, _cpuDTACK, video_en}
+//   probe 1: {memoryDataOut[15:0], arb_mac_dout[15:0]}  (Mac data bus snapshot)
+//   probe 2: {arb_mac_addr[24:0], arb_mac_we, arb_mac_oe, grant_video, video_clean}
+//   probe 3: {arb_vram_addr[24:0], arb_vram_rd, arb_vram_wr, arb_vram_ready, vram_state[2:0]}
+//   probe 4: {sdram_out[15:0], mac_idle_cnt[3:0], 12'd0}  (SDRAM data + arbiter state)
+
+module debug_probes (
+    input wire        clk,
+
+    input wire [31:0] cpuAddr,
+    input wire        cpuAS_n,
+    input wire        cpuRW,
+    input wire        cpuUDS_n,
+    input wire        cpuLDS_n,
+    input wire        cpuDTACK_n,
+    input wire        video_en,
+
+    input wire [15:0] memoryDataOut,
+    input wire [15:0] arb_mac_dout,
+
+    input wire [24:0] arb_mac_addr,
+    input wire        arb_mac_we,
+    input wire        arb_mac_oe,
+    input wire        grant_video,
+    input wire        video_clean,
+
+    input wire [24:0] arb_vram_addr,
+    input wire        arb_vram_rd,
+    input wire        arb_vram_wr,
+    input wire        arb_vram_ready,
+    input wire [2:0]  vram_state,
+
+    input wire [15:0] sdram_out,
+    input wire [3:0]  mac_idle_cnt
+);
+
+    // Snapshot the wide buses on every clock so JTAG reads (which can land
+    // any time) get a clock-synchronous, coherent sample rather than
+    // glitchy combinational values.
+    reg [31:0] cpuAddr_r;
+    reg [15:0] memoryDataOut_r, arb_mac_dout_r, sdram_out_r;
+    reg [24:0] arb_mac_addr_r, arb_vram_addr_r;
+    reg        cpuAS_n_r, cpuRW_r, cpuUDS_n_r, cpuLDS_n_r, cpuDTACK_n_r;
+    reg        video_en_r;
+    reg        arb_mac_we_r, arb_mac_oe_r, grant_video_r, video_clean_r;
+    reg        arb_vram_rd_r, arb_vram_wr_r, arb_vram_ready_r;
+    reg [2:0]  vram_state_r;
+    reg [3:0]  mac_idle_cnt_r;
+
+    always @(posedge clk) begin
+        cpuAddr_r        <= cpuAddr;
+        cpuAS_n_r        <= cpuAS_n;
+        cpuRW_r          <= cpuRW;
+        cpuUDS_n_r       <= cpuUDS_n;
+        cpuLDS_n_r       <= cpuLDS_n;
+        cpuDTACK_n_r     <= cpuDTACK_n;
+        video_en_r       <= video_en;
+        memoryDataOut_r  <= memoryDataOut;
+        arb_mac_dout_r   <= arb_mac_dout;
+        arb_mac_addr_r   <= arb_mac_addr;
+        arb_mac_we_r     <= arb_mac_we;
+        arb_mac_oe_r     <= arb_mac_oe;
+        grant_video_r    <= grant_video;
+        video_clean_r    <= video_clean;
+        arb_vram_addr_r  <= arb_vram_addr;
+        arb_vram_rd_r    <= arb_vram_rd;
+        arb_vram_wr_r    <= arb_vram_wr;
+        arb_vram_ready_r <= arb_vram_ready;
+        vram_state_r     <= vram_state;
+        sdram_out_r      <= sdram_out;
+        mac_idle_cnt_r   <= mac_idle_cnt;
+    end
+
+    // ---- ISSP instances ----
+    // probe_width chosen <=32; pack signals into 32-bit groups.
+
+    // PROBE 0: CPU control + low addr
+    altsource_probe #(
+        .instance_id ("CP0_"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe0 (
+        .probe ({cpuAddr_r[23:0], cpuAS_n_r, cpuRW_r, cpuUDS_n_r, cpuLDS_n_r,
+                 cpuDTACK_n_r, video_en_r, 2'b00}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // PROBE 1: data buses
+    altsource_probe #(
+        .instance_id ("DATA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe1 (
+        .probe ({memoryDataOut_r, arb_mac_dout_r}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // PROBE 2: arbiter mac side
+    altsource_probe #(
+        .instance_id ("MAC_"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe2 (
+        .probe ({arb_mac_addr_r[23:0], arb_mac_we_r, arb_mac_oe_r,
+                 grant_video_r, video_clean_r, 4'b0000}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // PROBE 3: arbiter video side
+    altsource_probe #(
+        .instance_id ("VID_"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe3 (
+        .probe ({arb_vram_addr_r[23:0], arb_vram_rd_r, arb_vram_wr_r,
+                 arb_vram_ready_r, vram_state_r, 2'b00}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // PROBE 4: sdram dout + mac idle counter
+    altsource_probe #(
+        .instance_id ("SDRA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe4 (
+        .probe ({sdram_out_r, mac_idle_cnt_r, 12'd0}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+endmodule

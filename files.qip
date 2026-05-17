@@ -31,3 +31,4 @@ set_global_assignment -name MISC_FILE rtl/nubus/nubus_video_highres_rom.hex
 set_global_assignment -name QIP_FILE rtl/mc68881/mc68881.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/asc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE LBMacTwo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug_probes.sv

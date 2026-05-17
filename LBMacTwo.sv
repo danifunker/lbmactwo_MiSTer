@@ -745,6 +745,14 @@ addrController_top ac0
 wire [1:0] diskEject;
 wire [1:0] diskMotor, diskAct;
 
+// Debug wires for JTAG ISSP instrumentation -- declared up front so wire
+// inference can't bite us when the module instantiations reference them.
+wire        dbg_video_en;
+wire        dbg_grant_video;
+wire        dbg_video_clean;
+wire [3:0]  dbg_mac_idle_cnt;
+wire [2:0]  dbg_vram_state;
+
 nubus_video_highres nubus_card (
 	.clk(clk_sys),
 	.reset(!_cpuReset),
@@ -782,7 +790,9 @@ nubus_video_highres nubus_card (
 	.ioctl_addr(ioctl_addr),
 	.ioctl_data(ioctl_data),
 	.ioctl_download(dio_download),
-	.ioctl_index(dio_index)
+	.ioctl_index(dio_index),
+
+	.dbg_video_en(dbg_video_en)
 );
 
 dataController_top #(SCSI_DEVS) dc0
@@ -1074,7 +1084,47 @@ sdram_arbiter arbiter (
 	.sdram_dout(sdram_out),
 	.sdram_ds(sdram_ds),
 	.sdram_we(sdram_we),
-	.sdram_oe(sdram_oe)
+	.sdram_oe(sdram_oe),
+
+	// Debug exposures
+	.dbg_grant_video(dbg_grant_video),
+	.dbg_video_clean(dbg_video_clean),
+	.dbg_mac_idle_cnt(dbg_mac_idle_cnt),
+	.dbg_vram_state(dbg_vram_state)
+);
+
+// ---- JTAG debug instrumentation ----
+// In-System Sources & Probes capture the key signals for diagnosing the
+// Mac CPU vs video card SDRAM contention. Read out with:
+//   quartus_stp_tcl -t scripts/issp_read.tcl 20
+debug_probes dbg (
+    .clk            (clk_sys),
+
+    .cpuAddr        (cpuAddr),
+    .cpuAS_n        (_cpuAS),
+    .cpuRW          (_cpuRW),
+    .cpuUDS_n       (_cpuUDS),
+    .cpuLDS_n       (_cpuLDS),
+    .cpuDTACK_n     (_cpuDTACK),
+    .video_en       (dbg_video_en),
+
+    .memoryDataOut  (memoryDataOut),
+    .arb_mac_dout   (arb_mac_dout),
+
+    .arb_mac_addr   (arb_mac_addr),
+    .arb_mac_we     (arb_mac_we),
+    .arb_mac_oe     (arb_mac_oe),
+    .grant_video    (dbg_grant_video),
+    .video_clean    (dbg_video_clean),
+
+    .arb_vram_addr  (arb_vram_addr),
+    .arb_vram_rd    (arb_vram_rd),
+    .arb_vram_wr    (arb_vram_wr),
+    .arb_vram_ready (arb_vram_ready),
+    .vram_state     (dbg_vram_state),
+
+    .sdram_out      (sdram_out),
+    .mac_idle_cnt   (dbg_mac_idle_cnt)
 );
 
 endmodule

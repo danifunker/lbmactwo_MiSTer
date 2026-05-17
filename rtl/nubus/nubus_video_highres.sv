@@ -52,7 +52,10 @@ module nubus_video_highres #(
     input        monochrome,
 
     // Pixel clock enable output
-    output       ce_pixel
+    output       ce_pixel,
+
+    // Debug exposures for JTAG instrumentation
+    output       dbg_video_en
 );
 
     // ========================================================================
@@ -216,6 +219,7 @@ module nubus_video_highres #(
     wire [2:0] mode_raw = registers[REG_MISC][10:8];
     wire [1:0] mode = (mode_raw >= 3'd4) ? mode_raw[1:0] : 2'd0;
     wire video_en = registers[REG_SOFTRESET][0];
+    assign dbg_video_en = video_en;
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];   // 32-bit words
     wire [9:0]  vram_stride      = registers[REG_LENGTH][9:0];  // 32-bit words
 
