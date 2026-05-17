@@ -1,0 +1,395 @@
+Info: *******************************************************************
+Info: Running Quartus Prime SignalTap II TCL Only
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Sun May 17 19:05:44 2026
+Info: Command: quartus_stp_tcl -t scripts/issp_read.tcl 60 200
+Info: Quartus(args): 60 200
+All hardware found: {DE-SoC [USB-1]} {DE-SoC on 127.0.0.1 [USB-1]}
+Using JTAG hardware: DE-SoC [USB-1]
+Devices: {@1: SOCVHPS (0x4BA00477)} {@2: 5CSEBA6(.|ES)/5CSEMA6/.. (0x02D020DD)}
+Using device: @2: 5CSEBA6(.|ES)/5CSEMA6/.. (0x02D020DD)
+ISSP instance info (raw):
+  {0 1 32 CP0_} {1 1 32 DATA} {2 1 32 MAC_} {3 1 32 VID_} {4 1 32 SDRA}
+ISSP count: 5
+Resolved indices: 0 1 2 3 4
+Resolved names:   CP0_ DATA MAC_ VID_ SDRA
+------ Sample 0 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 28060040
+  probe 3 (VID_): 30002500
+  probe 4 (SDRA): 56C90000
+------ Sample 1 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 05050082
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000680
+  probe 4 (SDRA): 56C93000
+------ Sample 2 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366050
+  probe 3 (VID_): 30002784
+  probe 4 (SDRA): 00002000
+------ Sample 3 ------
+  probe 0 (CP0_): F10040FC
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 21366440
+  probe 3 (VID_): 30002280
+  probe 4 (SDRA): FFFF4000
+------ Sample 4 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 09FC0006
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30002584
+  probe 4 (SDRA): 00000000
+------ Sample 5 ------
+  probe 0 (CP0_): 026CC8FC
+  probe 1 (DATA): 0A000040
+  probe 2 (MAC_): 30000050
+  probe 3 (VID_): 30002184
+  probe 4 (SDRA): 00004000
+------ Sample 6 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366240
+  probe 3 (VID_): 30002300
+  probe 4 (SDRA): 00000000
+------ Sample 7 ------
+  probe 0 (CP0_): 026CC8FC
+  probe 1 (DATA): FFFF56CD
+  probe 2 (MAC_): 28060040
+  probe 3 (VID_): 30000280
+  probe 4 (SDRA): 00060000
+------ Sample 8 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FFDC830
+  probe 3 (VID_): 30001484
+  probe 4 (SDRA): 0000F000
+------ Sample 9 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FE2CA50
+  probe 3 (VID_): 30002100
+  probe 4 (SDRA): 00005000
+------ Sample 10 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 1FF7EB50
+  probe 3 (VID_): 30001D80
+  probe 4 (SDRA): 00000000
+------ Sample 11 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FD78140
+  probe 3 (VID_): 30001B84
+  probe 4 (SDRA): 00000000
+------ Sample 12 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): FFFF082B
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30001184
+  probe 4 (SDRA): 00000000
+------ Sample 13 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): FFFF56CD
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30001880
+  probe 4 (SDRA): FFF80000
+------ Sample 14 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FE7D350
+  probe 3 (VID_): 30001284
+  probe 4 (SDRA): 00060000
+------ Sample 15 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30001980
+  probe 4 (SDRA): 00062000
+------ Sample 16 ------
+  probe 0 (CP0_): 026CC2FC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366150
+  probe 3 (VID_): 30000D80
+  probe 4 (SDRA): 00000000
+------ Sample 17 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 01366400
+  probe 3 (VID_): 30002400
+  probe 4 (SDRA): 00064000
+------ Sample 18 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05054080
+  probe 2 (MAC_): 30000050
+  probe 3 (VID_): 30002500
+  probe 4 (SDRA): 00000000
+------ Sample 19 ------
+  probe 0 (CP0_): 026CC8FC
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 1FEBBD50
+  probe 3 (VID_): 30002300
+  probe 4 (SDRA): 56C90000
+------ Sample 20 ------
+  probe 0 (CP0_): 0061BC4C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FD50600
+  probe 3 (VID_): 30001D84
+  probe 4 (SDRA): 0000A000
+------ Sample 21 ------
+  probe 0 (CP0_): 026CCAFC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366050
+  probe 3 (VID_): 30000580
+  probe 4 (SDRA): 00060000
+------ Sample 22 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 01366100
+  probe 3 (VID_): 30000C80
+  probe 4 (SDRA): 00403000
+------ Sample 23 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 01366010
+  probe 3 (VID_): 30001880
+  probe 4 (SDRA): 56C90000
+------ Sample 24 ------
+  probe 0 (CP0_): F10040FC
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 30002700
+  probe 4 (SDRA): 00403000
+------ Sample 25 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 01366300
+  probe 3 (VID_): 30002200
+  probe 4 (SDRA): 00000000
+------ Sample 26 ------
+  probe 0 (CP0_): 026CC4FC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366050
+  probe 3 (VID_): 30002700
+  probe 4 (SDRA): 00000000
+------ Sample 27 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0005FFF8
+  probe 2 (MAC_): 1FF92340
+  probe 3 (VID_): 30002780
+  probe 4 (SDRA): 00009000
+------ Sample 28 ------
+  probe 0 (CP0_): 026CC4FC
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000480
+  probe 4 (SDRA): FFFF1000
+------ Sample 29 ------
+  probe 0 (CP0_): 026CC8FC
+  probe 1 (DATA): 0A000040
+  probe 2 (MAC_): 1FE42A50
+  probe 3 (VID_): 30002584
+  probe 4 (SDRA): 082B3000
+------ Sample 30 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): C902FFF8
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30000B80
+  probe 4 (SDRA): FFF80000
+------ Sample 31 ------
+  probe 0 (CP0_): 026CC44C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 00004950
+  probe 3 (VID_): 30000E84
+  probe 4 (SDRA): 00004000
+------ Sample 32 ------
+  probe 0 (CP0_): 026CC0FC
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 30000C84
+  probe 4 (SDRA): 00400000
+------ Sample 33 ------
+  probe 0 (CP0_): 026CC44C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FF5F750
+  probe 3 (VID_): 30001180
+  probe 4 (SDRA): 00000000
+------ Sample 34 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 000556C9
+  probe 2 (MAC_): 1FD6FB50
+  probe 3 (VID_): 30001284
+  probe 4 (SDRA): 0000F000
+------ Sample 35 ------
+  probe 0 (CP0_): 026CC0FC
+  probe 1 (DATA): 000556C9
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000CA8
+  probe 4 (SDRA): 00000000
+------ Sample 36 ------
+  probe 0 (CP0_): 026CC04C
+  probe 1 (DATA): 09FE0006
+  probe 2 (MAC_): 28060040
+  probe 3 (VID_): 30000184
+  probe 4 (SDRA): 00000000
+------ Sample 37 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00010000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000A84
+  probe 4 (SDRA): 00000000
+------ Sample 38 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30002484
+  probe 4 (SDRA): 00008000
+------ Sample 39 ------
+  probe 0 (CP0_): 026CC64C
+  probe 1 (DATA): FFFF56CD
+  probe 2 (MAC_): 1FE22750
+  probe 3 (VID_): 30000C84
+  probe 4 (SDRA): 00003000
+------ Sample 40 ------
+  probe 0 (CP0_): 026CC04C
+  probe 1 (DATA): 00020000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30002284
+  probe 4 (SDRA): 00000000
+------ Sample 41 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): FFFF56CD
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000280
+  probe 4 (SDRA): 00060000
+------ Sample 42 ------
+  probe 0 (CP0_): 026CC64C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 30001F80
+  probe 4 (SDRA): 00000000
+------ Sample 43 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 00013440
+  probe 3 (VID_): 30000580
+  probe 4 (SDRA): FFF80000
+------ Sample 44 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050040
+  probe 2 (MAC_): 21366150
+  probe 3 (VID_): 30001984
+  probe 4 (SDRA): 00000000
+------ Sample 45 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30001F84
+  probe 4 (SDRA): 00000000
+------ Sample 46 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): FFFF0000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30001C84
+  probe 4 (SDRA): 0000B000
+------ Sample 47 ------
+  probe 0 (CP0_): 026CC2FC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366140
+  probe 3 (VID_): 30002700
+  probe 4 (SDRA): 00000000
+------ Sample 48 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00000006
+  probe 2 (MAC_): 18802000
+  probe 3 (VID_): 30000D84
+  probe 4 (SDRA): 00003000
+------ Sample 49 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 1FE80310
+  probe 3 (VID_): 30002200
+  probe 4 (SDRA): 5555F000
+------ Sample 50 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000180
+  probe 4 (SDRA): 56CD4000
+------ Sample 51 ------
+  probe 0 (CP0_): 026CCAFC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 01366100
+  probe 3 (VID_): 30000C84
+  probe 4 (SDRA): 00000000
+------ Sample 52 ------
+  probe 0 (CP0_): 026CC44C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 1FF51A50
+  probe 3 (VID_): 30002300
+  probe 4 (SDRA): 0000B000
+------ Sample 53 ------
+  probe 0 (CP0_): 026CC64C
+  probe 1 (DATA): 09FC0040
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30001780
+  probe 4 (SDRA): 00000000
+------ Sample 54 ------
+  probe 0 (CP0_): 026CC844
+  probe 1 (DATA): C90256CD
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 30001384
+  probe 4 (SDRA): 082B1000
+------ Sample 55 ------
+  probe 0 (CP0_): 026CC444
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 30002380
+  probe 4 (SDRA): 00000000
+------ Sample 56 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30000084
+  probe 4 (SDRA): 00000000
+------ Sample 57 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0005FFF8
+  probe 2 (MAC_): 21366450
+  probe 3 (VID_): 30002680
+  probe 4 (SDRA): 00001000
+------ Sample 58 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 28060E40
+  probe 3 (VID_): 30002500
+  probe 4 (SDRA): 00000000
+------ Sample 59 ------
+  probe 0 (CP0_): 026CC44C
+  probe 1 (DATA): 0A000006
+  probe 2 (MAC_): 1FE9E550
+  probe 3 (VID_): 30002600
+  probe 4 (SDRA): 00061000
+Info (23030): Evaluation of Tcl script scripts/issp_read.tcl was successful
+Info: Quartus Prime SignalTap II TCL Only was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4318 megabytes
+    Info: Processing ended: Sun May 17 19:05:58 2026
+    Info: Elapsed time: 00:00:14
+    Info: Total CPU time (on all processors): 00:00:16

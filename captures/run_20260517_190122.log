@@ -1,0 +1,73 @@
+[Sun May 17 19:01:22 EDT 2026] New .sof detected, programming FPGA
+Info: *******************************************************************
+Info: Running Quartus Prime Programmer
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Sun May 17 19:01:22 2026
+Info: Command: quartus_pgm -m JTAG -c "DE-SoC [USB-1]" -o P;output_files/LBMacTwo.sof@2
+Info (213045): Using programming cable "DE-SoC [USB-1]"
+Info (213011): Using programming file output_files/LBMacTwo.sof with checksum 0x072E991A for device 5CSEBA6U23@2
+Info (209060): Started Programmer operation at Sun May 17 19:01:24 2026
+Info (209016): Configuring device index 2
+Info (209017): Device 2 contains JTAG ID code 0x02D020DD
+Info (209007): Configuration succeeded -- 1 device(s) configured
+Info (209011): Successfully performed operation(s)
+Info (209061): Ended Programmer operation at Sun May 17 19:01:27 2026
+Info: Quartus Prime Programmer was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4449 megabytes
+    Info: Processing ended: Sun May 17 19:01:27 2026
+    Info: Elapsed time: 00:00:05
+    Info: Total CPU time (on all processors): 00:00:07
+[Sun May 17 19:01:27 EDT 2026] Waiting 8s for boot then capturing 60 ISSP samples
+Info: *******************************************************************
+Info: Running Quartus Prime SignalTap II TCL Only
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Sun May 17 19:01:35 2026
+Info: Command: quartus_stp_tcl -t scripts/issp_read.tcl 60 200
+Info: Quartus(args): 60 200
+Using JTAG hardware: DE-SoC [USB-1]
+Devices: {@1: SOCVHPS (0x4BA00477)} {@2: 5CSEBA6(.|ES)/5CSEMA6/.. (0x02D020DD)}
+Using device: @2: 5CSEBA6(.|ES)/5CSEMA6/.. (0x02D020DD)
+------------------------------------------------
+ERROR: There is already an active In-System Sources and Probes session started. Unable to start another session.
+
+    while executing
+"get_insystem_source_probe_instance_info -device_name $dev -hardware_name $hw"
+    invoked from within
+"set instances [get_insystem_source_probe_instance_info -device_name $dev -hardware_name $hw]"
+    (file "scripts/issp_read.tcl" line 38)
+------------------------------------------------
+Error (23031): Evaluation of Tcl script scripts/issp_read.tcl unsuccessful
+Error: Quartus Prime SignalTap II TCL Only was unsuccessful. 1 error, 0 warnings
+    Error: Peak virtual memory: 4308 megabytes
+    Error: Processing ended: Sun May 17 19:01:36 2026
+    Error: Elapsed time: 00:00:01
+    Error: Total CPU time (on all processors): 00:00:04
+[Sun May 17 19:01:36 EDT 2026] Capture done -> captures/probes_20260517_190122.txt
