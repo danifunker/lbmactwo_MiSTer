@@ -627,6 +627,111 @@ static int gen_fcmp_fbcc(FILE* f, int is_first, int count) {
     return count;
 }
 
+/* FCMP + FBcc.L: 32-bit-displacement branch variant.                     */
+static int gen_fcmp_fbcc_l(FILE* f, int is_first, int count) {
+    static const struct { uint8_t code; const char* name; } conds[] = {
+        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
+        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
+    };
+    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(50);
+        int8_t b = r_moveq_lim(50);
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr = pick_result_reg();
+        const int     ci    = (int)(r32() % NC);
+        const uint8_t cond  = conds[ci].code;
+        const char*   cname = conds[ci].name;
+        const int taken = eval_cond_int(cond, a, b);
+        const int expected = taken ? 1 : 0;
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FCMP+FB%s.L FP%d,FP%d (%d,%d) -> D%d #%03d",
+                 cname, src, dst, (int)a, (int)b, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\"op_b\":%d,\n", (int)a, (int)b);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BWf((uint16_t)(0x7001 | ((rr & 7) << 9)));
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(dst, FMT_L));
+        BWf(moveq_d0(b));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));
+        BWf(0xF200);
+        BWf((uint16_t)(((src & 7) << 10) | ((dst & 7) << 7) | 0x38));
+        /* FBcc.L disp=+6 skips the 2-byte MOVEQ #0 that follows. Target =
+         * (addr_of_disp + 0) + disp = (opword+2) + 6 = opword+8 = STOP. */
+        BWf((uint16_t)(0xF2C0 | cond));
+        BWf((uint16_t)0x0000); BWf((uint16_t)0x0006);
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | 0));
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", expected);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
+/* FMOVE.X FPm,FPn chain: register-to-register copies across FP file.
+ * Validates that the cpGEN reg-reg FMOVE path preserves operands when
+ * routing through intermediate FP registers.                              */
+static int gen_fmove_x_chain(FILE* f, int is_first, int count) {
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(127);
+        int    via1 = (int)(r32() & 7);
+        int    via2 = (int)(r32() & 7);
+        while (via2 == via1) via2 = (int)(r32() & 7);
+        int    via3 = (int)(r32() & 7);
+        while (via3 == via1 || via3 == via2) via3 = (int)(r32() & 7);
+        int    rr = pick_result_reg();
+
+        char nm[120];
+        snprintf(nm, sizeof(nm),
+                 "FMOVE.X FP%d->FP%d->FP%d (%d) -> D%d #%03d",
+                 via1, via2, via3, (int)a, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", (int)a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        /* Load FP{via1} = a via .L int. */
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(via1, FMT_L));
+        /* FMOVE.X FP{via1},FP{via2}: opclass=000, src<<10|dst<<7|opmode=0 */
+        BWf(0xF200);
+        BWf((uint16_t)(((via1 & 7) << 10) | ((via2 & 7) << 7) | 0x00));
+        BWf(0xF200);
+        BWf((uint16_t)(((via2 & 7) << 10) | ((via3 & 7) << 7) | 0x00));
+        /* Read back FP{via3} via .L into D{rr}: opword $F200|rr, ext
+         * opclass=011 fmt=L src=via3. */
+        BWf((uint16_t)(0xF200 | (rr & 7)));
+        BWf((uint16_t)((3 << 13) | (0 << 10) | ((via3 & 7) << 7) | 0));
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", (int)a);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
 /* ---------------------------------------------------------------------- */
 int main(int argc, char** argv) {
     const char* outpath = (argc > 1) ? argv[1] : "fpu_corpus.json";
@@ -693,6 +798,10 @@ int main(int argc, char** argv) {
     total += gen_ftst_fscc  (f, first, N);
     /* FCMP+FBcc.W: branch-on-condition. */
     total += gen_fcmp_fbcc  (f, first, N);
+    /* FCMP+FBcc.L: 32-bit-displacement variant. */
+    total += gen_fcmp_fbcc_l(f, first, N);
+    /* FMOVE.X reg-reg chain: stress register-file routing. */
+    total += gen_fmove_x_chain(f, first, N);
 
     fprintf(f, "\n]\n");
     fclose(f);
