@@ -424,10 +424,23 @@ module emu
 	                          fpu_data_hold_valid ? fpu_data_hold :
 	                          dataControllerDataOut;
 
+	// CIR register address remapping (mirrors LBMacTwo.sv):
+	//   Standard reg 0 (Response) -> mc68881_top reg 13
+	//   Standard reg 2 (Save)     -> mc68881_top reg 12
+	//   Standard reg 3 (Restore)  -> mc68881_top reg 28
+	wire [4:0] fpu_addr_remapped = (cpuAddr[5:1] == 5'd0) ? 5'd13 :
+	                               (cpuAddr[5:1] == 5'd2) ? 5'd12 :
+	                               (cpuAddr[5:1] == 5'd3) ? 5'd28 :
+	                               cpuAddr[5:1];
+
+`ifdef USE_FPU_STUB
+	// CIR-protocol no-op stub (Makefile: USE_FPU_STUB=1). Accepts writes,
+	// always returns "done". Doesn't compute anything; useful when running
+	// non-FPU software and skipping FPU area/runtime cost.
 	sim_fpu_cir_stub fpu_inst (
 		.clk          ( clk_sys              ),
 		.reset_n      ( _cpuReset            ),
-		.a_in         ( cpuAddr[5:1]         ),
+		.a_in         ( cpuAddr[5:1]         ),  // stub doesn't need remap
 		.d_in         ( {16'h0000, cpuDataOut} ),
 		.d_out        ( fpu_data_out         ),
 		.size_n       ( 2'b01                ),
@@ -440,6 +453,27 @@ module emu
 		.sense_n      ( fpu_sense_n          ),
 		.status_valid (                      )
 	);
+`else
+	// Real MC68881 (lite variant — same FPU instantiated in production
+	// LBMacTwo.sv). Default for this sim so functional FPU behavior is
+	// tested. Has the B-4 F-line trap fix for unsupported ops.
+	mc68881_top fpu_inst (
+		.clk          ( clk_sys              ),
+		.reset_n      ( _cpuReset            ),
+		.a_in         ( fpu_addr_remapped    ),
+		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_out        ( fpu_data_out         ),
+		.size_n       ( 2'b01                ),
+		.as_n         ( _cpuAS               ),
+		.cs_n         ( ~fpuAddrMatch        ),
+		.rw           ( _cpuRW               ),
+		.ds_n         ( _cpuUDS & _cpuLDS    ),
+		.dsack0_n     ( fpu_dsack0_n         ),
+		.dsack1_n     ( fpu_dsack1_n         ),
+		.sense_n      ( fpu_sense_n          ),
+		.status_valid (                      )
+	);
+`endif
 	
 	// CPU debug - simplified without busstate
 	reg [31:0] last_fetch_pc;
@@ -1643,81 +1677,5 @@ module emu
 
 endmodule
 
-module sim_fpu_cir_stub
-(
-	input         clk,
-	input         reset_n,
-	input  [4:0]  a_in,
-	input  [31:0] d_in,
-	output reg [31:0] d_out,
-	input  [1:0]  size_n,
-	input         as_n,
-	input         cs_n,
-	input         rw,
-	input         ds_n,
-	output        dsack0_n,
-	output        dsack1_n,
-	output        sense_n,
-	output        status_valid
-);
-	localparam [4:0] CIR_RESPONSE  = 5'd0;
-	localparam [4:0] CIR_SAVE      = 5'd2;
-	localparam [4:0] CIR_RESTORE   = 5'd3;
-	localparam [4:0] CIR_OPWORD    = 5'd4;
-	localparam [4:0] CIR_COMMAND   = 5'd5;
-	localparam [4:0] CIR_CONDITION = 5'd7;
-	localparam [4:0] CIR_OPERAND   = 5'd8;
-
-	localparam [15:0] RESP_NULL = 16'h2000;
-	localparam [15:0] FRAME_NULL = 16'h0000;
-
-	wire active = !as_n && !cs_n && !ds_n;
-	assign dsack0_n = ~active;
-	assign dsack1_n = 1'b1;
-	assign sense_n = 1'b0;
-	assign status_valid = 1'b1;
-
-	reg active_d;
-	reg [15:0] opword;
-	reg [15:0] command;
-	reg [15:0] condition;
-	reg [15:0] restore_format;
-
-	always @(*) begin
-		case (a_in)
-			CIR_RESPONSE: d_out = {16'h0000, RESP_NULL};
-			CIR_SAVE:     d_out = {16'h0000, FRAME_NULL};
-			CIR_OPERAND:  d_out = 32'h00000000;
-			default:      d_out = {16'h0000, RESP_NULL};
-		endcase
-	end
-
-	always @(posedge clk) begin
-		if (!reset_n) begin
-			active_d <= 1'b0;
-			opword <= 16'h0000;
-			command <= 16'h0000;
-			condition <= 16'h0000;
-			restore_format <= FRAME_NULL;
-		end else begin
-			active_d <= active;
-			if (active && !active_d && !rw) begin
-				case (a_in)
-					CIR_OPWORD:    opword <= d_in[15:0];
-					CIR_COMMAND:   command <= d_in[15:0];
-					CIR_CONDITION: condition <= d_in[15:0];
-					CIR_RESTORE:   restore_format <= d_in[15:0];
-					default: ;
-				endcase
-				if ($test$plusargs("fpu_stub_debug")) begin
-					$display("[FPU_STUB_WR] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h",
-					         a_in, d_in[15:0], opword, command, condition, restore_format);
-				end
-			end
-			if (active && !active_d && rw && $test$plusargs("fpu_stub_debug")) begin
-				$display("[FPU_STUB_RD] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h size_n=%b",
-				         a_in, d_out[15:0], opword, command, condition, restore_format, size_n);
-			end
-		end
-	end
-endmodule
+// sim_fpu_cir_stub moved to ../rtl/mc68881/sim_fpu_cir_stub.v so it
+// can be shared by other verilator builds (SingleStepTests/cpu_fpu/).

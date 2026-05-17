@@ -12,7 +12,19 @@ V_DEFINE = +define+debug=1 +define+SIMULATION=1 +define+USE_EGRET_CPU=1  -CFLAGS
 	-I$(RTL)/egret \
         --timing
 # Suppress common warnings that don't affect simulation correctness
-V_DEFINE += -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-IMPLICIT -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER
+V_DEFINE += -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-IMPLICIT -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER -Wno-PROCASSWIRE -Wno-BLKANDNBLK -Wno-MULTIDRIVEN
+
+# FPU selector: default to sim_fpu_cir_stub (CIR no-op responder) — much
+# faster than the real FPU in Verilator and correct behavior for the
+# Mac, because every FPU instruction returns a non-Null-non-Transfer
+# primary which the CPU decodes as an F-line emulator trap, letting the
+# OS / SANE fall back to software FPU emulation. To run the real lite
+# FPU instead (functional FPU testing, slower sim):
+#   make USE_FPU_STUB=0
+USE_FPU_STUB ?= 1
+ifeq ($(USE_FPU_STUB),1)
+  V_DEFINE += +define+USE_FPU_STUB
+endif
 #V_DEFINE += --threads 8  # this slows it way down
 V_DEFINE += --trace-fst
 V_DEFINE +=
@@ -65,6 +77,8 @@ V_SRC = \
 	$(RTL)/tg68k/TG68K_ALU.v \
 	$(RTL)/tg68k/TG68KdotC_Kernel.v \
 	$(RTL)/tg68k/tg68k.v \
+	$(RTL)/mc68881/fpu_lite/mc68881_top.v \
+	$(RTL)/mc68881/sim_fpu_cir_stub.v \
 	$(RTL)/addrController_top.v \
 	$(RTL)/addrDecoder.v \
 	$(RTL)/hmmu.v \
