@@ -7,14 +7,16 @@ export PATH="/c/intelFPGA_lite/17.0/quartus/bin64:$PATH"
 mkdir -p output_files captures
 
 SOF="output_files/LBMacTwo.sof"
-PRIOR=""
-
-# Watch for a .sof newer than the last one we processed.  The first iteration
-# uses the existing .sof if it exists; subsequent iterations only act on
-# fresh builds.
+# Skip whatever .sof already exists -- we only want freshly-built ones
+# that include the new ISSP instrumentation.
+PRIOR=$(stat -c '%Y' "$SOF" 2>/dev/null || echo "")
+echo "[$(date +%H:%M:%S)] Starting orchestrator; ignoring existing .sof mtime=$PRIOR"
 while true; do
-    # Skip if a quartus compile is still running (avoids racing a fresh build)
-    while tasklist 2>/dev/null | grep -qiE "quartus_(map|fit|asm|sta|sh)\.exe"; do
+    # Skip if a quartus compile is still running OR if the auto_recompile
+    # script has the build-flag set (covers the race window between an old
+    # quartus exiting and a new one being spawned).
+    while tasklist 2>/dev/null | grep -qiE "quartus_(map|fit|asm|sta|sh)\.exe" \
+            || [ -f output_files/.compile_in_progress ]; do
         sleep 30
     done
 
