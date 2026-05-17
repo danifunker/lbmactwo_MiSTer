@@ -546,8 +546,45 @@ SingleStepTests/
 
 ## B-4: fpu_lite silently corrupts results for unsupported ops
 
-**Status:** confirmed via cpu_fpu bench, 2026-05-17.
-**Severity:** Mac II compatibility blocker for any software using transcendentals or the 6 lite-gated ALU ops.
+**Status:** FIXED 2026-05-17. Originally confirmed earlier same day.
+**Severity:** was a Mac II compatibility blocker for any software using transcendentals or the 6 lite-gated ALU ops.
+
+### Fix applied
+
+`68881-fpga/src/mc68881_top.vhd`:
+- Added `op_disabled_by_lite(op)` helper that returns true for the 26 ops
+  the lite variant doesn't implement (mirrors the gating in
+  `mc68881_alu.vhd`).
+- In CIR_DECODE and CIR_XFER_SRC_WAIT2, when `fpu_lite_g` AND the
+  decoded op is disabled, set `cir_exc_vector <= CIR_VEC_FLINE` and
+  transition to CIR_EXCEPT_PRE instead of CIR_EXECUTE.
+
+`68881-fpga/src/mc68881_pkg.vhd`:
+- Added `CIR_VEC_FLINE := "00" & x"0B"` (vector 11).
+
+Regenerated lite Verilog via `convert_to_verilog.sh` and installed at
+`rtl/mc68881/fpu_lite/mc68881_top.v`.
+
+### Verification
+
+- `fline_trap_regression.json`: 24/24 pass (was 0/24). Each test
+  installs an F-line handler at vector 11; the handler runs and sets
+  D7=1 for every unsupported op (FSIN/FCOS/FETOX/FATAN/FLOG2/FTAN/FMOD/
+  FREM/FSGLDIV/FSGLMUL/FGETEXP/FGETMAN/FSINH/FCOSH/FTANH/FACOS/FASIN/
+  FATANH/FETOXM1/FLOGNP1/FLOGN/FLOG10/FTWOTOX/FTENTOX).
+- `fpu_corpus.json` 1088/1088 across 5 seeds.
+- `cpu_corpus` 360/360 unchanged.
+
+### Mac II implication
+
+With this fix, any software that issues an unsupported FPU op now takes
+an F-line emulator trap (vector 11). The Mac OS ROM contains an F-line
+handler that the standard FPSP-equivalent code can hook to emulate
+missing ops in software, matching how 68040 systems handle their own
+missing transcendentals. Apps using SANE math routines should produce
+correct results instead of silent zeros.
+
+### Original failure description (preserved for history)
 
 ### What's broken
 

@@ -397,6 +397,25 @@ architecture rtl of mc68881_top is
     return to_integer(signed(bits));
   end function;
 
+  -- True iff the op is disabled when fpu_lite_g = true. Mirrors the
+  -- "not fpu_lite" gating in mc68881_alu.vhd (gen_trig_full,
+  -- gen_sglops_full, is_divrem_op-but-not-DIV/SQRT, GETEXP/GETMAN).
+  -- Used to route lite-unsupported ops to CIR_EXCEPT_PRE with the F-line
+  -- vector instead of silently completing with a zeroed result.
+  function op_disabled_by_lite(op : fpu_op_t) return boolean is
+  begin
+    return op = FPU_OP_SIN     or op = FPU_OP_COS     or op = FPU_OP_TAN     or
+           op = FPU_OP_SINCOS  or op = FPU_OP_ACOS    or op = FPU_OP_ASIN    or
+           op = FPU_OP_ATAN    or op = FPU_OP_ATANH   or op = FPU_OP_COSH    or
+           op = FPU_OP_ETOX    or op = FPU_OP_ETOXM1  or op = FPU_OP_LOGN    or
+           op = FPU_OP_LOGNP1  or op = FPU_OP_LOG10   or op = FPU_OP_LOG2    or
+           op = FPU_OP_SINH    or op = FPU_OP_TANH    or op = FPU_OP_TENTOX  or
+           op = FPU_OP_TWOTOX  or
+           op = FPU_OP_MOD     or op = FPU_OP_REM     or
+           op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL  or
+           op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN;
+  end function;
+
   function signed16_to_integer(bits : std_logic_vector(15 downto 0)) return integer is
     variable magnitude : unsigned(14 downto 0);
   begin
@@ -3878,7 +3897,15 @@ begin
           end if;
 
         when CIR_DECODE =>
-          if cir_reg_to_reg = '1' then
+          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+            -- B-4 fix: lite variant doesn't implement this op. Return an
+            -- F-line exception primary so the CPU can take an emulator
+            -- trap (vector 11) and a software FPSP-style handler can
+            -- emulate it. Without this, the FPU silently completes with
+            -- a zeroed destination register and software gets garbage.
+            cir_exc_vector <= CIR_VEC_FLINE;
+            cir_state_reg <= CIR_EXCEPT_PRE;
+          elsif cir_reg_to_reg = '1' then
             -- Register-to-register (R/M=0 in Motorola convention): launch ALU.
             -- MOVE ops bypass the ALU, so go directly to IDLE.
             -- Note: FMOVECR is not supported through CIR (only peripheral mode).
@@ -3924,12 +3951,17 @@ begin
           cir_state_reg <= CIR_XFER_SRC_WAIT2;
 
         when CIR_XFER_SRC_WAIT2 =>
-          -- Second hold state: launch ALU.
-          cir_launch_alu <= '1';
-          if op_class(cir_decoded_op) = OP_CLASS_MOVE then
-            cir_state_reg <= CIR_IDLE;
+          -- Second hold state: launch ALU (or F-line trap for lite-disabled ops).
+          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+            cir_exc_vector <= CIR_VEC_FLINE;
+            cir_state_reg <= CIR_EXCEPT_PRE;
           else
-            cir_state_reg <= CIR_EXECUTE;
+            cir_launch_alu <= '1';
+            if op_class(cir_decoded_op) = OP_CLASS_MOVE then
+              cir_state_reg <= CIR_IDLE;
+            else
+              cir_state_reg <= CIR_EXECUTE;
+            end if;
           end if;
 
         when CIR_EXECUTE =>
