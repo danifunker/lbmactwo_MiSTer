@@ -72,9 +72,19 @@ static uint16_t ext_dyadic(int fpm_src, int fpn_dst, uint8_t opmode) {
 
 /* MOVEQ #imm,D0: opcode 0x7000 | (D0<<9) | imm = 0x7000 | imm (D0=0). */
 static uint16_t moveq_d0(int8_t imm) { return (uint16_t)(0x7000 | (uint8_t)imm); }
-/* FMOVE.L D0,FPn: opword $F200 | EA(D0=0) = $F200; ext = opclass 010 (EA→FPn),
- * fmt=L (000<<10), dst FPn (n<<7), opmode FMOVE (0x00). */
-static uint16_t fmove_l_d0_fpn(int n) { return (uint16_t)(0x4000 | ((n & 7) << 7)); }
+/* FMOVE.{size} D0,FPn: opword $F200 | EA(D0=0) = $F200; ext = opclass 010
+ * (EA→FPn), src fmt in bits 12-10 (L=0, S=1, X=2, P=3, W=4, D=5, B=6),
+ * dst FPn (n<<7), opmode FMOVE (0x00). */
+#define FMT_L 0
+#define FMT_S 1
+#define FMT_X 2
+#define FMT_W 4
+#define FMT_B 6
+static uint16_t fmove_size_d0_fpn(int n, int fmt) {
+    return (uint16_t)(0x4000 | ((fmt & 7) << 10) | ((n & 7) << 7));
+}
+/* (Convenience helpers for individual sizes are inlined at call sites via
+ * fmove_size_d0_fpn(n, FMT_*); no per-size wrappers needed.) */
 /* (FMOVE.L FPn,Dx opword/ext are built in emit_program below using
  *  fmove_l_fpn_dn_opw and the dst_fp parameter.) */
 
@@ -87,6 +97,7 @@ typedef struct {
     int      dst_fp;       /* FPn that holds op_a / receives result (0..7) */
     int      src_fp;       /* FPm that holds op_b (dyadic only) */
     uint8_t  opmode;       /* test instruction opmode */
+    int      load_fmt;     /* FMT_L / FMT_W / FMT_B for the FMOVE EA→FPn load */
     int      result_reg;   /* Dn that receives FMOVE.L FP{dst_fp},Dn */
     int32_t  expected;     /* expected value of D{result_reg} */
 } test_t;
@@ -105,15 +116,15 @@ static void emit_program(FILE* f, const test_t* t) {
         first = 0; \
     } while (0)
 
-    /* Load op_a into FP{dst_fp}. */
+    /* Load op_a into FP{dst_fp} using configured size. */
     BW(moveq_d0((int8_t)t->op_a));
     BW(0xF200);
-    BW(fmove_l_d0_fpn(t->dst_fp));
-    /* If dyadic, load op_b into FP{src_fp}. */
+    BW(fmove_size_d0_fpn(t->dst_fp, t->load_fmt));
+    /* If dyadic, load op_b into FP{src_fp} (same size). */
     if (t->has_b) {
         BW(moveq_d0((int8_t)t->op_b));
         BW(0xF200);
-        BW(fmove_l_d0_fpn(t->src_fp));
+        BW(fmove_size_d0_fpn(t->src_fp, t->load_fmt));
     }
     /* Test instruction. */
     BW(0xF200);
@@ -154,8 +165,15 @@ static void pick_two_fp(int* a, int* b) {
 }
 
 /* ---------- Per-op generators --------------------------------------- */
-static int gen_monadic(FILE* f, int is_first, const char* op_name,
-                       uint8_t opmode, int (*compute)(int), int count) {
+static const char* fmt_str(int fmt) {
+    switch (fmt) { case FMT_L: return "L"; case FMT_W: return "W";
+                   case FMT_B: return "B"; case FMT_S: return "S";
+                   default: return "?"; }
+}
+
+static int gen_monadic_sized(FILE* f, int is_first, const char* op_name,
+                             uint8_t opmode, int (*compute)(int),
+                             int load_fmt, int count) {
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq();
         int    fp = pick_fp();
@@ -163,21 +181,21 @@ static int gen_monadic(FILE* f, int is_first, const char* op_name,
         test_t t = {
             .name = NULL, .has_b = 0, .op_a = a, .op_b = 0,
             .dst_fp = fp, .src_fp = fp,
-            .opmode = opmode,
+            .opmode = opmode, .load_fmt = load_fmt,
             .result_reg = rr, .expected = compute(a),
         };
-        char nm[80];
-        snprintf(nm, sizeof(nm), "%s.X FP%d (#%d) -> D%d #%03d",
-                 op_name, fp, a, rr, i);
+        char nm[100];
+        snprintf(nm, sizeof(nm), "%s.X (load.%s) FP%d (#%d) -> D%d #%03d",
+                 op_name, fmt_str(load_fmt), fp, a, rr, i);
         t.name = nm;
         emit_test_clean(f, is_first && i == 0, &t);
     }
     return count;
 }
 
-static int gen_dyadic(FILE* f, int is_first, const char* op_name,
-                      uint8_t opmode, int (*compute)(int, int),
-                      int limit_a, int limit_b, int count) {
+static int gen_dyadic_sized(FILE* f, int is_first, const char* op_name,
+                            uint8_t opmode, int (*compute)(int, int),
+                            int limit_a, int limit_b, int load_fmt, int count) {
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(limit_a);
         int8_t b = r_moveq_lim(limit_b);
@@ -187,16 +205,29 @@ static int gen_dyadic(FILE* f, int is_first, const char* op_name,
         test_t t = {
             .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
             .dst_fp = dst, .src_fp = src,
-            .opmode = opmode,
+            .opmode = opmode, .load_fmt = load_fmt,
             .result_reg = rr, .expected = compute(a, b),
         };
-        char nm[100];
-        snprintf(nm, sizeof(nm), "%s FP%d,FP%d (%d,%d) -> D%d #%03d",
-                 op_name, src, dst, a, b, rr, i);
+        char nm[120];
+        snprintf(nm, sizeof(nm),
+                 "%s (load.%s) FP%d,FP%d (%d,%d) -> D%d #%03d",
+                 op_name, fmt_str(load_fmt), src, dst, a, b, rr, i);
         t.name = nm;
         emit_test_clean(f, is_first && i == 0, &t);
     }
     return count;
+}
+
+/* Default-size (.L) wrappers for compatibility with existing call sites. */
+static int gen_monadic(FILE* f, int is_first, const char* op_name,
+                       uint8_t opmode, int (*compute)(int), int count) {
+    return gen_monadic_sized(f, is_first, op_name, opmode, compute, FMT_L, count);
+}
+static int gen_dyadic(FILE* f, int is_first, const char* op_name,
+                      uint8_t opmode, int (*compute)(int, int),
+                      int limit_a, int limit_b, int count) {
+    return gen_dyadic_sized(f, is_first, op_name, opmode, compute,
+                            limit_a, limit_b, FMT_L, count);
 }
 
 /* Generator for FSQRT with perfect-square inputs only (so result fits int). */
@@ -227,7 +258,7 @@ static int gen_fsqrt(FILE* f, int is_first, int count) {
         test_t t = {
             .name = NULL, .has_b = 0, .op_a = a, .op_b = 0,
             .dst_fp = fp, .src_fp = fp,
-            .opmode = OPMODE_FSQRT,
+            .opmode = OPMODE_FSQRT, .load_fmt = FMT_L,
             .result_reg = rr, .expected = expected,
         };
         char nm[80];
@@ -255,7 +286,7 @@ static int gen_fdiv(FILE* f, int is_first, int count) {
         test_t t = {
             .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
             .dst_fp = dst, .src_fp = src,
-            .opmode = OPMODE_FDIV,
+            .opmode = OPMODE_FDIV, .load_fmt = FMT_L,
             .result_reg = rr, .expected = quot,
         };
         char nm[100];
@@ -303,6 +334,23 @@ int main(int argc, char** argv) {
     total += gen_fsqrt  (f, first, N);
     /* FDIV: exact integer divisions only (a % b == 0). */
     total += gen_fdiv   (f, first, N);
+
+    /* ---- Size-variant load tests --------------------------------------
+     * Same ops loaded via FMOVE.W and FMOVE.B (instead of FMOVE.L) to
+     * exercise the FPU's sign-extension paths from short integers. For
+     * MOVEQ-range operands (-128..127), the FP value after a sized load
+     * should match the .L round-trip, so the same compute() functions
+     * are valid. Fewer tests per op since coverage focus is on the load
+     * path, not the ALU.                                                 */
+    const int M = 16;
+    total += gen_monadic_sized(f, first, "FNEG",   OPMODE_FNEG,   fneg_compute,   FMT_W, M);
+    total += gen_monadic_sized(f, first, "FNEG",   OPMODE_FNEG,   fneg_compute,   FMT_B, M);
+    total += gen_monadic_sized(f, first, "FABS",   OPMODE_FABS,   fabs_compute,   FMT_W, M);
+    total += gen_monadic_sized(f, first, "FABS",   OPMODE_FABS,   fabs_compute,   FMT_B, M);
+    total += gen_dyadic_sized (f, first, "FADD",   OPMODE_FADD, fadd_compute, 127, 127, FMT_W, M);
+    total += gen_dyadic_sized (f, first, "FADD",   OPMODE_FADD, fadd_compute, 127, 127, FMT_B, M);
+    total += gen_dyadic_sized (f, first, "FMUL",   OPMODE_FMUL, fmul_compute,  10,  10, FMT_W, M);
+    total += gen_dyadic_sized (f, first, "FMUL",   OPMODE_FMUL, fmul_compute,  10,  10, FMT_B, M);
 
     fprintf(f, "\n]\n");
     fclose(f);
