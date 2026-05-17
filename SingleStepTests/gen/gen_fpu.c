@@ -28,7 +28,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <math.h>
 
 /* ---------- Tiny seeded RNG (xorshift32) ----------------------------- */
 static uint32_t g_rng = 0xBEEFC0DEu;
@@ -57,17 +56,10 @@ static int8_t r_moveq_lim(int limit) {
 #define OPMODE_FMUL   0x23
 #define OPMODE_FDIV   0x20
 #define OPMODE_FSQRT  0x04
-#define OPMODE_FNEG    0x1A
-#define OPMODE_FABS    0x18
-#define OPMODE_FINT    0x01
-#define OPMODE_FINTRZ  0x03
-/* Additional ops enabled by FULL (non-lite) FPU build. */
-#define OPMODE_FMOD    0x21
-#define OPMODE_FREM    0x25
-#define OPMODE_FSGLDIV 0x24
-#define OPMODE_FSGLMUL 0x27
-#define OPMODE_FGETEXP 0x1E
-#define OPMODE_FGETMAN 0x1F
+#define OPMODE_FNEG   0x1A
+#define OPMODE_FABS   0x18
+#define OPMODE_FINT   0x01
+#define OPMODE_FINTRZ 0x03
 
 /* ext for monadic op (FNEG/FABS/...): src and dst both = fp, opmode. */
 static uint16_t ext_monadic_fp(int fp, uint8_t opmode) {
@@ -440,33 +432,6 @@ static int fintrz_compute(int a)      { return a; }    /* truncate toward zero, 
 static int fadd_compute(int a, int b) { return a + b; }
 static int fsub_compute(int a, int b) { return a - b; }  /* FSUB FP1,FP0 = FP0 - FP1 */
 static int fmul_compute(int a, int b) { return a * b; }
-/* FMOD: truncated-toward-zero IEEE modulo. For ints a,b with b != 0:
- *   FMOD(a,b) = a - trunc(a/b) * b
- * which equals C's a % b semantics. */
-static int fmod_compute(int a, int b) { return a % b; }
-/* FREM: rounded-to-nearest-even IEEE remainder. Use C99 remainder()
- * which implements exactly the IEEE 754 semantics. */
-static int frem_compute(int a, int b) {
-    double r = remainder((double)a, (double)b);
-    /* remainder() returns the exact mathematical result, which for int
-     * inputs is always an integer. Cast cleanly. */
-    return (int)r;
-}
-/* FSGLDIV / FSGLMUL — single-precision; exact for integer in/out. */
-static int fsgldiv_compute(int a, int b) { return a / b; }
-static int fsglmul_compute(int a, int b) { return a * b; }
-/* FGETEXP: extract unbiased binary exponent. For pos integer a > 0:
- *   FGETEXP(a) = floor(log2(a)). FGETEXP(0) = 0 by IEEE definition. */
-static int fgetexp_compute(int a) {
-    if (a == 0) return 0;
-    int v = a < 0 ? -a : a;
-    int e = 0;
-    while (v > 1) { v >>= 1; e++; }
-    return e;
-}
-/* FGETMAN: mantissa in [1.0, 2.0) — truncates to 1 for any positive value
- * once round-tripped through FINTRZ.L. FGETMAN(0) = 0. */
-static int fgetman_compute(int a) { return a == 0 ? 0 : (a < 0 ? -1 : 1); }
 
 /* M68881 FPcc condition selector codes (6-bit). Per Table 4-8 of the
  * MC68881 User's Manual: low 16 codes are IEEE-aware (don't raise BSUN
@@ -870,62 +835,6 @@ static int gen_fmove_sized_fp_to_d(FILE* f, int is_first, int fmt,
     return count;
 }
 
-/* Dyadic ops with non-zero divisor constraint (FMOD/FREM/FSGLDIV). */
-static int gen_dyadic_safe_b(FILE* f, int is_first, const char* op_name,
-                             uint8_t opmode, int (*compute)(int,int),
-                             int range_a, int range_b, int count) {
-    int emitted = 0;
-    while (emitted < count) {
-        int8_t a = r_moveq_lim(range_a);
-        int8_t b = r_moveq_lim(range_b);
-        if (b == 0) continue;
-        int dst, src; pick_two_fp(&dst, &src);
-        int rr = pick_result_reg();
-        int exp = compute((int)a, (int)b);
-        test_t t = {
-            .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
-            .dst_fp = dst, .src_fp = src,
-            .opmode = opmode, .load_fmt = FMT_L,
-            .result_reg = rr, .expected = exp,
-        };
-        char nm[100];
-        snprintf(nm, sizeof(nm), "%s FP%d,FP%d (%d,%d=%d) -> D%d #%03d",
-                 op_name, src, dst, a, b, exp, rr, emitted);
-        t.name = nm;
-        emit_test_clean(f, is_first && emitted == 0, &t);
-        emitted++;
-    }
-    return emitted;
-}
-
-/* FSGLDIV with exact integer-divisible operands (so result fits int). */
-static int gen_fsgldiv_exact(FILE* f, int is_first, int count) {
-    int emitted = 0;
-    while (emitted < count) {
-        int8_t b = r_moveq_lim(10);
-        if (b == 0) continue;
-        int quot = (int)r_moveq_lim(10);
-        if (quot == 0) continue;
-        int a = (int)b * quot;
-        if (a < -128 || a > 127) continue;
-        int dst, src; pick_two_fp(&dst, &src);
-        int rr = pick_result_reg();
-        test_t t = {
-            .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
-            .dst_fp = dst, .src_fp = src,
-            .opmode = OPMODE_FSGLDIV, .load_fmt = FMT_L,
-            .result_reg = rr, .expected = quot,
-        };
-        char nm[100];
-        snprintf(nm, sizeof(nm), "FSGLDIV FP%d,FP%d (%d/%d=%d) -> D%d #%03d",
-                 src, dst, a, b, quot, rr, emitted);
-        t.name = nm;
-        emit_test_clean(f, is_first && emitted == 0, &t);
-        emitted++;
-    }
-    return emitted;
-}
-
 /* FNOP — encoded as FBF.W with disp=0. Per the M68881 manual, this is
  * a synchronization barrier that falls through to the next instruction.
  * Verifies the no-op path through cp_cond_eval doesn't disturb register
@@ -1036,22 +945,15 @@ int main(int argc, char** argv) {
     /* FNOP synchronization barrier. */
     total += gen_fnop(f, first, M);
 
-    /* ---- ALU ops enabled by FULL (non-lite) FPU ----------------------- */
-    /* FMOD/FREM: integer remainders. Bounded operands keep result in
-     * signed-byte range. Both ops divide so b != 0 enforced. */
-    total += gen_dyadic_safe_b(f, first, "FMOD",    OPMODE_FMOD,
-                                fmod_compute,    100, 20, N);
-    total += gen_dyadic_safe_b(f, first, "FREM",    OPMODE_FREM,
-                                frem_compute,    100, 20, N);
-    /* FSGLDIV with exact divisions, FSGLMUL with bounded operands. */
-    total += gen_fsgldiv_exact(f, first, N);
-    total += gen_dyadic_safe_b(f, first, "FSGLMUL", OPMODE_FSGLMUL,
-                                fsglmul_compute, 10, 10, N);
-    /* FGETEXP: extract exponent. Skip a=0 (returns -inf in FP, undefined
-     * after int cast). Use positive values for clean integer round-trip. */
-    total += gen_monadic(f, first, "FGETEXP", OPMODE_FGETEXP, fgetexp_compute, N);
-    /* FGETMAN: mantissa always rounds to 1 (or -1) for any nonzero int input. */
-    total += gen_monadic(f, first, "FGETMAN", OPMODE_FGETMAN, fgetman_compute, M);
+    /* NOTE: FMOD, FREM, FSGLDIV, FSGLMUL, FGETEXP, FGETMAN, and all
+     * transcendentals (FSIN, FCOS, FETOX, FLOG2, FATAN, FTANH, ...) are
+     * gated off in the fpu_lite variant. See "if not fpu_lite generate"
+     * blocks in 68881-fpga/src/mc68881_alu.vhd. The lite variant is
+     * what ships on the Mac II FPGA due to area constraints; do not add
+     * corpus tests for those ops. They were verified working against
+     * the FULL FPU earlier this session (commit 4d80264, reverted in
+     * the following commit) which is useful for FPU IP regression but
+     * not relevant to the bench production-parity mission. */
 
     fprintf(f, "\n]\n");
     fclose(f);
