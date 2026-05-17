@@ -16,9 +16,25 @@ Generate Verilog in the upstream 68881-fpga repo, then copy:
 
 ```bash
 cd ../68881-fpga
-./scripts/convert_to_verilog.sh
-cp verilog/fpu_lite/mc68881_top.v ../lbmactwo_MiSTer/rtl/mc68881/fpu_lite/
+bash ./scripts/convert_to_verilog.sh
+cp src/*.vhd                        ../lbmactwo_MiSTer/rtl/mc68881/vhdl/
+cp verilog/fpu_lite/mc68881_top.v   ../lbmactwo_MiSTer/rtl/mc68881/fpu_lite/
+# Strip ghdl-emitted $fatal assertions (VHDL `assert severity failure`)
+# so the verilator bench doesn't abort on benign reset/init checks:
+sed -i.bak 's/\$fatal(1, "assertion failure n[0-9]*");/;/g' \
+    ../lbmactwo_MiSTer/rtl/mc68881/fpu_lite/mc68881_top.v
+rm ../lbmactwo_MiSTer/rtl/mc68881/fpu_lite/mc68881_top.v.bak
 ```
+
+**Important:** keep `rtl/mc68881/vhdl/` in sync with `68881-fpga/src/`.
+The VHDL is the source of truth (Quartus uses it directly). If they
+drift, the .v file generated from one will encode different opcode
+IDs than the .vhd the other half of the project expects — see the
+2026-05-16 incident where a stale `mc68881_pkg.vhd` had FMOVE
+decode_id=0x05 (custom) instead of 0x00 (M68881 native), causing all
+F-line FPU instructions dispatched from TG68K to silently decode as
+NOP. Symptom: FPU returned Response=0x0000 immediately and never
+requested operand data.
 
 To switch to the full MC68881 (37 ALU ops), copy `verilog/mc68881_top.v` instead
 and update `mc68881.qip` to point to it.

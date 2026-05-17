@@ -62,3 +62,9 @@ SingleStepTests/fpu/fpu_corpus/
 SingleStepTests/*/obj_dir/
 SingleStepTests/gen/gen
 SingleStepTests/gen/gen.dSYM/
+SingleStepTests/gen/gen_fpu
+SingleStepTests/gen/gen_fpu.dSYM/
+
+# External oracle/reference checkouts (their own git repos; not vendored).
+SingleStepTests/Musashi/
+/68881-fpga/

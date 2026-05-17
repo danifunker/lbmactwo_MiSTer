@@ -389,6 +389,13 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_do_branch		: std_logic;
 	signal cp_cond_true		: std_logic;
 	signal cp_fscc_writeback	: std_logic;
+	-- FPU operand transfer buffer for FMOVE.L Dn↔FPn.
+	-- For .L size: CPU→FPU writes high then low word; FPU→CPU reads high then
+	-- low word and shifts into this buffer (MSB-first). cp_dn_writeback
+	-- commits the buffer to regfile[opcode(2:0)] on the cycle the FSM exits
+	-- cp_xfer_from_store.
+	signal cp_xfer_data		: std_logic_vector(31 downto 0);
+	signal cp_dn_writeback	: std_logic;
 
 	signal set					: bit_vector(lastOpcBit downto 0);
 	signal set_exec			: bit_vector(lastOpcBit downto 0);
@@ -543,11 +550,18 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				long_done <= to_bit(NOT memread(1));
 	END PROCESS;
 	
-PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, data_write_mux, memmaskmux, bf_ext_out, 
-		 data_write_muxin, memmask, oddout, addr)
+PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, data_write_mux, memmaskmux, bf_ext_out,
+		 data_write_muxin, memmask, oddout, addr, micro_state, cp_xfer_data, cp_xfer_cnt)
 	BEGIN
 		IF exec(write_reg)='1' THEN
 			data_write_muxin <= reg_QB;
+		ELSIF micro_state = cp_xfer_to_hi THEN
+			-- FPU operand HIGH word write. Stable for entire bus access
+			-- because micro_state doesn't advance until clkena fires once.
+			data_write_muxin <= x"0000" & cp_xfer_data(31 downto 16);
+		ELSIF micro_state = cp_xfer_to_lo THEN
+			-- FPU operand LOW word write.
+			data_write_muxin <= x"0000" & cp_xfer_data(15 downto 0);
 		ELSE
 			data_write_muxin <= data_write_tmp;
 		END IF;
@@ -606,6 +620,10 @@ PROCESS (clk, regfile, RDindex_A, RDindex_B, exec)
 				END IF;
 				IF cp_fscc_writeback='1' THEN
 					regfile(conv_integer('0' & exe_opcode(2 downto 0)))(7 downto 0) <= (others => cp_cond_true);
+				END IF;
+				IF cp_dn_writeback='1' THEN
+					-- FPU operand → Dn writeback (FMOVE.L FPn,Dn).
+					regfile(conv_integer('0' & exe_opcode(2 downto 0))) <= cp_xfer_data;
 				END IF;
 
 				IF exec(to_USP)='1' THEN
@@ -700,14 +718,20 @@ PROCESS (opcode, rf_source_addrd, brief, setstackaddr, dest_hbits, dest_areg, de
 -----------------------------------------------------------------------------
 -- set source regaddr
 -----------------------------------------------------------------------------
-PROCESS (opcode, movem_presub, movem_regaddr, source_lowbits, source_areg, sndOPC, exec, set, source_2ndLbits, source_2ndHbits, 	source_LDRLbits, source_LDRMbits, last_data_read, source_2ndMbits)
+PROCESS (opcode, movem_presub, movem_regaddr, source_lowbits, source_areg, sndOPC, exec, set, source_2ndLbits, source_2ndHbits, 	source_LDRLbits, source_LDRMbits, last_data_read, source_2ndMbits, micro_state, next_micro_state)
 	BEGIN
-		IF exec(movem_action)='1' OR set(movem_action) ='1' THEN
+		IF micro_state = cp_xfer_to_load OR next_micro_state = cp_xfer_to_load THEN
+			-- FPU operand source for FMOVE.L Dn,FPn: read Dn (opcode bits 2:0)
+			-- into reg_QB. Drive a cycle early (when transitioning into the
+			-- load state) so RDindex_B has time to settle — reg_QB lags
+			-- rf_source_addr by one clock through the regfile.
+			rf_source_addr <= '0' & opcode(2 downto 0);
+		ELSIF exec(movem_action)='1' OR set(movem_action) ='1' THEN
 			IF movem_presub='1' THEN
 				rf_source_addr <= movem_regaddr XOR "1111";
 			ELSE
 				rf_source_addr <= movem_regaddr;
-			END IF; 
+			END IF;
 		ELSIF source_2ndLbits='1' THEN
 			rf_source_addr <= '0'&sndOPC(2 downto 0);
 		ELSIF source_2ndHbits='1' THEN
@@ -802,6 +826,10 @@ PROCESS (clk)
 				IF next_micro_state = cp_write_cmd OR next_micro_state = cp_write_opw
 				   OR next_micro_state = cp_read_resp
 				   OR next_micro_state = cp_xfer_to OR next_micro_state = cp_xfer_from
+				   OR next_micro_state = cp_xfer_to_load
+				   OR next_micro_state = cp_xfer_to_hi OR next_micro_state = cp_xfer_to_lo
+				   OR next_micro_state = cp_xfer_from_hi OR next_micro_state = cp_xfer_from_lo
+				   OR next_micro_state = cp_xfer_from_store
 				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_rd_cir
 				   OR next_micro_state = cp_restore_wr_fmt OR next_micro_state = cp_restore_wr_data
 				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp THEN
@@ -873,11 +901,19 @@ PROCESS (clk)
 				ELSIF (micro_state = cp_save_wr_mem OR micro_state = cp_restore_wr_data) AND cp_frame_cnt /= "0000000" THEN
 					cp_frame_cnt <= cp_frame_cnt - 1;
 				END IF;
-				-- Coprocessor transfer count management
-				IF micro_state = cp_idle_resp THEN
-					cp_xfer_cnt <= data_in(12 downto 10);
-				ELSIF (micro_state = cp_xfer_to OR micro_state = cp_xfer_from) AND cp_xfer_cnt /= "000" THEN
-					cp_xfer_cnt <= cp_xfer_cnt - 1;
+				-- FPU operand buffer management for FMOVE.L Dn↔FPn.
+				-- CPU→FPU: load reg_QB once during cp_xfer_to_load.
+				-- FPU→CPU: capture data_in directly on the clkena fire that
+				--          ENDS each read state (when micro_state still = the
+				--          read state and bus has just settled). Avoids using
+				--          last_data_read which can be clobbered by
+				--          intervening prefetch cycles.
+				IF micro_state = cp_xfer_to_load THEN
+					cp_xfer_data <= reg_QB;
+				ELSIF micro_state = cp_xfer_from_lo THEN
+					cp_xfer_data(31 downto 16) <= data_in;
+				ELSIF micro_state = cp_xfer_from_store THEN
+					cp_xfer_data(15 downto 0) <= data_in;
 				END IF;
 				-- MOVES FC override management
 				IF endOPC='1' THEN
@@ -961,6 +997,8 @@ PROCESS (clk)
 					data_write_tmp(15 downto 0) <= opcode(15 downto 0);
 				ELSIF exec(opcCPcmd)='1' THEN
 					data_write_tmp(15 downto 0) <= sndOPC;
+				-- (cp_xfer_to writes drive the bus via combinational
+				-- data_write_muxin path, bypassing data_write_tmp.)
 				ELSIF micro_state = cp_save_idle THEN
 					-- Forward CIR read data or format word for memory write
 					IF cp_frame_cnt = "0000000" THEN
@@ -1714,6 +1752,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		cp_an_writeback <= '0';
 		cp_do_branch <= '0';
 		cp_fscc_writeback <= '0';
+		cp_dn_writeback <= '0';
 		writeSR <= '0';
 		set_stop <= '0';
 --		illegal_write_mode <= '0';
@@ -4379,45 +4418,141 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					next_micro_state <= cp_idle_resp;
 
 				WHEN cp_idle_resp =>
-					-- Decode response from last_data_read
+					-- Decode MC68881 Response Primary (per Motorola AN-944 / AN-947):
+					--   bit 15: CA (Come Again — 1 = re-read response after this primary)
+					--   bit 14: PC (PC Restore — unused here)
+					--   bit 13: DR (Direction — 1 = FPU→CPU, 0 = CPU→FPU)
+					--   bit 12: LN (Long primary — 1 for transfer primaries)
+					--   bits 11-8: TYPE
+					--     0b1001 (with bit12=0): Null Primary (CA=0 done / CA=1 busy)
+					--     0b0110 (with bit12=1, DR=0): Transfer Single Operand CPU→FPU
+					--     0b0010 (with bit12=1, DR=1): Transfer Single Operand FPU→CPU
+					--   bits 7-0: byte count for transfer primaries
+					-- The original simplified class-based decode was incompatible
+					-- with mc68881_top's correct AN-947 encoding.
 					setstate <= "01";      -- idle (no bus access)
-					CASE data_in(15 downto 13) IS
-						WHEN "000" =>      -- Busy: re-read
-							next_micro_state <= cp_read_resp;
-						WHEN "001" =>      -- Null: done
-							next_micro_state <= idle;
-						WHEN "011" =>      -- Transfer to coprocessor
-							next_micro_state <= cp_xfer_to;
-						WHEN "100" =>      -- Transfer from coprocessor
-							next_micro_state <= cp_xfer_from;
-						WHEN OTHERS =>     -- Exceptions, supervisor check, etc.
-							trap_1111 <= '1';
-							trapmake <= '1';
-					END CASE;
-
-				WHEN cp_xfer_to =>
-					-- Write operand data to Operand CIR
-					set_cpaddr <= '1';
-					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
-					setstate <= "11";      -- bus write
-					datatype <= "01";      -- word
-					IF cp_xfer_cnt = "000" THEN
-						next_micro_state <= cp_read_resp;
+					IF data_in(12) = '0' AND data_in(11 downto 8) = "1001" THEN
+						-- Null Primary: CA distinguishes busy vs done.
+						IF data_in(15) = '1' THEN
+							next_micro_state <= cp_read_resp;   -- BUSY, come again
+						ELSE
+							next_micro_state <= idle;           -- NULL, done
+						END IF;
+					ELSIF data_in(12) = '1' THEN
+						-- Transfer Single Operand primary. Direction in bit 13.
+						-- CPU→FPU: latch operand source register into cp_xfer_data,
+						-- then write high word, then low word.
+						-- FPU→CPU: read high word, then low word, then write to Dn.
+						-- Each per-word state is one clean bus access; no cnt
+						-- looping (which had mid-cycle muxin update problems).
+						IF data_in(13) = '0' THEN
+							next_micro_state <= cp_xfer_to_load;
+						ELSE
+							next_micro_state <= cp_xfer_from_hi;
+						END IF;
 					ELSE
-						next_micro_state <= cp_xfer_to;
+						-- Exceptions, supervisor check, transfer-multiple, etc.
+						-- Not implemented; raise F-line trap.
+						trap_1111 <= '1';
+						trapmake <= '1';
 					END IF;
 
-				WHEN cp_xfer_from =>
-					-- Read operand data from Operand CIR
+				-- ====================================================
+				-- FPU operand transfer (FMOVE.L Dn↔FPn only).
+				--
+				-- Three-state pipeline accounts for the 1-cycle lag between
+				-- setstate and state: each "setup" microstate's setstate
+				-- becomes the bus state during the NEXT microstate, where
+				-- the bus access actually happens. So microstate N owns the
+				-- muxin / capture logic for the bus access that physically
+				-- runs during microstate N (driven by setstate from N-1).
+				-- ====================================================
+
+				WHEN cp_xfer_to_load =>
+					-- Latch reg_QB → cp_xfer_data (rf_source_addr override
+					-- in set_source_addr process already settled reg_QB to
+					-- regfile[opcode(2:0)]). Also set setstate=11 so the
+					-- NEXT cycle (cp_xfer_to_hi) starts the bus write.
 					set_cpaddr <= '1';
-					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
-					setstate <= "10";      -- bus read
-					datatype <= "01";      -- word
-					IF cp_xfer_cnt = "000" THEN
-						next_micro_state <= cp_read_resp;
-					ELSE
-						next_micro_state <= cp_xfer_from;
-					END IF;
+					cp_cir_reg <= "01000";
+					setstate <= "11";
+					datatype <= "01";
+					next_micro_state <= cp_xfer_to_hi;
+
+				WHEN cp_xfer_to_hi =>
+					-- state=11 this cycle (from cp_xfer_to_load). Bus runs
+					-- the HIGH word write. muxin=cp_xfer_data[31:16] (set
+					-- combinationally elsewhere). Keep setstate=11 so the
+					-- bus stays active for the LOW word next cycle.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000";
+					setstate <= "11";
+					datatype <= "01";
+					next_micro_state <= cp_xfer_to_lo;
+
+				WHEN cp_xfer_to_lo =>
+					-- state=11 (continued). Bus runs LOW word write.
+					-- muxin=cp_xfer_data[15:0]. setstate=01 to release the
+					-- bus after this access — prevents a spurious third
+					-- write during the cp_read_resp transition.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000";
+					setstate <= "01";
+					datatype <= "01";
+					next_micro_state <= cp_read_resp;
+
+				WHEN cp_xfer_from_hi =>
+					-- Setup cycle: setstate=10 so NEXT cycle starts the bus
+					-- read. No bus access yet (state still 01 from cp_idle_resp).
+					-- set(update_ld) chain begins so last_data_read captures
+					-- each successive read.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000";
+					setstate <= "10";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_from_lo;
+
+				WHEN cp_xfer_from_lo =>
+					-- state=10 this cycle. Bus runs HIGH word READ.
+					-- At end of bus access (clkena fires), last_data_read
+					-- gets the HIGH word. The HIGH-word capture into
+					-- cp_xfer_data(31:16) happens in cp_xfer_from_store
+					-- (next state), one cycle later when last_data_read
+					-- has settled.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000";
+					setstate <= "10";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_from_store;
+
+				WHEN cp_xfer_from_store =>
+					-- state=10 (continued). Bus runs LOW word READ.
+					-- This cycle captures the HIGH word (from the prior
+					-- cp_xfer_from_lo access) out of last_data_read.
+					-- setstate=01 to release the bus after this access.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "01000";
+					setstate <= "01";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_from_done;
+
+				WHEN cp_xfer_from_done =>
+					-- state=01 (idle). LOW word from prior cp_xfer_from_store
+					-- access just landed in last_data_read; capture it and
+					-- commit the assembled 32-bit value to regfile[opcode(2:0)]
+					-- via cp_dn_writeback.
+					setstate <= "01";
+					cp_dn_writeback <= '1';
+					next_micro_state <= cp_read_resp;
+
+				WHEN cp_xfer_to | cp_xfer_from =>
+					-- Legacy/vestigial states from earlier cnt-loop design.
+					-- Never entered by current dispatch; safe fallback.
+					setstate <= "01";
+					next_micro_state <= cp_read_resp;
 
 				-- cpSAVE states: read format from FPU, write frame to memory -(An)
 				WHEN cp_save_rd_fmt =>
@@ -4544,46 +4679,61 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					next_micro_state <= cp_cond_eval;
 
 				WHEN cp_cond_eval =>
-					-- Decode response and act on condition result
+					-- Decode response for FScc/FBcc/FDBcc/FTRAPcc.
+					-- The mc68881_top stores the condition result in
+					-- cir_response_reg with bit 0 = cond_true (other bits 0).
+					-- The pending flag clears on the FIRST CPU read, so:
+					--   - BUSY (bit 15 = 1, CA=1 with Null primary): not
+					--     yet computed — re-read.
+					--   - Exception primary (bit 15 = 1 with bit 14 or 13
+					--     set, bit 12 = 0): real trap.
+					--   - Anything else (including the special
+					--     condition-result word 0x0001 or 0x0000): result
+					--     ready; bit 0 = cond_true.
 					setstate <= "01";      -- idle
-					CASE data_in(15 downto 13) IS
-						WHEN "000" =>      -- Busy: re-read
-							next_micro_state <= cp_cond_resp;
-						WHEN "001" =>      -- Null: condition result in bit 0
-							next_micro_state <= idle;
-							IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
-								-- FBcc: branch if condition true
-								IF data_in(0) = '1' THEN
-									cp_do_branch <= '1';
-								END IF;
-							ELSIF exe_opcode(8 downto 6) = "001" THEN
-								IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
-									-- FTRAPcc: trap if condition true
-									IF data_in(0) = '1' THEN
-										trap_trapv <= '1';
-										trapmake <= '1';
-									END IF;
-								ELSIF exe_opcode(5 downto 3) = "001" THEN
-									-- FDBcc: if condition false, decrement Dn and maybe branch
-									IF data_in(0) = '0' THEN
-										data_is_source <= '1';
-										set(OP2out_one) <= '1';
-										next_micro_state <= cp_fdbcc_dec;
-									END IF;
-									-- Condition true: done (no decrement, no branch)
-								ELSIF exe_opcode(5 downto 3) = "000" THEN
-									-- FScc data register
-									next_micro_state <= cp_fscc_wr;
-								ELSE
-									-- FScc memory: write result byte to EA
-									next_micro_state <= cp_fscc_wr_mem;
-								END IF;
+					IF data_in(15) = '1' AND data_in(12) = '0'
+					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
+						-- Pre/mid/post-instruction exception primary
+						-- (bits 15-13 = 101/110/111 with bit 12 = 0).
+						trap_1111 <= '1';
+						trapmake <= '1';
+					ELSIF data_in(15) = '1' AND data_in(12) = '0'
+					   AND data_in(11 downto 8) = "1001" THEN
+						-- BUSY (Null primary, CA=1): FPU still computing,
+						-- re-read.
+						next_micro_state <= cp_cond_resp;
+					ELSE
+						-- Result ready; bit 0 = cond_true.
+						next_micro_state <= idle;
+						IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
+							-- FBcc: branch if condition true
+							IF data_in(0) = '1' THEN
+								cp_do_branch <= '1';
 							END IF;
-						WHEN OTHERS =>
-							-- Exception response
-							trap_1111 <= '1';
-							trapmake <= '1';
-					END CASE;
+						ELSIF exe_opcode(8 downto 6) = "001" THEN
+							IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
+								-- FTRAPcc: trap if condition true
+								IF data_in(0) = '1' THEN
+									trap_trapv <= '1';
+									trapmake <= '1';
+								END IF;
+							ELSIF exe_opcode(5 downto 3) = "001" THEN
+								-- FDBcc: if condition false, decrement Dn and maybe branch
+								IF data_in(0) = '0' THEN
+									data_is_source <= '1';
+									set(OP2out_one) <= '1';
+									next_micro_state <= cp_fdbcc_dec;
+								END IF;
+								-- Condition true: done (no decrement, no branch)
+							ELSIF exe_opcode(5 downto 3) = "000" THEN
+								-- FScc data register
+								next_micro_state <= cp_fscc_wr;
+							ELSE
+								-- FScc memory: write result byte to EA
+								next_micro_state <= cp_fscc_wr_mem;
+							END IF;
+						END IF;
+					END IF;
 
 				WHEN cp_cond_skip =>
 					-- Skip operand word(s) for FTRAPcc before CIR dialog
