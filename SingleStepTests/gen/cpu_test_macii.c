@@ -44,6 +44,20 @@ typedef struct {
 static Snapshot init_snap;
 static Snapshot final_snap;
 
+/* Architectural PC at init/final dump time. Computed in build_program()
+ * by recording the byte offsets in prog_buffer where execution arrives
+ * at the test (init_pc) and at the final dump (final_pc). These are
+ * absolute Mac-side addresses, NOT comparable directly to MAME's pc
+ * field (different RAM layout), but the DELTA (final.pc - initial.pc)
+ * is invariant across platforms and equals test_len. cpu_diff_corpus.py
+ * should compare deltas.
+ *
+ * SR and USP are intentionally omitted: MOVE SR / MOVE USP are 020+
+ * privileged and would trap from a user-mode app. MAME and verilator
+ * (both run in supervisor mode) remain the SR/USP oracles. */
+static u32 init_pc;
+static u32 final_pc;
+
 /* Scratch RAM region used as the target of all memory-touching tests.
  * Address provided to the test program via A6 (set in the harness preamble). */
 static u8 scratch_ram[CPU_SCRATCH_LEN];
@@ -143,9 +157,17 @@ static u8 *build_program(const CpuTestSpec *t)
 
     p = emit_state_dump(p, &init_snap, 1);
 
+    /* Architectural PC values: address of first byte of the test
+     * (init_pc, what PC reads as the test instruction begins to
+     * execute) and address of first byte of the final dump (final_pc,
+     * what PC reads when the test instruction has committed). */
+    init_pc = (u32) p;
+
     /* 4) Test instruction(s) */
     memcpy(p, t->test, t->test_len);
     p += t->test_len;
+
+    final_pc = (u32) p;
 
     p = emit_state_dump(p, &final_snap, 0);
 
@@ -180,14 +202,15 @@ static void invoke_program(u8 *entry)
  * Output: JSON Lines, schema matches /tmp/cpu_corpus.json:
  *   {"name":..., "initial":{d[],a[],ccr,ram[]}, "final":{...}}
  * -------------------------------------------------------------------- */
-static void write_snap_obj(FILE *f, Snapshot *s)
+static void write_snap_obj(FILE *f, Snapshot *s, u32 pc)
 {
     int i;
     fprintf(f, "{\"d\":[");
     for (i = 0; i < 8; i++) fprintf(f, "%s%lu", i ? "," : "", s->d[i]);
     fprintf(f, "],\"a\":[");
     for (i = 0; i < 8; i++) fprintf(f, "%s%lu", i ? "," : "", s->a[i]);
-    fprintf(f, "],\"ccr\":%u,\"ram\":[", (unsigned)s->ccr);
+    fprintf(f, "],\"ccr\":%u,\"pc\":%lu,\"ram\":[",
+            (unsigned)s->ccr, (unsigned long)pc);
     for (i = 0; i < CPU_SCRATCH_LEN; i++)
         fprintf(f, "%s%u", i ? "," : "", (unsigned)s->ram[i]);
     fprintf(f, "]}");
@@ -226,6 +249,8 @@ int main(void)
         memset(&init_snap,  0, sizeof(init_snap));
         memset(&final_snap, 0, sizeof(final_snap));
         memset(scratch_ram, 0, sizeof(scratch_ram));
+        init_pc = 0;
+        final_pc = 0;
         if (t->ram_init_present)
             memcpy(scratch_ram, t->ram_init, CPU_SCRATCH_LEN);
 
@@ -247,8 +272,8 @@ int main(void)
 
         fputc('{', f);
         fprintf(f, "\"name\":"); write_json_name(f, t->name);
-        fprintf(f, ",\"initial\":"); write_snap_obj(f, &init_snap);
-        fprintf(f, ",\"final\":");   write_snap_obj(f, &final_snap);
+        fprintf(f, ",\"initial\":"); write_snap_obj(f, &init_snap,  init_pc);
+        fprintf(f, ",\"final\":");   write_snap_obj(f, &final_snap, final_pc);
         fputs("}\n", f);
         fflush(f);
     }
