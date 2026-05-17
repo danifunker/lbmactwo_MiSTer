@@ -13,16 +13,28 @@ V_DEFINE = +define+SIMULATION=1 \
            -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT \
            -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST \
            -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY \
-           -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER
+           -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER \
+           -Wno-PROCASSWIRE -Wno-BLKANDNBLK -Wno-MULTIDRIVEN
 
-# TG68K from ghdl-generated .v + SV pkg, plus fpu_lite Verilog FPU.
+# FPU selector — default to the real mc68881 lite variant (for full FPU
+# functional testing). Set USE_FPU_STUB=1 to instantiate the CIR no-op
+# stub instead (validates the F-line-trap fall-through path).
+USE_FPU_STUB ?= 0
+ifeq ($(USE_FPU_STUB),1)
+  V_DEFINE += +define+USE_FPU_STUB
+  FPU_V_FILE = $(RTL)/mc68881/sim_fpu_cir_stub.v
+else
+  FPU_V_FILE = $(RTL)/mc68881/fpu_lite/mc68881_top.v
+endif
+
+# TG68K from ghdl-generated .v + SV pkg, plus selected FPU Verilog.
 V_SRC = \
   cpu_fpu_tests.v \
   $(RTL)/tg68k/TG68K_Pack.sv \
   $(RTL)/tg68k/TG68K_ALU.v \
   $(RTL)/tg68k/TG68KdotC_Kernel.v \
   $(RTL)/tg68k/tg68k.v \
-  $(RTL)/mc68881/fpu_lite/mc68881_top.v
+  $(FPU_V_FILE)
 
 C_SRC = sim_main.cpp \
         $(SIM_INC)/m68kdasm.c \
