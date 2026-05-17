@@ -258,6 +258,7 @@ int main(void)
             const char *skip_reason = NULL;
             if (t->privileged)        skip_reason = "  [SKIPPED: privileged]";
             else if (t->raises_exception) skip_reason = "  [SKIPPED: raises exception]";
+            else if (t->hw_unsafe)    skip_reason = "  [SKIPPED: hw-unsafe]";
             printf("[%d/%u] %s%s\n", i + 1, CPU_N_TESTS, t->name,
                    skip_reason ? skip_reason : "");
 

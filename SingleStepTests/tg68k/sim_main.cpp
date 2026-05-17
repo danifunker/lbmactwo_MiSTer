@@ -237,9 +237,13 @@ int main(int argc, char** argv, char** env) {
             ++skipped; continue;
         }
         const CpuTestSpec* spec = it->second;
-        if (spec->privileged) {
-            // MOVES etc. -- corpus carries zeroed snaps; skip on TG68K
-            // user-mode runs to match the Mac bench's behavior.
+        // privileged tests can run here: the verilator harness boots TG68K
+        // with reset vectors planted, so the kernel starts in supervisor
+        // mode (S=1, IPL=7). MOVES/MOVE-SR/MOVEC all execute fine.
+        // hw_unsafe tests would lock the bench (STOP halts the CPU
+        // entirely; RESET asserts /RESET which we don't observe; RTE
+        // jumps to an OS-side stack frame we don't have).
+        if (spec->hw_unsafe) {
             ++skipped; continue;
         }
 
