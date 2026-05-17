@@ -141,38 +141,14 @@ module sdram_arbiter (
     assign sdram_we   = grant_video ? vram_wr : mac_we;
     assign sdram_oe   = grant_video ? vram_rd : mac_oe;
 
-    // ------------------------------------------------------------------------
-    // Latched mac_dout
-    //
-    // Previously mac_dout was a bare wire to sdram_dout.  That meant a Mac
-    // CPU read could land on sdram_dout while video had the SDRAM committed
-    // from the previous T0 -- and Mac would latch the video's data instead
-    // of its own.  The hardware symptom: Mac's ROM memory test verifies
-    // writes by reading back, sees a wrong value, and loops forever in a
-    // diagnostic pattern (the "moving wavy" colors the user is seeing).
-    //
-    // Hold mac_dout stable whenever a video transaction is in flight.  The
-    // Mac CPU's bus cycle is multi-cycle (DTACK-paced); by the time Mac
-    // would sample mac_dout for a read, either:
-    //   (a) Mac's request was issued before video started, SDRAM committed
-    //       Mac at that T0, sdram_dout has Mac's data, mac_dout_reg has it.
-    //   (b) Mac's request came in mid-video.  video_in_flight is high.
-    //       mac_dout_reg holds Mac's previously-latched value (a stale read
-    //       from before video began).  Mac's actual bus cycle continues
-    //       until SDRAM commits Mac at the *next* T0; that happens after
-    //       video releases, video_in_flight drops, mac_dout_reg resumes
-    //       tracking sdram_dout, and Mac's bus cycle now sees correct data.
-    // ------------------------------------------------------------------------
-    reg video_in_flight;
-    reg [15:0] mac_dout_reg;
-    always @(posedge clk) begin
-        if (reset) begin
-            mac_dout_reg <= 16'd0;
-        end else if (!video_in_flight) begin
-            mac_dout_reg <= sdram_dout;
-        end
-    end
-    assign mac_dout = mac_dout_reg;
+    // Mac sees the SDRAM bus directly.  Latching mac_dout sounded right but
+    // gave Mac STALE data during video transactions (the held value is from
+    // before video started, not Mac's actual current request), which broke
+    // Mac boot harder than the race did.  Mac's bus protocol is too tightly
+    // coupled to immediate sdram_dout availability for a held-value scheme
+    // to work without also stalling the CPU via DTACK -- that's a bigger
+    // change than we want to attempt here.
+    assign mac_dout = sdram_dout;
 
     // Video reads the latched (clean-transaction-only) word
     reg [15:0] vram_din_reg;
@@ -215,21 +191,18 @@ module sdram_arbiter (
             vram_ready_latch <= 1'b0;
             video_clean      <= 1'b0;
             vram_din_reg     <= 16'd0;
-            video_in_flight  <= 1'b0;
         end else begin
             case (vram_state)
                 VRAM_IDLE: begin
                     vram_ready_latch <= 1'b0;
-                    video_in_flight  <= 1'b0;
                     // Start whenever Mac is idle.  No clk_8 alignment --
                     // SDRAM naturally waits for its next T0 boundary if we
                     // assert mid-cycle, and aligning on clk8_en_p was
                     // colliding with Mac's bus-cycle alignment.
                     if (grant_video) begin
-                        video_clean     <= 1'b1;
-                        video_in_flight <= 1'b1;
-                        vram_state      <= VRAM_WAIT;
-                        vram_wait_cnt   <= WAIT_COUNT;
+                        video_clean   <= 1'b1;
+                        vram_state    <= VRAM_WAIT;
+                        vram_wait_cnt <= WAIT_COUNT;
                     end
                 end
 
@@ -248,15 +221,11 @@ module sdram_arbiter (
                             vram_din_reg     <= sdram_dout;
                             vram_ready_latch <= 1'b1;
                             vram_state       <= VRAM_READY;
-                            // Drop in_flight here so mac_dout_reg starts
-                            // tracking sdram_dout again on the next cycle.
-                            video_in_flight  <= 1'b0;
                         end else begin
                             // Preempted: drop this transaction silently.
                             // Returning to IDLE without ready makes the
                             // video card hold vram_rd and retry next cycle.
-                            vram_state      <= VRAM_IDLE;
-                            video_in_flight <= 1'b0;
+                            vram_state <= VRAM_IDLE;
                         end
                     end
                 end
