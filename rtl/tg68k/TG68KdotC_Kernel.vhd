@@ -854,14 +854,16 @@ PROCESS (clk)
 				END IF;
 				-- FBcc branch target computation (save before CIR accesses corrupt tmp_TG68_PC)
 				IF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "010" THEN
-					-- FBcc.W: target = PC + sign_extend(16-bit displacement)
+					-- FBcc.W: target = address_of_disp_word + sign_extend(disp).
+					-- At cp_write_opw, tmp_TG68_PC already advanced past opword
+					-- to the disp word address, so add sndOPC directly.
 					cp_branch_target <= tmp_TG68_PC +
 						(sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
 						 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
 						 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
 						 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC);
 				ELSIF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "011" THEN
-					-- FBcc.L: target = PC + 32-bit displacement
+					-- FBcc.L: target = addr_of_disp_word + 32-bit disp.
 					cp_branch_target <= tmp_TG68_PC + last_data_read;
 				ELSIF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "001" AND exe_opcode(5 downto 3) = "001" THEN
 					-- FDBcc: target = (PC + 2) + sign_extend(16-bit displacement)
@@ -4706,10 +4708,13 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						-- Result ready; bit 0 = cond_true.
 						next_micro_state <= idle;
 						IF exe_opcode(8 downto 6) = "010" OR exe_opcode(8 downto 6) = "011" THEN
-							-- FBcc: branch if condition true
-							IF data_in(0) = '1' THEN
-								cp_do_branch <= '1';
-							END IF;
+							-- FBcc: cp_cond_true is registered from data_in(0)
+							-- at the rising edge ending this state. cp_do_branch
+							-- is combinational; the PC-update consumer would
+							-- sample it stale on this same edge. Defer one cycle
+							-- so cp_do_branch can derive from the registered
+							-- cp_cond_true.
+							next_micro_state <= cp_branch_apply;
 						ELSIF exe_opcode(8 downto 6) = "001" THEN
 							IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
 								-- FTRAPcc: trap if condition true
@@ -4746,6 +4751,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					setstate <= "01";      -- idle
 					cp_fscc_writeback <= '1';
 					next_micro_state <= idle;
+
+				WHEN cp_branch_apply =>
+					-- FBcc: cp_cond_true is stable (registered at end of
+					-- cp_cond_eval). Use the same prefetch-flush sequence as
+					-- bra1/dbcc1: TG68_PC_brw + skipFetch + nop state. The PC
+					-- mux gives cp_do_branch priority so PC = cp_branch_target.
+					IF cp_cond_true = '1' THEN
+						cp_do_branch <= '1';
+						TG68_PC_brw <= '1';
+						skipFetch <= '1';
+						next_micro_state <= nop;
+					ELSE
+						setstate <= "01";
+						next_micro_state <= idle;
+					END IF;
 
 				WHEN cp_fscc_wr_mem =>
 					-- Write FScc result byte ($FF or $00) to memory EA
