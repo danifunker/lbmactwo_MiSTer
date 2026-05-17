@@ -175,8 +175,12 @@ end
 --                 not touch it.
 --   test        : the bytes under test
 --   ram_init    : optional 64-byte table preloaded into scratch RAM
---   privileged  : optional bool; if true the Mac bench should skip exec
---                 (MOVES, etc. trap in user mode).
+--   privileged  : optional bool; Mac bench should skip exec
+--                 (MOVES/MOVE-SR/etc. trap in user mode).
+--   hw_unsafe   : optional bool; even with supervisor available, do NOT
+--                 run on real hardware (STOP hangs CPU; RTE depends on
+--                 a stack frame the OS may not let us forge; RESET
+--                 reboots the machine). Verilator + MAME still run them.
 -- ======================================================================
 
 local tests = {}
@@ -598,15 +602,276 @@ do
     }
 end
 
--- ---------- MOVES (privileged; supervisor only; Mac bench will skip) ---
--- MOVES.L D0,(A1)  A1=scratch
--- $0E80 | <ea>=0x11 (mode=2,reg=1) -> $0E91
--- ext: 15-12 = reg (D0=0), 11 = R=0 (Rg->Mem), 10..0 = 0 -> $0800
+-- ======================================================================
+-- PRIVILEGED INSTRUCTIONS
+--
+-- These run in MAME (forced supervisor via SR=$2700 in start_test) and on
+-- the verilator bench (reset state = supervisor). The Mac OS bench skips
+-- them because the Mac application is user-mode -- any privileged opcode
+-- would trap to vec 8 (privilege violation) on entry.
+--
+-- Bits being read/written:
+--   SR high byte: T1 T0 S M 0 I2 I1 I0   (T1=trace, S=supervisor, M=mst,
+--                                          I=IPL mask)
+--   SR low byte (CCR): 0 0 0 X N Z V C
+--
+-- Setup invariant: every test MUST leave SR's S bit (bit 13 = 0x2000) set,
+-- otherwise the dump epilogue's MOVE SR,(abs.L) would itself trap and we'd
+-- never capture state. Test immediates / masks below are chosen to keep
+-- S=1 in the result.
+-- ======================================================================
+
+-- ---------- MOVES.{B,W,L} both directions, both EA modes -------------
+-- MOVES opword: $0E00 | (size<<6) | <ea>; size: 0=B, 1=W, 2=L.
+-- ext word:     reg<<12 | R<<11      (R=1: regfile -> mem; R=0: mem -> regfile)
+-- Wait: PRM 4-117 says R=1 means register-to-memory.  Double-check:
+--   "If R = 1, the move is from the specified general register to the
+--    destination memory location"   -- so R=1 is reg->mem.
+-- The pre-existing test had R=0 with ext $0800; that was BACKWARDS in
+-- the comment but the bit pattern is what MAME executed. Keep the same
+-- pattern (ext $0800 = R=0 = the kernel's interpretation of reg->mem in
+-- this codebase) and replicate across sizes/directions.
+do
+  -- (existing test, kept for back-compat with the corpus's name)
+  tests[#tests + 1] = {
+      name = "MOVES.L D0,(A1) A1=scratch (privileged)",
+      preload = concat(preload_dregs({[0] = 0xCAFEF00D}),
+                       preload_an_scratch({[1] = 0})),
+      test    = concat(bw(0x0E91), bw(0x0800)),
+      privileged = true,
+  }
+  -- MOVES.B D0,(A1)
+  tests[#tests + 1] = {
+      name = "MOVES.B D0,(A1) A1=scratch (privileged)",
+      preload = concat(preload_dregs({[0] = 0x000000A5}),
+                       preload_an_scratch({[1] = 0})),
+      test    = concat(bw(0x0E11), bw(0x0800)),
+      privileged = true,
+  }
+  -- MOVES.W D0,(A1)
+  tests[#tests + 1] = {
+      name = "MOVES.W D0,(A1) A1=scratch (privileged)",
+      preload = concat(preload_dregs({[0] = 0x0000BEEF}),
+                       preload_an_scratch({[1] = 0})),
+      test    = concat(bw(0x0E51), bw(0x0800)),
+      privileged = true,
+  }
+  -- MOVES.B (A1),D0  (mem-to-reg; ext = reg<<12 | R=1<<11 = 0x0800 with R bit)
+  -- ext for R=1 = 0x0000 | (Dn<<12) = D0=0 -> 0x0000. Wait that's R=0.
+  -- Hmm. PRM 4-117 ext word layout:
+  --   bit 15 = A/D (0=Dn, 1=An), bits 14-12 = reg num, bit 11 = R
+  -- For "MOVES (A1),D0" we want: A/D=0 (Dn), reg=0, R=0 (mem->reg) -> 0x0000
+  -- But the pre-existing test that we just kept reads as reg->mem and used
+  -- 0x0800 ... that's R=1? Confusing.
+  -- Safest path: use MAME's behavior as ground truth (regenerate corpus
+  -- and trust the captured snapshots). Don't try to second-guess the
+  -- direction from the ext bit here; just generate both ext-bit patterns
+  -- and let the corpus name tell us which direction MAME executed.
+  -- Mem-to-reg variant (ext = 0x0000, opposite of the existing test):
+  ram_init = {}; for i = 1, SCRATCH_LEN do ram_init[i] = 0 end
+  ram_init[1] = 0xDE; ram_init[2] = 0xAD; ram_init[3] = 0xBE; ram_init[4] = 0xEF
+  tests[#tests + 1] = {
+      name = "MOVES.L (A1),D0 A1=scratch  ext=$0000 (privileged)",
+      preload = concat(preload_dregs({[0] = 0x11111111}),
+                       preload_an_scratch({[1] = 0})),
+      test    = concat(bw(0x0E91), bw(0x0000)),
+      ram_init = ram_init,
+      privileged = true,
+  }
+end
+
+-- ---------- MOVE from SR ----------------------------------------------
+-- 68020+ made MOVE-from-SR privileged (it was unprivileged on the
+-- original 68000). Opword: $40C0 | <ea_dst>. .W only.
 tests[#tests + 1] = {
-    name = "MOVES.L D0,(A1) A1=scratch (privileged)",
-    preload = concat(preload_dregs({[0] = 0xCAFEF00D}),
-                     preload_an_scratch({[1] = 0})),
-    test    = concat(bw(0x0E91), bw(0x0800)),
+    name = "MOVE.W SR,D0 (privileged)",
+    -- Pre-zero D0 so the high word read is observable as residue from preload.
+    preload = preload_dregs({[0] = 0xAAAA0000}),
+    test    = bw(0x40C0),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "MOVE.W SR,(A6)  (privileged)",
+    preload = {},
+    test    = bw(0x40D6),     -- EA = (A6) = mode 2, reg 6
+    privileged = true,
+}
+
+-- ---------- MOVE to SR ------------------------------------------------
+-- $46C0 | <ea_src>. .W only. Imm = #$2700 keeps S=1 and IPL=7 (same as
+-- harness state), so the dump epilogue still works.
+tests[#tests + 1] = {
+    name = "MOVE.W D0,SR  D0.W=$2700 (privileged)",
+    preload = preload_dregs({[0] = 0x00002700}),
+    test    = bw(0x46C0),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "MOVE.W #$2700,SR (privileged)",
+    preload = {},
+    test    = concat(bw(0x46FC), bw(0x2700)),
+    privileged = true,
+}
+
+-- ---------- ANDI/ORI/EORI #imm,SR -------------------------------------
+-- Opwords: ANDI=$027C, ORI=$007C, EORI=$0A7C (the $7C source EA = SR).
+-- Mask choices preserve S=1.
+tests[#tests + 1] = {
+    name = "ANDI.W #$FFFF,SR  (privileged; no-op)",
+    preload = {},
+    test    = concat(bw(0x027C), bw(0xFFFF)),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "ANDI.W #$F8FF,SR  clear T1+M+I (privileged)",
+    -- $F8FF = keep all but T1, M, IPL bits 10..8 -- leaves S=1.
+    preload = {},
+    test    = concat(bw(0x027C), bw(0xF8FF)),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "ORI.W #$0700,SR  set IPL=7 (privileged)",
+    preload = {},
+    test    = concat(bw(0x007C), bw(0x0700)),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "ORI.W #$001F,SR  set all CCR bits (privileged)",
+    preload = {},
+    test    = concat(bw(0x007C), bw(0x001F)),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "EORI.W #$0010,SR  toggle X (privileged)",
+    preload = {},
+    test    = concat(bw(0x0A7C), bw(0x0010)),
+    privileged = true,
+}
+
+-- ---------- RTE round-trip --------------------------------------------
+-- RTE pops a stack frame; on 68020+, the frame begins with SR/PC and ends
+-- with a format/vector word selecting frame size. Format 0 = simple 4-word
+-- frame (8 bytes), which is what we build here.
+--
+-- Test program:
+--   LEA  target(PC),A0     ; A0 = address of label `target` (resumption PC)
+--   MOVE.W #$0000,-(SP)    ; push format/vector ($0 = simple frame)
+--   MOVE.L A0,-(SP)        ; push PC
+--   MOVE.W #$2700,-(SP)    ; push SR (S=1 keeps supervisor mode)
+--   RTE                    ; pops SR, PC, format word -> jumps to `target`
+-- target:                  ; this is exactly where the final dump starts
+--
+-- After RTE the stack pointer is back where it started (push 8 / pop 8).
+-- A0 is then zeroed (SUBA.L A0,A0) so the test doesn't leak a
+-- layout-dependent absolute address into A0 -- final.a[0] would otherwise
+-- be MAME's $1126 vs verilator's $1014.
+-- LEA disp = target - (LEA + 2). target is the SUBA.L:
+--   LEA opword $00..$01, ext $02..$03  (4 bytes)
+--   MOVE.W # format $04..$07           (4 bytes)
+--   MOVE.L A0   $08..$09               (2 bytes)
+--   MOVE.W # sr $0A..$0D               (4 bytes)
+--   RTE         $0E..$0F               (2 bytes)
+--   SUBA.L A0,A0 target=$10..$11       (2 bytes)
+-- disp = target - (LEA opword address + 2) = $10 - $02 = $0E
+tests[#tests + 1] = {
+    name = "RTE  simple 8-byte frame to label (privileged)",
+    preload = {},
+    test = concat(
+        bw(0x41FA), bw(0x000E),   -- LEA target(PC),A0; disp = +14
+        bw(0x3F3C), bw(0x0000),   -- MOVE.W #$0000,-(SP)   format word
+        bw(0x2F08),               -- MOVE.L A0,-(SP)       new PC
+        bw(0x3F3C), bw(0x2700),   -- MOVE.W #$2700,-(SP)   new SR
+        bw(0x4E73),               -- RTE  -> jumps to target below
+        bw(0x91C8)                -- target: SUBA.L A0,A0  (zeros A0)
+    ),
+    privileged = true,
+}
+
+-- ---------- MOVEC Rc <-> Rn -------------------------------------------
+-- MOVEC opwords:  $4E7A = MOVEC Rc,Rn ;  $4E7B = MOVEC Rn,Rc
+-- Ext word:       A/D<<15 | reg<<12 | ctrl_reg_num
+-- Control register numbers (68020):
+--   $000 SFC   $001 DFC   $002 CACR  $800 USP   $801 VBR
+--   $802 CAAR  $803 MSP   $804 ISP
+-- We test the safe ones (SFC, DFC, CACR, VBR) in read+write pairs. USP
+-- is exercised by the MOVE An,USP test below. MSP/ISP/CAAR are skipped
+-- because writes change which stack pointer the CPU uses and would
+-- corrupt the dump epilogue.
+
+-- Helper: build a MOVEC ext word.
+local function movec_ext(is_an, reg, ctrl)
+    local a_d = (is_an and 1 or 0)
+    return ((a_d & 1) << 15) | ((reg & 7) << 12) | (ctrl & 0xFFF)
+end
+
+-- MOVEC SFC,D0  (read SFC into D0)
+tests[#tests + 1] = {
+    name = "MOVEC.L SFC,D0  (privileged)",
+    preload = preload_dregs({[0] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7A), bw(movec_ext(false, 0, 0x000))),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "MOVEC.L DFC,D0  (privileged)",
+    preload = preload_dregs({[0] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7A), bw(movec_ext(false, 0, 0x001))),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "MOVEC.L VBR,D0  (privileged)",
+    preload = preload_dregs({[0] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7A), bw(movec_ext(false, 0, 0x801))),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "MOVEC.L CACR,D0 (privileged)",
+    preload = preload_dregs({[0] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7A), bw(movec_ext(false, 0, 0x002))),
+    privileged = true,
+}
+
+-- Round-trip: write SFC = 0x5, read it back into D1.
+tests[#tests + 1] = {
+    name = "MOVEC.L D0,SFC; SFC,D1  round-trip (privileged)",
+    preload = preload_dregs({[0] = 0x00000005, [1] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7B), bw(movec_ext(false, 0, 0x000)),
+                     bw(0x4E7A), bw(movec_ext(false, 1, 0x000))),
+    privileged = true,
+}
+-- Round-trip DFC.
+tests[#tests + 1] = {
+    name = "MOVEC.L D0,DFC; DFC,D1  round-trip (privileged)",
+    preload = preload_dregs({[0] = 0x00000003, [1] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7B), bw(movec_ext(false, 0, 0x001)),
+                     bw(0x4E7A), bw(movec_ext(false, 1, 0x001))),
+    privileged = true,
+}
+-- Writing CACR: only bits 0 (enable cache) and 1 (freeze) and 2 (clear)
+-- on 68020 are defined; bit 3 is BurstEn. Writing 0 disables/clears.
+-- We write 0 then read back. Should be safe.
+tests[#tests + 1] = {
+    name = "MOVEC.L D0,CACR; CACR,D1  write 0 (privileged)",
+    preload = preload_dregs({[0] = 0x00000000, [1] = 0xAAAAAAAA}),
+    test    = concat(bw(0x4E7B), bw(movec_ext(false, 0, 0x002)),
+                     bw(0x4E7A), bw(movec_ext(false, 1, 0x002))),
+    privileged = true,
+}
+
+-- ---------- MOVE An,USP / MOVE USP,An ---------------------------------
+-- Opwords: $4E60 | An (An->USP), $4E68 | An (USP->An).
+tests[#tests + 1] = {
+    name = "MOVE.L A0,USP  A0=$DEADBEEF (privileged)",
+    preload = concat(preload_an_scratch({[0] = 0})),
+    -- A0 will be SCRATCH_BASE+0; that's the USP after the test.
+    test    = bw(0x4E60),
+    privileged = true,
+}
+tests[#tests + 1] = {
+    name = "MOVE.L USP,A1  read back USP (privileged)",
+    -- A0 = scratch+0 set first, copy to USP, then read USP -> A1.
+    preload = preload_an_scratch({[0] = 0}),
+    test    = concat(bw(0x4E60),  -- MOVE A0,USP
+                     bw(0x4E69)), -- MOVE USP,A1
     privileged = true,
 }
 
@@ -4509,9 +4774,14 @@ local function emit_tests_h(path)
     f:write("    unsigned short test_len;\n")
     f:write("    unsigned char ram_init[CPU_SCRATCH_LEN];\n")
     f:write("    unsigned char ram_init_present;  /* 0 or 1 */\n")
-    f:write("    unsigned char privileged;        /* 0 or 1 -- Mac bench skips */\n")
+    f:write("    unsigned char privileged;        /* 0 or 1 -- Mac bench skips\n")
+    f:write("                                      * (instruction traps in user mode). */\n")
     f:write("    unsigned char raises_exception;  /* 0 or 1 -- Mac bench skips; TG68K + MAME run\n")
     f:write("                                      * (vector table is set up to land at the dump). */\n")
+    f:write("    unsigned char hw_unsafe;         /* 0 or 1 -- Mac bench skips even when privileged\n")
+    f:write("                                      * mode is available (would hang the CPU, reboot the\n")
+    f:write("                                      * machine, or corrupt OS state). Verilator + MAME\n")
+    f:write("                                      * still run these. */\n")
     f:write("    unsigned char ccr_mask;          /* bits to compare in CCR; 0xFF = compare all.\n")
     f:write("                                      * Clear a bit (e.g. 0xF7 = ignore N) when the PRM\n")
     f:write("                                      * declares that flag undefined for this op. */\n")
@@ -4540,12 +4810,13 @@ local function emit_tests_h(path)
         end
         local priv = t.privileged and 1 or 0
         local exc  = t.raises_exception and 1 or 0
+        local unsafe = t.hw_unsafe and 1 or 0
         local mask = t.ccr_mask or 0xFF
         f:write(string.format("    {%q,\n", t.name))
         f:write(string.format("      %s, %d,\n", pre_str, #t.preload))
         f:write(string.format("      %s, %d,\n", tst_str, #t.test))
-        f:write(string.format("      %s, %d, %d, %d, 0x%02X},\n",
-            ram_str, ram_n, priv, exc, mask))
+        f:write(string.format("      %s, %d, %d, %d, %d, 0x%02X},\n",
+            ram_str, ram_n, priv, exc, unsafe, mask))
     end
     f:write("};\n\n")
     f:write("#define CPU_N_TESTS "
@@ -4711,7 +4982,11 @@ local function tick()
             init.pc   = init_pc
             init.usp  = init_usp
             final.pc  = final_pc
-            final.usp = final_usp
+            -- Re-read USP HERE so MOVE An,USP / privileged USP writes are
+            -- captured. We're at stop_pc (after both dumps and the test);
+            -- USP can only have changed if the test wrote it, and the
+            -- dump epilogue itself doesn't touch USP.
+            final.usp = (cpu.state["USP"] and rget("USP")) or 0
             emit_entry(out_file, t.name, init, final)
             n_written = n_written + 1
             test_i = test_i + 1
