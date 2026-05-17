@@ -101,34 +101,34 @@ end
 local function emit_move_ccr_to_dn(dn) return bw(0x42C0 | (dn & 7)) end
 
 -- State dump epilogue. snap_base is platform-specific; `is_init` toggles
--- WHERE in the dump the CCR write lands.
+-- WHERE in the dump the CCR/SR writes land.
 --
 -- TWO invariants this routine must preserve:
 --   1. Must not clobber any general-purpose register (D0..D7, A0..A7).
 --      The init dump runs BEFORE the test, so clobbered values would
 --      propagate into the test instruction.
---   2. CCR is captured at the moment that matches its semantic role:
---        - INIT dump:  CCR last  -- captures the CCR the test will see,
---                                   i.e. after the dump's MOVE.L pollution.
---                                   Without this, the corpus is self-
---                                   inconsistent: init.ccr says "0" but
---                                   the test actually inherits CCR=0x04
---                                   from the dump's last MOVE.L 0,0.
---        - FINAL dump: CCR first -- captures the test's actual output CCR,
---                                   before the final dump's MOVE.L pollution.
+--   2. CCR/SR are captured at the moment that matches their semantic role:
+--        - INIT dump:  CCR/SR last  -- captures what the test will see,
+--                                      i.e. after the dump's MOVE.L pollution.
+--        - FINAL dump: CCR/SR first -- captures the test's actual output,
+--                                      before the final dump's MOVE.L
+--                                      pollution.
 --
 -- All instructions use memory-to-memory or reg-to-memory forms with no
--- temp-register intermediates. `MOVE CCR,(abs.L)` writes a 16-bit word:
--- byte snap+0x40 = 0x00 (zero-extended high), byte snap+0x41 = CCR.
+-- temp-register intermediates.
+--   `MOVE CCR,(abs.L)` (0x42F9) writes 16 bits: 0x40=00, 0x41=CCR.
+--   `MOVE SR,(abs.L)`  (0x40F9) writes 16 bits at +0x42 (privileged on
+--                                68010+; we're always in supervisor mode).
 local function emit_state_dump(snap_base, is_init)
     local out = {}
     local function append(t)
         for _, b in ipairs(t) do out[#out + 1] = b end
     end
-    local function emit_ccr()
-        append(concat(bw(0x42F9), bl(snap_base + 0x40)))
+    local function emit_ccr_sr()
+        append(concat(bw(0x42F9), bl(snap_base + 0x40)))  -- MOVE CCR,(abs.L)
+        append(concat(bw(0x40F9), bl(snap_base + 0x42)))  -- MOVE SR,(abs.L)
     end
-    if not is_init then emit_ccr() end
+    if not is_init then emit_ccr_sr() end
     -- A regs
     for an = 0, 7 do
         append(emit_move_l_an_to_abs(an, snap_base + 0x20 + an * 4))
@@ -143,7 +143,7 @@ local function emit_state_dump(snap_base, is_init)
                       bl(SCRATCH_BASE + i * 4),
                       bl(snap_base + 0x44 + i * 4)))
     end
-    if is_init then emit_ccr() end
+    if is_init then emit_ccr_sr() end
     return out
 end
 
@@ -159,6 +159,9 @@ local function read_snap(base)
     end
     -- MOVE CCR,(abs.L) writes a 16-bit word; CCR byte is at offset 0x41.
     snap.ccr = read_bytes(base + 0x41, 1)[1]
+    -- MOVE SR,(abs.L) writes a 16-bit word at offset 0x42.
+    local sr_bytes = read_bytes(base + 0x42, 2)
+    snap.sr  = (sr_bytes[1] << 8) | sr_bytes[2]
     snap.ram = read_bytes(base + 0x44, SCRATCH_LEN)
     return snap
 end
@@ -4567,6 +4570,13 @@ local function snap_to_string(s)
         buf[#buf + 1] = (i == 0 and "" or ",") .. tostring(s.a[i])
     end
     buf[#buf + 1] = "],\"ccr\":" .. tostring(s.ccr & 0xFF)
+    -- Architectural state taps. pc and usp are stamped in by the
+    -- generator at compile time; sr is read from RAM via the dump
+    -- epilogue's MOVE SR,(abs.L). Always emitted so the consumer can
+    -- rely on field presence.
+    buf[#buf + 1] = ",\"pc\":"  .. tostring(s.pc  & 0xFFFFFFFF)
+    buf[#buf + 1] = ",\"sr\":"  .. tostring(s.sr  & 0xFFFF)
+    buf[#buf + 1] = ",\"usp\":" .. tostring(s.usp & 0xFFFFFFFF)
     buf[#buf + 1] = ",\"ram\":["
     for i = 1, #s.ram do
         buf[#buf + 1] = (i == 1 and "" or ",") .. tostring(s.ram[i])
@@ -4594,6 +4604,13 @@ local test_i   = 1
 local stop_pc  = 0
 local out_file = nil
 local n_written = 0
+-- Stashed per-test architectural values that the dump epilogue can't
+-- capture into RAM (PC can't be written from a register; USP is just
+-- whatever MAME initialized it to). Computed in start_test().
+local init_pc   = 0
+local init_usp  = 0
+local final_pc  = 0
+local final_usp = 0
 
 local function start_test(t)
     for i = 0, SNAP_BYTES - 1 do
@@ -4616,7 +4633,13 @@ local function start_test(t)
     append(emit_move_w_imm_to_ccr(0))
     -- 3) Per-test preload (D regs, optional A regs via LEA-from-A6, CCR overrides).
     append(t.preload)
+    -- Address of the test instruction = end of init_dump = where execution
+    -- arrives when the init dump epilogue finishes. By design, all branch
+    -- tests in this corpus converge on `final_dump_pc` regardless of branch
+    -- outcome (Bcc layouts use BRA to merge taken/not-taken paths).
+    local init_dump_start_off = #out
     append(emit_state_dump(INIT_DUMP, true))
+    local test_start_off = #out
     local final_dump_off = #out + #t.test
     append(t.test)
     append(emit_state_dump(FINAL_DUMP, false))
@@ -4624,6 +4647,8 @@ local function start_test(t)
     append(concat(bw(0x4EF9), bl(jmp_pc)))   -- JMP self
     stop_pc = jmp_pc
     local final_dump_pc = PROG_BASE + final_dump_off
+    init_pc  = PROG_BASE + test_start_off
+    final_pc = final_dump_pc
 
     write_bytes(PROG_BASE, out)
 
@@ -4639,6 +4664,14 @@ local function start_test(t)
     if cpu.state["SFC"]  then rset("SFC", 0) end
     if cpu.state["DFC"]  then rset("DFC", 0) end
     if cpu.state["CACR"] then rset("CACR", 0) end
+    -- USP is never modified by any test in the current corpus (privileged
+    -- MOVE An,USP / MOVE USP,An would change it, but those are skipped on
+    -- the Mac bench and the verilator bench). Read once and apply to both
+    -- snapshots; if the register doesn't exist on this MAME build, fall
+    -- back to 0.
+    local usp_initial = (cpu.state["USP"] and rget("USP")) or 0
+    init_usp  = usp_initial
+    final_usp = usp_initial
     frames = 0
 end
 
@@ -4673,8 +4706,13 @@ local function tick()
         if pc == stop_pc then
             emu.pause()
             local t = tests[test_i]
-            emit_entry(out_file, t.name,
-                read_snap(INIT_DUMP), read_snap(FINAL_DUMP))
+            local init  = read_snap(INIT_DUMP)
+            local final = read_snap(FINAL_DUMP)
+            init.pc   = init_pc
+            init.usp  = init_usp
+            final.pc  = final_pc
+            final.usp = final_usp
+            emit_entry(out_file, t.name, init, final)
             n_written = n_written + 1
             test_i = test_i + 1
             phase = "SETUP_NEXT"

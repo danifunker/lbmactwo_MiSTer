@@ -302,14 +302,32 @@ int main(int argc, char** argv, char** env) {
             set_reg(8 + r, init["a"][r].get<uint32_t>());
         }
 
-        // Run until we observe the MOVE-CCR write to $1900 -- this proves
-        // the test instruction committed and CCR landed in RAM.
+        // Two-stage capture:
+        //   (1) First fetch at move_ccr_addr -- the test instruction has
+        //       committed enough for PC to advance. Sample PC here; the
+        //       Flags register may not have latched yet so SR is captured
+        //       at stage (2).
+        //   (2) MOVE-CCR write to $1900 -- proves CCR landed in RAM and
+        //       Flags is definitely latched. MOVE CCR doesn't modify SR,
+        //       so SR sampled here is still the test's output. USP also
+        //       sampled here for the same reason.
+        bool saw_test_done = false;
         bool saw_ccr_write = false;
+        uint32_t got_pc = 0, got_usp = 0;
+        uint16_t got_sr = 0;
         for (int cyc = 0; cyc < 5000 && !saw_ccr_write; ++cyc) {
             tick();
+            if (!saw_test_done &&
+                top->busstate == BS_FETCH &&
+                (top->addr_out & 0xFFFFFFFE) == (move_ccr_addr & 0xFFFFFFFE)) {
+                saw_test_done = true;
+                got_pc = top->pc_out;
+            }
             if (top->busstate == BS_WRITE &&
                 (top->addr_out & 0xFFFFFFFE) == 0x1900) {
                 saw_ccr_write = true;
+                got_sr  = top->sr_out;
+                got_usp = top->usp_out;
                 // A few extra cycles to settle any pending writeback.
                 for (int i = 0; i < 16; ++i) tick();
             }
@@ -354,6 +372,62 @@ int main(int argc, char** argv, char** env) {
                 char buf[80];
                 snprintf(buf, sizeof(buf), "A%d: got 0x%08X, expected 0x%08X",
                          r, got, exp);
+                fail_reason = buf; pass = false;
+            }
+        }
+        // PC / SR / USP -- gated on corpus field presence so the old
+        // schema (no pc/sr/usp) still runs without false negatives.
+        //
+        // PC: the MAME oracle and this bench use different program layouts
+        // (MAME plants preload + dump epilogues; we plant minimal
+        // MOVE-CCR + test + MOVE-CCR-out + STOP). Comparing absolute PC
+        // is meaningless. The corpus is constructed so every test
+        // converges on `test_start + test_len` (Bcc layouts use BRA to
+        // merge taken/not-taken paths), so we compare deltas:
+        //   expected_pc_here = our_test_start + (corpus.final.pc - corpus.initial.pc)
+        if (pass && saw_test_done && final_.contains("pc") && init.contains("pc")) {
+            uint32_t corpus_delta =
+                final_["pc"].get<uint32_t>() - init["pc"].get<uint32_t>();
+            uint32_t exp_pc = 0x1004 + corpus_delta;  // our test_start = 0x1004
+            if (got_pc != exp_pc) {
+                char buf[96];
+                snprintf(buf, sizeof(buf),
+                         "PC: got 0x%08X, expected 0x%08X (delta %u)",
+                         got_pc, exp_pc, corpus_delta);
+                fail_reason = buf; pass = false;
+            }
+        }
+        if (pass && saw_ccr_write && final_.contains("sr")) {
+            // Two masks combined:
+            //   - IPL (bits 8-10): TG68K resets with IPL=7, MAME with
+            //     different default. Tests don't generate interrupts, so
+            //     this is a setup-convention difference.
+            //   - ccr_mask (bits 0-4): per-test PRM-undefined CCR bits
+            //     (e.g. V flag for ABCD/NBCD; N/Z for DIVS overflow).
+            //     Mirrors the byte-CCR check above so SR doesn't false-
+            //     fire on bits we already exclude.
+            uint16_t mask = uint16_t(~uint16_t(0x0700));   // strip IPL
+            mask = (mask & uint16_t(0xFFE0)) | uint16_t(spec->ccr_mask & 0x1F);
+            uint16_t got_m = got_sr & mask;
+            uint16_t exp_m =
+                uint16_t(final_["sr"].get<uint32_t>()) & mask;
+            if (got_m != exp_m) {
+                char buf[112];
+                snprintf(buf, sizeof(buf),
+                         "SR: got 0x%04X, expected 0x%04X "
+                         "(IPL+ccr_mask=0x%04X)",
+                         got_sr & uint16_t(~uint16_t(0x0700)),
+                         uint16_t(final_["sr"].get<uint32_t>()) & uint16_t(~uint16_t(0x0700)),
+                         mask);
+                fail_reason = buf; pass = false;
+            }
+        }
+        if (pass && saw_test_done && final_.contains("usp")) {
+            uint32_t exp_usp = final_["usp"].get<uint32_t>();
+            if (got_usp != exp_usp) {
+                char buf[80];
+                snprintf(buf, sizeof(buf),
+                         "USP: got 0x%08X, expected 0x%08X", got_usp, exp_usp);
                 fail_reason = buf; pass = false;
             }
         }

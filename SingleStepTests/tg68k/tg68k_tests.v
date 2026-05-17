@@ -22,8 +22,28 @@ module tg68k_tests
    output        nLDS,
    output        longword,
    output [2:0]  fc,
-   output [31:0] vbr_out
+   output [31:0] vbr_out,
+   // Verification taps -- read by the C++ harness at the post-test
+   // capture moment so we can compare architectural PC/SR/USP against
+   // the MAME-derived corpus. Not used for normal bus operation.
+   //   pc_out  : kernel's TG68_PC. Runs one prefetch (typically 4 bytes)
+   //             AHEAD of the architectural post-instruction PC.
+   //   sr_out  : full 16-bit SR = {FlagsSR, Flags}. Bits 8-10 (IPL) are
+   //             setup-dependent and should be masked off when comparing.
+   //   usp_out : User Stack Pointer. Stable unless test executes
+   //             MOVE An,USP / MOVE USP,An (privileged).
+   output [31:0] pc_out,
+   output [15:0] sr_out,
+   output [31:0] usp_out
    );
+
+   // Hierarchical taps into the ghdl-generated kernel. These wires are
+   // declared at the top of the TG68KdotC_Kernel module body; reading
+   // them from here forces verilator to preserve them through dead-code
+   // elimination.
+   assign pc_out  = cpu.tg68_pc;
+   assign sr_out  = {cpu.flagssr, cpu.flags};
+   assign usp_out = cpu.usp;
 
    TG68KdotC_Kernel cpu
      (
