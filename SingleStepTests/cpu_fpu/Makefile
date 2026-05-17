@@ -13,7 +13,8 @@ V_DEFINE = +define+SIMULATION=1 \
            -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT \
            -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST \
            -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY \
-           -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER
+           -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER \
+           -Wno-PROCASSWIRE -Wno-BLKANDNBLK -Wno-MULTIDRIVEN
 
 # TG68K from ghdl-generated .v + SV pkg, plus fpu_lite Verilog FPU.
 V_SRC = \
@@ -22,7 +23,7 @@ V_SRC = \
   $(RTL)/tg68k/TG68K_ALU.v \
   $(RTL)/tg68k/TG68KdotC_Kernel.v \
   $(RTL)/tg68k/tg68k.v \
-  $(RTL)/mc68881/fpu_lite/mc68881_top.v
+  $(RTL)/mc68881/full/mc68881_top.v
 
 C_SRC = sim_main.cpp \
         $(SIM_INC)/m68kdasm.c \

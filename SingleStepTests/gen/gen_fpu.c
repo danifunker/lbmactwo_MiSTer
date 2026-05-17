@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 /* ---------- Tiny seeded RNG (xorshift32) ----------------------------- */
 static uint32_t g_rng = 0xBEEFC0DEu;
@@ -56,10 +57,17 @@ static int8_t r_moveq_lim(int limit) {
 #define OPMODE_FMUL   0x23
 #define OPMODE_FDIV   0x20
 #define OPMODE_FSQRT  0x04
-#define OPMODE_FNEG   0x1A
-#define OPMODE_FABS   0x18
-#define OPMODE_FINT   0x01
-#define OPMODE_FINTRZ 0x03
+#define OPMODE_FNEG    0x1A
+#define OPMODE_FABS    0x18
+#define OPMODE_FINT    0x01
+#define OPMODE_FINTRZ  0x03
+/* Additional ops enabled by FULL (non-lite) FPU build. */
+#define OPMODE_FMOD    0x21
+#define OPMODE_FREM    0x25
+#define OPMODE_FSGLDIV 0x24
+#define OPMODE_FSGLMUL 0x27
+#define OPMODE_FGETEXP 0x1E
+#define OPMODE_FGETMAN 0x1F
 
 /* ext for monadic op (FNEG/FABS/...): src and dst both = fp, opmode. */
 static uint16_t ext_monadic_fp(int fp, uint8_t opmode) {
@@ -432,44 +440,123 @@ static int fintrz_compute(int a)      { return a; }    /* truncate toward zero, 
 static int fadd_compute(int a, int b) { return a + b; }
 static int fsub_compute(int a, int b) { return a - b; }  /* FSUB FP1,FP0 = FP0 - FP1 */
 static int fmul_compute(int a, int b) { return a * b; }
+/* FMOD: truncated-toward-zero IEEE modulo. For ints a,b with b != 0:
+ *   FMOD(a,b) = a - trunc(a/b) * b
+ * which equals C's a % b semantics. */
+static int fmod_compute(int a, int b) { return a % b; }
+/* FREM: rounded-to-nearest-even IEEE remainder. Use C99 remainder()
+ * which implements exactly the IEEE 754 semantics. */
+static int frem_compute(int a, int b) {
+    double r = remainder((double)a, (double)b);
+    /* remainder() returns the exact mathematical result, which for int
+     * inputs is always an integer. Cast cleanly. */
+    return (int)r;
+}
+/* FSGLDIV / FSGLMUL — single-precision; exact for integer in/out. */
+static int fsgldiv_compute(int a, int b) { return a / b; }
+static int fsglmul_compute(int a, int b) { return a * b; }
+/* FGETEXP: extract unbiased binary exponent. For pos integer a > 0:
+ *   FGETEXP(a) = floor(log2(a)). FGETEXP(0) = 0 by IEEE definition. */
+static int fgetexp_compute(int a) {
+    if (a == 0) return 0;
+    int v = a < 0 ? -a : a;
+    int e = 0;
+    while (v > 1) { v >>= 1; e++; }
+    return e;
+}
+/* FGETMAN: mantissa in [1.0, 2.0) — truncates to 1 for any positive value
+ * once round-tripped through FINTRZ.L. FGETMAN(0) = 0. */
+static int fgetman_compute(int a) { return a == 0 ? 0 : (a < 0 ? -1 : 1); }
 
-/* M68881 FPcc condition selector codes (6-bit). */
-#define COND_F   0x00
-#define COND_EQ  0x01
-#define COND_NE  0x0E
-#define COND_T   0x0F
-#define COND_GT  0x12
-#define COND_GE  0x13
-#define COND_LT  0x14
-#define COND_LE  0x15
+/* M68881 FPcc condition selector codes (6-bit). Per Table 4-8 of the
+ * MC68881 User's Manual: low 16 codes are IEEE-aware (don't raise BSUN
+ * on unordered input); high 16 codes are signaling (raise BSUN). For
+ * ordered comparisons the truth value of a paired ordered/signaling code
+ * (e.g. OGT/$02 and GT/$12) is identical. */
+#define COND_F    0x00
+#define COND_EQ   0x01
+#define COND_OGT  0x02
+#define COND_OGE  0x03
+#define COND_OLT  0x04
+#define COND_OLE  0x05
+#define COND_OGL  0x06
+#define COND_OR   0x07
+#define COND_UN   0x08
+#define COND_UEQ  0x09
+#define COND_UGT  0x0A
+#define COND_UGE  0x0B
+#define COND_ULT  0x0C
+#define COND_ULE  0x0D
+#define COND_NE   0x0E
+#define COND_T    0x0F
+#define COND_SF   0x10
+#define COND_SEQ  0x11
+#define COND_GT   0x12
+#define COND_GE   0x13
+#define COND_LT   0x14
+#define COND_LE   0x15
+#define COND_GL   0x16
+#define COND_GLE  0x17
+#define COND_NGLE 0x18
+#define COND_NGL  0x19
+#define COND_NLE  0x1A
+#define COND_NLT  0x1B
+#define COND_NGE  0x1C
+#define COND_NGT  0x1D
+#define COND_SNE  0x1E
+#define COND_ST   0x1F
 
 /* Evaluate condition for integer operand pair (assuming ordered result of
- * FCMP fpm,fpn = FPn - FPm; FPCC bits reflect that). */
+ * FCMP fpm,fpn = FPn - FPm; FPCC bits reflect that). All inputs are
+ * integers so NaN is always false. */
 static int eval_cond_int(uint8_t cond, int n, int m) {
-    /* fpcc: ordered comparison of FPn vs FPm. */
-    int eq = (n == m), gt = (n > m), lt = (n < m);
+    int Z = (n == m), N = (n < m), NaN = 0;
     switch (cond) {
-        case COND_F:  return 0;
-        case COND_T:  return 1;
-        case COND_EQ: return eq;
-        case COND_NE: return !eq;
-        case COND_GT: return gt;
-        case COND_GE: return gt || eq;
-        case COND_LT: return lt;
-        case COND_LE: return lt || eq;
-        default:      return 0;
+        case COND_F:    case COND_SF:   return 0;
+        case COND_T:    case COND_ST:   return 1;
+        case COND_EQ:   case COND_SEQ:  return Z;
+        case COND_NE:   case COND_SNE:  return !Z;
+        case COND_OGT:  case COND_GT:   return !(NaN || Z || N);
+        case COND_OGE:  case COND_GE:   return Z || !(NaN || N);
+        case COND_OLT:  case COND_LT:   return N && !(NaN || Z);
+        case COND_OLE:  case COND_LE:   return Z || (N && !NaN);
+        case COND_OGL:  case COND_GL:   return !(NaN || Z);
+        case COND_OR:                   return !NaN;
+        case COND_UN:                   return NaN;
+        case COND_UEQ:                  return NaN || Z;
+        case COND_UGT:                  return NaN || !(Z || N);
+        case COND_UGE:                  return NaN || !N;
+        case COND_ULT:                  return NaN || (N && !Z);
+        case COND_ULE:                  return NaN || Z || N;
+        case COND_GLE:                  return !NaN;
+        case COND_NGLE:                 return NaN;
+        case COND_NGL:                  return NaN || Z;
+        case COND_NLE:                  return NaN || !(N || Z);
+        case COND_NLT:                  return NaN || Z || !N;
+        case COND_NGE:                  return NaN || (N && !Z);
+        case COND_NGT:                  return NaN || Z || N;
+        default:                        return 0;
     }
 }
+
+/* Full 32-element condition table; used by FScc/FBcc/FBcc.L generators. */
+static const struct cond_entry { uint8_t code; const char* name; } CONDS_ALL[32] = {
+    {COND_F,"F"},     {COND_EQ,"EQ"},     {COND_OGT,"OGT"},   {COND_OGE,"OGE"},
+    {COND_OLT,"OLT"}, {COND_OLE,"OLE"},   {COND_OGL,"OGL"},   {COND_OR,"OR"},
+    {COND_UN,"UN"},   {COND_UEQ,"UEQ"},   {COND_UGT,"UGT"},   {COND_UGE,"UGE"},
+    {COND_ULT,"ULT"}, {COND_ULE,"ULE"},   {COND_NE,"NE"},     {COND_T,"T"},
+    {COND_SF,"SF"},   {COND_SEQ,"SEQ"},   {COND_GT,"GT"},     {COND_GE,"GE"},
+    {COND_LT,"LT"},   {COND_LE,"LE"},     {COND_GL,"GL"},     {COND_GLE,"GLE"},
+    {COND_NGLE,"NGLE"},{COND_NGL,"NGL"},  {COND_NLE,"NLE"},   {COND_NLT,"NLT"},
+    {COND_NGE,"NGE"}, {COND_NGT,"NGT"},   {COND_SNE,"SNE"},   {COND_ST,"ST"},
+};
 
 /* FCMP FPm,FPn  +  FScc.B Dx tests. Loads FPm and FPn, runs FCMP
  * (sets FPCC), then FScc.B Dx with the chosen condition. Verifies
  * Dx low byte is 0xFF or 0x00 per the condition. */
 static int gen_fcmp_fscc(FILE* f, int is_first, int count) {
-    static const struct { uint8_t code; const char* name; } conds[] = {
-        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
-        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
-    };
-    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    const struct cond_entry* conds = CONDS_ALL;
+    const int NC = 32;
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(50);
         int8_t b = r_moveq_lim(50);
@@ -523,11 +610,8 @@ static int gen_fcmp_fscc(FILE* f, int is_first, int count) {
 /* FTST + FScc: unary version of FCMP+FScc. FTST FPn sets FPCC by
  * comparing FPn against zero, then FScc reads back the predicate.        */
 static int gen_ftst_fscc(FILE* f, int is_first, int count) {
-    static const struct { uint8_t code; const char* name; } conds[] = {
-        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
-        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
-    };
-    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    const struct cond_entry* conds = CONDS_ALL;
+    const int NC = 32;
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(50);
         int    src = (int)(r32() & 7);
@@ -575,11 +659,8 @@ static int gen_ftst_fscc(FILE* f, int is_first, int count) {
  * initial value (1); if not taken, the MOVEQ #0 between FBcc and STOP
  * runs and zeros it.                                                       */
 static int gen_fcmp_fbcc(FILE* f, int is_first, int count) {
-    static const struct { uint8_t code; const char* name; } conds[] = {
-        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
-        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
-    };
-    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    const struct cond_entry* conds = CONDS_ALL;
+    const int NC = 32;
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(50);
         int8_t b = r_moveq_lim(50);
@@ -629,11 +710,8 @@ static int gen_fcmp_fbcc(FILE* f, int is_first, int count) {
 
 /* FCMP + FBcc.L: 32-bit-displacement branch variant.                     */
 static int gen_fcmp_fbcc_l(FILE* f, int is_first, int count) {
-    static const struct { uint8_t code; const char* name; } conds[] = {
-        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
-        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
-    };
-    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    const struct cond_entry* conds = CONDS_ALL;
+    const int NC = 32;
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(50);
         int8_t b = r_moveq_lim(50);
@@ -792,6 +870,96 @@ static int gen_fmove_sized_fp_to_d(FILE* f, int is_first, int fmt,
     return count;
 }
 
+/* Dyadic ops with non-zero divisor constraint (FMOD/FREM/FSGLDIV). */
+static int gen_dyadic_safe_b(FILE* f, int is_first, const char* op_name,
+                             uint8_t opmode, int (*compute)(int,int),
+                             int range_a, int range_b, int count) {
+    int emitted = 0;
+    while (emitted < count) {
+        int8_t a = r_moveq_lim(range_a);
+        int8_t b = r_moveq_lim(range_b);
+        if (b == 0) continue;
+        int dst, src; pick_two_fp(&dst, &src);
+        int rr = pick_result_reg();
+        int exp = compute((int)a, (int)b);
+        test_t t = {
+            .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
+            .dst_fp = dst, .src_fp = src,
+            .opmode = opmode, .load_fmt = FMT_L,
+            .result_reg = rr, .expected = exp,
+        };
+        char nm[100];
+        snprintf(nm, sizeof(nm), "%s FP%d,FP%d (%d,%d=%d) -> D%d #%03d",
+                 op_name, src, dst, a, b, exp, rr, emitted);
+        t.name = nm;
+        emit_test_clean(f, is_first && emitted == 0, &t);
+        emitted++;
+    }
+    return emitted;
+}
+
+/* FSGLDIV with exact integer-divisible operands (so result fits int). */
+static int gen_fsgldiv_exact(FILE* f, int is_first, int count) {
+    int emitted = 0;
+    while (emitted < count) {
+        int8_t b = r_moveq_lim(10);
+        if (b == 0) continue;
+        int quot = (int)r_moveq_lim(10);
+        if (quot == 0) continue;
+        int a = (int)b * quot;
+        if (a < -128 || a > 127) continue;
+        int dst, src; pick_two_fp(&dst, &src);
+        int rr = pick_result_reg();
+        test_t t = {
+            .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
+            .dst_fp = dst, .src_fp = src,
+            .opmode = OPMODE_FSGLDIV, .load_fmt = FMT_L,
+            .result_reg = rr, .expected = quot,
+        };
+        char nm[100];
+        snprintf(nm, sizeof(nm), "FSGLDIV FP%d,FP%d (%d/%d=%d) -> D%d #%03d",
+                 src, dst, a, b, quot, rr, emitted);
+        t.name = nm;
+        emit_test_clean(f, is_first && emitted == 0, &t);
+        emitted++;
+    }
+    return emitted;
+}
+
+/* FNOP — encoded as FBF.W with disp=0. Per the M68881 manual, this is
+ * a synchronization barrier that falls through to the next instruction.
+ * Verifies the no-op path through cp_cond_eval doesn't disturb register
+ * state and PC advances correctly past the 4-byte FNOP encoding.        */
+static int gen_fnop(FILE* f, int is_first, int count) {
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(127);
+        int    rr = pick_result_reg();
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FNOP preserves D%d=%d #%03d", rr, (int)a, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", (int)a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        /* MOVEQ #a,Drr; FNOP ($F280 + $0000); STOP. Verify Drr untouched. */
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | ((uint8_t)a)));
+        BWf(0xF280); BWf(0x0000);
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", (int)a);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
 /* ---------------------------------------------------------------------- */
 int main(int argc, char** argv) {
     const char* outpath = (argc > 1) ? argv[1] : "fpu_corpus.json";
@@ -852,20 +1020,38 @@ int main(int argc, char** argv) {
     /* Same for FSQRT with arbitrary 0..127 inputs. */
     total += gen_fsqrt_trunc(f, first, N);
 
-    /* FCMP+FScc: verifies FPCC generation and conditional-byte writeback. */
-    total += gen_fcmp_fscc  (f, first, N);
-    /* FTST+FScc: unary FPCC generator. */
-    total += gen_ftst_fscc  (f, first, N);
-    /* FCMP+FBcc.W: branch-on-condition. */
-    total += gen_fcmp_fbcc  (f, first, N);
-    /* FCMP+FBcc.L: 32-bit-displacement variant. */
-    total += gen_fcmp_fbcc_l(f, first, N);
+    /* FCMP+FScc / FTST+FScc / FCMP+FBcc.W / FBcc.L: each draws random
+     * conditions from the full 32-entry CONDS_ALL table — bumped to 2N
+     * so each of the 32 predicates gets exercised on average ~2.5 times. */
+    total += gen_fcmp_fscc  (f, first, 2 * N);
+    total += gen_ftst_fscc  (f, first, 2 * N);
+    total += gen_fcmp_fbcc  (f, first, 2 * N);
+    total += gen_fcmp_fbcc_l(f, first, 2 * N);
     /* FMOVE.X reg-reg chain: stress register-file routing. */
     total += gen_fmove_x_chain(f, first, N);
     /* FMOVE.{B,W,S} FPn->Dm size-variant readback. */
     total += gen_fmove_sized_fp_to_d(f, first, FMT_S, "S", M);
     total += gen_fmove_sized_fp_to_d(f, first, FMT_W, "W", M);
     total += gen_fmove_sized_fp_to_d(f, first, FMT_B, "B", M);
+    /* FNOP synchronization barrier. */
+    total += gen_fnop(f, first, M);
+
+    /* ---- ALU ops enabled by FULL (non-lite) FPU ----------------------- */
+    /* FMOD/FREM: integer remainders. Bounded operands keep result in
+     * signed-byte range. Both ops divide so b != 0 enforced. */
+    total += gen_dyadic_safe_b(f, first, "FMOD",    OPMODE_FMOD,
+                                fmod_compute,    100, 20, N);
+    total += gen_dyadic_safe_b(f, first, "FREM",    OPMODE_FREM,
+                                frem_compute,    100, 20, N);
+    /* FSGLDIV with exact divisions, FSGLMUL with bounded operands. */
+    total += gen_fsgldiv_exact(f, first, N);
+    total += gen_dyadic_safe_b(f, first, "FSGLMUL", OPMODE_FSGLMUL,
+                                fsglmul_compute, 10, 10, N);
+    /* FGETEXP: extract exponent. Skip a=0 (returns -inf in FP, undefined
+     * after int cast). Use positive values for clean integer round-trip. */
+    total += gen_monadic(f, first, "FGETEXP", OPMODE_FGETEXP, fgetexp_compute, N);
+    /* FGETMAN: mantissa always rounds to 1 (or -1) for any nonzero int input. */
+    total += gen_monadic(f, first, "FGETMAN", OPMODE_FGETMAN, fgetman_compute, M);
 
     fprintf(f, "\n]\n");
     fclose(f);
