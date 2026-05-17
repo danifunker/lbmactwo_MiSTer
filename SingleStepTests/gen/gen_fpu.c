@@ -72,6 +72,19 @@ static uint16_t ext_dyadic(int fpm_src, int fpn_dst, uint8_t opmode) {
 
 /* MOVEQ #imm,D0: opcode 0x7000 | (D0<<9) | imm = 0x7000 | imm (D0=0). */
 static uint16_t moveq_d0(int8_t imm) { return (uint16_t)(0x7000 | (uint8_t)imm); }
+/* MOVE.L #imm,D0: opword 0x203C, then 4-byte big-endian immediate. Used to
+ * load a full 32-bit value when MOVEQ's signed-8-bit range isn't enough
+ * (e.g. an IEEE single bit pattern for FMOVE.S). */
+#define MOVE_L_IMM_D0 ((uint16_t)0x203C)
+/* IEEE 754 single-precision bit pattern for a small integer. Uses native
+ * float→bits punning; portable enough for our test generator host. */
+#include <string.h>
+static uint32_t int_to_ieee_single(int n) {
+    float f = (float)n;
+    uint32_t bits;
+    memcpy(&bits, &f, 4);
+    return bits;
+}
 /* FMOVE.{size} D0,FPn: opword $F200 | EA(D0=0) = $F200; ext = opclass 010
  * (EA→FPn), src fmt in bits 12-10 (L=0, S=1, X=2, P=3, W=4, D=5, B=6),
  * dst FPn (n<<7), opmode FMOVE (0x00). */
@@ -116,13 +129,29 @@ static void emit_program(FILE* f, const test_t* t) {
         first = 0; \
     } while (0)
 
-    /* Load op_a into FP{dst_fp} using configured size. */
-    BW(moveq_d0((int8_t)t->op_a));
+    /* Load op_a into FP{dst_fp} using configured size. For FMT_S the
+     * operand is the IEEE-single bit pattern of op_a, which needs
+     * MOVE.L #imm,D0 (6 bytes) instead of MOVEQ. */
+    if (t->load_fmt == FMT_S) {
+        uint32_t bits_a = int_to_ieee_single(t->op_a);
+        BW(MOVE_L_IMM_D0);
+        BW((uint16_t)(bits_a >> 16));
+        BW((uint16_t)(bits_a & 0xFFFF));
+    } else {
+        BW(moveq_d0((int8_t)t->op_a));
+    }
     BW(0xF200);
     BW(fmove_size_d0_fpn(t->dst_fp, t->load_fmt));
     /* If dyadic, load op_b into FP{src_fp} (same size). */
     if (t->has_b) {
-        BW(moveq_d0((int8_t)t->op_b));
+        if (t->load_fmt == FMT_S) {
+            uint32_t bits_b = int_to_ieee_single(t->op_b);
+            BW(MOVE_L_IMM_D0);
+            BW((uint16_t)(bits_b >> 16));
+            BW((uint16_t)(bits_b & 0xFFFF));
+        } else {
+            BW(moveq_d0((int8_t)t->op_b));
+        }
         BW(0xF200);
         BW(fmove_size_d0_fpn(t->src_fp, t->load_fmt));
     }
@@ -270,6 +299,102 @@ static int gen_fsqrt(FILE* f, int is_first, int count) {
     return count;
 }
 
+/* FDIV with arbitrary integer operands, result truncated to int via
+ * FINTRZ before readback. Expected = trunc(a / b) (C99 integer division
+ * truncates toward zero for both signs, matching FINTRZ).            */
+static int gen_fdiv_trunc(FILE* f, int is_first, int count) {
+    int emitted = 0;
+    while (emitted < count) {
+        int8_t b = r_moveq_lim(20);
+        if (b == 0) continue;
+        int8_t a = r_moveq_lim(127);
+        int    quot = (int)a / (int)b;
+        if (quot > 127 || quot < -128) continue;  /* keep room for safety */
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr = pick_result_reg();
+        /* Program: load a→FPdst, load b→FPsrc, FDIV FPsrc,FPdst,
+         *          FINTRZ FPdst,FPdst, FMOVE.L FPdst,Dn, STOP.
+         * We can't express FINTRZ as a separate test entry through emit_test_clean
+         * (it builds a single test instruction). So we emit a custom JSON entry. */
+        char nm[120];
+        snprintf(nm, sizeof(nm),
+                 "FDIV+FINTRZ FP%d,FP%d (%d/%d=%d) -> D%d #%03d",
+                 src, dst, (int)a, (int)b, quot, rr, emitted);
+        if (!(is_first && emitted == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\"op_b\":%d,\n", (int)a, (int)b);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BW2(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BW2(moveq_d0(a));
+        BW2(0xF200); BW2(fmove_size_d0_fpn(dst, FMT_L));
+        BW2(moveq_d0(b));
+        BW2(0xF200); BW2(fmove_size_d0_fpn(src, FMT_L));
+        BW2(0xF200); BW2(ext_dyadic(src, dst, OPMODE_FDIV));
+        BW2(0xF200); BW2(ext_monadic_fp(dst, OPMODE_FINTRZ));
+        BW2((uint16_t)(0xF200 | (rr & 7)));
+        BW2((uint16_t)(0x6000 | ((dst & 7) << 7)));
+        BW2(0x4E72); BW2(0x2700);
+        #undef BW2
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", quot);
+        fprintf(f, "  }");
+        emitted++;
+    }
+    return emitted;
+}
+
+/* FSQRT with non-perfect-square integer inputs; truncate result via FINTRZ. */
+static int gen_fsqrt_trunc(FILE* f, int is_first, int count) {
+    int emitted = 0;
+    while (emitted < count) {
+        int  a = (int)(r32() % 128);   /* 0..127 to fit MOVEQ */
+        if (a == 0) continue;
+        /* trunc(sqrt(a)) via integer Newton iteration / search */
+        int  s = 0;
+        while ((s + 1) * (s + 1) <= a) s++;
+        int  expected_trunc = s;
+        int    fp = pick_fp();
+        int    rr = pick_result_reg();
+        char nm[120];
+        snprintf(nm, sizeof(nm),
+                 "FSQRT+FINTRZ FP%d (sqrt(%d)=%d) -> D%d #%03d",
+                 fp, a, expected_trunc, rr, emitted);
+        if (!(is_first && emitted == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BW3(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BW3(moveq_d0((int8_t)a));
+        BW3(0xF200); BW3(fmove_size_d0_fpn(fp, FMT_L));
+        BW3(0xF200); BW3(ext_monadic_fp(fp, OPMODE_FSQRT));
+        BW3(0xF200); BW3(ext_monadic_fp(fp, OPMODE_FINTRZ));
+        BW3((uint16_t)(0xF200 | (rr & 7)));
+        BW3((uint16_t)(0x6000 | ((fp & 7) << 7)));
+        BW3(0x4E72); BW3(0x2700);
+        #undef BW3
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", expected_trunc);
+        fprintf(f, "  }");
+        emitted++;
+    }
+    return emitted;
+}
+
 /* FDIV restricted to exact-integer divisions (op_a % op_b == 0). */
 static int gen_fdiv(FILE* f, int is_first, int count) {
     int emitted = 0;
@@ -351,6 +476,22 @@ int main(int argc, char** argv) {
     total += gen_dyadic_sized (f, first, "FADD",   OPMODE_FADD, fadd_compute, 127, 127, FMT_B, M);
     total += gen_dyadic_sized (f, first, "FMUL",   OPMODE_FMUL, fmul_compute,  10,  10, FMT_W, M);
     total += gen_dyadic_sized (f, first, "FMUL",   OPMODE_FMUL, fmul_compute,  10,  10, FMT_B, M);
+
+    /* FMOVE.S variants: load via MOVE.L #ieee_single(op),D0; FMOVE.S D0,FPn.
+     * Operand range still bounded so the integer round-trip works. */
+    total += gen_monadic_sized(f, first, "FNEG",   OPMODE_FNEG,   fneg_compute,   FMT_S, M);
+    total += gen_monadic_sized(f, first, "FABS",   OPMODE_FABS,   fabs_compute,   FMT_S, M);
+    total += gen_monadic_sized(f, first, "FINT",   OPMODE_FINT,   fint_compute,   FMT_S, M);
+    total += gen_dyadic_sized (f, first, "FADD",   OPMODE_FADD, fadd_compute, 127, 127, FMT_S, M);
+    total += gen_dyadic_sized (f, first, "FSUB",   OPMODE_FSUB, fsub_compute, 127, 127, FMT_S, M);
+    total += gen_dyadic_sized (f, first, "FMUL",   OPMODE_FMUL, fmul_compute,  10,  10, FMT_S, M);
+
+    /* Multi-instruction tests: FDIV with arbitrary operands + FINTRZ to
+     * truncate the (possibly non-integer) result, then read back as .L.
+     * Verifies the FPU rounds-toward-zero correctly. */
+    total += gen_fdiv_trunc (f, first, N);
+    /* Same for FSQRT with arbitrary 0..127 inputs. */
+    total += gen_fsqrt_trunc(f, first, N);
 
     fprintf(f, "\n]\n");
     fclose(f);
