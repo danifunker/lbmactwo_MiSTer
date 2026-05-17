@@ -393,6 +393,7 @@ package mc68881_pkg is
   -- Exception vector numbers for Response CIR (10-bit field).
   -- MC68881 vectors at offsets $C0-$D8 (vectors 48-54); format error is vector 14.
   constant CIR_VEC_FORMAT  : std_logic_vector(9 downto 0) := "00" & x"0E";  -- 14: Format error
+  constant CIR_VEC_FLINE   : std_logic_vector(9 downto 0) := "00" & x"0B";  -- 11: F-line emulator (unimplemented FPU op in lite variant)
   constant CIR_VEC_TRAPCC  : std_logic_vector(9 downto 0) := "00" & x"07";  -- 7: cpTRAPcc
   constant CIR_VEC_BSUN    : std_logic_vector(9 downto 0) := "00" & x"30";  -- 48: BSUN
   constant CIR_VEC_INEXACT : std_logic_vector(9 downto 0) := "00" & x"31";  -- 49: Inexact
