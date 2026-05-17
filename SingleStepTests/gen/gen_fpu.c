@@ -732,6 +732,66 @@ static int gen_fmove_x_chain(FILE* f, int is_first, int count) {
     return count;
 }
 
+/* FMOVE.{B,W,S} FPn->Dm: verifies cp_xfer_from handles all sizes correctly
+ * (FPU does the format conversion; CPU sees same 32-bit Transfer Single).  */
+static int gen_fmove_sized_fp_to_d(FILE* f, int is_first, int fmt,
+                                   const char* fmt_name, int count) {
+    for (int i = 0; i < count; ++i) {
+        int range = (fmt == FMT_B) ? 100 : 1000;
+        int8_t a = r_moveq_lim(range > 127 ? 127 : range);
+        int    src_fp = (int)(r32() & 7);
+        int    rr     = pick_result_reg();
+        /* Expected: integer value matches signed-byte input for .B/.W/.L
+         * since we loaded via .L and the FPU does the size conversion.
+         * For .S, expected is the IEEE single-precision bit pattern of a. */
+        int32_t expected;
+        if (fmt == FMT_S) {
+            float fv = (float)a;
+            uint32_t u; memcpy(&u, &fv, 4);
+            expected = (int32_t)u;
+        } else if (fmt == FMT_W) {
+            /* FMOVE.W preserves high 16 bits of Dn (MOVEQ #0 cleared them). */
+            expected = (int32_t)((uint32_t)a & 0xFFFF);
+        } else if (fmt == FMT_B) {
+            /* FMOVE.B preserves high 24 bits of Dn (MOVEQ #0 cleared them). */
+            expected = (int32_t)((uint32_t)a & 0xFF);
+        } else {
+            expected = a;
+        }
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FMOVE.%s FP%d->D%d (%d) #%03d",
+                 fmt_name, src_fp, rr, (int)a, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", (int)a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        /* Initialize Drr=0 so partial-size writes have clean upper bits. */
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | 0));
+        /* Load FP{src} = a via .L int. */
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src_fp, FMT_L));
+        /* FMOVE.{fmt} FP{src}, D{rr}: opword $F200|rr (mode=000 reg=rr);
+         * ext = opclass 011 | fmt | src<<7. */
+        BWf((uint16_t)(0xF200 | (rr & 7)));
+        BWf((uint16_t)((3 << 13) | (fmt << 10) | ((src_fp & 7) << 7) | 0));
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", (int)expected);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
 /* ---------------------------------------------------------------------- */
 int main(int argc, char** argv) {
     const char* outpath = (argc > 1) ? argv[1] : "fpu_corpus.json";
@@ -802,6 +862,10 @@ int main(int argc, char** argv) {
     total += gen_fcmp_fbcc_l(f, first, N);
     /* FMOVE.X reg-reg chain: stress register-file routing. */
     total += gen_fmove_x_chain(f, first, N);
+    /* FMOVE.{B,W,S} FPn->Dm size-variant readback. */
+    total += gen_fmove_sized_fp_to_d(f, first, FMT_S, "S", M);
+    total += gen_fmove_sized_fp_to_d(f, first, FMT_W, "W", M);
+    total += gen_fmove_sized_fp_to_d(f, first, FMT_B, "B", M);
 
     fprintf(f, "\n]\n");
     fclose(f);
