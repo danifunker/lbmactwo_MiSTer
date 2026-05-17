@@ -50,24 +50,24 @@ static int8_t r_moveq_lim(int limit) {
  *   bits 12-10 = src FP register
  *   bits  9-7  = dst FP register
  *   bits  6-0  = opmode (M68881 native cpGEN opmode)
- * For monadic ops (FNEG/FABS/FINT/FINTRZ), src=dst=0.
- * For dyadic ops with FP1 as second operand, src=001 (FP1) into dst=000 (FP0).
  */
 #define OPMODE_FADD   0x22
 #define OPMODE_FSUB   0x28
 #define OPMODE_FMUL   0x23
+#define OPMODE_FDIV   0x20
+#define OPMODE_FSQRT  0x04
 #define OPMODE_FNEG   0x1A
 #define OPMODE_FABS   0x18
 #define OPMODE_FINT   0x01
 #define OPMODE_FINTRZ 0x03
 
-static uint16_t ext_monadic(uint8_t opmode) {
-    /* src=FP0 (000), dst=FP0 (000), opmode */
-    return (uint16_t)opmode;
+/* ext for monadic op (FNEG/FABS/...): src and dst both = fp, opmode. */
+static uint16_t ext_monadic_fp(int fp, uint8_t opmode) {
+    return (uint16_t)(((fp & 7) << 10) | ((fp & 7) << 7) | opmode);
 }
-static uint16_t ext_dyadic_fp1_fp0(uint8_t opmode) {
-    /* src=FP1 (001<<10 = 0x400), dst=FP0 (000<<7), opmode */
-    return (uint16_t)(0x0400 | opmode);
+/* ext for dyadic reg-to-reg: dst = dst op src; src=FPm, dst=FPn. */
+static uint16_t ext_dyadic(int fpm_src, int fpn_dst, uint8_t opmode) {
+    return (uint16_t)(((fpm_src & 7) << 10) | ((fpn_dst & 7) << 7) | opmode);
 }
 
 /* MOVEQ #imm,D0: opcode 0x7000 | (D0<<9) | imm = 0x7000 | imm (D0=0). */
@@ -75,24 +75,28 @@ static uint16_t moveq_d0(int8_t imm) { return (uint16_t)(0x7000 | (uint8_t)imm);
 /* FMOVE.L D0,FPn: opword $F200 | EA(D0=0) = $F200; ext = opclass 010 (EA→FPn),
  * fmt=L (000<<10), dst FPn (n<<7), opmode FMOVE (0x00). */
 static uint16_t fmove_l_d0_fpn(int n) { return (uint16_t)(0x4000 | ((n & 7) << 7)); }
-/* FMOVE.L FP0,Dn: opword $F200 | n (EA mode 0 reg n); ext = opclass 011 (FPn→EA),
- * dst fmt L (000<<10), src FP0 (000<<7), k=0. */
-static uint16_t fmove_l_fp0_dn_opw(int n) { return (uint16_t)(0xF200 | (n & 7)); }
+/* (FMOVE.L FPn,Dx opword/ext are built in emit_program below using
+ *  fmove_l_fpn_dn_opw and the dst_fp parameter.) */
 
 /* ---------- JSON emission ------------------------------------------- */
 typedef struct {
     const char* name;
-    int   has_b;         /* 1 = dyadic (load FP1 from op_b too) */
-    int   op_a;          /* op_a value (int8) */
-    int   op_b;          /* op_b value (int8) — only if has_b */
-    uint16_t test_op;    /* test instruction opword */
-    uint16_t test_ext;   /* test instruction ext word */
-    int   result_reg;    /* Dn that receives FMOVE.L FP0,Dn */
-    int32_t expected;    /* expected value of D{result_reg} */
+    int      has_b;        /* 1 = dyadic (also load src_fp) */
+    int      op_a;         /* op_a value -> dst_fp */
+    int      op_b;         /* op_b value -> src_fp (dyadic only) */
+    int      dst_fp;       /* FPn that holds op_a / receives result (0..7) */
+    int      src_fp;       /* FPm that holds op_b (dyadic only) */
+    uint8_t  opmode;       /* test instruction opmode */
+    int      result_reg;   /* Dn that receives FMOVE.L FP{dst_fp},Dn */
+    int32_t  expected;     /* expected value of D{result_reg} */
 } test_t;
 
+static uint16_t fmove_l_fpn_dn_opw(int n) {
+    /* FMOVE.L FPn,Dx opword = $F200 | Dx-mode-reg = $F200 | n (mode 0). */
+    return (uint16_t)(0xF200 | (n & 7));
+}
+
 static void emit_program(FILE* f, const test_t* t) {
-    /* Build the program byte sequence inline as a JSON array. */
     fprintf(f, "[");
     int first = 1;
     #define BW(w) do { \
@@ -101,19 +105,26 @@ static void emit_program(FILE* f, const test_t* t) {
         first = 0; \
     } while (0)
 
+    /* Load op_a into FP{dst_fp}. */
     BW(moveq_d0((int8_t)t->op_a));
-    BW(0xF200);                     /* FMOVE.L D0,FP0 opword */
-    BW(fmove_l_d0_fpn(0));          /* ext 0x4000 */
+    BW(0xF200);
+    BW(fmove_l_d0_fpn(t->dst_fp));
+    /* If dyadic, load op_b into FP{src_fp}. */
     if (t->has_b) {
         BW(moveq_d0((int8_t)t->op_b));
-        BW(0xF200);                 /* FMOVE.L D0,FP1 opword */
-        BW(fmove_l_d0_fpn(1));      /* ext 0x4080 */
+        BW(0xF200);
+        BW(fmove_l_d0_fpn(t->src_fp));
     }
-    BW(t->test_op);                 /* test instruction */
-    BW(t->test_ext);
-    BW(fmove_l_fp0_dn_opw(t->result_reg));  /* FMOVE.L FP0,D{rr} opword */
-    BW(0x6000);                     /* ext for FMOVE.L FP0→EA */
-    BW(0x4E72);                     /* STOP #$2700 */
+    /* Test instruction. */
+    BW(0xF200);
+    BW(t->has_b
+       ? ext_dyadic(t->src_fp, t->dst_fp, t->opmode)
+       : ext_monadic_fp(t->dst_fp, t->opmode));
+    /* FMOVE.L FP{dst_fp},D{result_reg} */
+    BW(fmove_l_fpn_dn_opw(t->result_reg));
+    BW((uint16_t)(0x6000 | ((t->dst_fp & 7) << 7)));
+    /* STOP #$2700 */
+    BW(0x4E72);
     BW(0x2700);
     #undef BW
     fprintf(f, "]");
@@ -132,18 +143,32 @@ static void emit_test_clean(FILE* f, int is_first, const test_t* t) {
     fprintf(f, "  }");
 }
 
+/* Pick a random FP register 0..7. */
+static int pick_fp(void) { return (int)(r32() & 7); }
+/* Pick a random Dn 1..7 (avoid D0, used as temp during FMOVE loads). */
+static int pick_result_reg(void) { return 1 + (int)(r32() % 7); }
+/* Pick two distinct FP registers 0..7. */
+static void pick_two_fp(int* a, int* b) {
+    *a = pick_fp();
+    do { *b = pick_fp(); } while (*b == *a);
+}
+
 /* ---------- Per-op generators --------------------------------------- */
 static int gen_monadic(FILE* f, int is_first, const char* op_name,
                        uint8_t opmode, int (*compute)(int), int count) {
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq();
+        int    fp = pick_fp();
+        int    rr = pick_result_reg();
         test_t t = {
             .name = NULL, .has_b = 0, .op_a = a, .op_b = 0,
-            .test_op = 0xF200, .test_ext = ext_monadic(opmode),
-            .result_reg = 1, .expected = compute(a),
+            .dst_fp = fp, .src_fp = fp,
+            .opmode = opmode,
+            .result_reg = rr, .expected = compute(a),
         };
-        char nm[64];
-        snprintf(nm, sizeof(nm), "%s #%d #%03d", op_name, a, i);
+        char nm[80];
+        snprintf(nm, sizeof(nm), "%s.X FP%d (#%d) -> D%d #%03d",
+                 op_name, fp, a, rr, i);
         t.name = nm;
         emit_test_clean(f, is_first && i == 0, &t);
     }
@@ -156,17 +181,91 @@ static int gen_dyadic(FILE* f, int is_first, const char* op_name,
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(limit_a);
         int8_t b = r_moveq_lim(limit_b);
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr = pick_result_reg();
         test_t t = {
             .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
-            .test_op = 0xF200, .test_ext = ext_dyadic_fp1_fp0(opmode),
-            .result_reg = 2, .expected = compute(a, b),
+            .dst_fp = dst, .src_fp = src,
+            .opmode = opmode,
+            .result_reg = rr, .expected = compute(a, b),
         };
-        char nm[64];
-        snprintf(nm, sizeof(nm), "%s FP1,FP0 (%d,%d) #%03d", op_name, a, b, i);
+        char nm[100];
+        snprintf(nm, sizeof(nm), "%s FP%d,FP%d (%d,%d) -> D%d #%03d",
+                 op_name, src, dst, a, b, rr, i);
         t.name = nm;
         emit_test_clean(f, is_first && i == 0, &t);
     }
     return count;
+}
+
+/* Generator for FSQRT with perfect-square inputs only (so result fits int). */
+static int gen_fsqrt(FILE* f, int is_first, int count) {
+    /* Perfect squares 0..121: 0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121 */
+    static const int squares[] = {0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121};
+    const int N = (int)(sizeof(squares) / sizeof(squares[0]));
+    for (int i = 0; i < count; ++i) {
+        int a = squares[i % N];
+        int fp = pick_fp();
+        int rr = pick_result_reg();
+        int expected;
+        switch (a) {
+            case 0:   expected = 0;  break;
+            case 1:   expected = 1;  break;
+            case 4:   expected = 2;  break;
+            case 9:   expected = 3;  break;
+            case 16:  expected = 4;  break;
+            case 25:  expected = 5;  break;
+            case 36:  expected = 6;  break;
+            case 49:  expected = 7;  break;
+            case 64:  expected = 8;  break;
+            case 81:  expected = 9;  break;
+            case 100: expected = 10; break;
+            case 121: expected = 11; break;
+            default:  expected = 0;  break;
+        }
+        test_t t = {
+            .name = NULL, .has_b = 0, .op_a = a, .op_b = 0,
+            .dst_fp = fp, .src_fp = fp,
+            .opmode = OPMODE_FSQRT,
+            .result_reg = rr, .expected = expected,
+        };
+        char nm[80];
+        snprintf(nm, sizeof(nm), "FSQRT.X FP%d (#%d -> %d) -> D%d #%03d",
+                 fp, a, expected, rr, i);
+        t.name = nm;
+        emit_test_clean(f, is_first && i == 0, &t);
+    }
+    return count;
+}
+
+/* FDIV restricted to exact-integer divisions (op_a % op_b == 0). */
+static int gen_fdiv(FILE* f, int is_first, int count) {
+    int emitted = 0;
+    while (emitted < count) {
+        int8_t b = r_moveq_lim(10);
+        if (b == 0) continue;          /* skip divide-by-zero */
+        int    quot = r_moveq_lim(10);
+        if (quot == 0) continue;        /* skip zero quotients (trivial) */
+        int    a = (int)b * (int)quot;
+        if (a < -128 || a > 127) continue;
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr = pick_result_reg();
+        test_t t = {
+            .name = NULL, .has_b = 1, .op_a = a, .op_b = b,
+            .dst_fp = dst, .src_fp = src,
+            .opmode = OPMODE_FDIV,
+            .result_reg = rr, .expected = quot,
+        };
+        char nm[100];
+        snprintf(nm, sizeof(nm), "FDIV FP%d,FP%d (%d/%d=%d) -> D%d #%03d",
+                 src, dst, a, b, quot, rr, emitted);
+        t.name = nm;
+        emit_test_clean(f, is_first && emitted == 0, &t);
+        emitted++;
+    }
+    return emitted;
 }
 
 /* Result computation helpers — int-preserving since we round-trip via .L. */
@@ -189,18 +288,21 @@ int main(int argc, char** argv) {
 
     int total = 0;
     int first = 1;
-    const int N = 20;
+    const int N = 40;
 
-    total += gen_monadic(f, first, "FNEG.X",   OPMODE_FNEG,   fneg_compute,   N); first = 0;
-    total += gen_monadic(f, first, "FABS.X",   OPMODE_FABS,   fabs_compute,   N);
-    total += gen_monadic(f, first, "FINT.X",   OPMODE_FINT,   fint_compute,   N);
-    total += gen_monadic(f, first, "FINTRZ.X", OPMODE_FINTRZ, fintrz_compute, N);
-    /* Dyadic with bounded operands so int32 result is safe.
-     * FADD/FSUB: ±127 each, sum ±254 — fits easily.
-     * FMUL: ±10 each, product ±100. */
-    total += gen_dyadic (f, first, "FADD",     OPMODE_FADD, fadd_compute, 127, 127, N);
-    total += gen_dyadic (f, first, "FSUB",     OPMODE_FSUB, fsub_compute, 127, 127, N);
-    total += gen_dyadic (f, first, "FMUL",     OPMODE_FMUL, fmul_compute,  10,  10, N);
+    total += gen_monadic(f, first, "FNEG",   OPMODE_FNEG,   fneg_compute,   N); first = 0;
+    total += gen_monadic(f, first, "FABS",   OPMODE_FABS,   fabs_compute,   N);
+    total += gen_monadic(f, first, "FINT",   OPMODE_FINT,   fint_compute,   N);
+    total += gen_monadic(f, first, "FINTRZ", OPMODE_FINTRZ, fintrz_compute, N);
+    /* Dyadic with bounded operands so int32 result fits.
+     * FADD/FSUB: ±127 each, sum ±254. FMUL: ±10 each, product ±100. */
+    total += gen_dyadic (f, first, "FADD",   OPMODE_FADD, fadd_compute, 127, 127, N);
+    total += gen_dyadic (f, first, "FSUB",   OPMODE_FSUB, fsub_compute, 127, 127, N);
+    total += gen_dyadic (f, first, "FMUL",   OPMODE_FMUL, fmul_compute,  10,  10, N);
+    /* FSQRT: perfect squares only (so result fits int). */
+    total += gen_fsqrt  (f, first, N);
+    /* FDIV: exact integer divisions only (a % b == 0). */
+    total += gen_fdiv   (f, first, N);
 
     fprintf(f, "\n]\n");
     fclose(f);
