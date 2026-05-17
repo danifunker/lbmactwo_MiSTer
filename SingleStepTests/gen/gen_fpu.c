@@ -839,6 +839,374 @@ static int gen_fmove_sized_fp_to_d(FILE* f, int is_first, int fmt,
  * a synchronization barrier that falls through to the next instruction.
  * Verifies the no-op path through cp_cond_eval doesn't disturb register
  * state and PC advances correctly past the 4-byte FNOP encoding.        */
+/* FMOVEM.X round-trip via the SSP: push FP0, pop into FP1, then read FP1
+ * back into D{rr} via FMOVE.L.
+ *
+ *   MOVEQ #a,D0; FMOVE.L D0,FP0    ; load FP0 = a
+ *   FMOVEM.X FP0,-(A7)             ; push 96 bits of FP0 to SSP
+ *   FMOVEM.X (A7)+,FP1             ; pop them into FP1
+ *   FMOVE.L FP1,D{rr}              ; verify
+ *   STOP #$2700
+ *
+ * FMOVEM encoding (PRM 6-23):
+ *   opword: $F200 | EA (mode+reg)
+ *   ext:    opclass 110 (M->R) or 111 (R->M)
+ *           bit 14 = list type (0 = static)
+ *           bit 13 = direction-encoded predec flag (0 = postinc/control, 1 = predec)
+ *           bits 10..8 = dynamic Dn (unused for static)
+ *           bits 7..0  = register select mask
+ *
+ * Register select-bit conventions:
+ *   Predecrement source:    bit 7 = FP7, bit 0 = FP0   (reversed)
+ *   Postinc / control dest: bit 7 = FP0, bit 0 = FP7   (normal)
+ *
+ * NOTE: FMOVEM requires multi-word coprocessor transfers (96 bits per reg)
+ * that may not be supported yet by TG68K's microcode. These tests are
+ * diagnostic; failures surface microcode gaps in cp_xfer_{to,from}.
+ */
+static int gen_fmovem_x_roundtrip(FILE* f, int is_first, int count) {
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(50);
+        int    rr = pick_result_reg();
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FMOVEM.X FP0,-(A7); (A7)+,FP1 a=%d -> D%d #%03d",
+                 (int)a, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", (int)a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(0, FMT_L));   /* FP0 = a */
+        /* FMOVEM.X FP0,-(A7): opword $F227 (mode=4 predec, reg=7);
+         * ext: bits 15-13 = 111 (R->M), bit 11 = static = 0, predec mask
+         * with bit 0 = FP0 = 0x01.   $E000 | 0x01 = $E001 (wait, includes
+         * bit 13 = 1 which signals predec list-mode? PRM ext: opclass=111
+         * is the high 3 bits 15-13 = 111, so $E000. Predec list-mode is
+         * encoded by the opcode EA being predec; the ext bit-13 difference
+         * is for postinc-vs-control orientation which doesn't apply when
+         * the EA mode is predecrement.)                                     */
+        BWf(0xF227);
+        BWf(0xE001);
+        /* FMOVEM.X (A7)+,FP1: opword $F21F (mode=3 postinc, reg=7=A7);
+         * ext: opclass 110 (M->R) = $C000; static (bit 14=0); list mask
+         * with bit 6 = FP1 (for postinc, bit 7 = FP0): mask = 0x40.        */
+        BWf(0xF21F);
+        BWf(0xC040);
+        /* FMOVE.L FP1,D{rr} */
+        BWf((uint16_t)(0xF200 | (rr & 7)));
+        BWf((uint16_t)((0x3 << 13) | (0 << 10) | (1 << 7)));
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", (int)a);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
+/* FMOVE.{X,D,P} from PC-relative memory into FPn, then FMOVE.L FPn,D{rr}.
+ *
+ * Layout:
+ *    $00: FMOVE.{fmt} (d16,PC),FPn   (4 bytes: opword + ext)
+ *    $04: disp word                   (2 bytes; PC base = this address)
+ *    $06: FMOVE.L FPn,D{rr}           (4 bytes: opword + ext)
+ *    $0A: STOP #$2700                 (4 bytes)
+ *    $0E: FP_data bytes               (4/8/12 bytes depending on fmt)
+ *
+ * disp from PC ($04) to data ($0E) = $0A. EA = (PC + d16) = (PC + $0A) = $0E.
+ *
+ * Format codes (ext bits 12-10): 2 = .X (12B), 3 = .P (12B), 5 = .D (8B).
+ * We emit integer-valued data so the FMOVE.L readback can compare to an
+ * int32 expected. .P (packed BCD) is intentionally skipped: the M68881 lite
+ * FPU treats it as unsupported and traps F-line.
+ */
+
+/* Build M68881 extended bytes (12) for an integer value v in [-127,127]. */
+static void m68881_extended_int(int v, uint8_t out[12]) {
+    /* zero -> all-zero extended encoding (sign=0, exp=0, mantissa=0). */
+    memset(out, 0, 12);
+    if (v == 0) return;
+    int sign = (v < 0) ? 1 : 0;
+    uint32_t mag = (uint32_t)(v < 0 ? -v : v);
+    /* Find top bit position. */
+    int e = 31;
+    while (e > 0 && !(mag & (1u << e))) --e;
+    /* mantissa = 1.<...> with implicit J bit. Shift left to put bit `e`
+     * at position 63 (top of 64-bit mantissa). */
+    uint64_t mant64 = ((uint64_t)mag) << (63 - e);
+    int exp_biased = 16383 + e;
+    out[0] = (sign << 7) | ((exp_biased >> 8) & 0x7F);
+    out[1] = exp_biased & 0xFF;
+    /* out[2..3] = 0 (reserved/padding) */
+    for (int i = 0; i < 8; ++i)
+        out[4 + i] = (uint8_t)(mant64 >> (56 - i * 8));
+}
+
+/* Build IEEE 754 binary64 (double, 8 bytes) for an integer value. */
+static void ieee_double_int(int v, uint8_t out[8]) {
+    memset(out, 0, 8);
+    if (v == 0) return;
+    int sign = (v < 0) ? 1 : 0;
+    uint32_t mag = (uint32_t)(v < 0 ? -v : v);
+    int e = 31; while (e > 0 && !(mag & (1u << e))) --e;
+    /* mantissa = top bit dropped (implicit J), then 52 frac bits. */
+    uint64_t frac = ((uint64_t)mag - ((uint64_t)1 << e)) << (52 - e);
+    int exp_biased = 1023 + e;
+    uint64_t bits = ((uint64_t)sign << 63)
+                  | ((uint64_t)(exp_biased & 0x7FF) << 52)
+                  | (frac & 0x000FFFFFFFFFFFFFULL);
+    for (int i = 0; i < 8; ++i)
+        out[i] = (uint8_t)(bits >> (56 - i * 8));
+}
+
+static int gen_fmove_pcrel_load(FILE* f, int is_first, int fmt, const char* fmt_name,
+                                int data_bytes,
+                                void (*pack)(int, uint8_t*), int count) {
+    for (int i = 0; i < count; ++i) {
+        int v = (int)((int8_t)r_moveq_lim(50));
+        int dst = (int)(r32() & 7);
+        int rr  = pick_result_reg();
+        uint8_t fpdata[12]; memset(fpdata, 0, sizeof(fpdata));
+        pack(v, fpdata);
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FMOVE.%s (d16,PC),FP%d v=%d -> D%d #%03d",
+                 fmt_name, dst, v, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", v);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        #define BBf(b) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u", (unsigned)(b) & 0xFFu); \
+            first = 0; \
+        } while (0)
+        /* FMOVE.{fmt} (d16,PC),FP{dst}
+         *   opword: $F200 | mode=111 reg=010 = $F200 | 0x3A = $F23A
+         *   ext:    opclass 010 (load EA->FPn) | fmt<<10 | dst<<7
+         */
+        BWf(0xF23A);
+        BWf((uint16_t)((0x2 << 13) | ((fmt & 7) << 10) | ((dst & 7) << 7)));
+        BWf(0x000A);    /* disp = +10 (PC base = this word at offset $04) */
+        /* FMOVE.L FP{dst},D{rr}: opclass 011 -> L from FPn to EA(D{rr}). */
+        BWf((uint16_t)(0xF200 | (rr & 7)));
+        BWf((uint16_t)((0x3 << 13) | (0 << 10) | ((dst & 7) << 7)));
+        /* STOP */
+        BWf(0x4E72); BWf(0x2700);
+        /* FP data payload */
+        for (int j = 0; j < data_bytes; ++j) BBf(fpdata[j]);
+        #undef BWf
+        #undef BBf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", v);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
+/* FMOVE.L Dn,FPcr round-trip. The FPU has three control registers
+ * (selected by ext word bits 12-10):
+ *    bit 12: FPIAR   (instruction-address register)
+ *    bit 11: FPSR    (status register)
+ *    bit 10: FPCR    (control register)
+ * Multiple bits can be set for FMOVEM.L, but for FMOVE.L exactly one
+ * register is selected.
+ *
+ * Test: write Drr=src_val to the control reg; read it back to D{rr+1}.
+ * Verify D{rr+1} matches what we wrote (modulo any reserved-bit zeroing
+ * the FPU does to that particular register).
+ *
+ * FPCR: bits 15-4 reserved (read as zero), bits 3-0 = mode + precision.
+ *   Use a value with bits in the valid range so the round-trip is clean.
+ * FPSR: writable bits depend on implementation; use 0 for a safe value
+ *   that round-trips on any FPU.
+ * FPIAR: full 32-bit writable.
+ *
+ * ext word: opclass 100 (move to FPcr), bits 12-10 = register select,
+ *           bits 6-0 = 0. Direction is opclass 100 (load FPcr from EA);
+ *           opclass 101 reads FPcr into EA.
+ */
+struct fpcr_def { uint16_t sel_bit; const char* name; int32_t test_val; };
+static const struct fpcr_def FPCRS[3] = {
+    /* sel_bit is bits 12-10 of ext (FPIAR=4, FPSR=2, FPCR=1). */
+    { 0x1000, "FPIAR", 0x12345678 },  /* full 32-bit. */
+    { 0x0800, "FPSR",  0x00000000 },  /* zero is universally safe. */
+    { 0x0400, "FPCR",  0x00000030 },  /* mode bits only (RN, X precision). */
+};
+
+static int gen_fmove_l_fpcr_roundtrip(FILE* f, int is_first, int count) {
+    for (int i = 0; i < count; ++i) {
+        const struct fpcr_def* fc = &FPCRS[i % 3];
+        int rr_w = pick_result_reg();          /* Dn used for the write */
+        int rr_r;                              /* Dn used for the readback */
+        do { rr_r = pick_result_reg(); } while (rr_r == rr_w);
+        const int32_t v = fc->test_val;
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FMOVE.L D%d->%s; %s->D%d #%03d",
+                 rr_w, fc->name, fc->name, rr_r, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", v);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        /* MOVE.L #v,D{rr_w} */
+        BWf((uint16_t)(0x203C | ((rr_w & 7) << 9)));
+        BWf((uint16_t)((v >> 16) & 0xFFFF));
+        BWf((uint16_t)(v & 0xFFFF));
+        /* FMOVE.L D{rr_w},FPcr: opword $F200 | mode=000 reg=rr_w
+         *                       ext = opclass 100 (10000) | sel_bit  */
+        BWf((uint16_t)(0xF200 | (rr_w & 7)));
+        BWf((uint16_t)(0x8000 | fc->sel_bit));
+        /* FMOVE.L FPcr,D{rr_r}: opword $F200 | mode=000 reg=rr_r
+         *                       ext = opclass 101 (10100) | sel_bit  */
+        BWf((uint16_t)(0xF200 | (rr_r & 7)));
+        BWf((uint16_t)(0xA000 | fc->sel_bit));
+        /* STOP */
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr_r);
+        fprintf(f, "    \"expected\":%d\n", v);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
+/* FCMP + FDBcc.W: floating-point decrement-and-branch. Counter Dn=1;
+ * after exactly one decrement Dn=0 (not -1), so a "branch taken" path
+ * runs once. Test layout (similar to FBcc):
+ *
+ *   MOVEQ #42,Drr            ; initial marker
+ *   MOVEQ #1,Dctr            ; loop counter
+ *   MOVEQ #a,D0; FMOVE.L D0,FP{src}    ; load FP{src} = a
+ *   MOVEQ #b,D0; FMOVE.L D0,FP{dst}    ; load FP{dst} = b
+ *   FCMP FP{src},FP{dst}     ; set FPCC
+ *   FDBcc Dctr, disp=+4      ; if cond false: Dctr--, Dctr != -1 -> branch over MOVEQ
+ *                            ; if cond true:  fall through to MOVEQ #99
+ *   MOVEQ #99,Drr            ; (2 bytes)
+ *   STOP #$2700
+ *
+ * Expected:
+ *   cond true:  Drr = 99 (FDBcc fell through, MOVEQ ran)
+ *   cond false: Drr = 42 (FDBcc decremented + branched over MOVEQ)
+ */
+static int gen_fcmp_fdbcc(FILE* f, int is_first, int count) {
+    const struct cond_entry* conds = CONDS_ALL;
+    const int NC = 32;
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(50);
+        int8_t b = r_moveq_lim(50);
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr  = pick_result_reg();
+        /* Dctr must differ from rr and from D0 (used for loads). */
+        int    ctr;
+        do { ctr = 1 + (int)(r32() % 7); } while (ctr == rr);
+
+        const int ci = (int)(r32() % NC);
+        const uint8_t cond = conds[ci].code;
+        const char*   cname = conds[ci].name;
+        const int cond_true = eval_cond_int(cond, a, b);
+        const int expected = cond_true ? 99 : 42;
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FCMP+FDB%s FP%d,FP%d (%d,%d) ctr=D%d -> D%d #%03d",
+                 cname, src, dst, (int)a, (int)b, ctr, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\"op_b\":%d,\n", (int)a, (int)b);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BWf((uint16_t)(0x7000 | ((rr  & 7) << 9) | 42));  /* MOVEQ #42,Drr */
+        BWf((uint16_t)(0x7000 | ((ctr & 7) << 9) | 1));   /* MOVEQ #1,Dctr */
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));
+        BWf(moveq_d0(b));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(dst, FMT_L));
+        /* FCMP FP{src},FP{dst} */
+        BWf(0xF200);
+        BWf((uint16_t)(((src & 7) << 10) | ((dst & 7) << 7) | 0x38));
+        /* FDBcc Dctr: opword $F248 | reg; ext = cond; disp word follows.
+         * disp = +4 -- after FDBcc (which is 6 bytes), PC sits at disp
+         * base; +4 skips the MOVEQ (2 bytes) and lands on STOP (4 bytes). */
+        BWf((uint16_t)(0xF248 | (ctr & 7)));
+        BWf((uint16_t)cond);
+        BWf(0x0004);                                /* disp = +4 (.W) */
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | 99));  /* MOVEQ #99,Drr */
+        BWf(0x4E72); BWf(0x2700);                   /* STOP #$2700 */
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", expected);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
+/* FTRAPcc.F (always-false condition): the instruction must not trap.
+ * Verifies the F-line decode handles FTRAPcc + early-out on false cc.
+ * We don't test true conditions here because handling the trap would
+ * need a vector handler the bench doesn't currently set up. */
+static int gen_ftrapcc_false(FILE* f, int is_first, int count) {
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(127);
+        int    rr = pick_result_reg();
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FTRAPcc.F (no operand) preserves D%d=%d #%03d",
+                 rr, (int)a, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", (int)a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        /* MOVEQ #a,Drr; FTRAPcc.F (no operand); STOP. */
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | (uint8_t)a));
+        BWf(0xF27C); BWf(0x0000);   /* FTRAPcc no-operand variant + cond F */
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", (int)a);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
 static int gen_fnop(FILE* f, int is_first, int count) {
     for (int i = 0; i < count; ++i) {
         int8_t a = r_moveq_lim(127);
@@ -944,6 +1312,21 @@ int main(int argc, char** argv) {
     total += gen_fmove_sized_fp_to_d(f, first, FMT_B, "B", M);
     /* FNOP synchronization barrier. */
     total += gen_fnop(f, first, M);
+    /* FDBcc decrement-and-branch (single-iteration test pattern). */
+    total += gen_fcmp_fdbcc(f, first, 2 * N);
+    /* FTRAPcc with always-false condition (must not trap). */
+    total += gen_ftrapcc_false(f, first, M);
+    /* FMOVE.L Dn<->FPcr round-trips for FPIAR/FPSR/FPCR. */
+    total += gen_fmove_l_fpcr_roundtrip(f, first, 3 * M);
+    /* FMOVE memory loads via PC-relative addressing for .X (12B) and .D (8B).
+     * .P (packed BCD) intentionally omitted -- unsupported on fpu_lite. */
+    total += gen_fmove_pcrel_load(f, first, /*fmt=*/2, "X", 12,
+                                  m68881_extended_int, N);
+    total += gen_fmove_pcrel_load(f, first, /*fmt=*/5, "D",  8,
+                                  ieee_double_int,    N);
+    /* FMOVEM.X round-trip via the SSP. Stresses multi-word coprocessor
+     * transfers; may surface TG68K microcode gaps. */
+    total += gen_fmovem_x_roundtrip(f, first, M);
 
     /* NOTE: FMOD, FREM, FSGLDIV, FSGLMUL, FGETEXP, FGETMAN, and all
      * transcendentals (FSIN, FCOS, FETOX, FLOG2, FATAN, FTANH, ...) are
