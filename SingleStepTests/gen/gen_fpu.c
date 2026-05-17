@@ -520,6 +520,113 @@ static int gen_fcmp_fscc(FILE* f, int is_first, int count) {
     return count;
 }
 
+/* FTST + FScc: unary version of FCMP+FScc. FTST FPn sets FPCC by
+ * comparing FPn against zero, then FScc reads back the predicate.        */
+static int gen_ftst_fscc(FILE* f, int is_first, int count) {
+    static const struct { uint8_t code; const char* name; } conds[] = {
+        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
+        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
+    };
+    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(50);
+        int    src = (int)(r32() & 7);
+        int    rr  = pick_result_reg();
+        const int     ci = (int)(r32() % NC);
+        const uint8_t cond  = conds[ci].code;
+        const char*   cname = conds[ci].name;
+        /* FTST FPn vs zero: compare a against 0 for predicate evaluation. */
+        const int expected = eval_cond_int(cond, a, 0);
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FTST+FS%s FP%d (%d) -> D%d #%03d",
+                 cname, src, (int)a, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\n", (int)a);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | 0));        /* MOVEQ #0,Drr */
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));      /* FMOVE.L D0,FP{src} */
+        /* FTST.X FPn: ext = (src<<10) | 0x3A (opclass 000 monadic, opmode FTST). */
+        BWf(0xF200);
+        BWf((uint16_t)(((src & 7) << 10) | 0x3A));
+        /* FScc.B D{rr} */
+        BWf((uint16_t)(0xF240 | (rr & 7)));
+        BWf((uint16_t)cond);
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", expected ? 0xFF : 0x00);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
+/* FCMP + FBcc.W: branch on condition. If taken, marker reg keeps its
+ * initial value (1); if not taken, the MOVEQ #0 between FBcc and STOP
+ * runs and zeros it.                                                       */
+static int gen_fcmp_fbcc(FILE* f, int is_first, int count) {
+    static const struct { uint8_t code; const char* name; } conds[] = {
+        {COND_F, "F"}, {COND_T, "T"}, {COND_EQ, "EQ"}, {COND_NE, "NE"},
+        {COND_GT, "GT"}, {COND_GE, "GE"}, {COND_LT, "LT"}, {COND_LE, "LE"},
+    };
+    const int NC = (int)(sizeof(conds) / sizeof(conds[0]));
+    for (int i = 0; i < count; ++i) {
+        int8_t a = r_moveq_lim(50);
+        int8_t b = r_moveq_lim(50);
+        int    dst, src;
+        pick_two_fp(&dst, &src);
+        int    rr = pick_result_reg();
+        const int     ci    = (int)(r32() % NC);
+        const uint8_t cond  = conds[ci].code;
+        const char*   cname = conds[ci].name;
+        const int taken = eval_cond_int(cond, a, b);
+        const int expected = taken ? 1 : 0;
+
+        char nm[120];
+        snprintf(nm, sizeof(nm), "FCMP+FB%s FP%d,FP%d (%d,%d) -> D%d #%03d",
+                 cname, src, dst, (int)a, (int)b, rr, i);
+        if (!(is_first && i == 0)) fprintf(f, ",\n");
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"name\":\"%s\",\n", nm);
+        fprintf(f, "    \"op_a\":%d,\"op_b\":%d,\n", (int)a, (int)b);
+        fprintf(f, "    \"program\":[");
+        int first = 1;
+        #define BWf(w) do { \
+            if (!first) fprintf(f, ","); \
+            fprintf(f, "%u,%u", ((unsigned)(w) >> 8) & 0xFF, (unsigned)(w) & 0xFF); \
+            first = 0; \
+        } while (0)
+        BWf((uint16_t)(0x7001 | ((rr & 7) << 9)));   /* MOVEQ #1,Drr (initial) */
+        BWf(moveq_d0(a));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(dst, FMT_L));
+        BWf(moveq_d0(b));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));
+        BWf(0xF200);
+        BWf((uint16_t)(((src & 7) << 10) | ((dst & 7) << 7) | 0x38));   /* FCMP */
+        /* FBcc.W disp=+4 skips the 2-byte MOVEQ #0,Drr that follows. */
+        BWf((uint16_t)(0xF280 | cond));
+        BWf((uint16_t)0x0004);
+        BWf((uint16_t)(0x7000 | ((rr & 7) << 9) | 0));   /* MOVEQ #0,Drr (skipped if branch) */
+        BWf(0x4E72); BWf(0x2700);
+        #undef BWf
+        fprintf(f, "],\n");
+        fprintf(f, "    \"result_reg\":%d,\n", rr);
+        fprintf(f, "    \"expected\":%d\n", expected);
+        fprintf(f, "  }");
+    }
+    return count;
+}
+
 /* ---------------------------------------------------------------------- */
 int main(int argc, char** argv) {
     const char* outpath = (argc > 1) ? argv[1] : "fpu_corpus.json";
@@ -582,6 +689,10 @@ int main(int argc, char** argv) {
 
     /* FCMP+FScc: verifies FPCC generation and conditional-byte writeback. */
     total += gen_fcmp_fscc  (f, first, N);
+    /* FTST+FScc: unary FPCC generator. */
+    total += gen_ftst_fscc  (f, first, N);
+    /* FCMP+FBcc.W: branch-on-condition. */
+    total += gen_fcmp_fbcc  (f, first, N);
 
     fprintf(f, "\n]\n");
     fclose(f);

@@ -62,7 +62,10 @@ module cpu_fpu_tests
    output        dbg_trapmake,
    output [5:0]  dbg_cir_cond_reg,
    output [31:0] dbg_fpsr,
-   output [31:0] dbg_cir_response_reg
+   output [31:0] dbg_cir_response_reg,
+   output        dbg_cp_do_branch,
+   output [31:0] dbg_cp_branch_target,
+   output [31:0] dbg_pc
    );
 
    // Hierarchical taps into the TG68K kernel inside the bus wrapper.
@@ -104,6 +107,9 @@ module cpu_fpu_tests
    assign dbg_cir_cond_reg     = fpu.cir_condition_reg;
    assign dbg_fpsr             = fpu.fpsr_reg;
    assign dbg_cir_response_reg = fpu.cir_response_reg;
+   assign dbg_cp_do_branch     = cpu.tg68k.cp_do_branch;
+   assign dbg_cp_branch_target = cpu.tg68k.cp_branch_target;
+   assign dbg_pc               = cpu.tg68k.tg68_pc;
 
    // -------------------- CPU bus signals --------------------------------
    wire [31:0] cpu_addr;

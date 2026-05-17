@@ -247,6 +247,9 @@ static int run_corpus(const std::string& fname, bool trace) {
                               << " resp=0x" << std::setw(8) << top->dbg_cir_response_reg
                               << " din=0x" << std::setw(4) << top->dbg_data_in
                               << " t1111=" << std::dec << int(top->dbg_trap_1111)
+                              << " br=" << int(top->dbg_cp_do_branch)
+                              << " btgt=0x" << std::hex << std::setw(8) << top->dbg_cp_branch_target
+                              << " pc=0x" << std::setw(8) << top->dbg_pc
                               << std::dec << std::setfill(' ') << "\n";
                     prev_state_sig = cur_state_sig;
                 }
