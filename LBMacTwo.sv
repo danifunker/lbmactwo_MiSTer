@@ -1015,14 +1015,13 @@ wire download_cycle = dio_download && dioBusControl;
 // using them as program data -- producing the BERR-at-cycle-79M ->
 // Test Manager hang described in docs/new-scc.md.
 //
-// Disable the dsk_disk-bank remap for normal RAM access by force-
-// gating dsk_remap to 0.  Mac CPU's entire memory window now lands
-// at SDRAM 0-0x1FFFFF (4MB), well clear of VRAM at 0x300000.
-// This temporarily breaks reads through the "extra rom"
-// disk-buffer view, but Mac is stuck WAY before any floppy/SCSI
-// transaction happens, so we can't make boot worse and we close
-// off this corruption source.
-wire dsk_remap = 1'b0; // was: (dskReadAckInt || dskReadAckExt);
+// V5 EXPERIMENT REVERTED: I tried forcing dsk_remap=0 thinking
+// dskReadAck was the corruption source, but real captures showed
+// Mac REGRESSED to the earlier 0x40826CCx stuck point with v5,
+// vs reaching the Test Manager loop (0x40003290 area) with v4.1.
+// The dskAck remap is apparently part of legitimate Mac data flow.
+// Restoring original behaviour.
+wire dsk_remap = (dskReadAckInt || dskReadAckExt);
 
 assign arb_mac_addr = download_cycle ? {4'b0001, dio_a[20:0] } :
                       ~_romOE        ? {4'b0001, 2'b00, 1'b0, memoryAddr[18:1]} : // Mac II ROM at SDRAM offset
