@@ -19,8 +19,18 @@ CFLAGS   := $(CPUFLAGS) -ffreestanding -fno-builtin -fomit-frame-pointer \
 ASFLAGS  := $(CPUFLAGS)
 LDFLAGS  := -nostdlib --no-eh-frame-hdr
 
-.PHONY: all clean
+.PHONY: all clean minimal
 all: $(BUILD)/boot_stub.bin $(BUILD)/payload.bin sizes
+minimal: $(BUILD)/boot_stub_minimal.bin
+
+$(BUILD)/boot_stub_minimal.o: boot_stub_minimal.s | $(BUILD)
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/boot_stub_minimal.elf: $(BUILD)/boot_stub_minimal.o boot_stub.ld
+	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
+
+$(BUILD)/boot_stub_minimal.bin: $(BUILD)/boot_stub_minimal.elf
+	$(OBJCOPY) -O binary $< $@
 
 # ---------- boot block ----------
 $(BUILD)/boot_stub.o: boot_stub.s | $(BUILD)
