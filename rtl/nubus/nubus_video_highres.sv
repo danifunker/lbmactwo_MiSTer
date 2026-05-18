@@ -577,11 +577,23 @@ module nubus_video_highres #(
                             if (cpu_vram_word < VRAM_SIZE) begin
                                 vram_addr <= VRAM_BASE + {6'd0, cpu_vram_word};
                                 cpu_write_word <= cpu_vram_word;
-                                cpu_write_data <= ~data_in;  // Invert on write (MAME: data ^= 0xFFFFFFFF)
+                                // V6: dropped the MAME-style ^=0xFFFFFFFF on VRAM
+                                // writes.  With XOR present, our display in 1bpp
+                                // mode reads vram_byte = ~Mac_pixel, pixel_idx
+                                // becomes the inverse of Mac's intent, and
+                                // looks up our slots 0/1 (which then mapped
+                                // to Mac's slots 0xFF/0xFE via the address
+                                // XOR -- see also the RAMDAC and CLUT changes
+                                // below).  Storing data verbatim makes the
+                                // VRAM->display path identity, which combined
+                                // with removing the CLUT addr+data XORs
+                                // means Mac's writes go to Mac's intended
+                                // slots and pixels render in Mac's colors.
+                                cpu_write_data <= data_in;
                                 cpu_write_strobes <= uds_lds;
                                 if (uds_lds == 2'b11) begin
-                                    cpu_write_merged <= ~data_in;
-                                    vram_dout <= ~data_in;
+                                    cpu_write_merged <= data_in;
+                                    vram_dout <= data_in;
                                     // Apple NuBus longword transfers through a 16-bit local
                                     // interface are presented as two halfword operations
                                     // (+0 then +2). Store only the addressed halfword here;
@@ -673,8 +685,16 @@ module nubus_video_highres #(
                                 ramdac_dup_phase <= 1'b1;
 
                                 if (addr[2] == 1'b0) begin
-                                    // Set RAMDAC address, reset RGB counter
-                                    ramdac_addr <= ~data_in[15:8];
+                                    // Set RAMDAC address, reset RGB counter.
+                                    // V6: removed XOR so Mac's slot writes
+                                    // land at the slot Mac intended.  With
+                                    // the XOR, Mac's slot 0 write went to
+                                    // our clut[0xFF], and our 1bpp display
+                                    // reads clut[0]/clut[1] (Mac's slots
+                                    // 0xFF/0xFE) which holds whatever junk
+                                    // colors Mac happened to write to the
+                                    // top of the palette -- cyan/red here.
+                                    ramdac_addr <= data_in[15:8];
                                     ramdac_rgb <= 2'd0;
                                 end else begin
                                     // Write palette R/G/B sequentially.  MAME's
@@ -687,11 +707,19 @@ module nubus_video_highres #(
                                     // dropped the color inversion: empirical
                                     // testing (sim cursor came out negative)
                                     // confirmed the inversion is needed.
+                                    // V6: dropped XOR on RGB so Mac's color
+                                    // bytes get stored verbatim.  Combined
+                                    // with the address-XOR removal above
+                                    // and the VRAM-XOR removal, the whole
+                                    // VRAM->display->CLUT->DAC pipeline is
+                                    // identity.  Mac writes white at slot
+                                    // 0, we render white where Mac wanted
+                                    // pixel value 0.
                                     case (ramdac_rgb)
-                                        2'd0: clut[ramdac_addr][23:16] <= ~data_in[15:8]; // R
-                                        2'd1: clut[ramdac_addr][15:8]  <= ~data_in[15:8]; // G
+                                        2'd0: clut[ramdac_addr][23:16] <= data_in[15:8]; // R
+                                        2'd1: clut[ramdac_addr][15:8]  <= data_in[15:8]; // G
                                         2'd2: begin
-                                            clut[ramdac_addr][7:0] <= ~data_in[15:8];     // B
+                                            clut[ramdac_addr][7:0] <= data_in[15:8];     // B
                                             ramdac_addr <= ramdac_addr + 8'd1;            // Auto-increment
                                         end
                                         default: ;
@@ -816,7 +844,9 @@ module nubus_video_highres #(
 
                 S_CPU_READ_WAIT: begin
                     if (vram_ready) begin
-                        data_out <= ~vram_din;  // CPU reads inverted (MAME: vram ^ 0xFFFFFFFF)
+                        // V6: VRAM is stored verbatim now, so the CPU read
+                        // returns it verbatim too -- no XOR.
+                        data_out <= vram_din;
                         vram_rd <= 1'b0;
                         ack_delay <= 3'd2;
                         state <= S_IDLE;
