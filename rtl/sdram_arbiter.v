@@ -244,14 +244,33 @@ module sdram_arbiter (
 
     assign vram_ready = vram_ready_latch;
 
-    // Stall Mac when video has the SDRAM bus committed.  vram_state is
-    // non-IDLE during VRAM_WAIT and VRAM_READY; during those windows
-    // sdram_dout is the video's data (or in transition), so Mac would
-    // latch garbage if its bus cycle completed.  Asserting mac_stall
-    // delays _cpuDTACK so the Mac CPU holds its bus cycle until video
-    // releases.  Only stall when Mac is actually requesting -- no point
-    // delaying a quiescent Mac.
-    assign mac_stall = (vram_state != VRAM_IDLE) & mac_active;
+    // Stall Mac when video has the SDRAM bus committed AND for several
+    // cycles afterwards.  The "afterwards" tail is critical: when
+    // vram_state returns to IDLE the SDRAM cycle that produced video's
+    // data is *just* ending; sdram_dout is still video's word and will
+    // remain so until the next SDRAM cycle completes Mac's read at the
+    // following T5.  If we dropped mac_stall the instant vram_state
+    // hit IDLE the Mac CPU would happily latch the video's data on
+    // sdram_dout and execute it as an instruction or use it as an
+    // address (leading to the BERR at PC=$40806A0E -> Test Manager
+    // hang described in docs/new-scc.md).
+    //
+    // Hold for POST_VIDEO_HOLD clk_sys cycles after vram_state drops.
+    // SDRAM cycle = 8 clk_64 = ~4 clk_sys, alignment slop adds up to
+    // another 4 -- so 8 is conservative for worst-case Mac latch.
+    localparam POST_VIDEO_HOLD = 4'd8;
+    reg [3:0] post_video_cnt;
+    always @(posedge clk) begin
+        if (reset) begin
+            post_video_cnt <= 4'd0;
+        end else if (vram_state != VRAM_IDLE) begin
+            post_video_cnt <= POST_VIDEO_HOLD;
+        end else if (post_video_cnt != 4'd0) begin
+            post_video_cnt <= post_video_cnt - 4'd1;
+        end
+    end
+    assign mac_stall = ((vram_state != VRAM_IDLE) || (post_video_cnt != 4'd0))
+                       & mac_active;
 
     // Debug exposures for JTAG instrumentation
     assign dbg_grant_video  = grant_video;
