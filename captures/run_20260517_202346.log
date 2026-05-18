@@ -1,0 +1,235 @@
+[Sun May 17 20:23:46 EDT 2026] New .sof detected, programming FPGA
+Info: *******************************************************************
+Info: Running Quartus Prime Programmer
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Sun May 17 20:23:46 2026
+Info: Command: quartus_pgm -m JTAG -c "DE-SoC [USB-1]" -o P;output_files/LBMacTwo.sof@2
+Info (213045): Using programming cable "DE-SoC [USB-1]"
+Info (213011): Using programming file output_files/LBMacTwo.sof with checksum 0x072A040F for device 5CSEBA6U23@2
+Info (209060): Started Programmer operation at Sun May 17 20:23:48 2026
+Info (209016): Configuring device index 2
+Info (209017): Device 2 contains JTAG ID code 0x02D020DD
+Info (209007): Configuration succeeded -- 1 device(s) configured
+Info (209011): Successfully performed operation(s)
+Info (209061): Ended Programmer operation at Sun May 17 20:23:51 2026
+Info: Quartus Prime Programmer was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4449 megabytes
+    Info: Processing ended: Sun May 17 20:23:51 2026
+    Info: Elapsed time: 00:00:05
+    Info: Total CPU time (on all processors): 00:00:08
+[Sun May 17 20:23:51 EDT 2026] Waiting 8s for boot then capturing 60 ISSP samples
+  probe 3 (VID_): 300FD984
+  probe 4 (SDRA): 00000400
+------ Sample 28 ------
+  probe 0 (CP0_): F040025C
+  probe 1 (DATA): 80F10000
+  probe 2 (MAC_): 00194D20
+  probe 3 (VID_): 3030AF80
+  probe 4 (SDRA): 00000400
+------ Sample 29 ------
+  probe 0 (CP0_): 0032A244
+  probe 1 (DATA): 00000000
+  probe 2 (MAC_): 20195340
+  probe 3 (VID_): 305D5080
+  probe 4 (SDRA): 00000400
+------ Sample 30 ------
+  probe 0 (CP0_): 003288FC
+  probe 1 (DATA): 40000002
+  probe 2 (MAC_): 20195150
+  probe 3 (VID_): 30032C80
+  probe 4 (SDRA): 00000400
+------ Sample 31 ------
+  probe 0 (CP0_): 003214FC
+  probe 1 (DATA): 01020000
+  probe 2 (MAC_): 00194D30
+  probe 3 (VID_): 3023D080
+  probe 4 (SDRA): 02050400
+------ Sample 32 ------
+  probe 0 (CP0_): 002EE44C
+  probe 1 (DATA): 60040000
+  probe 2 (MAC_): 20195550
+  probe 3 (VID_): 304E1B80
+  probe 4 (SDRA): AAAA4400
+------ Sample 33 ------
+  probe 0 (CP0_): 0032AE44
+  probe 1 (DATA): 00005555
+  probe 2 (MAC_): 30000048
+  probe 3 (VID_): 3077F500
+  probe 4 (SDRA): 08070400
+------ Sample 34 ------
+  probe 0 (CP0_): F04000FC
+  probe 1 (DATA): FFFF5555
+  probe 2 (MAC_): 28000048
+  probe 3 (VID_): 3021A184
+  probe 4 (SDRA): AAAA0400
+------ Sample 35 ------
+  probe 0 (CP0_): 0032ACFC
+  probe 1 (DATA): 2EE46B00
+  probe 2 (MAC_): 20177440
+  probe 3 (VID_): 304EF600
+  probe 4 (SDRA): 00007400
+------ Sample 36 ------
+  probe 0 (CP0_): 0032FEFC
+  probe 1 (DATA): FFFF0000
+  probe 2 (MAC_): 20194C40
+  probe 3 (VID_): 3077F400
+  probe 4 (SDRA): 00000400
+------ Sample 37 ------
+  probe 0 (CP0_): 0032FAFC
+  probe 1 (DATA): 00000012
+  probe 2 (MAC_): 20194D48
+  probe 3 (VID_): 301A9084
+  probe 4 (SDRA): 4A450400
+------ Sample 38 ------
+  probe 0 (CP0_): 00321244
+  probe 1 (DATA): FFFF674C
+  probe 2 (MAC_): 20194B40
+  probe 3 (VID_): 304B1084
+  probe 4 (SDRA): 00000500
+------ Sample 39 ------
+  probe 0 (CP0_): 0032FC44
+  probe 1 (DATA): 000F45F9
+  probe 2 (MAC_): 1FF92B40
+  probe 3 (VID_): 3073E384
+  probe 4 (SDRA): 00000400
+------ Sample 40 ------
+  probe 0 (CP0_): 0032A6FC
+  probe 1 (DATA): 40000000
+  probe 2 (MAC_): 1FDEF240
+  probe 3 (VID_): 30202584
+  probe 4 (SDRA): 00060400
+------ Sample 41 ------
+  probe 0 (CP0_): 002EE044
+  probe 1 (DATA): 2EE40000
+  probe 2 (MAC_): 1FF78310
+  probe 3 (VID_): 30512480
+  probe 4 (SDRA): 00000400
+------ Sample 42 ------
+  probe 0 (CP0_): 002EE44C
+  probe 1 (DATA): 80F150F0
+  probe 2 (MAC_): 00195420
+  probe 3 (VID_): 3077EA00
+  probe 4 (SDRA): 00000400
+------ Sample 43 ------
+  probe 0 (CP0_): F040025C
+  probe 1 (DATA): FFFF5555
+  probe 2 (MAC_): 1FF2AD58
+  probe 3 (VID_): 30286600
+  probe 4 (SDRA): 00001400
+------ Sample 44 ------
+  probe 0 (CP0_): F04000FC
+  probe 1 (DATA): 80000011
+  probe 2 (MAC_): 28000040
+  probe 3 (VID_): 30506380
+  probe 4 (SDRA): 55555400
+------ Sample 45 ------
+  probe 0 (CP0_): 0033044C
+  probe 1 (DATA): 00005555
+  probe 2 (MAC_): 20195550
+  probe 3 (VID_): 3077EE00
+  probe 4 (SDRA): 55553400
+------ Sample 46 ------
+  probe 0 (CP0_): 002EE04C
+  probe 1 (DATA): FFFF6180
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 30251F84
+  probe 4 (SDRA): 062A0400
+------ Sample 47 ------
+  probe 0 (CP0_): 002EE44C
+  probe 1 (DATA): 40004000
+  probe 2 (MAC_): 00177210
+  probe 3 (VID_): 30522300
+  probe 4 (SDRA): AAAA4500
+------ Sample 48 ------
+  probe 0 (CP0_): 0032A844
+  probe 1 (DATA): 80000000
+  probe 2 (MAC_): 00194310
+  probe 3 (VID_): 3077F200
+  probe 4 (SDRA): 4DFA0400
+------ Sample 49 ------
+  probe 0 (CP0_): 0032A24C
+  probe 1 (DATA): 33064A45
+  probe 2 (MAC_): 20177540
+  probe 3 (VID_): 301AAD80
+  probe 4 (SDRA): 4EFA0400
+------ Sample 50 ------
+  probe 0 (CP0_): F040025C
+  probe 1 (DATA): 80000000
+  probe 2 (MAC_): 00190730
+  probe 3 (VID_): 3040D684
+  probe 4 (SDRA): 00006400
+------ Sample 51 ------
+  probe 0 (CP0_): 002EE844
+  probe 1 (DATA): 2EE40000
+  probe 2 (MAC_): 00194C30
+  probe 3 (VID_): 306AEF80
+  probe 4 (SDRA): 50F00400
+------ Sample 52 ------
+  probe 0 (CP0_): 002EE64C
+  probe 1 (DATA): 0000103C
+  probe 2 (MAC_): 20197E40
+  probe 3 (VID_): 3013A828
+  probe 4 (SDRA): 67700400
+------ Sample 53 ------
+  probe 0 (CP0_): 0032984C
+  probe 1 (DATA): 80000011
+  probe 2 (MAC_): 18200030
+  probe 3 (VID_): 3049B300
+  probe 4 (SDRA): 67040400
+------ Sample 54 ------
+  probe 0 (CP0_): 0033064C
+  probe 1 (DATA): 00810000
+  probe 2 (MAC_): 20195340
+  probe 3 (VID_): 30773700
+  probe 4 (SDRA): 00000400
+------ Sample 55 ------
+  probe 0 (CP0_): 0032A644
+  probe 1 (DATA): 80F14000
+  probe 2 (MAC_): 28000040
+  probe 3 (VID_): 3025D584
+  probe 4 (SDRA): 00000400
+------ Sample 56 ------
+  probe 0 (CP0_): F040025C
+  probe 1 (DATA): 0000AAAA
+  probe 2 (MAC_): 28000040
+  probe 3 (VID_): 303E7300
+  probe 4 (SDRA): 00000400
+------ Sample 57 ------
+  probe 0 (CP0_): 0033004C
+  probe 1 (DATA): 00000807
+  probe 2 (MAC_): 20177058
+  probe 3 (VID_): 30666B00
+  probe 4 (SDRA): 00000400
+------ Sample 58 ------
+  probe 0 (CP0_): 0032964C
+  probe 1 (DATA): 00000000
+  probe 2 (MAC_): 20194F48
+  probe 3 (VID_): 30161384
+  probe 4 (SDRA): 00000400
+------ Sample 59 ------
+  probe 0 (CP0_): 0032A84C
+  probe 1 (DATA): 00814DFA
+  probe 2 (MAC_): 1FEDC040
+  probe 3 (VID_): 303DEA84
+  probe 4 (SDRA): 00004400
+Info (23030): Evaluation of Tcl script scripts/issp_read.tcl was successful
+Info: Quartus Prime SignalTap II TCL Only was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4318 megabytes
+    Info: Processing ended: Sun May 17 20:24:13 2026
+    Info: Elapsed time: 00:00:14
+    Info: Total CPU time (on all processors): 00:00:17
+[Sun May 17 20:24:13 EDT 2026] Capture done -> captures/probes_20260517_202346.txt

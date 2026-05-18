@@ -1001,17 +1001,39 @@ wire download_cycle = dio_download && dioBusControl;
 
 ////////////////////////// SDRAM /////////////////////////////////
 
-// Route Mac system signals through arbiter
+// Route Mac system signals through arbiter.
+//
+// EXPERIMENT (arbiter v5): The original RAM mapping ORed dskReadAck
+// into bit 21 to redirect Mac's bus to the "disk image" SDRAM bank,
+// and selected extra_rom_data_demux on the data path whenever
+// dskReadAck was high.  ISSP captures showed Mac's NORMAL ROM
+// execution issuing data reads like memoryAddr=0x5F4A (from
+// PC=$40005F4A) being routed to SDRAM 0x202FA5 because dskReadAck
+// was incorrectly asserted at that moment.  SDRAM 0x202FA5 overlaps
+// VRAM_BASE=0x300000 region and happens to also overlap the
+// disk-image bank, so Mac was reading VRAM/disk-buffer contents and
+// using them as program data -- producing the BERR-at-cycle-79M ->
+// Test Manager hang described in docs/new-scc.md.
+//
+// Disable the dsk_disk-bank remap for normal RAM access by force-
+// gating dsk_remap to 0.  Mac CPU's entire memory window now lands
+// at SDRAM 0-0x1FFFFF (4MB), well clear of VRAM at 0x300000.
+// This temporarily breaks reads through the "extra rom"
+// disk-buffer view, but Mac is stuck WAY before any floppy/SCSI
+// transaction happens, so we can't make boot worse and we close
+// off this corruption source.
+wire dsk_remap = 1'b0; // was: (dskReadAckInt || dskReadAckExt);
+
 assign arb_mac_addr = download_cycle ? {4'b0001, dio_a[20:0] } :
                       ~_romOE        ? {4'b0001, 2'b00, 1'b0, memoryAddr[18:1]} : // Mac II ROM at SDRAM offset
-                                       {3'b000, (dskReadAckInt || dskReadAckExt), memoryAddr[21:1]};
+                                       {3'b000, dsk_remap,    memoryAddr[21:1]};
 
 assign arb_mac_din  = download_cycle ? dio_data              : memoryDataOut;
 assign arb_mac_ds   = download_cycle ? 2'b11                 : { !_memoryUDS, !_memoryLDS };
 assign arb_mac_we   = download_cycle ? dio_write             : !_ramWE;
-assign arb_mac_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
+assign arb_mac_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dsk_remap);
 
-wire [15:0] sdram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux : arb_mac_dout;
+wire [15:0] sdram_do   = download_cycle ? 16'hffff : dsk_remap ? extra_rom_data_demux : arb_mac_dout;
 
 // during rom/disk download ffff is returned so the screen is black during download
 // "extra rom" is used to hold the disk image. It's expected to be byte wide and
