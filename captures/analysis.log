@@ -145,3 +145,199 @@ sdram_out top:    0x0=11, 0xaaaa=5, 0x6afc=3, 0x5344=3, 0x4a43=2, 0x5555=2, 0x4a
   CPU is running (25 distinct addrs across 41 JTAG samples).
   video_en went high — slot driver did run.
   vram_rd asserted in 31/41 samples; ready in 1/41. 
+================================================================
+[Mon May 18 09:00:26 EDT 2026] new capture: captures/probes_20260518_085959.txt
+======================================================================
+Capture: captures/probes_20260518_085959.txt  (41 samples)
+======================================================================
+video_en:        {1: 41}  (1 = card enabled)
+cpuAddr range:   0x378c .. 0x50f12060, distinct=25
+cpuAddr top vals: 0x50f10040=4, 0x40f10040=4, 0x50026cc2=4, 0x40026cc6=3, 0x40026cc0=3, 0x40026cc2=2, 0x40026cc8=2, 0x40026cca=2
+_cpuAS=0 (active): 80.5%
+_cpuDTACK=0 (ack): 22.0%
+arb_mac_we=1:    2.4%
+arb_mac_oe=1:    53.7%
+grant_video=1:   34.1%
+video_clean=1:   58.5%
+mac_stall=1:     29.3%
+arb_vram_rd=1:   73.2%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:0.0%
+vram_state dist: {1: 18, 0: 23}
+mac_idle_cnt:    avg=2.61, max=15
+arb_mac_addr top: 0x188020=8, 0x213664=4, 0x213660=3, 0x188028=2, 0x13663=2, 0x213663=2, 0x13661=2, 0x300000=1
+arb_vram_addr top: 0x306490=1, 0x3059f4=1, 0x306b2b=1, 0x300710=1, 0x306f22=1, 0x306157=1, 0x30546a=1, 0x307228=1
+sdram_out top:    0x0=27, 0xaaaa=4, 0xfff8=2, 0x82b=2, 0x7a00=1, 0x4080=1, 0x56cd=1, 0x6=1
+
+---- interpretation ----
+  CPU is running (25 distinct addrs across 41 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 30/41 samples; ready in 0/41. 
+================================================================
+[Mon May 18 09:40:01 EDT 2026] new capture: captures/probes_20260518_093925.txt
+======================================================================
+Capture: captures/probes_20260518_093925.txt  (60 samples)
+======================================================================
+video_en:        {1: 60}  (1 = card enabled)
+cpuAddr range:   0x26cca .. 0x50f10040, distinct=19
+cpuAddr top vals: 0x40f10040=14, 0x40026cc8=6, 0x50f10040=4, 0x50026cca=4, 0x50026cc8=4, 0x40026cc0=4, 0x40026cc2=3, 0x40026cc4=3
+_cpuAS=0 (active): 80.0%
+_cpuDTACK=0 (ack): 15.0%
+arb_mac_we=1:    6.7%
+arb_mac_oe=1:    45.0%
+grant_video=1:   25.0%
+video_clean=1:   66.7%
+mac_stall=1:     30.0%
+arb_vram_rd=1:   71.7%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:1.7%
+vram_state dist: {0: 34, 1: 25, 2: 1}
+mac_idle_cnt:    avg=3.12, max=15
+arb_mac_addr top: 0x188020=12, 0x13660=5, 0x0=4, 0x80000=4, 0x213663=3, 0x213661=3, 0x213665=3, 0x13661=2
+arb_vram_addr top: 0x3077f5=2, 0x30545e=1, 0x302661=1, 0x3061f1=1, 0x305424=1, 0x3034f4=1, 0x306935=1, 0x301711=1
+sdram_out top:    0x0=20, 0x5555=11, 0xaaaa=9, 0x56c9=6, 0xfff8=3, 0x82b=3, 0x6=3, 0x66f8=1
+
+---- interpretation ----
+  CPU is running (19 distinct addrs across 60 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 43/60 samples; ready in 1/60. 
+================================================================
+[Mon May 18 09:41:31 EDT 2026] new capture: captures/probes_20260518_094109_long2.txt
+======================================================================
+Capture: captures/probes_20260518_094109_long2.txt  (41 samples)
+======================================================================
+video_en:        {1: 41}  (1 = card enabled)
+cpuAddr range:   0x26cc0 .. 0x50f10040, distinct=14
+cpuAddr top vals: 0x40f10040=8, 0x50f10040=7, 0x40026cc8=4, 0x50026cc0=4, 0x40026cc4=3, 0x40026cc0=3, 0x40026cca=3, 0x40026cc2=2
+_cpuAS=0 (active): 85.4%
+_cpuDTACK=0 (ack): 7.3%
+arb_mac_we=1:    0.0%
+arb_mac_oe=1:    43.9%
+grant_video=1:   46.3%
+video_clean=1:   63.4%
+mac_stall=1:     31.7%
+arb_vram_rd=1:   70.7%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:4.9%
+vram_state dist: {0: 21, 1: 18, 2: 2}
+mac_idle_cnt:    avg=3.41, max=15
+arb_mac_addr top: 0x188020=6, 0x13664=3, 0x213665=3, 0x213661=3, 0x80000=2, 0x13665=2, 0x20=1, 0x1fef81=1
+arb_vram_addr top: 0x304cb7=1, 0x3066f7=1, 0x30289b=1, 0x306af6=1, 0x30259a=1, 0x3053ad=1, 0x301636=1, 0x3075f3=1
+sdram_out top:    0x5555=11, 0x0=11, 0xaaaa=7, 0x56cd=3, 0x82b=3, 0x6=2, 0xfff8=1, 0x40=1
+
+---- interpretation ----
+  CPU is running (14 distinct addrs across 41 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 29/41 samples; ready in 2/41. 
+================================================================
+[Mon May 18 10:18:05 EDT 2026] new capture: captures/probes_20260518_101724.txt
+======================================================================
+Capture: captures/probes_20260518_101724.txt  (60 samples)
+======================================================================
+video_en:        {1: 60}  (1 = card enabled)
+cpuAddr range:   0x40026cc0 .. 0x50f10040, distinct=13
+cpuAddr top vals: 0x40f10040=18, 0x40026cc2=9, 0x50f10040=6, 0x40026cca=5, 0x40026cc0=4, 0x50026cc8=4, 0x40026cc8=3, 0x40026cc6=3
+_cpuAS=0 (active): 75.0%
+_cpuDTACK=0 (ack): 13.3%
+arb_mac_we=1:    0.0%
+arb_mac_oe=1:    65.0%
+grant_video=1:   16.7%
+video_clean=1:   68.3%
+mac_stall=1:     30.0%
+arb_vram_rd=1:   60.0%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:3.3%
+vram_state dist: {0: 37, 1: 21, 2: 2}
+mac_idle_cnt:    avg=1.88, max=15
+arb_mac_addr top: 0x188020=9, 0x213660=7, 0x213664=5, 0x213665=5, 0x300000=4, 0x13661=4, 0x213661=2, 0x13663=2
+arb_vram_addr top: 0x3077f1=3, 0x3077f7=2, 0x3077f2=2, 0x306059=1, 0x300b95=1, 0x303377=1, 0x305f60=1, 0x3006ef=1
+sdram_out top:    0x0=20, 0x5555=14, 0xaaaa=8, 0xfff8=4, 0x40=4, 0x6=3, 0x82b=2, 0x56c9=2
+
+---- interpretation ----
+  CPU is running (13 distinct addrs across 60 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 36/60 samples; ready in 2/60. 
+================================================================
+[Mon May 18 10:19:05 EDT 2026] new capture: captures/probes_20260518_101850_iter1.txt
+======================================================================
+Capture: captures/probes_20260518_101850_iter1.txt  (30 samples)
+======================================================================
+video_en:        {1: 30}  (1 = card enabled)
+cpuAddr range:   0x40026cc0 .. 0x50f10040, distinct=12
+cpuAddr top vals: 0x40f10040=7, 0x40026cca=5, 0x50f10040=5, 0x40026cc4=2, 0x40026cc8=2, 0x50026cc0=2, 0x40026cc6=2, 0x50026cc4=1
+_cpuAS=0 (active): 90.0%
+_cpuDTACK=0 (ack): 16.7%
+arb_mac_we=1:    0.0%
+arb_mac_oe=1:    63.3%
+grant_video=1:   20.0%
+video_clean=1:   66.7%
+mac_stall=1:     46.7%
+arb_vram_rd=1:   76.7%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:3.3%
+vram_state dist: {1: 10, 0: 19, 2: 1}
+mac_idle_cnt:    avg=2.33, max=15
+arb_mac_addr top: 0x188020=4, 0x213665=3, 0x213660=3, 0x13664=2, 0x213664=2, 0x13660=2, 0x13665=2, 0x213661=2
+arb_vram_addr top: 0x3000f7=1, 0x306ca6=1, 0x3002b2=1, 0x300f33=1, 0x302676=1, 0x3038f2=1, 0x305571=1, 0x307058=1
+sdram_out top:    0x0=9, 0xaaaa=5, 0x5555=5, 0x56c9=4, 0x6=2, 0x82b=2, 0x40=1, 0xffff=1
+
+---- interpretation ----
+  CPU is running (12 distinct addrs across 30 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 23/30 samples; ready in 1/30. 
+================================================================
+[Mon May 18 10:19:05 EDT 2026] new capture: captures/probes_20260518_101855_iter2.txt
+======================================================================
+Capture: captures/probes_20260518_101855_iter2.txt  (30 samples)
+======================================================================
+video_en:        {1: 30}  (1 = card enabled)
+cpuAddr range:   0x40026cc0 .. 0x50f10040, distinct=11
+cpuAddr top vals: 0x40f10040=7, 0x40026cc6=4, 0x40026cc0=4, 0x50f10040=3, 0x40026cc2=3, 0x40026cc8=3, 0x50026cc0=2, 0x50026cc2=1
+_cpuAS=0 (active): 86.7%
+_cpuDTACK=0 (ack): 16.7%
+arb_mac_we=1:    0.0%
+arb_mac_oe=1:    53.3%
+grant_video=1:   20.0%
+video_clean=1:   53.3%
+mac_stall=1:     26.7%
+arb_vram_rd=1:   73.3%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:0.0%
+vram_state dist: {1: 16, 0: 14}
+mac_idle_cnt:    avg=1.90, max=15
+arb_mac_addr top: 0x188020=9, 0x300000=4, 0x1fd25d=1, 0x213664=1, 0x13665=1, 0x13664=1, 0x1ffc48=1, 0x1feef5=1
+arb_vram_addr top: 0x307262=1, 0x305811=1, 0x3071f4=1, 0x3077f8=1, 0x301b50=1, 0x3034b5=1, 0x304c37=1, 0x306110=1
+sdram_out top:    0x0=11, 0x5555=7, 0xaaaa=4, 0xfff8=3, 0x40=2, 0x56cd=1, 0x6=1, 0xffff=1
+
+---- interpretation ----
+  CPU is running (11 distinct addrs across 30 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 22/30 samples; ready in 0/30. 
+================================================================
+[Mon May 18 10:19:05 EDT 2026] new capture: captures/probes_20260518_101900_iter3.txt
+======================================================================
+Capture: captures/probes_20260518_101900_iter3.txt  (30 samples)
+======================================================================
+video_en:        {1: 30}  (1 = card enabled)
+cpuAddr range:   0x40026cc2 .. 0x50f10040, distinct=9
+cpuAddr top vals: 0x40f10040=9, 0x50f10040=4, 0x40026cc6=4, 0x40026cc4=3, 0x40026cc8=3, 0x40026cca=2, 0x40026cc2=2, 0x50026cc6=2
+_cpuAS=0 (active): 76.7%
+_cpuDTACK=0 (ack): 10.0%
+arb_mac_we=1:    0.0%
+arb_mac_oe=1:    80.0%
+grant_video=1:   10.0%
+video_clean=1:   43.3%
+mac_stall=1:     50.0%
+arb_vram_rd=1:   76.7%
+arb_vram_wr=1:   0.0%
+arb_vram_ready=1:3.3%
+vram_state dist: {0: 20, 1: 9, 2: 1}
+mac_idle_cnt:    avg=1.40, max=8
+arb_mac_addr top: 0x188020=5, 0x213662=4, 0x300000=3, 0x213665=3, 0x213663=2, 0x1ff00f=1, 0x1fe985=1, 0x13665=1
+arb_vram_addr top: 0x3077f7=2, 0x30492a=1, 0x3011ab=1, 0x302aac=1, 0x304354=1, 0x305f66=1, 0x3077f6=1, 0x30112c=1
+sdram_out top:    0x0=10, 0x5555=7, 0xaaaa=5, 0xfff8=2, 0x6=2, 0x56c9=2, 0x56cd=1, 0xe352=1
+
+---- interpretation ----
+  CPU is running (9 distinct addrs across 30 JTAG samples).
+  video_en went high — slot driver did run.
+  vram_rd asserted in 23/30 samples; ready in 1/30. 

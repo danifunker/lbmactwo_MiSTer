@@ -777,3 +777,238 @@ Info: Quartus Prime SignalTap II TCL Only was successful. 0 errors, 0 warnings
     Info: Elapsed time: 00:00:14
     Info: Total CPU time (on all processors): 00:00:18
 [Sun May 17 20:58:13 EDT 2026] Capture done -> captures/probes_20260517_205746.txt
+[Mon May 18 09:00:00 EDT 2026] New .sof detected, programming FPGA
+Info: *******************************************************************
+Info: Running Quartus Prime Programmer
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Mon May 18 09:00:00 2026
+Info: Command: quartus_pgm -m JTAG -c "DE-SoC [USB-1]" -o P;output_files/LBMacTwo.sof@2
+Info (213045): Using programming cable "DE-SoC [USB-1]"
+Info (213011): Using programming file output_files/LBMacTwo.sof with checksum 0x072A2C2F for device 5CSEBA6U23@2
+Info (209060): Started Programmer operation at Mon May 18 09:00:02 2026
+Info (209016): Configuring device index 2
+Info (209017): Device 2 contains JTAG ID code 0x02D020DD
+Info (209007): Configuration succeeded -- 1 device(s) configured
+Info (209011): Successfully performed operation(s)
+Info (209061): Ended Programmer operation at Mon May 18 09:00:05 2026
+Info: Quartus Prime Programmer was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4449 megabytes
+    Info: Processing ended: Mon May 18 09:00:05 2026
+    Info: Elapsed time: 00:00:05
+    Info: Total CPU time (on all processors): 00:00:08
+[Mon May 18 09:00:05 EDT 2026] Waiting 8s for boot then capturing 60 ISSP samples
+  probe 3 (VID_): 30735684
+  probe 4 (SDRA): 00000500
+------ Sample 28 ------
+  probe 0 (CP0_): 026CCA4C
+  probe 1 (DATA): 00010006
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30149684
+  probe 4 (SDRA): 0000C400
+------ Sample 29 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 01366110
+  probe 3 (VID_): 30192280
+  probe 4 (SDRA): 082B1400
+------ Sample 30 ------
+  probe 0 (CP0_): F1206054
+  probe 1 (DATA): 565651CA
+  probe 2 (MAC_): 18802810
+  probe 3 (VID_): 30375084
+  probe 4 (SDRA): AAAAF500
+------ Sample 31 ------
+  probe 0 (CP0_): 026CC04C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802020
+  probe 3 (VID_): 30587480
+  probe 4 (SDRA): 00060400
+------ Sample 32 ------
+  probe 0 (CP0_): 026CC2FC
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 1FE1E040
+  probe 3 (VID_): 3077F700
+  probe 4 (SDRA): 00000400
+------ Sample 33 ------
+  probe 0 (CP0_): 026CCAFC
+  probe 1 (DATA): 09FE0000
+  probe 2 (MAC_): 21366048
+  probe 3 (VID_): 3025D484
+  probe 4 (SDRA): 56C90400
+------ Sample 34 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): 00010000
+  probe 2 (MAC_): 01366320
+  probe 3 (VID_): 30533400
+  probe 4 (SDRA): AAAA0400
+------ Sample 35 ------
+  probe 0 (CP0_): 026CC644
+  probe 1 (DATA): 0505FFFF
+  probe 2 (MAC_): 01366130
+  probe 3 (VID_): 3077F100
+  probe 4 (SDRA): 082B0400
+------ Sample 36 ------
+  probe 0 (CP0_): 026CC64C
+  probe 1 (DATA): 00055555
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 301D1884
+  probe 4 (SDRA): 00000400
+------ Sample 37 ------
+  probe 0 (CP0_): 026CC24C
+  probe 1 (DATA): FFFF082B
+  probe 2 (MAC_): 21366348
+  probe 3 (VID_): 303C6284
+  probe 4 (SDRA): 00000500
+------ Sample 38 ------
+  probe 0 (CP0_): 005F484C
+  probe 1 (DATA): 6A070000
+  probe 2 (MAC_): 18A2D630
+  probe 3 (VID_): 304B2280
+  probe 4 (SDRA): 6AFC0400
+------ Sample 39 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 05EC5344
+  probe 2 (MAC_): 202FA440
+  probe 3 (VID_): 3071DA84
+  probe 4 (SDRA): 00000400
+------ Sample 40 ------
+  probe 0 (CP0_): 005F4A44
+  probe 1 (DATA): 002B0000
+  probe 2 (MAC_): 202FA548
+  probe 3 (VID_): 30112080
+  probe 4 (SDRA): 53442400
+------ Sample 41 ------
+  probe 0 (CP0_): 005FFCFC
+  probe 1 (DATA): 09540000
+  probe 2 (MAC_): 1FFEBC58
+  probe 3 (VID_): 303E5084
+  probe 4 (SDRA): 00004400
+------ Sample 42 ------
+  probe 0 (CP0_): 005F48FC
+  probe 1 (DATA): 05360000
+  probe 2 (MAC_): 202FA648
+  probe 3 (VID_): 30595484
+  probe 4 (SDRA): 55550400
+------ Sample 43 ------
+  probe 0 (CP0_): 005F4CFC
+  probe 1 (DATA): 011A5344
+  probe 2 (MAC_): 1FEBAE58
+  probe 3 (VID_): 30709728
+  probe 4 (SDRA): 00000400
+------ Sample 44 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 086B0000
+  probe 2 (MAC_): 18A26310
+  probe 3 (VID_): 3077EE00
+  probe 4 (SDRA): 55557400
+------ Sample 45 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 64454A43
+  probe 2 (MAC_): 202FA648
+  probe 3 (VID_): 301FEF80
+  probe 4 (SDRA): 00000400
+------ Sample 46 ------
+  probe 0 (CP0_): 005F4CFC
+  probe 1 (DATA): 00245344
+  probe 2 (MAC_): 202FA648
+  probe 3 (VID_): 30403084
+  probe 4 (SDRA): 55556400
+------ Sample 47 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 0BB80000
+  probe 2 (MAC_): 202FA458
+  probe 3 (VID_): 30412A80
+  probe 4 (SDRA): 00000400
+------ Sample 48 ------
+  probe 0 (CP0_): 005F484C
+  probe 1 (DATA): 0BB80000
+  probe 2 (MAC_): 002FA430
+  probe 3 (VID_): 30625280
+  probe 4 (SDRA): AAAA7400
+------ Sample 49 ------
+  probe 0 (CP0_): 005F484C
+  probe 1 (DATA): 0BB85344
+  probe 2 (MAC_): 1FE18148
+  probe 3 (VID_): 30081080
+  probe 4 (SDRA): 6AFC0400
+------ Sample 50 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 0BB80000
+  probe 2 (MAC_): 1FEE2748
+  probe 3 (VID_): 301A5780
+  probe 4 (SDRA): 00002400
+------ Sample 51 ------
+  probe 0 (CP0_): 005F4C4C
+  probe 1 (DATA): 6BBC4A43
+  probe 2 (MAC_): 1FFD2750
+  probe 3 (VID_): 302F6D84
+  probe 4 (SDRA): 4A430400
+------ Sample 52 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 0BB80000
+  probe 2 (MAC_): 18A00C30
+  probe 3 (VID_): 3056A384
+  probe 4 (SDRA): 00004400
+------ Sample 53 ------
+  probe 0 (CP0_): F1463E1C
+  probe 1 (DATA): 6BBC6AFC
+  probe 2 (MAC_): 1FF64110
+  probe 3 (VID_): 3077F700
+  probe 4 (SDRA): 53440400
+------ Sample 54 ------
+  probe 0 (CP0_): 005F4C44
+  probe 1 (DATA): 0BB85555
+  probe 2 (MAC_): 002FA530
+  probe 3 (VID_): 3023F600
+  probe 4 (SDRA): 00000400
+------ Sample 55 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 0BB85344
+  probe 2 (MAC_): 202FA558
+  probe 3 (VID_): 30246584
+  probe 4 (SDRA): 00007400
+------ Sample 56 ------
+  probe 0 (CP0_): 005F484C
+  probe 1 (DATA): 6BBC0000
+  probe 2 (MAC_): 202FA648
+  probe 3 (VID_): 30385380
+  probe 4 (SDRA): 00000400
+------ Sample 57 ------
+  probe 0 (CP0_): 005F4C44
+  probe 1 (DATA): 6BBC6AFC
+  probe 2 (MAC_): 00020240
+  probe 3 (VID_): 306E6280
+  probe 4 (SDRA): 00000400
+------ Sample 58 ------
+  probe 0 (CP0_): 005F4C44
+  probe 1 (DATA): 00584A43
+  probe 2 (MAC_): 002FA610
+  probe 3 (VID_): 30045580
+  probe 4 (SDRA): 00000400
+------ Sample 59 ------
+  probe 0 (CP0_): 005F4A4C
+  probe 1 (DATA): 0BB80000
+  probe 2 (MAC_): 1FF67F48
+  probe 3 (VID_): 302E9D80
+  probe 4 (SDRA): 6AFC0400
+Info (23030): Evaluation of Tcl script scripts/issp_read.tcl was successful
+Info: Quartus Prime SignalTap II TCL Only was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4318 megabytes
+    Info: Processing ended: Mon May 18 09:00:27 2026
+    Info: Elapsed time: 00:00:14
+    Info: Total CPU time (on all processors): 00:00:40
+[Mon May 18 09:00:27 EDT 2026] Capture done -> captures/probes_20260518_085959.txt
