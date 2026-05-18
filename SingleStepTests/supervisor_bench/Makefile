@@ -22,6 +22,16 @@ LDFLAGS  := -nostdlib --no-eh-frame-hdr
 .PHONY: all clean minimal
 all: $(BUILD)/boot_stub.bin $(BUILD)/payload.bin sizes
 minimal: $(BUILD)/boot_stub_minimal.bin
+scsi: $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_scsi.bin
+
+$(BUILD)/payload_entry_scsi.o: payload_entry_scsi.s | $(BUILD)
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/payload_scsi.elf: $(BUILD)/payload_entry_scsi.o payload.ld
+	$(LD) $(LDFLAGS) -T payload.ld -o $@ $(BUILD)/payload_entry_scsi.o
+
+$(BUILD)/payload_scsi.bin: $(BUILD)/payload_scsi.elf
+	$(OBJCOPY) -O binary $< $@
 
 $(BUILD)/boot_stub_minimal.o: boot_stub_minimal.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
@@ -30,6 +40,15 @@ $(BUILD)/boot_stub_minimal.elf: $(BUILD)/boot_stub_minimal.o boot_stub.ld
 	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
 
 $(BUILD)/boot_stub_minimal.bin: $(BUILD)/boot_stub_minimal.elf
+	$(OBJCOPY) -O binary $< $@
+
+$(BUILD)/boot_stub_scsi.o: boot_stub_scsi.s | $(BUILD)
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/boot_stub_scsi.elf: $(BUILD)/boot_stub_scsi.o boot_stub.ld
+	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
+
+$(BUILD)/boot_stub_scsi.bin: $(BUILD)/boot_stub_scsi.elf
 	$(OBJCOPY) -O binary $< $@
 
 # ---------- boot block ----------

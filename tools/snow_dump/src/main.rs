@@ -21,16 +21,27 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 7 {
         eprintln!(
-            "usage: snow_dump <rom> <display_rom> <floppy> <cycles> <addr_hex> <len>"
+            "usage: snow_dump <rom> <display_rom> <media> <cycles> <addr_hex> <len>\n\
+             media: <path.dsk> or <path.hda> or scsi:<path>\n\
+             - .dsk inserted as floppy\n\
+             - .hda or scsi:* attached as SCSI HDD on ID 0"
         );
         std::process::exit(2);
     }
     let rom_path = &args[1];
     let display_rom_path = &args[2];
-    let floppy_path = &args[3];
+    let media_path = &args[3];
     let cycles: u64 = args[4].parse()?;
     let dump_addr = u32::from_str_radix(args[5].trim_start_matches("0x"), 16)?;
     let dump_len: usize = args[6].parse()?;
+
+    let as_scsi = media_path.starts_with("scsi:") || media_path.ends_with(".hda");
+    let floppy_path = if as_scsi { String::new() } else { media_path.to_string() };
+    let scsi_path = if as_scsi {
+        media_path.trim_start_matches("scsi:").to_string()
+    } else {
+        String::new()
+    };
 
     let rom = fs::read(rom_path)?;
     let display_rom = fs::read(display_rom_path)?;
@@ -42,13 +53,17 @@ fn main() -> Result<()> {
     let cmd = emulator.create_cmd_sender();
     let event_recv = emulator.create_event_recv();
 
-    cmd.send(EmulatorCommand::InsertFloppy(
-        0,
-        floppy_path.clone(),
-        false,
-    ))?;
-    // Arm writeback so disk writes hit the source file when we Stop.
-    cmd.send(EmulatorCommand::SetFloppyWriteback(0, true))?;
+    if as_scsi {
+        eprintln!("attaching SCSI HDD: {}", scsi_path);
+        cmd.send(EmulatorCommand::ScsiAttachHdd(0, scsi_path.clone().into()))?;
+    } else {
+        cmd.send(EmulatorCommand::InsertFloppy(
+            0,
+            floppy_path.clone(),
+            false,
+        ))?;
+        cmd.send(EmulatorCommand::SetFloppyWriteback(0, true))?;
+    }
     cmd.send(EmulatorCommand::Run)?;
     cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))?;
 
@@ -119,9 +134,10 @@ fn main() -> Result<()> {
 
     cmd.send(EmulatorCommand::Stop)?;
     emulator.tick(1, ())?;
-    // Eject triggers try_writeback → saves modified disk back to source file.
-    cmd.send(EmulatorCommand::EjectFloppy(0))?;
-    emulator.tick(1, ())?;
+    if !as_scsi {
+        cmd.send(EmulatorCommand::EjectFloppy(0))?;
+        emulator.tick(1, ())?;
+    }
     if let Some(buf) = {
         let mut lock = frame_recv.lock().unwrap();
         lock.take()
