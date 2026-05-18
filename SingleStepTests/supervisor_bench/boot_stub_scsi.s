@@ -60,7 +60,7 @@ PB_SIZE             = 80
 
 PAYLOAD_LOAD_ADDR     = 0x00040000
 PAYLOAD_PART_OFFSET   = 0x00051600      | /Payload's byte offset within HFS partition
-PAYLOAD_READ_BYTES    = 8192            | round-up of payload size, sector-aligned
+PAYLOAD_READ_BYTES    = 262144          | 256 KB — comfortable headroom for the CPU bench payload
 
 | Slot at $00041000 where the boot block stashes (refnum << 16) | drive
 | for the payload to find. Stable above the payload load area.
