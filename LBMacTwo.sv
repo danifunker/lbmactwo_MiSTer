@@ -761,11 +761,18 @@ wire        dbg_grant_video;
 wire        dbg_video_clean;
 wire [3:0]  dbg_mac_idle_cnt;
 wire [2:0]  dbg_vram_state;
+wire [2:0]  dbg_mode_raw;
+wire [16:0] dbg_vram_base_offset;
+wire [9:0]  dbg_vram_stride;
+wire [23:0] dbg_clut0;
+wire [23:0] dbg_clut1;
 // Stall wire from the arbiter: high while a video SDRAM transaction is
 // in flight and Mac is requesting.  Gates DTACK below so Mac waits for
 // the real SDRAM data instead of latching the video's mid-transaction
 // word and executing a corrupted instruction.
 wire        arb_mac_stall;
+// JTAG-controlled video test pattern (driven by altsource_probe source).
+wire [2:0]  dbg_test_pattern;
 
 nubus_video_highres nubus_card (
 	.clk(clk_sys),
@@ -806,7 +813,13 @@ nubus_video_highres nubus_card (
 	.ioctl_download(dio_download),
 	.ioctl_index(dio_index),
 
-	.dbg_video_en(dbg_video_en)
+	.dbg_video_en(dbg_video_en),
+	.dbg_mode_raw(dbg_mode_raw),
+	.dbg_vram_base_offset(dbg_vram_base_offset),
+	.dbg_vram_stride(dbg_vram_stride),
+	.dbg_clut0(dbg_clut0),
+	.dbg_clut1(dbg_clut1),
+	.dbg_test_pattern(dbg_test_pattern)
 );
 
 dataController_top #(SCSI_DEVS) dc0
@@ -1162,7 +1175,14 @@ debug_probes dbg (
     .vram_state     (dbg_vram_state),
 
     .sdram_out      (sdram_out),
-    .mac_idle_cnt   (dbg_mac_idle_cnt)
+    .mac_idle_cnt   (dbg_mac_idle_cnt),
+
+    .vid_mode_raw       (dbg_mode_raw),
+    .vid_base_offset    (dbg_vram_base_offset),
+    .vid_stride         (dbg_vram_stride),
+    .vid_clut0          (dbg_clut0),
+    .vid_clut1          (dbg_clut1),
+    .vid_test_pattern   (dbg_test_pattern)
 );
 
 endmodule

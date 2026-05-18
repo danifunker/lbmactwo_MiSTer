@@ -13,6 +13,10 @@ Probe layout (matches rtl/debug_probes.sv):
                    [6]=arb_vram_wr, [5]=arb_vram_ready, [4:2]=vram_state,
                    [1:0]=0
   probe 4 (SDRA):  [31:16]=sdram_out, [15:12]=mac_idle_cnt, [11:4]=cpuAddr[31:24], [3:0]=0
+  probe 5 (VREG):  [31:29]=mode_raw, [28:12]=vram_base_offset, [11:2]=vram_stride, [1:0]=0
+  probe 6 (CLU0):  [31:24]=clut[0].R, [23:16]=clut[0].G, [15:8]=clut[0].B, [7:0]=clut[1].R
+  probe 7 (CLU1):  [31:16]=clut[1].G/B, [15:0]=0
+  probe 8 (VTPN):  source probe; bit [2:0] drives test pattern selector (write via write_source_data)
 """
 
 import re
@@ -62,6 +66,8 @@ def decode(samples):
         "arb_vram_addr", "arb_vram_rd", "arb_vram_wr",
         "arb_vram_ready", "vram_state",
         "sdram_out", "mac_idle_cnt",
+        "vid_mode_raw", "vid_base_offset", "vid_stride",
+        "clut0_rgb", "clut1_rgb",
     ]}
     for s in samples:
         p0 = s.get(0, 0)
@@ -94,6 +100,16 @@ def decode(samples):
         cpu_addr_hi = (p4 >> 4) & 0xFF
         # Stitch full PC from probe 0's [23:0] and probe 4's [31:24]
         series["cpuAddr"][-1] = (cpu_addr_hi << 24) | series["cpuAddr"][-1]
+        p5 = s.get(5, 0)
+        series["vid_mode_raw"].append((p5 >> 29) & 0x7)
+        series["vid_base_offset"].append((p5 >> 12) & 0x1FFFF)
+        series["vid_stride"].append((p5 >> 2) & 0x3FF)
+        p6 = s.get(6, 0)
+        p7 = s.get(7, 0)
+        clut0 = (p6 >> 8) & 0xFFFFFF
+        clut1 = ((p6 & 0xFF) << 16) | ((p7 >> 16) & 0xFFFF)
+        series["clut0_rgb"].append(clut0)
+        series["clut1_rgb"].append(clut1)
     return series
 
 
@@ -119,6 +135,11 @@ def summarize(series, name="capture"):
         return sum(1 for x in series[key] if x == val) / n
 
     out.append(f"video_en:        {dict(Counter(series['video_en']))}  (1 = card enabled)")
+    out.append(f"mode_raw:        {dict(Counter(series['vid_mode_raw']))}  (4=1bpp 5=2bpp 6=4bpp 7=8bpp; 0 if Mac never wrote REG_MISC)")
+    out.append(f"vram_base_offset distinct: {sorted(set(series['vid_base_offset']))[:6]}  ({len(set(series['vid_base_offset']))} unique)")
+    out.append(f"vram_stride distinct:      {sorted(set(series['vid_stride']))[:6]}  (stride 0 = Mac never wrote REG_LENGTH)")
+    out.append(f"clut[0] distinct: {[hex(x) for x in sorted(set(series['clut0_rgb']))[:6]]}")
+    out.append(f"clut[1] distinct: {[hex(x) for x in sorted(set(series['clut1_rgb']))[:6]]}")
     out.append(f"cpuAddr range:   {min(series['cpuAddr']):#x} .. {max(series['cpuAddr']):#x}, distinct={len(set(series['cpuAddr']))}")
     out.append(f"cpuAddr top vals: {histo('cpuAddr')}")
     out.append(f"_cpuAS=0 (active): {fraction('cpuAS_n', 0)*100:.1f}%")

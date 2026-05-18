@@ -55,7 +55,21 @@ module nubus_video_highres #(
     output       ce_pixel,
 
     // Debug exposures for JTAG instrumentation
-    output       dbg_video_en
+    output       dbg_video_en,
+    output [2:0] dbg_mode_raw,
+    output [16:0] dbg_vram_base_offset,
+    output [9:0]  dbg_vram_stride,
+    output [23:0] dbg_clut0,
+    output [23:0] dbg_clut1,
+    // JTAG-controlled test pattern selector.  Bypasses the VRAM read
+    // path and renders a known pattern to validate the display
+    // pipeline (sync, blanking, RGB output) independent of Mac CPU.
+    //   0 = normal VRAM scanout (default)
+    //   1 = 8 vertical color bars (24-bit RGB direct, no CLUT)
+    //   2 = vertical luminance gradient
+    //   3 = checkerboard via CLUT (pixel_idx = h^v parity)
+    //   4 = solid CLUT[1] color
+    input  [2:0] dbg_test_pattern
 );
 
     // ========================================================================
@@ -220,8 +234,13 @@ module nubus_video_highres #(
     wire [1:0] mode = (mode_raw >= 3'd4) ? mode_raw[1:0] : 2'd0;
     wire video_en = registers[REG_SOFTRESET][0];
     assign dbg_video_en = video_en;
+    assign dbg_mode_raw = mode_raw;
     wire [16:0] vram_base_offset = registers[REG_BASE][16:0];   // 32-bit words
     wire [9:0]  vram_stride      = registers[REG_LENGTH][9:0];  // 32-bit words
+    assign dbg_vram_base_offset = vram_base_offset;
+    assign dbg_vram_stride      = vram_stride;
+    assign dbg_clut0 = clut[0];
+    assign dbg_clut1 = clut[1];
 
     // ========================================================================
     // Pixel clock: 30.24 MHz from 32.5 MHz system clock
@@ -963,15 +982,67 @@ module nubus_video_highres #(
     // card is dormant. Blanking forces black so DE still measures cleanly.
     wire show_test_pattern = !video_en && !blanking_d;
 
-    assign vga_r = pixel_valid       ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16])
-                 : show_test_pattern ? tp_r
-                 :                     8'd0;
-    assign vga_g = pixel_valid       ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])
-                 : show_test_pattern ? tp_g
-                 :                     8'd0;
-    assign vga_b = pixel_valid       ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])
-                 : show_test_pattern ? tp_b
-                 :                     8'd0;
+    // ------------------------------------------------------------------------
+    // JTAG-driven display test pattern override.
+    //
+    // Drives RGB independently of VRAM scanout when dbg_test_pattern != 0.
+    // Used to validate the display output pipeline (sync, blanking, CLUT,
+    // RGB wiring) without depending on Mac CPU writes to VRAM.  The
+    // pattern still gets gated by !blanking_d so DE/HS/VS stay correct.
+    // ------------------------------------------------------------------------
+
+    // Pattern 1: 8 vertical color bars (direct RGB, no CLUT)
+    wire [2:0] tp1_bar = h_cnt_full_d[9:7];
+    reg [7:0] tp1_r, tp1_g, tp1_b;
+    always @(*) begin
+        case (tp1_bar)
+            3'd0: {tp1_r, tp1_g, tp1_b} = 24'hFFFFFF; // white
+            3'd1: {tp1_r, tp1_g, tp1_b} = 24'hFFFF00; // yellow
+            3'd2: {tp1_r, tp1_g, tp1_b} = 24'h00FFFF; // cyan
+            3'd3: {tp1_r, tp1_g, tp1_b} = 24'h00FF00; // green
+            3'd4: {tp1_r, tp1_g, tp1_b} = 24'hFF00FF; // magenta
+            3'd5: {tp1_r, tp1_g, tp1_b} = 24'hFF0000; // red
+            3'd6: {tp1_r, tp1_g, tp1_b} = 24'h0000FF; // blue
+            3'd7: {tp1_r, tp1_g, tp1_b} = 24'h000000; // black
+        endcase
+    end
+
+    // Pattern 2: vertical-position luminance gradient
+    wire [7:0] tp2_lum = v_cnt_d[7:0];
+
+    // Pattern 3: checkerboard via CLUT (32px squares)
+    wire       tp3_chk     = h_cnt_full_d[5] ^ v_cnt_d[5];
+    wire [7:0] tp3_pixel   = tp3_chk ? 8'd1 : 8'd0;
+
+    // Pattern 4: solid color from CLUT[1]
+    wire [23:0] tp4_color  = clut[1];
+
+    // Select between test patterns
+    reg [7:0] test_r, test_g, test_b;
+    always @(*) begin
+        case (dbg_test_pattern)
+            3'd1: {test_r, test_g, test_b} = {tp1_r, tp1_g, tp1_b};
+            3'd2: {test_r, test_g, test_b} = {tp2_lum, tp2_lum, tp2_lum};
+            3'd3: {test_r, test_g, test_b} = clut[tp3_pixel];
+            3'd4: {test_r, test_g, test_b} = tp4_color;
+            default: {test_r, test_g, test_b} = 24'd0;
+        endcase
+    end
+
+    wire override_active = (dbg_test_pattern != 3'd0) && !blanking_d;
+
+    assign vga_r = override_active     ? test_r
+                 : pixel_valid         ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16])
+                 : show_test_pattern   ? tp_r
+                 :                       8'd0;
+    assign vga_g = override_active     ? test_g
+                 : pixel_valid         ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])
+                 : show_test_pattern   ? tp_g
+                 :                       8'd0;
+    assign vga_b = override_active     ? test_b
+                 : pixel_valid         ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])
+                 : show_test_pattern   ? tp_b
+                 :                       8'd0;
 
     // ========================================================================
     // Debug: video pipeline state (synthesis translate_off)

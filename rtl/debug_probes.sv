@@ -40,7 +40,18 @@ module debug_probes (
     input wire [2:0]  vram_state,
 
     input wire [15:0] sdram_out,
-    input wire [3:0]  mac_idle_cnt
+    input wire [3:0]  mac_idle_cnt,
+
+    // Video card register snapshots
+    input wire [2:0]  vid_mode_raw,
+    input wire [16:0] vid_base_offset,
+    input wire [9:0]  vid_stride,
+    input wire [23:0] vid_clut0,
+    input wire [23:0] vid_clut1,
+
+    // JTAG-controlled test pattern output (drives nubus_video_highres
+    // dbg_test_pattern input).  0 = normal, 1-4 = patterns.
+    output wire [2:0] vid_test_pattern
 );
 
     // Snapshot the wide buses on every clock so JTAG reads (which can land
@@ -152,5 +163,82 @@ module debug_probes (
         .source_clk(clk),
         .source_ena(1'b1)
     );
+
+    // ------------------------------------------------------------------------
+    // Video registers + JTAG test-pattern source
+    // ------------------------------------------------------------------------
+    reg [2:0]  vid_mode_raw_r;
+    reg [16:0] vid_base_offset_r;
+    reg [9:0]  vid_stride_r;
+    reg [23:0] vid_clut0_r;
+    reg [23:0] vid_clut1_r;
+    always @(posedge clk) begin
+        vid_mode_raw_r    <= vid_mode_raw;
+        vid_base_offset_r <= vid_base_offset;
+        vid_stride_r      <= vid_stride;
+        vid_clut0_r       <= vid_clut0;
+        vid_clut1_r       <= vid_clut1;
+    end
+
+    // PROBE 5: video card register state
+    //  [31:29] = mode_raw (3 bits)
+    //  [28:12] = vram_base_offset (17 bits)
+    //  [11:2]  = vram_stride (10 bits)
+    //  [1:0]   = 0
+    altsource_probe #(
+        .instance_id ("VREG"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe5 (
+        .probe ({vid_mode_raw_r, vid_base_offset_r, vid_stride_r, 2'd0}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // PROBE 6: CLUT entry 0 and 1 (the two indexes used in 1bpp mode)
+    //  [31:24] = clut[0].R, [23:16] = clut[0].G, [15:8] = clut[0].B, [7:0] = clut[1].R
+    altsource_probe #(
+        .instance_id ("CLU0"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe6 (
+        .probe ({vid_clut0_r, vid_clut1_r[23:16]}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // PROBE 7: CLUT[1].G, CLUT[1].B (the rest of clut[1]) + spare
+    altsource_probe #(
+        .instance_id ("CLU1"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_probe7 (
+        .probe ({vid_clut1_r[15:0], 16'd0}),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    // SOURCE probe -- JTAG-writable register driving the video test
+    // pattern selector.  Pad to 8 bits, take low 3 as the pattern code.
+    wire [7:0] tp_src_raw;
+    altsource_probe #(
+        .instance_id ("VTPN"),
+        .probe_width (1),
+        .source_width(8),
+        .source_initial_value("0"),
+        .sld_auto_instance_index ("YES")
+    ) cp_test_src (
+        .probe (1'b0),
+        .source(tp_src_raw),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+    assign vid_test_pattern = tp_src_raw[2:0];
 
 endmodule
