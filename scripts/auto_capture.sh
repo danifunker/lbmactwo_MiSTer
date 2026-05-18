@@ -50,4 +50,21 @@ while true; do
         | tee "captures/probes_${TS}.txt" | tail -200 | tee -a "$LOG"
 
     echo "[$(date)] Capture done -> captures/probes_${TS}.txt" | tee -a "$LOG"
+
+    # Snap a screenshot via the MiSTer Remote API and fetch it locally.
+    # MiSTer auto-switches to the LBMacTwo core as soon as we JTAG-programmed it.
+    echo "[$(date)] Triggering remote screenshot via mrext API" | tee -a "$LOG"
+    sleep 3   # give the framebuffer a moment to stabilize after capture window
+    curl -s --max-time 10 -X POST "http://10.3.89.233:8182/api/screenshots" \
+        > /dev/null 2>&1 || echo "  (screenshot POST failed)" | tee -a "$LOG"
+    sleep 2
+    LATEST=$(curl -s --max-time 5 "http://10.3.89.233:8182/api/screenshots" 2>/dev/null \
+        | python -c "import json,sys; d=json.load(sys.stdin); d.sort(key=lambda x:x['modified']); print(d[-1]['path'])" 2>/dev/null)
+    if [ -n "$LATEST" ]; then
+        curl -s --max-time 10 -o "captures/screen_${TS}.png" \
+            "http://10.3.89.233:8182/api/screenshots/$LATEST" 2>/dev/null
+        echo "[$(date)] Screenshot saved -> captures/screen_${TS}.png (source: $LATEST)" | tee -a "$LOG"
+    else
+        echo "  (no screenshot path returned)" | tee -a "$LOG"
+    fi
 done
