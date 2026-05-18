@@ -47,6 +47,8 @@ fn main() -> Result<()> {
         floppy_path.clone(),
         false,
     ))?;
+    // Arm writeback so disk writes hit the source file when we Stop.
+    cmd.send(EmulatorCommand::SetFloppyWriteback(0, true))?;
     cmd.send(EmulatorCommand::Run)?;
     cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))?;
 
@@ -116,6 +118,9 @@ fn main() -> Result<()> {
     }
 
     cmd.send(EmulatorCommand::Stop)?;
+    emulator.tick(1, ())?;
+    // Eject triggers try_writeback → saves modified disk back to source file.
+    cmd.send(EmulatorCommand::EjectFloppy(0))?;
     emulator.tick(1, ())?;
     if let Some(buf) = {
         let mut lock = frame_recv.lock().unwrap();

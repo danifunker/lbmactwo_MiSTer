@@ -19,7 +19,7 @@ rm -f "$OUT"
 "$RB" api hfs new      "$OUT" --size 800K --name "MacIIBench-${SUITE}"
 "$RB" api hfs put-boot "$OUT" "$BOOT"
 "$RB" api hfs put      "$OUT" "$PAYLOAD" /Payload
-"$RB" api hfs put-zero "$OUT" /Results.jsonl 409600
+"$RB" api hfs put-zero "$OUT" /Results.jsonl 4096
 "$RB" api hfs validate "$OUT"
 "$RB" api hfs info     "$OUT"
 echo "wrote $OUT (suite=$SUITE)"
