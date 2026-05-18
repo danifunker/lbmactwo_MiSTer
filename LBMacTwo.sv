@@ -773,6 +773,10 @@ wire [23:0] dbg_clut1;
 wire        arb_mac_stall;
 // JTAG-controlled video test pattern (driven by altsource_probe source).
 wire [2:0]  dbg_test_pattern;
+// JTAG-controlled CLUT override for slots 0/1.
+wire        dbg_clut_override;
+wire [23:0] dbg_clut0_force;
+wire [23:0] dbg_clut1_force;
 
 nubus_video_highres nubus_card (
 	.clk(clk_sys),
@@ -819,7 +823,10 @@ nubus_video_highres nubus_card (
 	.dbg_vram_stride(dbg_vram_stride),
 	.dbg_clut0(dbg_clut0),
 	.dbg_clut1(dbg_clut1),
-	.dbg_test_pattern(dbg_test_pattern)
+	.dbg_test_pattern(dbg_test_pattern),
+	.dbg_clut_override(dbg_clut_override),
+	.dbg_clut0_force(dbg_clut0_force),
+	.dbg_clut1_force(dbg_clut1_force)
 );
 
 dataController_top #(SCSI_DEVS) dc0
@@ -1182,7 +1189,10 @@ debug_probes dbg (
     .vid_stride         (dbg_vram_stride),
     .vid_clut0          (dbg_clut0),
     .vid_clut1          (dbg_clut1),
-    .vid_test_pattern   (dbg_test_pattern)
+    .vid_test_pattern   (dbg_test_pattern),
+    .vid_clut_override  (dbg_clut_override),
+    .vid_clut0_force    (dbg_clut0_force),
+    .vid_clut1_force    (dbg_clut1_force)
 );
 
 endmodule

@@ -69,7 +69,15 @@ module nubus_video_highres #(
     //   2 = vertical luminance gradient
     //   3 = checkerboard via CLUT (pixel_idx = h^v parity)
     //   4 = solid CLUT[1] color
-    input  [2:0] dbg_test_pattern
+    input  [2:0] dbg_test_pattern,
+    // JTAG override for CLUT[0]/[1]: when dbg_clut_override is high,
+    // the display uses these RGB values instead of clut[0]/clut[1].
+    // Lets us force a known palette (e.g. white/black) so the
+    // framebuffer Mac drew becomes visible even if Mac wrote a useless
+    // palette into the real CLUT entries.
+    input        dbg_clut_override,
+    input [23:0] dbg_clut0_force,
+    input [23:0] dbg_clut1_force
 );
 
     // ========================================================================
@@ -1061,16 +1069,25 @@ module nubus_video_highres #(
 
     wire override_active = (dbg_test_pattern != 3'd0) && !blanking_d;
 
+    // Effective CLUT lookup with optional JTAG override for slots 0/1.
+    // Used by the normal scanout to substitute known colors and see
+    // what the framebuffer contains regardless of what Mac wrote to
+    // its real palette.
+    wire [23:0] eff_clut;
+    assign eff_clut = (dbg_clut_override && pixel_idx == 8'd0) ? dbg_clut0_force
+                    : (dbg_clut_override && pixel_idx == 8'd1) ? dbg_clut1_force
+                    :                                            clut[pixel_idx];
+
     assign vga_r = override_active     ? test_r
-                 : pixel_valid         ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16])
+                 : pixel_valid         ? (mono_mode ? mono_pixel : eff_clut[23:16])
                  : show_test_pattern   ? tp_r
                  :                       8'd0;
     assign vga_g = override_active     ? test_g
-                 : pixel_valid         ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])
+                 : pixel_valid         ? (mono_mode ? mono_pixel : eff_clut[15:8])
                  : show_test_pattern   ? tp_g
                  :                       8'd0;
     assign vga_b = override_active     ? test_b
-                 : pixel_valid         ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])
+                 : pixel_valid         ? (mono_mode ? mono_pixel : eff_clut[7:0])
                  : show_test_pattern   ? tp_b
                  :                       8'd0;
 

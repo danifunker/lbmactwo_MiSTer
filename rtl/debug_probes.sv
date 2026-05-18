@@ -51,7 +51,14 @@ module debug_probes (
 
     // JTAG-controlled test pattern output (drives nubus_video_highres
     // dbg_test_pattern input).  0 = normal, 1-4 = patterns.
-    output wire [2:0] vid_test_pattern
+    output wire [2:0] vid_test_pattern,
+
+    // JTAG-driven override of clut[0]/[1] for the normal scanout.
+    // Lets us force a known palette to see Mac's framebuffer regardless
+    // of what Mac actually wrote into the real CLUT.
+    output wire        vid_clut_override,
+    output wire [23:0] vid_clut0_force,
+    output wire [23:0] vid_clut1_force
 );
 
     // Snapshot the wide buses on every clock so JTAG reads (which can land
@@ -240,5 +247,41 @@ module debug_probes (
         .source_ena(1'b1)
     );
     assign vid_test_pattern = tp_src_raw[2:0];
+
+    // SOURCE probe -- 32-bit CLUT-override word, layout:
+    //   bit 31      = enable override (any non-zero of high byte = on)
+    //   bits 23..0  = clut[0] RGB (R in [23:16], G in [15:8], B in [7:0])
+    // CLUT[1] uses a separate source probe below.
+    wire [31:0] clut0_src;
+    altsource_probe #(
+        .instance_id ("CLUE"),
+        .probe_width (1),
+        .source_width(32),
+        .source_initial_value("0"),
+        .sld_auto_instance_index ("YES")
+    ) cp_clut0_src (
+        .probe (1'b0),
+        .source(clut0_src),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+    assign vid_clut_override = clut0_src[31];
+    assign vid_clut0_force = clut0_src[23:0];
+
+    // SOURCE probe for clut[1] override RGB
+    wire [31:0] clut1_src;
+    altsource_probe #(
+        .instance_id ("CLUF"),
+        .probe_width (1),
+        .source_width(32),
+        .source_initial_value("0"),
+        .sld_auto_instance_index ("YES")
+    ) cp_clut1_src (
+        .probe (1'b0),
+        .source(clut1_src),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+    assign vid_clut1_force = clut1_src[23:0];
 
 endmodule
