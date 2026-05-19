@@ -221,10 +221,15 @@ static void format_hex32(char *out, u32 v) {
  * and we read the registers from there. Sidesteps every SCSI write
  * issue we've been chasing.
  */
-/* Range of contiguous tests to run, 0-based.
- * Privileged tests are indices 170..192 (1-based 171..193). */
-#define FIRST_TEST_INDEX 175    /* 1-based 176 = MOVE.W SR,(A6) */
-#define LAST_TEST_INDEX  192    /* 1-based 193 = MOVE.L USP,A1 */
+/* Range of tests to run, 0-based, INCLUSIVE both ends. The loop also
+ * applies a flag-based skip so e.g. you can scan a wide range and
+ * only run raises_exception tests. */
+#define FIRST_TEST_INDEX 455    /* 1-based 456 = first EXC test */
+#define LAST_TEST_INDEX  716    /* 1-based 717 = last EXC test (Line A trap) */
+
+/* Skip filter applied inside the loop. Set to 1 to run ONLY tests
+ * flagged raises_exception; 0 to run every test in [FIRST, LAST]. */
+#define ONLY_RAISES_EXCEPTION 1
 
 /* Fill the framebuffer with PX_BLACK (1bpp: 0xFFFFFFFF). Compact
  * "blackout between tests" between displays. */
@@ -258,17 +263,26 @@ void bench_main(void)
         const CpuTestSpec *t = &g_cpu_tests[idx];
         u32 crashed_vec = 0;
 
+#if ONLY_RAISES_EXCEPTION
+        if (!t->raises_exception) continue;
+#endif
+
         /* Blackout between tests so each new test gets a clean slate. */
         wipe_screen();
         busy_delay(1);
 
-        /* Header */
+        /* Header + "kicking off" message — visible for 1 second
+         * before the test actually runs so the operator can confirm
+         * which test is about to be invoked. */
         paint_string(4, 4, "SUPERVISOR MULTI-TEST RUNNER", 30);
         format_decimal(buf, idx + 1, 4);
         paint_string(16, 4, "Test ", 5);
         paint_string(16, 9, buf, 4);
         paint_string(16, 14, ": ", 2);
         paint_string(16, 16, t->name, 60);
+        paint_string(28, 4, "Kicking off test in 1s...", 30);
+        busy_delay(1);
+        paint_string(28, 4, "Running...                ", 30);
 
         f_memset(&init_snap,  0, sizeof(init_snap));
         f_memset(&final_snap, 0, sizeof(final_snap));
@@ -281,36 +295,44 @@ void bench_main(void)
         crashed_vec = (u32)invoke_test_with_recovery(entry);
         asm volatile ("move.w #0x2700, %%sr" : : : "memory");
 
+        /* When a test traps, the final state dump didn't run — but
+         * the init state dump (right BEFORE the test instruction)
+         * DID run, so init_snap captures the state that produced
+         * the trap. Pick which snapshot to show based on outcome. */
+        Snapshot *display_snap = crashed_vec ? &init_snap : &final_snap;
+        u32       display_pc   = crashed_vec ? init_pc    : final_pc;
+
         if (crashed_vec) {
             format_hex32(buf, crashed_vec);
-            paint_string(40, 4, "*** EXCEPTION VECTOR ", 30);
-            paint_string(40, 26, buf, 8);
+            paint_string(40, 4, "*** TRAP vec=", 14);
+            paint_string(40, 18, buf, 8);
+            paint_string(40, 28, " (pre-trap state) ", 20);
         } else {
-            paint_string(40, 4, "OK", 4);
+            paint_string(40, 4, "OK (post-test state)", 30);
         }
 
-        /* Paint registers and scratch_ram (matches single-test layout). */
+        /* Paint registers and scratch_ram. */
         paint_string(64, 4, "D0..D3:", 8);
         for (int i = 0; i < 4; i++) {
-            format_hex32(buf, final_snap.d[i]);
+            format_hex32(buf, display_snap->d[i]);
             paint_string(64, 14 + i*10, buf, 8);
         }
         paint_string(76, 4, "D4..D7:", 8);
         for (int i = 0; i < 4; i++) {
-            format_hex32(buf, final_snap.d[4+i]);
+            format_hex32(buf, display_snap->d[4+i]);
             paint_string(76, 14 + i*10, buf, 8);
         }
         paint_string(88, 4, "A0..A3:", 8);
         for (int i = 0; i < 4; i++) {
-            format_hex32(buf, final_snap.a[i]);
+            format_hex32(buf, display_snap->a[i]);
             paint_string(88, 14 + i*10, buf, 8);
         }
         paint_string(100, 4, "A4..A7:", 8);
         for (int i = 0; i < 4; i++) {
-            format_hex32(buf, final_snap.a[4+i]);
+            format_hex32(buf, display_snap->a[4+i]);
             paint_string(100, 14 + i*10, buf, 8);
         }
-        format_hex32(buf, final_snap.ccr);
+        format_hex32(buf, display_snap->ccr);
         paint_string(112, 4, "CCR=", 4);
         paint_string(112, 8, buf + 6, 2);
 
@@ -320,12 +342,14 @@ void bench_main(void)
             paint_string(144, 4 + j*3, buf + 6, 2);
         }
 
-        /* Append JSON line to the in-memory writer buffer. We'll flush
-         * after the loop finishes — one disk write for everything. */
+        /* Append JSON line. For crashed tests we emit "trap_state"
+         * (pre-trap snapshot) instead of "final" so the diff tool
+         * can distinguish at parse time. */
         jw_putc(w, '{');
         jw_puts(w, "\"name\":"); write_name(w, t->name);
         jw_puts(w, ",\"vec\":"); jw_putul(w, crashed_vec);
-        jw_puts(w, ",\"final\":"); write_snap(w, &final_snap, final_pc);
+        jw_puts(w, crashed_vec ? ",\"trap_state\":" : ",\"final\":");
+        write_snap(w, display_snap, display_pc);
         jw_puts(w, "}\n");
 
         /* Visible pause so the operator can read / photograph. */

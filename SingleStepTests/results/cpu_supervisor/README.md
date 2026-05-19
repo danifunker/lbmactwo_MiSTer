@@ -182,6 +182,101 @@ round-trips) returned clean. This confirms that:
 `MOVE.L A0,USP` and `MOVE.L USP,A1` both clean. The USP register is
 preserved across our supervisor-mode test loop.
 
+## raises_exception tests
+
+These 19 tests are *designed* to throw a CPU exception. The bench
+distinguishes them in the output JSON by emitting `"trap_state"`
+(the pre-trap snapshot, captured by build_program's init dump that
+ran *before* the test instruction) instead of `"final"`. `vec` holds
+the exception vector number.
+
+For the diff tooling: when comparing against MAME, the right
+comparison for these tests is `(vec, trap_state)` vs MAME's
+post-trap recorded state.
+
+### raises_exception batch (19 tests)
+
+All 19 raises_exception tests captured in one batch run with the
+`ONLY_RAISES_EXCEPTION` filter set. JSON shape is `{"name", "vec",
+"trap_state": {...}}` (no `"final"`).
+
+| id | Test | Expected vec | Observed vec | Status |
+|---|---|---:|---:|---|
+| 456 | `CHK2.W (A6),D0  out-of-range`     | 6 | 6 | ✓ |
+| 577 | `DIVS.L D1,D0:D0  divide by zero`  | 5 | 5 | ✓ |
+| 578 | `DIVU.L D1,D0:D0  divide by zero`  | 5 | 5 | ✓ |
+| 630 | `CHK.L D1,D0  D0>D1`               | 6 | 6 | ✓ |
+| 632 | `TRAPT`                            | 7 | 7 | ✓ |
+| 665 | `TRAPT.W #0`                       | 7 | 7 | ✓ |
+| 666 | `TRAPT.L #0`                       | 7 | 7 | ✓ |
+| 667 | `TRAPEQ` (Z=1)                     | 7 | 7 | ✓ |
+| 707 | `ILLEGAL ($4AFC)`                  | 4 | 4 | ✓ |
+| 708 | `DIVU.W #0,D0`                     | 5 | 5 | ✓ |
+| 709 | `DIVS.W #0,D0`                     | 5 | 5 | ✓ |
+| 710 | `CHK.W D1,D0  D0>D1`               | 6 | 6 | ✓ |
+| 711 | `CHK.W D1,D0  D0<0`                | 6 | 6 | ✓ |
+| 712 | `MOVE #2,CCR ; TRAPV (V=1)`        | 7 | 7 | ✓ |
+| 713 | `TRAP #0`                          | 32 | **2** | ⚠ ROM handler bus-errors |
+| 714 | `TRAP #7`                          | 39 | **2** | ⚠ |
+| 715 | `TRAP #15`                         | 47 | **2** | ⚠ |
+| 716 | `JMP (A0) odd address`             | 3 | 3 | ✓ |
+| 717 | `Line A trap ($A000)`              | 10 | **2** | ⚠ Line A intentionally not overridden |
+
+15/19 match the test's intended vector. The other 4 (TRAP #0/7/15 and
+Line A) all show `vec=2` — bus error.
+
+### Why TRAP #N and Line A produce vec=2 (not their nominal vectors)
+
+These are NOT bugs in our test infrastructure — they're a consequence
+of two deliberate decisions in `recovery.s`:
+
+1. **No stubs for vectors 32–47 (TRAP #0…#15).** When a test does
+   `TRAP #N`, the CPU jumps to the vector at `VBR + (32+N)*4`. Our
+   `install_vbr` *copies* the ROM's vector table verbatim except for
+   the ~20 specific entries we override (CPU exceptions 2–15, IRQ
+   autovectors 25–31). The TRAP vectors still point to ROM code.
+   ROM's TRAP handlers expect Mac OS structures (Trap Dispatch Table,
+   System heap, etc.) that don't exist when we boot pre-OS. The ROM
+   handler dereferences a wild pointer → bus error → our vec=2
+   handler fires.
+
+2. **Vector 10 (Line A) intentionally preserved.** We use Line A
+   traps for `_Read`/`_Write` to the SCSI driver — they're the
+   _entire_ I/O path. If we override vector 10, the bench can't talk
+   to disk anymore. So we leave it pointing at ROM. The ROM Line A
+   dispatcher looks up the trap number ($A000 in this test) in the
+   Trap Manager's tables, which again don't exist pre-OS, so it
+   eventually faults → bus error → vec=2.
+
+These four divergences are **architectural** rather than failures of
+the test code. The TRAP #N tests in particular are well-defined on a
+68020 in isolation but undefined in a "Mac II minus OS" environment.
+When diffing against MAME, the four tests above need a special case
+that records "this is hardware-specific behaviour due to missing OS
+context."
+
+If we want to capture the *real* trap vectors for these four tests,
+the fix is:
+  - For TRAP #0–#15: add recovery_stub_v32 through recovery_stub_v47 in
+    `recovery.s`. Each just records the vector and longjmps.
+  - For Line A: harder. We'd need a custom Line A dispatcher that
+    routes our specific `_Read`/`_Write` trap codes ($A002, $A003,
+    $A004) to the SCSI driver but records anything else as an
+    exception. About 20 lines of asm.
+
+### Test 456 — `EXC: CHK2.W (A6),D0  out-of-range (D0=0x100)`
+
+Preload sets D0=0x100. `ram_init` puts bounds `00 10 00 30` (16, 48)
+at scratch_ram[0..3]. CHK2.W checks D0.W against [scratch[0..1],
+scratch[2..3]] — 256 is way out of [16, 48], so it traps to vector 6
+(CHK exception).
+
+Observed: `vec=6` ✓, D0=256 ✓, A6=scratch_base, ram[0..3]=[0,16,0,48]
+(unchanged from init), CCR=4 (Z=1 from harness CLR.L), pc=402248 (in
+our prog_buffer, at the CHK2 instruction). The recovery path picked
+up the exception correctly and the trap_state matches what we set up
+just before the CHK2.
+
 ## Discovered architectural quirks
 
 - **FC=0 bus error on MOVES with default DFC**: see
