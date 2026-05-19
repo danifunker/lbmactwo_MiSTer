@@ -12,12 +12,17 @@ typedef struct {
     u32 max_bytes;    /* capacity of the pre-allocated file */
 } JwCtx;
 
+/* 16 KB batches drop the _Write call count by ~32x, which keeps us
+ * well under the SCSI driver's "too many rapid calls" threshold we
+ * hit at ~227 single-sector writes. Must be a multiple of 512. */
+#define JW_BATCH_BYTES (16 * 1024)
+
 typedef struct {
     JwCtx ctx;
-    u8    sector[512];     /* working sector */
-    u32   used;            /* bytes used in current sector */
-    u32   written;         /* total bytes written so far (= disk offset relative to base) */
-    i16   last_err;        /* last _Write ioResult (0 = noErr) */
+    u8    sector[JW_BATCH_BYTES];     /* working batch */
+    u32   used;                       /* bytes used in current batch */
+    u32   written;                    /* total bytes written so far */
+    i16   last_err;                   /* last _Write ioResult (0 = noErr) */
 } JsonlWriter;
 
 void jw_init(JsonlWriter *w, const JwCtx *ctx);

@@ -59,17 +59,19 @@ startup:
     move.w  #0x2700, %sr
     move.l  #0x00010000, %sp
 
-    | --- Wipe full framebuffer (307200 bytes) with PX_BLACK. ---
+    | --- Wipe full framebuffer (307200 bytes) with PX_BLACK.
+    | Uses subq.l/bne to avoid dbra's 16-bit overflow at counts > 65535. ---
     move.l  0x0824.l, %a3
     tst.l   %a3
     beq     halt
     cmp.l   #0x00100000, %a3
     blo     halt
     move.l  %a3, %a0
-    move.l  #(FB_BYTES/4)-1, %d0
-    move.l  #0xFFFFFFFF, %d1               | PX_BLACK x 4
+    move.l  #(FB_BYTES/4), %d0
+    move.l  #0xFFFFFFFF, %d1
 1:  move.l  %d1, (%a0)+
-    dbra    %d0, 1b
+    subq.l  #1, %d0
+    bne.s   1b
 
     | --- Marker 'A' (row 4, char col 4) ---
     move.l  %a3, %a0

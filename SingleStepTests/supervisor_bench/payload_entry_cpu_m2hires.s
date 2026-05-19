@@ -12,22 +12,45 @@ _payload_start:
     move.w  #0x2700, %sr
     move.l  #0x00100000, %sp
 
-    | --- Load handoff slot (refnum word, drive word) ---
-    move.w  0x00041000.l, %d0
-    move.w  %d0, g_handoff_refnum
-    move.w  0x00041002.l, %d0
-    move.w  %d0, g_handoff_drive
-
-    | --- Wipe screen (all 640*480 bytes to PX_BLACK) ---
+    | --- Earliest possible "alive" marker: solid-white horizontal bar
+    | at row 0 (just 16 bytes wide). If we never see this on the
+    | physical machine, the boot block isn't actually loading us. ---
     move.l  0x0824.l, %a4
     move.l  %a4, %d0
     beq     .hang
     cmp.l   #0x00100000, %d0
     blo     .hang
     move.l  %a4, %a0
-    move.l  #(FB_BYTES/4)-1, %d0
-    move.l  #0xFFFFFFFF, %d1
+    move.w  #15, %d0
+1:  move.b  #0x00, (%a0)+
+    dbra    %d0, 1b
+
+    | --- Load handoff slot (refnum word, drive word) ---
+    move.w  0x00041000.l, %d0
+    move.w  %d0, g_handoff_refnum
+    move.w  0x00041002.l, %d0
+    move.w  %d0, g_handoff_drive
+
+    | --- "got handoff" marker: solid black bar at row 0 col 16..31 ---
+    move.l  %a4, %a0
+    add.l   #16, %a0
+    move.w  #15, %d0
+1:  move.b  #0xFF, (%a0)+
+    dbra    %d0, 1b
+
+    | --- Wipe screen (640*480 = 307200 bytes). 32-bit counter to
+    | avoid dbra's 16-bit limit. ---
+    move.l  %a4, %a0
+    move.l  #(FB_BYTES/4), %d0
+    move.l  #0xFFFFFFFF, %d1                | PX_BLACK x 4
 1:  move.l  %d1, (%a0)+
+    subq.l  #1, %d0
+    bne.s   1b
+
+    | --- "wipe complete" marker: 16 white bytes at row 0 col 0 ---
+    move.l  %a4, %a0
+    move.w  #15, %d0
+1:  move.b  #0x00, (%a0)+
     dbra    %d0, 1b
 
     | --- Paint "CPU BENCH" at row 4 (char col 4) ---

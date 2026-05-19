@@ -71,6 +71,15 @@ static u8 *build_program(const CpuTestSpec *t)
     for (n = 0; n < 8; n++) p = put_w(p, (u16)(0x7000 | (n << 9)));     /* MOVEQ #0,Dn */
     for (n = 0; n < 6; n++) p = put_w(p, (u16)(0x91C8 | (n << 9) | n)); /* SUBA.L An,An */
 
+    /* Set SFC and DFC to 5 (supervisor data space) so MOVES tests
+     * don't bus-error from the default DFC=0 "undefined function
+     * code". MOVEC D0,SFC = $4E7B 0000; MOVEC D0,DFC = $4E7B 0001.
+     * Need D0 = 5 first. */
+    p = put_w(p, 0x7005);             /* MOVEQ #5,D0 */
+    p = put_w(p, 0x4E7B); p = put_w(p, 0x0000);   /* MOVEC D0,SFC */
+    p = put_w(p, 0x4E7B); p = put_w(p, 0x0001);   /* MOVEC D0,DFC */
+    p = put_w(p, 0x7000);             /* MOVEQ #0,D0 (restore) */
+
     p = emit_movea_l_imm_to_an(p, 6, (u32) &scratch_ram[0]);
     p = emit_move_w_imm_to_ccr(p, 0);
 
@@ -175,79 +184,270 @@ static void format_decimal(char *out, u32 v, int width) {
     *out = '\0';
 }
 
+/* Keep 'w' static so the 16 KB sector buffer lives in .bss, not on
+ * the stack. Recovery code longjmps without unwinding C stack frames;
+ * if 'w' were a local we'd lose the 16 KB allocation reservation in
+ * a way the compiler doesn't know about, and any further jw_putc
+ * would scribble on the new (smaller) stack. */
+static JwCtx g_jw_ctx;
+static JsonlWriter g_jw;
+
+/* Busy-loop delay. Mac II at 16 MHz, the inner add takes ~2 cycles,
+ * so 8M iterations = ~1 second. Crude but interrupt-free. */
+static void busy_delay(u32 seconds)
+{
+    volatile u32 i;
+    while (seconds--) {
+        for (i = 0; i < 4000000; i++) { asm volatile ("nop"); }
+    }
+}
+
+/* Render an 8-digit hex string into buf (caller provides 9+ bytes). */
+static void format_hex32(char *out, u32 v) {
+    const char *digits = "0123456789ABCDEF";
+    int i;
+    for (i = 7; i >= 0; i--) {
+        out[i] = digits[v & 0xF];
+        v >>= 4;
+    }
+    out[8] = '\0';
+}
+
+/* One-test bench. Runs the test whose index is hardcoded below
+ * (start with the simplest privileged case: MOVES.L D0,(A1)) and
+ * paints the resulting CPU state on screen.
+ *
+ * NOTHING is written to disk — you take a phone photo of the screen
+ * and we read the registers from there. Sidesteps every SCSI write
+ * issue we've been chasing.
+ */
+/* Range of contiguous tests to run, 0-based.
+ * Privileged tests are indices 170..192 (1-based 171..193). */
+#define FIRST_TEST_INDEX 175    /* 1-based 176 = MOVE.W SR,(A6) */
+#define LAST_TEST_INDEX  192    /* 1-based 193 = MOVE.L USP,A1 */
+
+/* Fill the framebuffer with PX_BLACK (1bpp: 0xFFFFFFFF). Compact
+ * "blackout between tests" between displays. */
+static void wipe_screen(void)
+{
+    u32 fb = *(u32 *)0x0824;
+    u32 *p = (u32 *)fb;
+    u32 i;
+    if (fb < 0x00100000) return;
+    /* 1bpp: 640 px × 480 rows / 8 = 38400 bytes = 9600 longs. */
+    for (i = 0; i < 9600; i++) *p++ = 0xFFFFFFFF;
+}
+
 void bench_main(void)
 {
-    JwCtx ctx;
-    JsonlWriter w;
-    u32 i;
+    u8 *entry;
+    char buf[16];
+    int idx;
+    JsonlWriter *w = &g_jw;
+    JwCtx wctx;
 
-    /* install_vbr(); */   /* TEMP DISABLED to bisect — was breaking test 1 */
-    ctx.refnum      = g_handoff_refnum;
-    ctx.drive       = g_handoff_drive;
-    ctx.base_offset = g_results_offset;
-    ctx.max_bytes   = g_results_max_bytes;
-    jw_init(&w, &ctx);
+    install_vbr();
 
-    for (i = 0; i < CPU_N_TESTS; i++) {
-        const CpuTestSpec *t = &g_cpu_tests[i];
-        u8 *entry;
-        u32 t_start, t_end;
-        char buf[16];
-        int skip = t->raises_exception || t->hw_unsafe;
+    wctx.refnum      = g_handoff_refnum;
+    wctx.drive       = g_handoff_drive;
+    wctx.base_offset = g_results_offset;
+    wctx.max_bytes   = g_results_max_bytes;
+    jw_init(w, &wctx);
+
+    for (idx = FIRST_TEST_INDEX; idx <= LAST_TEST_INDEX; idx++) {
+        const CpuTestSpec *t = &g_cpu_tests[idx];
+        u32 crashed_vec = 0;
+
+        /* Blackout between tests so each new test gets a clean slate. */
+        wipe_screen();
+        busy_delay(1);
+
+        /* Header */
+        paint_string(4, 4, "SUPERVISOR MULTI-TEST RUNNER", 30);
+        format_decimal(buf, idx + 1, 4);
+        paint_string(16, 4, "Test ", 5);
+        paint_string(16, 9, buf, 4);
+        paint_string(16, 14, ": ", 2);
+        paint_string(16, 16, t->name, 60);
 
         f_memset(&init_snap,  0, sizeof(init_snap));
         f_memset(&final_snap, 0, sizeof(final_snap));
         f_memset(scratch_ram, 0, sizeof(scratch_ram));
-        init_pc = 0; final_pc = 0;
-
         if (t->ram_init_present)
             f_memcpy(scratch_ram, t->ram_init, CPU_SCRATCH_LEN);
 
-        /* Show "[NNN/TTT] name" on screen at row 28 col 4. */
-        format_decimal(buf, i + 1, 4);
-        paint_string(28, 4, buf, 4);
-        paint_string(28, 8, "/", 1);
-        format_decimal(buf, CPU_N_TESTS, 4);
-        paint_string(28, 9, buf, 4);
-        paint_string(28, 14, " ", 1);
-        paint_string(28, 15, t->name, 50);
+        entry = build_program(t);
+        flush_icache();
+        crashed_vec = (u32)invoke_test_with_recovery(entry);
+        asm volatile ("move.w #0x2700, %%sr" : : : "memory");
 
-        t_start = read_ticks();
-        if (!skip) {
-            paint_string(50, 4, "B", 1);
-            entry = build_program(t);
-            paint_string(50, 4, "F", 1);
-            flush_icache();
-            paint_string(50, 4, "I", 1);
-            invoke_program(entry);
-            paint_string(50, 4, "R", 1);
+        if (crashed_vec) {
+            format_hex32(buf, crashed_vec);
+            paint_string(40, 4, "*** EXCEPTION VECTOR ", 30);
+            paint_string(40, 26, buf, 8);
         } else {
-            paint_string(50, 4, "S", 1);
+            paint_string(40, 4, "OK", 4);
         }
-        t_end = read_ticks();
-        paint_string(50, 4, ".", 1);
 
-        /* Show elapsed ticks (60Hz) at row 40 col 4. */
-        format_decimal(buf, t_end - t_start, 8);
-        paint_string(40, 4, "T=", 2);
-        paint_string(40, 6, buf, 8);
-        paint_string(50, 5, "J", 1);       /* about to write JSON */
+        /* Paint registers and scratch_ram (matches single-test layout). */
+        paint_string(64, 4, "D0..D3:", 8);
+        for (int i = 0; i < 4; i++) {
+            format_hex32(buf, final_snap.d[i]);
+            paint_string(64, 14 + i*10, buf, 8);
+        }
+        paint_string(76, 4, "D4..D7:", 8);
+        for (int i = 0; i < 4; i++) {
+            format_hex32(buf, final_snap.d[4+i]);
+            paint_string(76, 14 + i*10, buf, 8);
+        }
+        paint_string(88, 4, "A0..A3:", 8);
+        for (int i = 0; i < 4; i++) {
+            format_hex32(buf, final_snap.a[i]);
+            paint_string(88, 14 + i*10, buf, 8);
+        }
+        paint_string(100, 4, "A4..A7:", 8);
+        for (int i = 0; i < 4; i++) {
+            format_hex32(buf, final_snap.a[4+i]);
+            paint_string(100, 14 + i*10, buf, 8);
+        }
+        format_hex32(buf, final_snap.ccr);
+        paint_string(112, 4, "CCR=", 4);
+        paint_string(112, 8, buf + 6, 2);
 
-        jw_putc(&w, '{');
-        jw_puts(&w, "\"name\":"); write_name(&w, t->name);
-        jw_puts(&w, ",\"ticks\":"); jw_putul(&w, t_end - t_start);
-        jw_puts(&w, ",\"initial\":"); write_snap(&w, &init_snap, init_pc);
-        jw_puts(&w, ",\"final\":");   write_snap(&w, &final_snap, final_pc);
-        jw_puts(&w, "}\n");
-        /* Per-line commit was hanging the SCSI _Write after ~113 calls.
-         * Skip it — full-sector flushes via jw_putc will still drive
-         * one _Write per ~512 bytes of output. */
-        paint_string(50, 5, "+", 1);
+        paint_string(132, 4, "scratch_ram[0..15]:", 20);
+        for (int j = 0; j < 16; j++) {
+            format_hex32(buf, scratch_ram[j]);
+            paint_string(144, 4 + j*3, buf + 6, 2);
+        }
 
-        if ((i & 0x0F) == 0) paint_progress(i, CPU_N_TESTS);
+        /* Append JSON line to the in-memory writer buffer. We'll flush
+         * after the loop finishes — one disk write for everything. */
+        jw_putc(w, '{');
+        jw_puts(w, "\"name\":"); write_name(w, t->name);
+        jw_puts(w, ",\"vec\":"); jw_putul(w, crashed_vec);
+        jw_puts(w, ",\"final\":"); write_snap(w, &final_snap, final_pc);
+        jw_puts(w, "}\n");
+
+        /* Visible pause so the operator can read / photograph. */
+        busy_delay(1);
     }
 
-    jw_flush(&w);
-    paint_progress(CPU_N_TESTS, CPU_N_TESTS);
-    paint_string(28, 4, "ALL TESTS COMPLETE", 50);
+    /* All tests done — one final flush writes everything. */
+    wipe_screen();
+    paint_string(4, 4, "ALL TESTS DONE - writing results...", 40);
+    jw_flush(w);
+
+    format_hex32(buf, (u32)(u16)w->last_err);
+    paint_string(28, 4, "ioResult=", 9);
+    paint_string(28, 13, buf + 4, 4);
+    paint_string(52, 4, "Power off and extract /Results.jsonl", 40);
+    for (;;) { asm volatile (""); }
+
+#if 0
+    /* === legacy single-test display below, kept for reference === */
+    paint_string(4, 4, "SUPERVISOR ONE-TEST RUNNER", 30);
+
+    paint_string(16, 4, "STEP 1 hello                   ", 40);
+    busy_delay(0);
+
+    format_decimal(buf, ONE_TEST_INDEX + 1, 4);
+    paint_string(28, 4, "STEP 2 test ", 12);
+    paint_string(28, 16, buf, 4);
+    paint_string(28, 20, " = ", 3);
+    paint_string(28, 23, t->name, 60);
+    busy_delay(0);
+
+    paint_string(40, 4, "STEP 3 zero snap + scratch     ", 40);
+    f_memset(&init_snap,  0, sizeof(init_snap));
+    f_memset(&final_snap, 0, sizeof(final_snap));
+    f_memset(scratch_ram, 0, sizeof(scratch_ram));
+    if (t->ram_init_present)
+        f_memcpy(scratch_ram, t->ram_init, CPU_SCRATCH_LEN);
+    busy_delay(0);
+
+    paint_string(52, 4, "STEP 4 install_vbr             ", 40);
+    install_vbr();
+    busy_delay(0);
+
+    paint_string(64, 4, "STEP 5 build_program           ", 40);
+    entry = build_program(t);
+    busy_delay(0);
+
+    paint_string(76, 4, "STEP 6 flush_icache + invoke   ", 40);
+    flush_icache();
+    crashed_vec = (u32)invoke_test_with_recovery(entry);
+    asm volatile ("move.w #0x2700, %%sr" : : : "memory");
+
+    if (crashed_vec) {
+        format_hex32(buf, crashed_vec);
+        paint_string(88, 4, "STEP 7 *** EXCEPTION VECTOR ", 30);
+        paint_string(88, 32, buf, 8);
+    } else {
+        paint_string(88, 4, "STEP 7 test returned cleanly   ", 40);
+    }
+    busy_delay(0);
+
+    /* Register dumps. Each row gets 12 pixels. Hex values are 8
+     * chars wide; we space them 10 char-cols (80 px) apart so
+     * 4 values per row fit comfortably with gaps. */
+    paint_string(112, 4, "D0..D3:", 8);
+    for (int i = 0; i < 4; i++) {
+        format_hex32(buf, final_snap.d[i]);
+        paint_string(112, 14 + i*10, buf, 8);
+    }
+    paint_string(124, 4, "D4..D7:", 8);
+    for (int i = 0; i < 4; i++) {
+        format_hex32(buf, final_snap.d[4+i]);
+        paint_string(124, 14 + i*10, buf, 8);
+    }
+    paint_string(136, 4, "A0..A3:", 8);
+    for (int i = 0; i < 4; i++) {
+        format_hex32(buf, final_snap.a[i]);
+        paint_string(136, 14 + i*10, buf, 8);
+    }
+    paint_string(148, 4, "A4..A7:", 8);
+    for (int i = 0; i < 4; i++) {
+        format_hex32(buf, final_snap.a[4+i]);
+        paint_string(148, 14 + i*10, buf, 8);
+    }
+    format_hex32(buf, final_snap.ccr);
+    paint_string(160, 4, "CCR=", 4);
+    paint_string(160, 8, buf + 6, 2);
+
+    /* scratch_ram[0..15] dump — 16 bytes on one row. Each byte is
+     * 2 hex chars + 1 space = 3 char cells = 24 px. 16 bytes = 384 px
+     * wide. Fits in 640 with room to spare. */
+    paint_string(180, 4, "scratch_ram[0..15]:", 20);
+    for (int j = 0; j < 16; j++) {
+        format_hex32(buf, scratch_ram[j]);
+        paint_string(192, 4 + j*3, buf + 6, 2);
+    }
+
+    /* Write one JSON line containing the test result. Same shape as
+     * the corpus-format we use for diffing against MAME — just one
+     * line for now. */
+    paint_string(220, 4, "Writing /Results.jsonl...      ", 40);
+    {
+        JsonlWriter *w = &g_jw;
+        JwCtx wctx;
+        wctx.refnum      = g_handoff_refnum;
+        wctx.drive       = g_handoff_drive;
+        wctx.base_offset = g_results_offset;
+        wctx.max_bytes   = g_results_max_bytes;
+        jw_init(w, &wctx);
+        jw_putc(w, '{');
+        jw_puts(w, "\"name\":"); write_name(w, t->name);
+        jw_puts(w, ",\"vec\":"); jw_putul(w, crashed_vec);
+        jw_puts(w, ",\"final\":"); write_snap(w, &final_snap, final_pc);
+        jw_puts(w, "}\n");
+        jw_flush(w);
+
+        format_hex32(buf, (u32)(u16)w->last_err);
+        paint_string(220, 4, "Write done. ioResult=    ", 25);
+        paint_string(220, 29, buf + 4, 4);
+    }
+
+    paint_string(232, 4, "DONE - photo the screen.", 30);
+    for (;;) { asm volatile (""); }
+#endif
 }

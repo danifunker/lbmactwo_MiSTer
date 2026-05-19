@@ -19,68 +19,68 @@ CFLAGS   := $(CPUFLAGS) -ffreestanding -fno-builtin -fomit-frame-pointer \
 ASFLAGS  := $(CPUFLAGS)
 LDFLAGS  := -nostdlib --no-eh-frame-hdr
 
-.PHONY: all clean minimal scsi cpu_scsi cpu_scsi_toby toby_probe
+.PHONY: all clean minimal scsi cpu_scsi cpu_scsi_m2hires m2hires_probe
 all: $(BUILD)/boot_stub.bin $(BUILD)/payload.bin sizes
-cpu_scsi_toby: $(BUILD)/boot_stub_scsi_toby.bin $(BUILD)/payload_cpu_scsi_toby.bin
+cpu_scsi_m2hires: $(BUILD)/boot_stub_scsi_m2hires.bin $(BUILD)/payload_cpu_scsi_m2hires.bin
 
-$(BUILD)/boot_stub_scsi_toby.o: boot_stub_scsi_toby.s | $(BUILD)
+$(BUILD)/boot_stub_scsi_m2hires.o: boot_stub_scsi_m2hires.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/boot_stub_scsi_toby.elf: $(BUILD)/boot_stub_scsi_toby.o boot_stub.ld
+$(BUILD)/boot_stub_scsi_m2hires.elf: $(BUILD)/boot_stub_scsi_m2hires.o boot_stub.ld
 	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
 
-$(BUILD)/boot_stub_scsi_toby.bin: $(BUILD)/boot_stub_scsi_toby.elf
+$(BUILD)/boot_stub_scsi_m2hires.bin: $(BUILD)/boot_stub_scsi_m2hires.elf
 	$(OBJCOPY) -O binary $< $@
 
-CPU_TOBY_OBJS := $(BUILD)/payload_entry_cpu_toby.o \
+CPU_M2HIRES_OBJS := $(BUILD)/payload_entry_cpu_m2hires.o \
                  $(BUILD)/variant_cpu_scsi.o \
                  $(BUILD)/bench_main.o \
                  $(BUILD)/jsonl_writer.o \
                  $(BUILD)/freestanding.o \
-                 $(BUILD)/font_ascii_toby.o \
+                 $(BUILD)/font_ascii_m2hires.o \
                  $(BUILD)/recovery.o
 
-$(BUILD)/payload_entry_cpu_toby.o: payload_entry_cpu_toby.s | $(BUILD)
+$(BUILD)/payload_entry_cpu_m2hires.o: payload_entry_cpu_m2hires.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/font_ascii_toby.o: font_ascii_toby.c bench_types.h | $(BUILD)
+$(BUILD)/font_ascii_m2hires.o: font_ascii_m2hires.c bench_types.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/payload_cpu_scsi_toby.elf: $(CPU_TOBY_OBJS) payload.ld
-	$(LD) $(LDFLAGS) -T payload.ld -o $@ $(CPU_TOBY_OBJS)
+$(BUILD)/payload_cpu_scsi_m2hires.elf: $(CPU_M2HIRES_OBJS) payload.ld
+	$(LD) $(LDFLAGS) -T payload.ld -o $@ $(CPU_M2HIRES_OBJS)
 
-$(BUILD)/payload_cpu_scsi_toby.bin: $(BUILD)/payload_cpu_scsi_toby.elf
+$(BUILD)/payload_cpu_scsi_m2hires.bin: $(BUILD)/payload_cpu_scsi_m2hires.elf
 	$(OBJCOPY) -O binary $< $@
 minimal: $(BUILD)/boot_stub_minimal.bin
-toby_probe: $(BUILD)/boot_stub_toby_probe.bin
-toby_calibrate: $(BUILD)/boot_stub_toby_calibrate.bin
-toby_v3: $(BUILD)/boot_stub_toby_v3.bin
+m2hires_probe: $(BUILD)/boot_stub_m2hires_probe.bin
+m2hires_calibrate: $(BUILD)/boot_stub_m2hires_calibrate.bin
+m2hires_v3: $(BUILD)/boot_stub_m2hires_v3.bin
 
-$(BUILD)/boot_stub_toby_v3.o: boot_stub_toby_v3.s | $(BUILD)
+$(BUILD)/boot_stub_m2hires_v3.o: boot_stub_m2hires_v3.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/boot_stub_toby_v3.elf: $(BUILD)/boot_stub_toby_v3.o boot_stub.ld
+$(BUILD)/boot_stub_m2hires_v3.elf: $(BUILD)/boot_stub_m2hires_v3.o boot_stub.ld
 	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
 
-$(BUILD)/boot_stub_toby_v3.bin: $(BUILD)/boot_stub_toby_v3.elf
+$(BUILD)/boot_stub_m2hires_v3.bin: $(BUILD)/boot_stub_m2hires_v3.elf
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD)/boot_stub_toby_calibrate.o: boot_stub_toby_calibrate.s | $(BUILD)
+$(BUILD)/boot_stub_m2hires_calibrate.o: boot_stub_m2hires_calibrate.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/boot_stub_toby_calibrate.elf: $(BUILD)/boot_stub_toby_calibrate.o boot_stub.ld
+$(BUILD)/boot_stub_m2hires_calibrate.elf: $(BUILD)/boot_stub_m2hires_calibrate.o boot_stub.ld
 	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
 
-$(BUILD)/boot_stub_toby_calibrate.bin: $(BUILD)/boot_stub_toby_calibrate.elf
+$(BUILD)/boot_stub_m2hires_calibrate.bin: $(BUILD)/boot_stub_m2hires_calibrate.elf
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD)/boot_stub_toby_probe.o: boot_stub_toby_probe.s | $(BUILD)
+$(BUILD)/boot_stub_m2hires_probe.o: boot_stub_m2hires_probe.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/boot_stub_toby_probe.elf: $(BUILD)/boot_stub_toby_probe.o boot_stub.ld
+$(BUILD)/boot_stub_m2hires_probe.elf: $(BUILD)/boot_stub_m2hires_probe.o boot_stub.ld
 	$(LD) $(LDFLAGS) -T boot_stub.ld -o $@ $<
 
-$(BUILD)/boot_stub_toby_probe.bin: $(BUILD)/boot_stub_toby_probe.elf
+$(BUILD)/boot_stub_m2hires_probe.bin: $(BUILD)/boot_stub_m2hires_probe.elf
 	$(OBJCOPY) -O binary $< $@
 scsi: $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_scsi.bin
 cpu_scsi: $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_cpu_scsi.bin

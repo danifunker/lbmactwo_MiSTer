@@ -29,9 +29,9 @@ static i16 driver_write_sector(const JwCtx *ctx, u32 sector_idx, const u8 *buf)
     *(i16 *)(pb + PB_OFF_IOREFNUM)   = ctx->refnum;
     *(i16 *)(pb + PB_OFF_IOVREFNUM)  = ctx->drive;
     *(u32 *)(pb + PB_OFF_IOBUFFER)   = (u32)buf;
-    *(u32 *)(pb + PB_OFF_IOREQCOUNT) = 512;
+    *(u32 *)(pb + PB_OFF_IOREQCOUNT) = JW_BATCH_BYTES;
     *(i16 *)(pb + PB_OFF_IOPOSMODE)  = 1;     /* fsFromStart */
-    *(u32 *)(pb + PB_OFF_IOPOSOFFSET) = ctx->base_offset + sector_idx * 512;
+    *(u32 *)(pb + PB_OFF_IOPOSOFFSET) = ctx->base_offset + (u32)sector_idx * JW_BATCH_BYTES;
     pmk('c');
 
     asm volatile (
@@ -54,12 +54,13 @@ void jw_init(JsonlWriter *w, const JwCtx *ctx)
 
 static void flush_sector(JsonlWriter *w)
 {
-    /* Zero-pad anything not written in this sector. */
-    if (w->used < 512) f_memset(w->sector + w->used, 0, 512 - w->used);
-    u32 sector_idx = w->written / 512;
-    i16 r = driver_write_sector(&w->ctx, sector_idx, w->sector);
+    /* Zero-pad anything not written in this batch. */
+    if (w->used < JW_BATCH_BYTES)
+        f_memset(w->sector + w->used, 0, JW_BATCH_BYTES - w->used);
+    u32 batch_idx = w->written / JW_BATCH_BYTES;
+    i16 r = driver_write_sector(&w->ctx, batch_idx, w->sector);
     if (r != 0 && w->last_err == 0) w->last_err = r;
-    w->written += 512;
+    w->written += JW_BATCH_BYTES;
     w->used = 0;
 }
 
@@ -67,7 +68,7 @@ void jw_putc(JsonlWriter *w, char c)
 {
     if (w->written + w->used >= w->ctx.max_bytes) return;  /* full */
     w->sector[w->used++] = (u8)c;
-    if (w->used == 512) flush_sector(w);
+    if (w->used == JW_BATCH_BYTES) flush_sector(w);
 }
 
 void jw_puts(JsonlWriter *w, const char *s)
@@ -95,16 +96,9 @@ static void paint_marker(char c)
 
 void jw_commit_line(JsonlWriter *w)
 {
-    paint_marker('1');
-    if (w->written + w->used >= w->ctx.max_bytes) { paint_marker('!'); return; }
-    paint_marker('2');
-    if (w->used < 512) f_memset(w->sector + w->used, 0, 512 - w->used);
-    paint_marker('3');
-    u32 sector_idx = w->written / 512;
-    i16 r = driver_write_sector(&w->ctx, sector_idx, w->sector);
-    paint_marker('4');
-    if (r != 0 && w->last_err == 0) w->last_err = r;
-    paint_marker('5');
+    /* No-op now — batched writes via flush_sector handle persistence.
+     * Kept for ABI compatibility (caller still references it). */
+    (void)w;
 }
 
 void jw_flush(JsonlWriter *w)
