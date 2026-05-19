@@ -3,6 +3,8 @@ local mem = cpu.spaces["program"]
 
 local frames = 0
 local stop_frame = tonumber(os.getenv("MAME_STOP_FRAME") or "900") or 900
+local dserr_printed = 0
+local dserr_max_print = tonumber(os.getenv("MAME_DSERR_MAX_PRINT") or "32") or 32
 
 local pcs = {
 	0x408061e4,
@@ -54,13 +56,21 @@ local function print_state(prefix)
 	local sp = reg("A7")
 	local q = u32(0x030a)
 	print(string.format(
-		"%s frame=%d pc=%s tick016A=%s D0=%s D1=%s D2=%s D3=%s D4=%s D5=%s D6=%s D7=%s A0=%s A1=%s A2=%s A3=%s A4=%s A7=%s RET=%s L08EE=%s L0D10=%s L0D14=%s L030A=%s Q_00=%s Q_06=%04X Q_08=%04X Q_0C=%s A1_00=%s A1_06=%04X A1_08=%04X A1_0A=%04X A1_0C=%s A2_00=%s A2_04=%04X A2_06=%04X A2_08=%04X A2_0A=%04X A4_00=%s A4_60=%04X A4_61=%02X W09FA=%04X W09FC=%04X W09FE=%04X B0B22=%02X B0B2E=%02X N2748=%s/%04X/%04X/%04X/%s N33C4=%s/%04X/%04X/%04X/%s N47A8=%s/%04X/%04X/%04X/%s",
+		"%s frame=%d pc=%s tick016A=%s D0=%s D1=%s D2=%s D3=%s D4=%s D5=%s D6=%s D7=%s A0=%s A1=%s A2=%s A3=%s A4=%s A7=%s RET=%s L08EE=%s L0D10=%s L0D14=%s L030A=%s DSERR=%04X SAVEDPC=%s SAVEDSR=%04X MEMTOP=%s BUFPTR=%s STKLOW=%s HEAPEND=%s APPLIMIT=%s SYSZONE=%s APPLZONE=%s C7F38=%s/%s/%s/%s C7F58=%s/%s/%s/%s H1FE530=%s/%s/%s/%s H1FE550=%s/%s/%s/%s Q_00=%s Q_06=%04X Q_08=%04X Q_0C=%s A1_00=%s A1_06=%04X A1_08=%04X A1_0A=%04X A1_0C=%s A2_00=%s A2_04=%04X A2_06=%04X A2_08=%04X A2_0A=%04X A4_00=%s A4_60=%04X A4_61=%02X W09FA=%04X W09FC=%04X W09FE=%04X B0B22=%02X B0B2E=%02X N2748=%s/%04X/%04X/%04X/%s N33C4=%s/%04X/%04X/%04X/%s N47A8=%s/%04X/%04X/%04X/%s",
 		prefix, frames, hex(reg("CURPC")), hex(u32(0x016a)),
 		hex(reg("D0")), hex(reg("D1")), hex(reg("D2")), hex(reg("D3")),
 		hex(reg("D4")), hex(reg("D5")), hex(reg("D6")), hex(reg("D7")),
 		hex(reg("A0")), hex(a1), hex(a2), hex(reg("A3")), hex(a4), hex(sp),
 		hex(u32(sp)), hex(u32(0x08ee)), hex(u32(0x0d10)), hex(u32(0x0d14)),
-		hex(q), hex(u32(q)), u16(q + 0x06), u16(q + 0x08), hex(u32(q + 0x0c)),
+		hex(q), u16(0x0af0), hex(u32(0x0c70)), u16(0x0c74),
+		hex(u32(0x0108)), hex(u32(0x010c)), hex(u32(0x0110)),
+		hex(u32(0x0114)), hex(u32(0x0130)), hex(u32(0x02a6)), hex(u32(0x02aa)),
+		hex(u32(0x0c7f38)), hex(u32(0x0c7f3c)), hex(u32(0x0c7f40)),
+		hex(u32(0x0c7f44)), hex(u32(0x0c7f58)), hex(u32(0x0c7f5c)),
+		hex(u32(0x0c7f60)), hex(u32(0x0c7f64)),
+		hex(u32(0x1fe530)), hex(u32(0x1fe534)), hex(u32(0x1fe538)), hex(u32(0x1fe53c)),
+		hex(u32(0x1fe550)), hex(u32(0x1fe554)), hex(u32(0x1fe558)), hex(u32(0x1fe55c)),
+		hex(u32(q)), u16(q + 0x06), u16(q + 0x08), hex(u32(q + 0x0c)),
 		hex(u32(a1)), u16(a1 + 0x06), u16(a1 + 0x08), u16(a1 + 0x0a),
 		hex(u32(a1 + 0x0c)), hex(u32(a2)), u16(a2 + 0x04), u16(a2 + 0x06),
 		u16(a2 + 0x08), u16(a2 + 0x0a), hex(u32(a4)), u16(a4 + 0x60),
@@ -70,6 +80,19 @@ local function print_state(prefix)
 		u16(0x33ca), u16(0x33cc), hex(u32(0x33d0)), hex(u32(0x47a8)),
 		u16(0x47ac), u16(0x47ae), u16(0x47b0), hex(u32(0x47b4))))
 end
+
+mem:install_write_tap(0x00000af0, 0x00000af3, "dserr_w", function(offset, data, mask)
+	if dserr_printed >= dserr_max_print then
+		return
+	end
+	print(string.format(
+		"MAME_DSERR_WRITE frame=%d pc=%s tick016A=%s data=%s mask=%s DSERR=%04X SAVEDPC=%s SAVEDSR=%04X MEMTOP=%s BUFPTR=%s STKLOW=%s HEAPEND=%s APPLIMIT=%s SYSZONE=%s APPLZONE=%s",
+		frames, hex(reg("CURPC")), hex(u32(0x016a)), hex(data, 8), hex(mask, 8),
+		u16(0x0af0), hex(u32(0x0c70)), u16(0x0c74),
+		hex(u32(0x0108)), hex(u32(0x010c)), hex(u32(0x0110)),
+		hex(u32(0x0114)), hex(u32(0x0130)), hex(u32(0x02a6)), hex(u32(0x02aa))))
+	dserr_printed = dserr_printed + 1
+end)
 
 emu.register_frame_done(function()
 	frames = frames + 1

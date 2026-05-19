@@ -64,6 +64,7 @@ module emu
 	output [24:0] debug_ram_addr,
 	output [15:0] debug_ram_din,
 	output [15:0] debug_ram_dout,
+	output [15:0] debug_ram_data_final,
 	output        debug_ram_we,
 	output        debug_ram_oe,
 	output  [1:0] debug_ram_ds,
@@ -83,6 +84,14 @@ module emu
 	output [15:0] debug_cpuDataOut,   // Data from peripherals to CPU
 	output        debug_cpuRW,        // 1=read, 0=write
 	output        debug_cpuBusControl,
+	output        debug_memoryLatch,
+	output        debug_videoBusControl,
+	output        debug_dioBusControl,
+	output        debug_romOE,
+	output        debug_ramOE,
+	output        debug_ramWE,
+	output        debug_memoryUDS,
+	output        debug_memoryLDS,
 	output        debug_viaRd,        // VIA read enable (VMA-synchronized)
 	output        debug_viaWr,        // VIA write enable (VMA-synchronized)
 	output        debug_cpuAS,        // CPU AS signal (active low)
@@ -95,6 +104,13 @@ module emu
 	output        debug_berr,
 	output [31:0] debug_vbr,
 	output  [2:0] debug_cpuIPL,
+	output        debug_cpu_en_p,
+	output        debug_cpu_en_n,
+	output  [2:0] debug_tg68_state,
+	output  [1:0] debug_tg68_busstate,
+	output        debug_tg68_clkena,
+	output [15:0] debug_tg68_din_live,
+	output [15:0] debug_tg68_din_sample,
 
 	// Serial terminal interface
 	output        serial_txd,       // SCC Channel A TX output (for sim-side RX)
@@ -102,13 +118,13 @@ module emu
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
-	input         cfg_memSize       // 0=1MB, 1=4MB
+	input  [1:0] cfg_memSize       // 0=1MB, 1=2MB, 2=4MB
 );
 
 	localparam SCSI_DEVS = 2;
 
 	// Configuration - directly from inputs (Mac II)
-	wire      status_mem = cfg_memSize;      // 0=1MB, 1=4MB
+	wire [1:0] status_mem = cfg_memSize;     // 0=1MB, 1=2MB, 2=4MB
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
 	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables.
 	// Sim plusarg +cpu8 lets us test whether boot divergence is CPU/bus pacing.
@@ -193,7 +209,7 @@ module emu
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
-	wire [1:0] configRAMSize = 2'b01; // 2MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
+	wire [1:0] configRAMSize = status_mem; // 1MB, 2MB, or 4MB
 
 	// Serial Ports — connected to serial terminal in sim_main.cpp
 	wire serialOut;              // SCC Channel A TX (driven by SCC)
@@ -259,9 +275,14 @@ module emu
 	wire [15:0] dataControllerDataOut;
 
 	// MC68881 FPU coprocessor cycles use FC=7 CPU space, cpID=1.
-	// The Verilator harness uses a fast CIR-level responder for boot/debug runs.
-	wire fpuAddrMatch = (cpuFC == 3'b111) && (cpuAddr[31:16] == 16'h0002) && (cpuAddr[15:13] == 3'b001);
-	wire selectFPU = fpuAddrMatch && !_cpuAS;
+	// Match MAME's current Mac II baseline: no 68881 is installed unless this
+	// local diagnostic knob is enabled.  Do not let absent-FPU CIR cycles fall
+	// through to the interrupt-autovector VPA path; they must time out as CPU
+	// space accesses so the ROM/OS can handle coprocessor absence normally.
+	localparam FPU_PRESENT = 1'b0;
+	wire fpuAddrRaw = (cpuFC == 3'b111) && (cpuAddr[31:16] == 16'h0002) && (cpuAddr[15:13] == 3'b001);
+	wire fpuCycle = fpuAddrRaw && !_cpuAS;
+	wire selectFPU = FPU_PRESENT && fpuCycle;
 	wire [31:0] fpu_data_out;
 	wire fpu_dsack0_n, fpu_dsack1_n;
 	wire fpu_sense_n;
@@ -274,6 +295,15 @@ module emu
 
 	// dtack generation in turbo mode
 	reg  turbo_dtack_en, cpuBusControl_d;
+`ifdef SIMULATION
+	reg strict_macii_io = 1'b0;
+	reg legacy_scc_scsi_vpa = 1'b0;
+	initial strict_macii_io = $test$plusargs("strict_macii_io");
+	initial legacy_scc_scsi_vpa = $test$plusargs("legacy_scc_scsi_vpa");
+`else
+	wire strict_macii_io = 1'b0;
+	wire legacy_scc_scsi_vpa = 1'b0;
+`endif
 	always @(posedge clk_sys) begin
 		if (!_cpuReset) begin
 			turbo_dtack_en <= 0;
@@ -287,14 +317,21 @@ module emu
 
 	// VPA: assert for FC=7 autovector cycles, except FPU coprocessor cycles.
 	wire viaAccess = selectVIA | selectVIA2;
-	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
+	wire nonViaIOAccess = selectSCSI | selectSCC | selectIWM | selectASC | selectSEOverlay;
+	wire directDtackIOAccess = strict_macii_io ? nonViaIOAccess :
+	                            (!legacy_scc_scsi_vpa && (selectSCSI | selectSCC));
+	wire legacyVpaIOAccess = !_cpuAS && cpuAddr[23:21] == 3'b111;
+	assign      _cpuVPA = (cpuFC == 3'b111 && !fpuCycle) ? 1'b0 :
 	                      viaAccess ? ~!_cpuAS :
-	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
+	                      directDtackIOAccess ? 1'b1 :
+	                      strict_macii_io ? 1'b1 :
+	                      ~legacyVpaIOAccess;
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
 	assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
+	                        directDtackIOAccess ? 1'b0 :
 	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
@@ -305,6 +342,7 @@ module emu
 	wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
 	                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 	wire is_cpu_space = (cpuFC == 3'b111);
+	wire cpu_space_responds = is_cpu_space && !fpuCycle;
 
 	always @(posedge clk_sys) begin
 		if (!_cpuReset) begin
@@ -316,7 +354,7 @@ module emu
 				berr_out <= 0;
 			end else if (berr_out) begin
 				// Hold BERR until AS deasserts (CPU ends bus cycle)
-			end else if (is_cpu_space || any_select)
+			end else if (cpu_space_responds || any_select)
 				berr_counter <= 0;
 			else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz sys clock
 				begin berr_out <= 1; berr_counter <= 0; end
@@ -324,9 +362,20 @@ module emu
 				berr_counter <= berr_counter + 1'd1;
 		end
 	end
-	// Mac II: 16 MHz CPU (status_turbo=1 selects clk16 enables from 32.5 MHz sys clock)
-	wire        cpu_en_p      = status_turbo ? clk16_en_p : clk8_en_p;
-	wire        cpu_en_n      = status_turbo ? clk16_en_n : clk8_en_n;
+	// Mac II CPU phase is independent from the legacy compact-Mac memory/video
+	// bus phase. Keep the same 16 MHz cadence for now; this gives CPU timing a
+	// separate control point without changing RAM/NuBus bus-slot ownership.
+	reg         cpu_phase16;
+	always @(posedge clk_sys) begin
+		if (reset)
+			cpu_phase16 <= 1'b0;
+		else
+			cpu_phase16 <= ~cpu_phase16;
+	end
+	wire        cpu16_en_p    = !cpu_phase16;
+	wire        cpu16_en_n    = cpu_phase16;
+	wire        cpu_en_p      = status_turbo ? cpu16_en_p : clk8_en_p;
+	wire        cpu_en_n      = status_turbo ? cpu16_en_n : clk8_en_n;
 	assign      _cpuReset_o   = tg68_reset_n;
 	assign      _cpuRW        = tg68_rw;
 	assign      _cpuAS        = tg68_as_n;
@@ -397,7 +446,12 @@ module emu
 		.addr       ( tg68_a       ),
 		.VBR_out    ( debug_vbr    ),
 		.berr_inhibit ( cpu_berr_inhibit ),
-		.berr_data    ( cpu_berr_data    )
+		.berr_data    ( cpu_berr_data    ),
+		.debug_s_state ( debug_tg68_state ),
+		.debug_busstate ( debug_tg68_busstate ),
+		.debug_clkena ( debug_tg68_clkena ),
+		.debug_din_live ( debug_tg68_din_live ),
+		.debug_din_sample ( debug_tg68_din_sample )
 	);
 
 	// Format $B RTE: when berr_inhibit is active, suppress bus errors
@@ -432,7 +486,7 @@ module emu
 		.d_out        ( fpu_data_out         ),
 		.size_n       ( 2'b01                ),
 		.as_n         ( _cpuAS               ),
-		.cs_n         ( ~fpuAddrMatch        ),
+		.cs_n         ( ~(FPU_PRESENT && fpuAddrRaw) ),
 		.rw           ( _cpuRW               ),
 		.ds_n         ( _cpuUDS & _cpuLDS    ),
 		.dsack0_n     ( fpu_dsack0_n         ),
@@ -841,6 +895,7 @@ module emu
 	assign debug_ram_addr = ram_addr;
 	assign debug_ram_din = ram_din;
 	assign debug_ram_dout = ram_do_raw;
+	assign debug_ram_data_final = ram_do;
 	assign debug_ram_we = ram_we;
 	assign debug_ram_oe = ram_oe;
 	assign debug_ram_ds = ram_ds;
@@ -860,6 +915,14 @@ module emu
 	assign debug_cpuDataOut = dataControllerDataOut;  // Peripherals send this to CPU
 	assign debug_cpuRW = _cpuRW;  // 1=read, 0=write
 	assign debug_cpuBusControl = cpuBusControl;
+	assign debug_memoryLatch = memoryLatch;
+	assign debug_videoBusControl = videoBusControl;
+	assign debug_dioBusControl = dioBusControl;
+	assign debug_romOE = _romOE;
+	assign debug_ramOE = _ramOE;
+	assign debug_ramWE = _ramWE;
+	assign debug_memoryUDS = _memoryUDS;
+	assign debug_memoryLDS = _memoryLDS;
 	assign debug_viaRd = (selectVIA || selectVIA2) && !_cpuVMA && _cpuRW;
 	assign debug_viaWr = (selectVIA || selectVIA2) && !_cpuVMA && !_cpuRW;
 	assign debug_cpuAS = _cpuAS;
@@ -870,6 +933,8 @@ module emu
 	assign debug_cpuLDS = _cpuLDS;
 	assign debug_selectVIA2 = selectVIA2;
 	assign debug_cpuIPL = _cpuIPL;
+	assign debug_cpu_en_p = cpu_en_p;
+	assign debug_cpu_en_n = cpu_en_n;
 
 `ifdef SIMULATION
 	integer lowmem_bit_raw_dbg_hits = 0;

@@ -513,8 +513,10 @@ end
 // VPA: FC=7 cycles get autovector EXCEPT FPU coprocessor accesses (which use DTACK/DSACK)
 // Also assert VPA for 32-bit VIA/VIA2 accesses ($50F0xxxx) so VMA handshake occurs
 wire viaAccess = selectVIA | selectVIA2;
+wire directDtackIOAccess = selectSCSI | selectSCC;
 assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
                       viaAccess ? ~(!_cpuAS) :
+                      directDtackIOAccess ? 1'b1 :
                       ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 // DTACK: FPU uses DSACK protocol (assert DTACK when either DSACK line goes low)
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
@@ -522,6 +524,7 @@ assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
+                        directDtackIOAccess ? 1'b0 :
                         (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 
 // Debug LED tracking - extended duration for visibility
@@ -541,8 +544,20 @@ always @(posedge clk_sys) begin
 	else if (video_act_ctr != 0) video_act_ctr <= video_act_ctr - 1'd1;
 end
 
-wire        cpu_en_p      = status_turbo ? clk16_en_p : clk8_en_p;
-wire        cpu_en_n      = status_turbo ? clk16_en_n : clk8_en_n;
+// Mac II CPU phase is independent from the legacy compact-Mac memory/video
+// bus phase. Keep the same 16 MHz cadence for now; this gives CPU timing a
+// separate control point without changing RAM/NuBus bus-slot ownership.
+reg         cpu_phase16;
+always @(posedge clk_sys) begin
+	if (reset)
+		cpu_phase16 <= 1'b0;
+	else
+		cpu_phase16 <= ~cpu_phase16;
+end
+wire        cpu16_en_p    = !cpu_phase16;
+wire        cpu16_en_n    = cpu_phase16;
+wire        cpu_en_p      = status_turbo ? cpu16_en_p : clk8_en_p;
+wire        cpu_en_n      = status_turbo ? cpu16_en_n : clk8_en_n;
 
 // Mac II uses TG68K in 68020 mode only
 assign      _cpuReset_o   = tg68_reset_n;

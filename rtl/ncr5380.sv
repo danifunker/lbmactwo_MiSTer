@@ -101,6 +101,8 @@ module ncr5380
 	reg reg_wr;
 	reg dma_ack;
 	reg [2:0] dma_ack_holdoff;
+	reg dma_req;
+	reg dma_wait_req_drop;
 	reg dma_word_latched;
 	reg dma_longword_latched;
 	reg dma_second_word_latched;
@@ -113,11 +115,14 @@ module ncr5380
 	reg old_reg_wr;
 
 	wire dma_ack_busy = dma_ack | (dma_ack_holdoff != 3'd0);
-	assign dreq = scsi_req & dma_en & !dma_ack_busy;
+	assign dreq = scsi_req & dma_en & bsr_pmatch & !dma_ack_busy;
 
 	wire i_dma_rd = bus_cs &  dack & ior;
 	wire i_dma_wr = bus_cs &  dack & iow;
 	wire i_reg_wr = bus_cs & ~dack & iow;
+	wire dma_rd_done = old_dma_rd & ~i_dma_rd;
+	wire dma_wr_done = old_dma_wr & ~i_dma_wr;
+	wire dma_xfer_done = dma_rd_done | dma_wr_done;
 
 	always @(posedge clk or posedge reset) begin
 		if (reset) begin
@@ -127,6 +132,8 @@ module ncr5380
 			dma_wr <= 0;
 			dma_ack <= 0;
 			dma_ack_holdoff <= 0;
+			dma_req <= 0;
+			dma_wait_req_drop <= 0;
 			reg_wr <= 0;
 			dma_word_latched <= 0;
 			dma_longword_latched <= 0;
@@ -143,6 +150,9 @@ module ncr5380
 			dma_wr <= 0;
 			dma_ack <= 0;
 			reg_wr <= 0;
+
+			dma_req <= scsi_req & dma_en & bsr_pmatch;
+			dma_wait_req_drop <= 1'b0;
 
 			if(~old_dma_rd & i_dma_rd) begin
 				dma_word_latched <= dma_word;
@@ -294,7 +304,7 @@ module ncr5380
 	/* Bus and Status register */
 	/* BSR (read only). We don't do a few things... */
 	wire bsr_eodma = 1'b0;	/* We don't do EOP */
-	wire bsr_dmarq = scsi_req & dma_en;
+	wire bsr_dmarq = scsi_req & dma_en & bsr_pmatch;
 	wire bsr_perr = 1'b0;	/* We don't do parity */
 	wire bsr_irq = scsi_req & dma_en & ~bsr_pmatch;
 	wire bsr_pmatch = 

@@ -39,11 +39,19 @@ module tg68k (
 
 	// Format $B RTE: suppress next BERR, provide data instead
 	output berr_inhibit,
-	output [31:0] berr_data
+	output [31:0] berr_data,
+
+	output [2:0] debug_s_state,
+	output [1:0] debug_busstate,
+	output debug_clkena,
+	output [15:0] debug_din_live,
+	output [15:0] debug_din_sample
 );
 
 wire  [1:0] tg68_busstate;
-wire        tg68_clkena = phi1 && (s_state == 7 || tg68_busstate == 2'b01);
+wire        tg68_bus_idle = tg68_busstate == 2'b01;
+wire        tg68_core_progress_en = phi1 && (s_state == 7 || tg68_bus_idle);
+wire        tg68_clkena = tg68_core_progress_en;
 wire [31:0] tg68_addr;
 wire [15:0] tg68_din;
 reg  [15:0] tg68_din_r;
@@ -238,5 +246,11 @@ TG68KdotC_Kernel tg68k (
 	.FC             ( fc            ),
 	.VBR_out        ( VBR_out       )
 );
+
+assign debug_s_state = s_state;
+assign debug_busstate = tg68_busstate;
+assign debug_clkena = tg68_clkena;
+assign debug_din_live = tg68_din;
+assign debug_din_sample = tg68_din_r;
 
 endmodule

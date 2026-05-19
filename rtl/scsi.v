@@ -41,6 +41,11 @@ module scsi
 
 // SCSI device id
 parameter [2:0] ID = 0;
+reg debug_commands;
+
+initial begin
+	debug_commands = $test$plusargs("scsi_commands");
+end
 
 localparam PHASE_IDLE        = 3'd0;
 localparam PHASE_CMD_IN      = 3'd1;
@@ -49,6 +54,24 @@ localparam PHASE_DATA_IN     = 3'd3;
 localparam PHASE_STATUS_OUT  = 3'd4;
 localparam PHASE_MESSAGE_OUT = 3'd5;
 reg [2:0]  phase;
+reg [11:0] phase_change_delay;
+reg [11:0] sector_gap_delay;
+localparam [11:0] PHASE_COMPLETE_DELAY_DEFAULT = 12'd4095;
+localparam [11:0] SECTOR_BOUNDARY_DELAY_DEFAULT = 12'd4095;
+`ifdef SIMULATION
+reg [11:0] phase_complete_delay_cfg = PHASE_COMPLETE_DELAY_DEFAULT;
+reg [11:0] sector_boundary_delay_cfg = SECTOR_BOUNDARY_DELAY_DEFAULT;
+initial begin
+	integer delay_arg;
+	if ($value$plusargs("scsi_phase_delay=%d", delay_arg) && delay_arg >= 0)
+		phase_complete_delay_cfg = delay_arg[11:0];
+	if ($value$plusargs("scsi_sector_gap=%d", delay_arg) && delay_arg >= 0)
+		sector_boundary_delay_cfg = delay_arg[11:0];
+end
+`else
+wire [11:0] phase_complete_delay_cfg = PHASE_COMPLETE_DELAY_DEFAULT;
+wire [11:0] sector_boundary_delay_cfg = SECTOR_BOUNDARY_DELAY_DEFAULT;
+`endif
 
 // ------------ sector buffer IO controller read/write -----------------------
 // the buffer itself. Can hold two sectors
@@ -126,11 +149,11 @@ assign msg = (phase == PHASE_MESSAGE_OUT);
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 
-wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == sd_buff_sel) ||
-                 (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
-                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
+	wire   io_busy = (phase == PHASE_DATA_OUT && (rd_pending | io_rd | io_ack) && data_cnt[9] == sd_buff_sel) ||
+	                 (phase == PHASE_DATA_IN  && (wr_pending | io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
+	                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
+	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete && (sector_gap_delay == 12'd0);
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -142,14 +165,17 @@ assign dout_pair = (phase == PHASE_STATUS_OUT)?{status, status}:
 	 (phase == PHASE_MESSAGE_OUT)?{`MSG_CMD_COMPLETE, `MSG_CMD_COMPLETE}:
 	 (phase == PHASE_DATA_OUT)?cmd_dout_pair:
 	 16'h0000;
-assign dout_pair_next = (phase == PHASE_STATUS_OUT)?{status, status}:
-	 (phase == PHASE_MESSAGE_OUT)?{`MSG_CMD_COMPLETE, `MSG_CMD_COMPLETE}:
-	 (phase == PHASE_DATA_OUT)?cmd_dout_pair_next:
-	 16'h0000;
+	assign dout_pair_next = (phase == PHASE_STATUS_OUT)?{status, status}:
+		 (phase == PHASE_MESSAGE_OUT)?{`MSG_CMD_COMPLETE, `MSG_CMD_COMPLETE}:
+		 (phase == PHASE_DATA_OUT)?cmd_dout_pair_next:
+		 16'h0000;
 
-// de-multiplex different data sources
-wire [7:0] cmd_dout =
-		cmd_read?(data_cnt[0] ? buffer1_dout : buffer0_dout):
+	reg old_rd, old_wr;
+	reg wr_pending, rd_pending;
+
+	// de-multiplex different data sources
+	wire [7:0] cmd_dout =
+			cmd_read?(data_cnt[0] ? buffer1_dout : buffer0_dout):
 		cmd_inquiry?inquiry_dout:
 		cmd_read_capacity?read_capacity_dout:
 		cmd_mode_sense?mode_sense_dout:
@@ -319,35 +345,43 @@ reg [7:0]  cmd [9:0];
 
 assign io_lba = lba;
 
-// generate an io_rd signal whenever the first byte of a 512 byte block is required
-// start fetching the next sector when the 20th byte is read, and it's not the last sector
+// Generate an io_rd signal whenever the first byte of a 512 byte block is
+// required. Prefetch the next sector so the buffer contents are valid when the
+// driver resumes pseudo-DMA, but create a separate REQ gap at block boundaries
+// below so Mac disk drivers can observe the chunk boundary they poll for.
 wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_cnt[8:0] == 9'd20 && data_cnt[31:9] != ({7'd0, tlen} - 1'd1))) && !data_complete);
 
 // generate an io_wr signal whenever a 512 byte block has been received or when the status
 // phase of a write command has been reached
 wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt != 0)) || (phase == PHASE_STATUS_OUT)) && cmd_write);
 
-always @(posedge clk) begin
-	reg old_rd, old_wr;
-	reg wr_pending, rd_pending;
-
-	old_rd <= req_rd;
-	old_wr <= req_wr;
-	if(~old_rd & req_rd) rd_pending <= 1;
-	if(~old_wr & req_wr) wr_pending <= 1;
-
-	if(io_ack) begin
+	always @(posedge clk) begin
+	if (phase == PHASE_IDLE) begin
+		old_rd <= 1'b0;
+		old_wr <= 1'b0;
+		rd_pending <= 1'b0;
+		wr_pending <= 1'b0;
 		io_rd <= 1'b0;
 		io_wr <= 1'b0;
 	end else begin
-		if (rd_pending && !io_rd) begin
-			io_rd <= 1;
-			rd_pending <= 0;
-		end
+		old_rd <= req_rd;
+		old_wr <= req_wr;
+		if(~old_rd & req_rd) rd_pending <= 1;
+		if(~old_wr & req_wr) wr_pending <= 1;
 
-		if (wr_pending && !io_wr) begin
-			io_wr <= 1;
-			wr_pending <= 0;
+		if(io_ack) begin
+			io_rd <= 1'b0;
+			io_wr <= 1'b0;
+		end else begin
+			if (rd_pending && !io_rd) begin
+				io_rd <= 1;
+				rd_pending <= 0;
+			end
+
+			if (wr_pending && !io_wr) begin
+				io_wr <= 1;
+				wr_pending <= 0;
+			end
 		end
 	end
 end
@@ -403,10 +437,15 @@ always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
 		data_cnt <= 0;
 		data_complete <= 0;
-	end else begin	
-		if(stb_adv)begin	
+		sector_gap_delay <= 12'd0;
+	end else begin
+		if (sector_gap_delay != 12'd0)
+			sector_gap_delay <= sector_gap_delay - 12'd1;
+		if(stb_adv)begin
 			if(!data_complete) data_cnt <= data_cnt + 1'd1;
 			data_complete <= (data_len - 1'd1) == data_cnt;
+			if ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt[8:0] == 9'h1ff) && (data_cnt_next < data_len))
+				sector_gap_delay <= sector_boundary_delay_cfg;
 		end
 	end
 end
@@ -487,16 +526,20 @@ wire [15:0] tlen10 = { cmd[7], cmd[8] };
 always @(posedge clk) begin
 	if(rst) begin
 		phase <= PHASE_IDLE;
+		phase_change_delay <= 12'd0;
 	end else begin
 		if(phase == PHASE_IDLE) begin
+			phase_change_delay <= 12'd0;
 			if(sel && din[ID] && mounted)  // own id on bus during selection?
 				phase <= PHASE_CMD_IN;
 		end
 
 		else if(phase == PHASE_CMD_IN) begin
+			phase_change_delay <= 12'd0;
 			// check if a full command is in the buffer
 			if(cmd_cpl) begin
-				$display("New command on target %d: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x", ID, cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9]);
+				if (debug_commands)
+					$display("New command on target %d: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x", ID, cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8], cmd[9]);
 				// is this a supported and valid command?
 				if(cmd_ok) begin
 					// yes, continue
@@ -519,23 +562,51 @@ always @(posedge clk) begin
 		end
 
 		else if(phase == PHASE_DATA_OUT) begin
-			if(data_complete) phase <= PHASE_STATUS_OUT;
+			if(data_complete) begin
+				if (phase_change_delay == 12'd0 && phase_complete_delay_cfg == 12'd0)
+					phase <= PHASE_STATUS_OUT;
+				else if (phase_change_delay == 12'd0)
+					phase_change_delay <= phase_complete_delay_cfg;
+				else begin
+					phase_change_delay <= phase_change_delay - 12'd1;
+					if (phase_change_delay == 12'd1)
+						phase <= PHASE_STATUS_OUT;
+				end
+			end else begin
+				phase_change_delay <= 12'd0;
+			end
 		end
 
 		else if(phase == PHASE_DATA_IN) begin
-			if(data_complete) phase <= PHASE_STATUS_OUT;
+			if(data_complete) begin
+				if (phase_change_delay == 12'd0 && phase_complete_delay_cfg == 12'd0)
+					phase <= PHASE_STATUS_OUT;
+				else if (phase_change_delay == 12'd0)
+					phase_change_delay <= phase_complete_delay_cfg;
+				else begin
+					phase_change_delay <= phase_change_delay - 12'd1;
+					if (phase_change_delay == 12'd1)
+						phase <= PHASE_STATUS_OUT;
+				end
+			end else begin
+				phase_change_delay <= 12'd0;
+			end
 		end
 
 		else if(phase == PHASE_STATUS_OUT) begin
+			phase_change_delay <= 12'd0;
 			if(status_sent) phase <= PHASE_MESSAGE_OUT;
 		end
 
 		else if(phase == PHASE_MESSAGE_OUT) begin
+			phase_change_delay <= 12'd0;
 			if(message_sent) phase <= PHASE_IDLE;
 		end
-		
-		else
+
+		else begin
+			phase_change_delay <= 12'd0;
 			phase <= PHASE_IDLE;  // should never happen
+		end
 	end
 end
    

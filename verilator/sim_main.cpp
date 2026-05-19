@@ -68,7 +68,7 @@ int multi_step_amount = 1024;
 // Mac II only (uses TG68K 68020 mode)
 // TG68K documents cpu=2'b11 as 68020 mode. The Mac II ROM depends on it.
 int cfg_cpuType = 3;
-int cfg_memSize = 0;       // 0=1MB, 1=4MB
+int cfg_memSize = 1;       // 0=1MB, 1=2MB, 2=4MB
 
 // CPU trace
 // ---------
@@ -89,6 +89,18 @@ struct FetchEntry { uint32_t pc; uint16_t word; uint8_t fc; };
 const int FETCH_BUF_SIZE = 8;
 FetchEntry fetch_buf[FETCH_BUF_SIZE];
 int fetch_buf_len = 0;
+
+struct RecentFetchEntry {
+	uint32_t pc;
+	uint16_t op;
+	uint32_t tick;
+	uint64_t time;
+	int frame;
+	uint8_t fc;
+};
+RecentFetchEntry recent_fetch_hist[128] = {};
+unsigned recent_fetch_hist_pos = 0;
+uint32_t recent_fetch_last_pc = 0xFFFFFFFF;
 
 static inline const char* fc_name_for(uint8_t fc) {
     return (fc == 6) ? "SP" : (fc == 5) ? "SD" : (fc == 2) ? "UP" : (fc == 1) ? "UD" : "??";
@@ -131,6 +143,8 @@ bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
 bool calib_loop_debug_enable = false;
+bool calib_bus_profile_enable = false;
+bool cpu_timing_profile_enable = false;
 bool ramtest_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
@@ -141,6 +155,8 @@ bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
 bool scsi_transition_stop_requested = false;
 int scsi_transition_debug_min_frame = 430;
+bool scsi_audit_enable = false;
+int scsi_audit_min_frame = 0;
 bool late_adb_debug_enable = false;
 bool late_adb_stop_requested = false;
 int late_adb_debug_min_frame = 420;
@@ -159,6 +175,26 @@ const int scsi_timeout_loop_debug_max = 2000;
 uint32_t scsi_timeout_loop_last_d5_word = 0xFFFFFFFF;
 uint32_t scsi_timeout_loop_last_entry_sp = 0xFFFFFFFF;
 uint32_t scsi_timeout_loop_last_entry_ret = 0xFFFFFFFF;
+std::vector<uint8_t> scsi_audit_image[2];
+bool scsi_audit_prev_t0_ack = false;
+bool scsi_audit_prev_bus_active = false;
+bool scsi_audit_cycle_sampled = false;
+bool scsi_audit_last_dma_window = false;
+bool scsi_audit_last_dma_read = false;
+bool scsi_audit_last_word_cycle = false;
+uint32_t scsi_audit_last_addr = 0;
+uint64_t scsi_audit_bytes = 0;
+uint64_t scsi_audit_cpu_reads = 0;
+int scsi_audit_mismatches = 0;
+int scsi_audit_cpu_mismatches = 0;
+const int scsi_audit_mismatch_max = 32;
+bool scsi_audit_pending_second_valid = false;
+uint16_t scsi_audit_pending_second_word = 0;
+uint32_t scsi_audit_pending_second_cnt = 0;
+uint8_t scsi_audit_cpu_cmd = 0;
+uint32_t scsi_audit_cpu_lba = 0xFFFFFFFFu;
+uint32_t scsi_audit_cpu_blocks = 0;
+uint32_t scsi_audit_cpu_offset = 0;
 int iwm_debug_count = 0;
 const int iwm_debug_max = 2000;
 bool iwm_debug_prev_bus_control = false;
@@ -213,6 +249,29 @@ bool bus_handshake_debug_prev_vpa = true;
 bool bus_handshake_debug_prev_dtack = true;
 bool bus_handshake_debug_prev_vma = true;
 bool bus_handshake_debug_prev_vpa_non_via = false;
+bool mem_bus_debug_enable = false;
+int mem_bus_debug_count = 0;
+int mem_bus_debug_max = 2000;
+int mem_bus_debug_min_frame = 0;
+bool mem_bus_debug_prev_as = true;
+bool mem_bus_debug_prev_dtack = true;
+bool mem_bus_debug_prev_latch = false;
+bool mem_bus_debug_prev_bus_control = false;
+bool return_stack_debug_enable = false;
+int return_stack_debug_count = 0;
+int return_stack_debug_max = 800;
+int return_stack_debug_min_frame = 500;
+uint32_t return_stack_debug_last_pc = 0xFFFFFFFF;
+bool stack_exit_debug_enable = false;
+int stack_exit_debug_count = 0;
+int stack_exit_debug_max = 120;
+int stack_exit_debug_min_frame = 760;
+uint32_t stack_exit_debug_last_pc = 0xFFFFFFFF;
+bool trap_dispatch_debug_enable = false;
+int trap_dispatch_debug_count = 0;
+int trap_dispatch_debug_max = 80;
+int trap_dispatch_debug_min_frame = 760;
+uint32_t trap_dispatch_debug_last_pc = 0xFFFFFFFF;
 bool nubus_video_debug_enable = false;
 bool nubus_video_debug_full = false;
 int nubus_video_debug_count = 0;
@@ -242,6 +301,29 @@ uint32_t stop_at_tick = 0;
 bool stop_at_tick_enabled = false;
 uint32_t stop_at_pc = 0;
 bool stop_at_pc_enabled = false;
+int stop_at_pc_min_frame = 0;
+uint32_t stop_at_pc_min_tick = 0;
+bool stop_at_pc_min_tick_enabled = false;
+bool stop_on_dserr_enabled = false;
+uint16_t stop_on_dserr_last = 0;
+int stop_on_dserr_min_frame = 0;
+bool stop_on_dserr_value_enabled = false;
+uint16_t stop_on_dserr_value = 0;
+bool stop_on_dserr_latched = false;
+bool stop_on_savedpc_enabled = false;
+uint32_t stop_on_savedpc_value = 0;
+uint32_t stop_on_savedpc_last = 0;
+bool stop_on_savedpc_latched = false;
+bool watch_ram_write_enabled = false;
+uint32_t watch_ram_write_start = 0;
+uint32_t watch_ram_write_end = 0;
+int watch_ram_write_min_frame = 0;
+int watch_ram_write_max = 128;
+int watch_ram_write_count = 0;
+bool watch_ram_write_prev_we = false;
+bool dump_ram_at_stop_enabled = false;
+uint32_t dump_ram_at_stop_start = 0;
+uint32_t dump_ram_at_stop_bytes = 0x100;
 uint64_t unique_fetch_count = 0;
 uint32_t unique_fetch_last_pc = 0xFFFFFFFF;
 uint64_t profile_irq_assert_count[8] = {0};
@@ -252,6 +334,21 @@ uint64_t profile_vbl_handler_fetches = 0;
 uint64_t profile_lowmem_fetches = 0;
 uint32_t profile_last_fetch_pc = 0xFFFFFFFF;
 uint8_t profile_last_ipl = 7;
+uint64_t cpu_profile_sys_cycles = 0;
+uint64_t cpu_profile_en_p = 0;
+uint64_t cpu_profile_en_n = 0;
+uint64_t cpu_profile_core_en = 0;
+uint64_t cpu_profile_as_active = 0;
+uint64_t cpu_profile_dtack_asserted = 0;
+uint64_t cpu_profile_dtack_wait = 0;
+uint64_t cpu_profile_ram_as = 0;
+uint64_t cpu_profile_rom_as = 0;
+uint64_t cpu_profile_io_as = 0;
+uint64_t cpu_profile_cpu_bus = 0;
+uint64_t cpu_profile_mem_latch = 0;
+uint64_t cpu_profile_cpu_mem_latch = 0;
+uint64_t cpu_profile_tg68_state[8] = {0};
+uint64_t cpu_profile_tg68_busstate[4] = {0};
 int wait_debug_count = 0;
 const int wait_debug_max = 600;
 uint32_t wait_debug_last_pc = 0xFFFFFFFF;
@@ -269,6 +366,18 @@ uint32_t calib_debug_last_lowmem_tick = 0xFFFFFFFF;
 uint32_t calib_loop_hits[3] = {0, 0, 0};
 int calib_loop_debug_count = 0;
 const int calib_loop_debug_max = 160;
+uint64_t calib_bus_cycles[4] = {0, 0, 0, 0};
+uint64_t calib_bus_wait[4] = {0, 0, 0, 0};
+uint64_t calib_bus_dtack[4] = {0, 0, 0, 0};
+uint64_t calib_bus_starts[4] = {0, 0, 0, 0};
+uint64_t calib_bus_done[4] = {0, 0, 0, 0};
+uint64_t calib_bus_len_sum[4] = {0, 0, 0, 0};
+uint64_t calib_bus_wait_sum[4] = {0, 0, 0, 0};
+uint32_t calib_bus_max_len[4] = {0, 0, 0, 0};
+uint32_t calib_bus_cur_len = 0;
+uint32_t calib_bus_cur_wait = 0;
+int calib_bus_cur_kind = -1;
+bool calib_bus_prev_as = false;
 int ramtest_debug_count = 0;
 const int ramtest_debug_max = 260;
 uint32_t ramtest_debug_last_pc = 0xFFFFFFFF;
@@ -355,6 +464,93 @@ static inline uint8_t ram_byte(uint32_t addr) {
 	return (addr & 1) ? (word & 0xFF) : (word >> 8);
 }
 
+static void dump_ram_words(const char* label, uint32_t start, uint32_t bytes) {
+	printf("%s RAM words @%06X:\n", label, start & 0x00FFFFFF);
+	for (uint32_t off = 0; off < bytes; off += 16) {
+		uint32_t addr = (start + off) & 0x00FFFFFF;
+		printf("  %06X:", addr);
+		for (uint32_t i = 0; i < 16; i += 2) {
+			printf(" %04X", ram_word(addr + i));
+		}
+		printf("\n");
+	}
+}
+
+static void dump_ram_disasm(const char* label, uint32_t start, uint32_t end) {
+	printf("%s disasm @%06X..%06X:\n", label, start & 0x00FFFFFF, end & 0x00FFFFFF);
+	for (uint32_t pc = start & ~1U; pc < end; ) {
+		uint16_t opwords[5] = {
+			ram_word(pc),
+			ram_word(pc + 2),
+			ram_word(pc + 4),
+			ram_word(pc + 6),
+			ram_word(pc + 8)
+		};
+		unsigned int len = 2;
+		const char* dasm = disassemble_68k_ext_len(pc, opwords, 5, &len);
+		printf("  %06X: %04X %-32s\n", pc & 0x00FFFFFF, opwords[0], dasm);
+		if (len < 2 || len > 10)
+			len = 2;
+		pc += len;
+	}
+}
+
+static void print_pascal_string_at(const char* label, uint32_t addr) {
+	if (addr >= 0x01000000) {
+		printf("%s Pascal @%08X: out-of-RAM\n", label, addr);
+		return;
+	}
+
+	uint8_t len = ram_byte(addr);
+	printf("%s Pascal @%08X len=%u text=\"", label, addr, len);
+	for (uint32_t i = 0; i < len && i < 80; i++) {
+		uint8_t c = ram_byte(addr + 1 + i);
+		if (c >= 0x20 && c <= 0x7e && c != '\\' && c != '"') {
+			putchar(c);
+		} else if (c == '\\' || c == '"') {
+			putchar('\\');
+			putchar(c);
+		} else {
+			printf("\\x%02X", c);
+		}
+	}
+	if (len > 80) {
+		printf("...");
+	}
+	printf("\"\n");
+}
+
+static void dump_file_param_block(const char* label, uint32_t pb) {
+	if (pb >= 0x01000000) {
+		return;
+	}
+
+	uint32_t name_ptr = ram_long(pb + 18);
+	printf("%s FilePB @%08X: qLink=%08X qType=%04X ioTrap=%04X ioCmdAddr=%08X "
+	       "ioCompletion=%08X ioResult=%04X ioNamePtr=%08X ioVRefNum=%04X "
+	       "ioRefNum=%04X ioDirIndex=%04X ioFlAttrib=%02X ioDirID=%08X ioFlParID=%08X\n",
+	       label,
+	       pb,
+	       ram_long(pb),
+	       ram_word(pb + 4),
+	       ram_word(pb + 6),
+	       ram_long(pb + 8),
+	       ram_long(pb + 12),
+	       ram_word(pb + 16),
+	       name_ptr,
+	       ram_word(pb + 22),
+	       ram_word(pb + 24),
+	       ram_word(pb + 28),
+	       ram_byte(pb + 30),
+	       ram_long(pb + 48),
+	       ram_long(pb + 58));
+	if (name_ptr != 0 && name_ptr < 0x01000000) {
+		print_pascal_string_at(label, name_ptr);
+		uint32_t dump_start = name_ptr & ~1U;
+		dump_ram_words(label, dump_start, 0x40);
+	}
+}
+
 static uint32_t find_ram_bytes(const uint8_t* bytes, size_t len, uint32_t start, uint32_t end) {
 	if (!len || end < start || end - start + 1 < len) {
 		return 0xFFFFFFFFU;
@@ -386,6 +582,9 @@ static inline uint32_t lowmem_tick_016a() {
 
 static inline bool lowmem_tick_reached() {
 	uint32_t tick = lowmem_tick_016a();
+	if (stop_at_tick <= 0xFFFF && tick == 0x0000FFFF) {
+		return false;
+	}
 	if (stop_at_tick <= 0xFFFF && (tick & 0xFFFF0000) != 0) {
 		return false;
 	}
@@ -395,8 +594,259 @@ static inline bool lowmem_tick_reached() {
 static bool stop_pc_reached() {
 	return stop_at_pc_enabled &&
 	       !*bus.ioctl_download &&
+	       video.count_frame >= stop_at_pc_min_frame &&
+	       (!stop_at_pc_min_tick_enabled || lowmem_tick_016a() >= stop_at_pc_min_tick) &&
 	       VERTOPINTERN->debug_fetch_valid &&
 	       VERTOPINTERN->debug_pc == stop_at_pc;
+}
+
+static void print_recent_fetch_history() {
+	unsigned count = recent_fetch_hist_pos < 128 ? recent_fetch_hist_pos : 128;
+	printf("Recent fetch history newest_last count=%u\n", count);
+	for (unsigned i = 0; i < count; i++) {
+		unsigned idx = (recent_fetch_hist_pos - count + i) & 127;
+		printf("  hist[%03u] frame=%d tick=%08X time=%llu fc=%u pc=%08X op=%04X\n",
+			i,
+			recent_fetch_hist[idx].frame,
+			recent_fetch_hist[idx].tick,
+			(unsigned long long)recent_fetch_hist[idx].time,
+			recent_fetch_hist[idx].fc,
+			recent_fetch_hist[idx].pc,
+			recent_fetch_hist[idx].op);
+	}
+}
+
+static bool stop_dserr_reached() {
+	if (!stop_on_dserr_enabled || *bus.ioctl_download)
+		return false;
+	if (stop_on_dserr_latched)
+		return true;
+	if (video.count_frame < stop_on_dserr_min_frame)
+		return false;
+
+	uint16_t dserr = ram_word(0x0AF0);
+	if (stop_on_dserr_value_enabled) {
+		bool reached = dserr == stop_on_dserr_value && stop_on_dserr_last != dserr;
+		stop_on_dserr_last = dserr;
+		if (reached)
+			stop_on_dserr_latched = true;
+		return reached;
+	}
+
+	bool reached = dserr != 0 && stop_on_dserr_last == 0;
+	stop_on_dserr_last = dserr;
+	if (reached)
+		stop_on_dserr_latched = true;
+	return reached;
+}
+
+static bool stop_savedpc_reached() {
+	if (!stop_on_savedpc_enabled || *bus.ioctl_download)
+		return false;
+	if (stop_on_savedpc_latched)
+		return true;
+
+	uint32_t savedpc = ram_long(0x0C70);
+	bool reached = savedpc == stop_on_savedpc_value && stop_on_savedpc_last != savedpc;
+	stop_on_savedpc_last = savedpc;
+	if (reached)
+		stop_on_savedpc_latched = true;
+	return reached;
+}
+
+static bool return_stack_debug_pc(uint32_t pc) {
+	if ((pc >= 0x40806530 && pc <= 0x40806566) ||
+	    (pc >= 0x4080D650 && pc <= 0x4080D6B4) ||
+	    (pc >= 0x4080DE80 && pc <= 0x4080DFC0) ||
+	    (pc >= 0x40802100 && pc <= 0x40802150)) {
+		return true;
+	}
+
+	return pc >= 0x000FE000 && pc < 0x00100000;
+}
+
+static void maybe_print_return_stack_debug(uint32_t pc) {
+	if (!return_stack_debug_enable ||
+	    return_stack_debug_count >= return_stack_debug_max ||
+	    video.count_frame < return_stack_debug_min_frame ||
+	    pc == return_stack_debug_last_pc ||
+	    !return_stack_debug_pc(pc)) {
+		return;
+	}
+
+	return_stack_debug_last_pc = pc;
+	return_stack_debug_count++;
+
+	uint32_t sp = tg68_reg(15) & 0x00FFFFFF;
+	uint32_t a0 = tg68_reg(8) & 0x00FFFFFF;
+	uint32_t a1 = tg68_reg(9) & 0x00FFFFFF;
+	uint32_t a2 = tg68_reg(10) & 0x00FFFFFF;
+	uint32_t a6 = tg68_reg(14) & 0x00FFFFFF;
+
+	fprintf(stderr,
+		"*** RETURN_STACK frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X "
+		"SP=%04X %08X %08X %08X %08X A0@=%08X A1@=%08X A2@=%08X A6@=%08X "
+		"L08EE=%08X L0D10=%08X L0D14=%08X DSErr=%04X savedPC=%08X cpuAddr=%08X RW=%d FC=%d ***\n",
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
+		tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7),
+		tg68_reg(8), tg68_reg(9), tg68_reg(10), tg68_reg(11),
+		tg68_reg(12), tg68_reg(13), tg68_reg(14), tg68_reg(15),
+		ram_word(sp),
+		ram_long(sp + 2),
+		ram_long(sp + 6),
+		ram_long(sp + 10),
+		ram_long(sp + 14),
+		ram_long(a0),
+		ram_long(a1),
+		ram_long(a2),
+		ram_long(a6),
+		ram_long(0x08EE),
+		ram_long(0x0D10),
+		ram_long(0x0D14),
+		ram_word(0x0AF0),
+		ram_long(0x0C70),
+		VERTOPINTERN->debug_cpuAddr,
+		VERTOPINTERN->debug_cpuRW,
+		VERTOPINTERN->debug_fc);
+}
+
+static void maybe_print_stack_exit_debug(uint32_t pc) {
+	if (!stack_exit_debug_enable ||
+	    stack_exit_debug_count >= stack_exit_debug_max ||
+	    video.count_frame < stack_exit_debug_min_frame ||
+	    pc == stack_exit_debug_last_pc ||
+	    pc < 0x40812F60 || pc > 0x40812F84) {
+		return;
+	}
+
+	stack_exit_debug_last_pc = pc;
+	stack_exit_debug_count++;
+
+	uint32_t sp = tg68_reg(15) & 0x00FFFFFF;
+	uint32_t a0 = tg68_reg(8) & 0x00FFFFFF;
+	uint32_t a1 = tg68_reg(9) & 0x00FFFFFF;
+	uint32_t a6 = tg68_reg(14) & 0x00FFFFFF;
+	uint16_t words[8];
+	for (int i = 0; i < 8; i++) {
+		words[i] = ram_word(sp + i * 2);
+	}
+
+	fprintf(stderr,
+		"*** STACK_EXIT frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A5=%08X A6=%08X A7=%08X "
+		"SPW=%04X %04X %04X %04X %04X %04X %04X %04X "
+		"SPL=%08X %08X %08X %08X A6L=%08X %08X "
+		"cpuAddr=%08X RW=%d FC=%d tgState=%u busState=%u din=%04X/%04X ***\n",
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(6),
+		tg68_reg(7),
+		a0,
+		a1,
+		tg68_reg(13),
+		a6,
+		sp,
+		words[0], words[1], words[2], words[3],
+		words[4], words[5], words[6], words[7],
+		ram_long(sp),
+		ram_long(sp + 4),
+		ram_long(sp + 8),
+		ram_long(sp + 12),
+		ram_long(a6),
+		ram_long(a6 + 4),
+		VERTOPINTERN->debug_cpuAddr,
+		VERTOPINTERN->debug_cpuRW,
+		VERTOPINTERN->debug_fc,
+		VERTOPINTERN->debug_tg68_state,
+		VERTOPINTERN->debug_tg68_busstate,
+		VERTOPINTERN->debug_tg68_din_live,
+		VERTOPINTERN->debug_tg68_din_sample);
+}
+
+static bool trap_dispatch_debug_pc(uint32_t pc) {
+	return (pc >= 0x40806538 && pc <= 0x40806566) ||
+	       (pc >= 0xA000D040 && pc <= 0xA000D060) ||
+	       (pc >= 0x0000D040 && pc <= 0x0000D060) ||
+	       (pc >= 0x000FE600 && pc <= 0x000FE620);
+}
+
+static const char *calib_bus_profile_name(int kind) {
+	switch (kind) {
+	case 0: return "VIA";
+	case 1: return "SCC";
+	case 2: return "SCSI";
+	case 3: return "OTHER";
+	default: return "NONE";
+	}
+}
+
+static void maybe_print_trap_dispatch_debug(uint32_t pc) {
+	if (!trap_dispatch_debug_enable ||
+	    trap_dispatch_debug_count >= trap_dispatch_debug_max ||
+	    video.count_frame < trap_dispatch_debug_min_frame ||
+	    pc == trap_dispatch_debug_last_pc ||
+	    !trap_dispatch_debug_pc(pc)) {
+		return;
+	}
+
+	trap_dispatch_debug_last_pc = pc;
+	trap_dispatch_debug_count++;
+
+	uint32_t d2 = tg68_reg(2);
+	uint32_t trap_index = d2 & 0x03FF;
+	uint32_t trap_entry_addr = 0x0400 + ((trap_index & 0xFF) * 4);
+	if (trap_index >= 0x100) {
+		trap_entry_addr = 0x0800 + ((trap_index & 0xFF) * 4);
+	}
+	uint32_t a1 = tg68_reg(9) & 0x00FFFFFF;
+	uint32_t a2 = tg68_reg(10);
+	uint32_t sp = tg68_reg(15) & 0x00FFFFFF;
+
+	fprintf(stderr,
+		"*** TRAP_DISPATCH frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X idx=%03X entry@%04X=%08X "
+		"A0=%08X A1=%08X A2=%08X A7=%08X SPL=%08X %08X "
+		"A1L=%08X %08X A2L=%08X %08X cpuAddr=%08X RW=%d FC=%d "
+		"tgState=%u busState=%u ***\n",
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		d2,
+		trap_index,
+		trap_entry_addr,
+		ram_long(trap_entry_addr),
+		tg68_reg(8),
+		tg68_reg(9),
+		a2,
+		tg68_reg(15),
+		ram_long(sp),
+		ram_long(sp + 4),
+		ram_long(a1),
+		ram_long(a1 + 4),
+		ram_long(a2 & 0x00FFFFFF),
+		ram_long((a2 + 4) & 0x00FFFFFF),
+		VERTOPINTERN->debug_cpuAddr,
+		VERTOPINTERN->debug_cpuRW,
+		VERTOPINTERN->debug_fc,
+		VERTOPINTERN->debug_tg68_state,
+		VERTOPINTERN->debug_tg68_busstate);
 }
 
 
@@ -425,17 +875,343 @@ static inline bool scsi_debug_pmatch() {
 }
 
 static inline uint8_t scsi_debug_bsr() {
-	bool req = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req;
-	bool dma_en = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en;
+	bool dma_req = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_req;
 	bool pmatch = scsi_debug_pmatch();
 	uint8_t icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
 	bool ack = (icr & 0x10) || VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack;
 
-	return (req && dma_en ? 0x40 : 0x00) |
-	       (req && dma_en && !pmatch ? 0x10 : 0x00) |
+	return (dma_req && pmatch ? 0x40 : 0x00) |
+	       (dma_req && !pmatch ? 0x10 : 0x00) |
 	       (pmatch ? 0x08 : 0x00) |
 	       ((icr & 0x02) ? 0x02 : 0x00) |
 	       (ack ? 0x01 : 0x00);
+}
+
+static bool load_file_bytes(const std::string& path, std::vector<uint8_t>& out) {
+	std::ifstream f(path, std::ios::binary);
+	if (!f) return false;
+	out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+	return true;
+}
+
+static inline uint8_t scsi_t0_cmd(int index) {
+	return VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd[index];
+}
+
+static inline bool scsi_t0_is_read_cmd() {
+	uint8_t op = scsi_t0_cmd(0);
+	return op == 0x08 || op == 0x28;
+}
+
+static inline uint32_t scsi_t0_cmd_lba() {
+	uint8_t op = scsi_t0_cmd(0);
+	if (op == 0x08) {
+		return (uint32_t(scsi_t0_cmd(1) & 0x1f) << 16) |
+		       (uint32_t(scsi_t0_cmd(2)) << 8) |
+		       uint32_t(scsi_t0_cmd(3));
+	}
+	return (uint32_t(scsi_t0_cmd(2)) << 24) |
+	       (uint32_t(scsi_t0_cmd(3)) << 16) |
+	       (uint32_t(scsi_t0_cmd(4)) << 8) |
+	       uint32_t(scsi_t0_cmd(5));
+}
+
+static inline uint32_t scsi_t0_cmd_blocks() {
+	uint8_t op = scsi_t0_cmd(0);
+	if (op == 0x08) {
+		return scsi_t0_cmd(4) == 0 ? 256 : scsi_t0_cmd(4);
+	}
+	return (uint32_t(scsi_t0_cmd(7)) << 8) | uint32_t(scsi_t0_cmd(8));
+}
+
+static bool scsi_audit_expected_word(uint32_t data_cnt, uint16_t& out) {
+	if (scsi_audit_image[0].empty() || !scsi_t0_is_read_cmd()) {
+		return false;
+	}
+
+	uint32_t blocks = scsi_t0_cmd_blocks();
+	if (blocks != 0 && data_cnt + 1 >= blocks * 512u) {
+		return false;
+	}
+
+	uint64_t image_offset = uint64_t(scsi_t0_cmd_lba()) * 512ull + data_cnt;
+	if (image_offset + 1 >= scsi_audit_image[0].size()) {
+		return false;
+	}
+
+	out = (uint16_t(scsi_audit_image[0][image_offset]) << 8) |
+	      uint16_t(scsi_audit_image[0][image_offset + 1]);
+	return true;
+}
+
+static bool scsi_audit_expected_stream_word(uint32_t stream_offset, uint16_t& out) {
+	if (scsi_audit_image[0].empty()) {
+		return false;
+	}
+	if (scsi_audit_cpu_blocks != 0 && stream_offset + 1 >= scsi_audit_cpu_blocks * 512u) {
+		return false;
+	}
+
+	uint64_t image_offset = uint64_t(scsi_audit_cpu_lba) * 512ull + stream_offset;
+	if (image_offset + 1 >= scsi_audit_image[0].size()) {
+		return false;
+	}
+
+	out = (uint16_t(scsi_audit_image[0][image_offset]) << 8) |
+	      uint16_t(scsi_audit_image[0][image_offset + 1]);
+	return true;
+}
+
+static bool scsi_audit_expected_stream_byte(uint32_t stream_offset, uint8_t& out) {
+	if (scsi_audit_image[0].empty()) {
+		return false;
+	}
+	if (scsi_audit_cpu_blocks != 0 && stream_offset >= scsi_audit_cpu_blocks * 512u) {
+		return false;
+	}
+
+	uint64_t image_offset = uint64_t(scsi_audit_cpu_lba) * 512ull + stream_offset;
+	if (image_offset >= scsi_audit_image[0].size()) {
+		return false;
+	}
+
+	out = scsi_audit_image[0][image_offset];
+	return true;
+}
+
+static bool mem_bus_debug_pc_window(uint32_t pc) {
+	return (pc >= 0x40800540u && pc <= 0x40800680u) || // delay calibration
+	       (pc >= 0x40801600u && pc <= 0x40801660u) || // ROM wait helper
+	       (pc >= 0x408036C0u && pc <= 0x40803860u) || // RAM sizing/test
+	       (pc >= 0x408061E0u && pc <= 0x40806290u) || // Slot VBL/interrupt paths
+	       (pc >= 0x40806D00u && pc <= 0x40806F40u) || // early boot flow after sizing
+	       (pc >= 0x40826600u && pc <= 0x40826D40u);   // SCSI manager timeout path
+}
+
+static const char* mem_bus_debug_dev_name() {
+	if (VERTOPINTERN->debug_selectRAM) {
+		return "RAM";
+	}
+	if (VERTOPINTERN->debug_selectROM) {
+		return "ROM";
+	}
+	if (VERTOPINTERN->debug_selectVIA) {
+		return "VIA1";
+	}
+	if (VERTOPINTERN->debug_selectVIA2) {
+		return "VIA2";
+	}
+	return "MEM?";
+}
+
+static void scsi_audit_cpu_tick() {
+	bool bus_active = !VERTOPINTERN->debug_cpuAS;
+	uint32_t addr = VERTOPINTERN->debug_cpuAddr;
+	bool dma_window = (addr >= 0x50F06000u && addr <= 0x50F06FFFu) ||
+	                  (addr >= 0x50F12000u && addr <= 0x50F13FFFu);
+	bool word_cycle = !VERTOPINTERN->debug_cpuUDS && !VERTOPINTERN->debug_cpuLDS;
+	bool byte_cycle = (!VERTOPINTERN->debug_cpuUDS) != (!VERTOPINTERN->debug_cpuLDS);
+	bool dtack_asserted = !VERTOPINTERN->debug_cpuDTACK;
+
+	if (bus_active) {
+		scsi_audit_last_dma_window = dma_window;
+		scsi_audit_last_dma_read = VERTOPINTERN->debug_cpuRW;
+		scsi_audit_last_word_cycle = word_cycle || byte_cycle;
+		scsi_audit_last_addr = addr;
+		scsi_audit_prev_bus_active = true;
+		if (!dtack_asserted || scsi_audit_cycle_sampled) {
+			return;
+		}
+		scsi_audit_cycle_sampled = true;
+	} else {
+		scsi_audit_prev_bus_active = false;
+		scsi_audit_cycle_sampled = false;
+		return;
+	}
+
+	bool dma_read_sample = scsi_audit_last_dma_window &&
+	                       scsi_audit_last_dma_read &&
+	                       scsi_audit_last_word_cycle;
+
+	if (!dma_read_sample || video.count_frame < scsi_audit_min_frame) {
+		return;
+	}
+
+	uint8_t phase = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase;
+	if (phase != 2 || !scsi_t0_is_read_cmd()) {
+		return;
+	}
+
+	uint8_t cmd = scsi_t0_cmd(0);
+	uint32_t lba = scsi_t0_cmd_lba();
+	uint32_t blocks = scsi_t0_cmd_blocks();
+	if (cmd != scsi_audit_cpu_cmd || lba != scsi_audit_cpu_lba || blocks != scsi_audit_cpu_blocks) {
+		scsi_audit_cpu_cmd = cmd;
+		scsi_audit_cpu_lba = lba;
+		scsi_audit_cpu_blocks = blocks;
+		scsi_audit_cpu_offset = 0;
+		scsi_audit_pending_second_valid = false;
+	}
+
+	uint32_t data_cnt = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt;
+	bool longword = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_longword_latched;
+	bool second_word = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_second_word_latched;
+	bool suppressed_ack = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_suppress_ack_latched;
+	uint32_t expected_cnt = data_cnt;
+	if (word_cycle && suppressed_ack) {
+		if (data_cnt < 2u) {
+			return;
+		}
+		expected_cnt = data_cnt - 2u;
+	}
+
+	uint16_t actual = VERTOPINTERN->debug_cpuDataOut;
+	if (word_cycle) {
+		uint16_t expected = 0;
+		if (expected_cnt & 1u) {
+			return;
+		}
+		if (!scsi_audit_expected_stream_word(expected_cnt, expected)) {
+			return;
+		}
+		scsi_audit_cpu_offset = expected_cnt;
+		scsi_audit_cpu_reads += 2;
+		if (actual != expected) {
+			if (scsi_audit_cpu_mismatches < scsi_audit_mismatch_max) {
+				fprintf(stderr,
+					"SCSI_AUDIT_CPU_MISMATCH frame=%d tick=%08X pc=%08X addr=%08X lba=%06X cnt=%u data_cnt=%u actual=%04X expected=%04X "
+					"lw=%d second=%d suppress=%d dreq=%d dma_req=%d dma_ack=%d t0_ack=%d t0_req=%d din=%02X pair=%04X pair_next=%04X\n",
+					video.count_frame,
+					lowmem_tick_016a(),
+					VERTOPINTERN->debug_pc,
+					scsi_audit_last_addr,
+					scsi_t0_cmd_lba(),
+					expected_cnt,
+					data_cnt,
+					actual,
+					expected,
+					longword ? 1 : 0,
+					second_word ? 1 : 0,
+					suppressed_ack ? 1 : 0,
+					VERTOPINTERN->emu__DOT__scsiDREQ ? 1 : 0,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_req ? 1 : 0,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack ? 1 : 0,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din_pair,
+					VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din_pair_next);
+			}
+			scsi_audit_cpu_mismatches++;
+		}
+		return;
+	}
+
+	uint8_t expected = 0;
+	if (!scsi_audit_expected_stream_byte(expected_cnt, expected)) {
+		return;
+	}
+	scsi_audit_cpu_offset = expected_cnt;
+	bool upper = !VERTOPINTERN->debug_cpuUDS;
+	uint8_t actual_byte = upper ? uint8_t(actual >> 8) : uint8_t(actual & 0xff);
+	scsi_audit_cpu_reads++;
+	if (actual_byte != expected) {
+		if (scsi_audit_cpu_mismatches < scsi_audit_mismatch_max) {
+			fprintf(stderr,
+				"SCSI_AUDIT_CPU_BYTE_MISMATCH frame=%d tick=%08X pc=%08X addr=%08X lba=%06X cnt=%u data_cnt=%u actual=%02X expected=%02X "
+				"word=%04X upper=%d lw=%d second=%d suppress=%d dreq=%d dma_req=%d dma_ack=%d t0_ack=%d t0_req=%d din=%02X pair=%04X pair_next=%04X\n",
+				video.count_frame,
+				lowmem_tick_016a(),
+				VERTOPINTERN->debug_pc,
+				scsi_audit_last_addr,
+				scsi_t0_cmd_lba(),
+				expected_cnt,
+				data_cnt,
+				actual_byte,
+				expected,
+				actual,
+				upper ? 1 : 0,
+				longword ? 1 : 0,
+				second_word ? 1 : 0,
+				suppressed_ack ? 1 : 0,
+				VERTOPINTERN->emu__DOT__scsiDREQ ? 1 : 0,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_req ? 1 : 0,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack ? 1 : 0,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din_pair,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din_pair_next);
+		}
+		scsi_audit_cpu_mismatches++;
+	}
+}
+
+static void scsi_audit_tick() {
+	scsi_audit_cpu_tick();
+
+	bool t0_ack = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack;
+	bool ack_rise = t0_ack && !scsi_audit_prev_t0_ack;
+	scsi_audit_prev_t0_ack = t0_ack;
+
+	if (!ack_rise || video.count_frame < scsi_audit_min_frame || scsi_audit_image[0].empty()) {
+		return;
+	}
+
+	uint8_t phase = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase;
+	if (phase != 2 || !scsi_t0_is_read_cmd()) {
+		return;
+	}
+
+	uint32_t data_cnt = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt;
+	uint32_t blocks = scsi_t0_cmd_blocks();
+	if (blocks != 0 && data_cnt >= blocks * 512u) {
+		return;
+	}
+
+	uint32_t lba = scsi_t0_cmd_lba();
+	uint64_t image_offset = uint64_t(lba) * 512ull + data_cnt;
+	if (image_offset >= scsi_audit_image[0].size()) {
+		if (scsi_audit_mismatches < scsi_audit_mismatch_max) {
+			fprintf(stderr,
+				"SCSI_AUDIT_OOB frame=%d pc=%08X lba=%06X blocks=%u cnt=%u offset=%llu image_size=%zu\n",
+				video.count_frame,
+				VERTOPINTERN->debug_pc,
+				lba,
+				blocks,
+				data_cnt,
+				(unsigned long long)image_offset,
+				scsi_audit_image[0].size());
+		}
+		scsi_audit_mismatches++;
+		return;
+	}
+
+	uint8_t expected = scsi_audit_image[0][image_offset];
+	uint8_t actual = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din;
+	scsi_audit_bytes++;
+	if (actual != expected) {
+		if (scsi_audit_mismatches < scsi_audit_mismatch_max) {
+			fprintf(stderr,
+				"SCSI_AUDIT_MISMATCH frame=%d tick=%08X pc=%08X lba=%06X blocks=%u cnt=%u offset=%llu actual=%02X expected=%02X "
+				"sd_ack=%02X sd_wr=%d sd_addr=%02X sel=%d req=%d\n",
+				video.count_frame,
+				lowmem_tick_016a(),
+				VERTOPINTERN->debug_pc,
+				lba,
+				blocks,
+				data_cnt,
+				(unsigned long long)image_offset,
+				actual,
+				expected,
+				VERTOPINTERN->sd_ack,
+				VERTOPINTERN->sd_buff_wr ? 1 : 0,
+				VERTOPINTERN->sd_buff_addr,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
+				VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req);
+		}
+		scsi_audit_mismatches++;
+	}
 }
 
 static void print_via_timer_state(FILE* out, const char* prefix) {
@@ -1075,9 +1851,10 @@ static void print_scsi_stop_state() {
 	uint32_t lba60_at = find_ram_bytes(lba60_sig, sizeof(lba60_sig), 0x0000, 0x1FFFFF);
 
 	printf("SCSI state: mr=%02X icr=%02X tcr=%02X odr=%02X busdin=%02X req=%d tbsy=%02X treq=%02X "
+	       "pmatch=%d dreq=%d dma_req=%d dma_wait_drop=%d dma_ack=%d "
 	       "sd_rd=%02X sd_wr=%02X sd_ack=%02X sd_buf_wr=%d sd_addr=%02X "
 	       "t0_phase=%d t0_mnt=%d t0_cnt=%u t0_done=%d t0_ack=%d t0_cmd_cnt=%d t0_din=%02X "
-	       "t0_req_rd=%d t0_req_wr=%d "
+	       "t0_req_rd=%d t0_req_wr=%d t0_phase_delay=%u "
 	       "blk_cur=%d blk_read=%d blk_write=%d blk_ack_delay=%d blk_bytecnt=%d\n",
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
@@ -1087,6 +1864,11 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+	       scsi_debug_pmatch() ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__scsiDREQ ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_req ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_wait_req_drop ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_ack ? 1 : 0,
 	       VERTOPINTERN->sd_rd,
 	       VERTOPINTERN->sd_wr,
 	       VERTOPINTERN->sd_ack,
@@ -1101,21 +1883,79 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_wr ? 1 : 0,
+	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase_change_delay,
 	       blockdevice.current_disk,
 	       blockdevice.reading ? 1 : 0,
 	       blockdevice.writing ? 1 : 0,
 	       blockdevice.ack_delay,
 	       blockdevice.bytecnt);
-	printf("LowMem: long[$016A]=%04X%04X word[$0D00]=%04X word[$0DA6]=%04X\n",
+	printf("LowMem: long[$016A]=%04X%04X long[$08EE]=%08X word[$0D00]=%04X word[$0DA6]=%04X\n",
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B5],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6],
+	       ram_long(0x08EE),
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0680],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x06D3]);
-	printf("LowMem boot: word[$017A]=%04X byte[$0C2F]=%02X word[$0D24]=%04X word[$0D28]=%04X\n",
+	printf("LowMem boot: byte[$0172]=%02X word[$017A]=%04X byte[$0C2F]=%02X word[$0D24]=%04X word[$0D28]=%04X\n",
+	       ram_byte(0x0172),
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00BD],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0617] & 0x00FF,
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0692],
 	       VERTOPINTERN->emu__DOT__ram__DOT__mem[0x0694]);
+	printf("LowMem size: MemTop[$0108]=%08X BufPtr[$010C]=%08X StkLowPt[$0110]=%08X "
+	       "HeapEnd[$0114]=%08X ApplLimit[$0130]=%08X SysZone[$02A6]=%08X ApplZone[$02AA]=%08X\n",
+	       ram_long(0x0108),
+	       ram_long(0x010C),
+	       ram_long(0x0110),
+	       ram_long(0x0114),
+	       ram_long(0x0130),
+	       ram_long(0x02A6),
+	       ram_long(0x02AA));
+	printf("SystemError RAM: DSErr[$0AF0]=%04X savedPC[$0C70]=%08X savedSR[$0C74]=%04X "
+	       "frameExtra[$0C7C]=%08X/%08X DSAlertTab[$02BA]=%08X "
+	       "stackSR=%04X stackPC=%08X MBState[$0172]=%02X\n",
+	       ram_word(0x0AF0),
+	       ram_long(0x0C70),
+	       ram_word(0x0C74),
+	       ram_long(0x0C7C),
+	       ram_long(0x0C80),
+	       ram_long(0x02BA),
+	       ram_word(tg68_reg(15)),
+	       ram_long(tg68_reg(15) + 2),
+	       ram_byte(0x0172));
+	uint32_t saved_pc = ram_long(0x0C70) & 0x00FFFFFF;
+	if (ram_word(0x0AF0) != 0 && saved_pc < 0x00400000) {
+		uint32_t dump_start = (saved_pc >= 0x30) ? ((saved_pc - 0x30) & ~1U) : 0;
+		dump_ram_words("SavedPC", dump_start, 0x80);
+		dump_ram_disasm("SavedPC", dump_start, dump_start + 0x80);
+	}
+	uint32_t sp = tg68_reg(15) & 0x00FFFFFF;
+	if (sp < 0x00400000) {
+		uint32_t stack_start = sp & ~1U;
+		dump_ram_words("A7", stack_start, 0x60);
+	}
+	uint32_t a0 = tg68_reg(8) & 0x00FFFFFF;
+	if (a0 < 0x00400000) {
+		dump_file_param_block("A0", a0);
+	}
+	uint32_t a2 = tg68_reg(10) & 0x00FFFFFF;
+	if (a2 < 0x00400000) {
+		uint32_t dump_start = (a2 >= 0x20) ? ((a2 - 0x20) & ~1U) : 0;
+		dump_ram_words("A2", dump_start, 0x80);
+		dump_file_param_block("A2", a2);
+	}
+	uint32_t a5 = tg68_reg(13) & 0x00FFFFFF;
+	if (a5 < 0x00400000) {
+		dump_file_param_block("A5", a5);
+	}
+	uint32_t a6 = tg68_reg(14) & 0x00FFFFFF;
+	if (a6 < 0x00400000) {
+		dump_file_param_block("A6", a6);
+	}
+	uint32_t a4 = tg68_reg(12) & 0x00FFFFFF;
+	if (a4 < 0x00400000) {
+		uint32_t dump_start = (a4 >= 0x20) ? ((a4 - 0x20) & ~1U) : 0;
+		dump_ram_words("A4", dump_start, 0x80);
+	}
 	printf("Boot RAM: LBA60_sig=%s%06X "
 	       "L12000=%08X L12004=%08X L124D0=%08X L124D4=%08X "
 	       "L50F06000=%08X L50F06004=%08X\n",
@@ -1124,6 +1964,38 @@ static void print_scsi_stop_state() {
 	       ram_long(0x12000), ram_long(0x12004),
 	       ram_long(0x124D0), ram_long(0x124D4),
 	       ram_long(0x50F06000), ram_long(0x50F06004));
+	if (dump_ram_at_stop_enabled) {
+		dump_ram_words("ExtraStop", dump_ram_at_stop_start, dump_ram_at_stop_bytes);
+	}
+	printf("Driver loop RAM: "
+	       "10B40=%04X %04X %04X %04X %04X %04X %04X %04X "
+	       "10B50=%04X %04X %04X %04X %04X %04X %04X %04X "
+	       "10B60=%04X %04X %04X %04X %04X %04X %04X %04X "
+	       "10B70=%04X %04X %04X %04X %04X %04X %04X %04X\n",
+	       ram_word(0x10B40), ram_word(0x10B42), ram_word(0x10B44), ram_word(0x10B46),
+	       ram_word(0x10B48), ram_word(0x10B4A), ram_word(0x10B4C), ram_word(0x10B4E),
+	       ram_word(0x10B50), ram_word(0x10B52), ram_word(0x10B54), ram_word(0x10B56),
+	       ram_word(0x10B58), ram_word(0x10B5A), ram_word(0x10B5C), ram_word(0x10B5E),
+	       ram_word(0x10B60), ram_word(0x10B62), ram_word(0x10B64), ram_word(0x10B66),
+	       ram_word(0x10B68), ram_word(0x10B6A), ram_word(0x10B6C), ram_word(0x10B6E),
+	       ram_word(0x10B70), ram_word(0x10B72), ram_word(0x10B74), ram_word(0x10B76),
+	       ram_word(0x10B78), ram_word(0x10B7A), ram_word(0x10B7C), ram_word(0x10B7E));
+	printf("Driver loop disasm:\n");
+	for (uint32_t pc = 0x10B40; pc < 0x10B80; ) {
+		uint16_t opwords[5] = {
+			ram_word(pc),
+			ram_word(pc + 2),
+			ram_word(pc + 4),
+			ram_word(pc + 6),
+			ram_word(pc + 8)
+		};
+		unsigned int len = 2;
+		const char* dasm = disassemble_68k_ext_len(pc, opwords, 5, &len);
+		printf("  %06X: %04X %-32s\n", pc, opwords[0], dasm);
+		if (len < 2 || len > 10)
+			len = 2;
+		pc += len;
+	}
 	printf("TM nodes: L0D10=%08X L0D14=%08X L030A=%08X "
 	       "N2748=%08X/%04X/%04X/%04X/%08X "
 	       "N33C4=%08X/%04X/%04X/%04X/%08X "
@@ -1172,6 +2044,64 @@ static void print_scsi_stop_state() {
 	       (unsigned long long)profile_tick_wait_fetches,
 	       (unsigned long long)profile_vbl_handler_fetches,
 	       (unsigned long long)profile_lowmem_fetches);
+	if (cpu_timing_profile_enable) {
+		printf("CPU timing profile: sys=%llu en_p=%llu en_n=%llu core_en=%llu "
+		       "as=%llu dtack=%llu wait=%llu ram_as=%llu rom_as=%llu io_as=%llu "
+		       "cpu_bus=%llu mem_latch=%llu cpu_mem_latch=%llu\n",
+		       (unsigned long long)cpu_profile_sys_cycles,
+		       (unsigned long long)cpu_profile_en_p,
+		       (unsigned long long)cpu_profile_en_n,
+		       (unsigned long long)cpu_profile_core_en,
+		       (unsigned long long)cpu_profile_as_active,
+		       (unsigned long long)cpu_profile_dtack_asserted,
+		       (unsigned long long)cpu_profile_dtack_wait,
+		       (unsigned long long)cpu_profile_ram_as,
+		       (unsigned long long)cpu_profile_rom_as,
+		       (unsigned long long)cpu_profile_io_as,
+		       (unsigned long long)cpu_profile_cpu_bus,
+		       (unsigned long long)cpu_profile_mem_latch,
+		       (unsigned long long)cpu_profile_cpu_mem_latch);
+		printf("CPU timing states: s0=%llu s1=%llu s2=%llu s3=%llu s4=%llu s5=%llu s6=%llu s7=%llu "
+		       "bus0=%llu bus1=%llu bus2=%llu bus3=%llu\n",
+		       (unsigned long long)cpu_profile_tg68_state[0],
+		       (unsigned long long)cpu_profile_tg68_state[1],
+		       (unsigned long long)cpu_profile_tg68_state[2],
+		       (unsigned long long)cpu_profile_tg68_state[3],
+		       (unsigned long long)cpu_profile_tg68_state[4],
+		       (unsigned long long)cpu_profile_tg68_state[5],
+		       (unsigned long long)cpu_profile_tg68_state[6],
+		       (unsigned long long)cpu_profile_tg68_state[7],
+		       (unsigned long long)cpu_profile_tg68_busstate[0],
+		       (unsigned long long)cpu_profile_tg68_busstate[1],
+		       (unsigned long long)cpu_profile_tg68_busstate[2],
+		       (unsigned long long)cpu_profile_tg68_busstate[3]);
+	}
+	if (calib_bus_profile_enable) {
+		printf("Calibration bus profile:\n");
+		for (int i = 0; i < 4; i++) {
+			uint64_t avg_len = calib_bus_done[i] ? calib_bus_len_sum[i] / calib_bus_done[i] : 0;
+			uint64_t avg_wait = calib_bus_done[i] ? calib_bus_wait_sum[i] / calib_bus_done[i] : 0;
+			printf("  %-5s starts=%llu done=%llu cycles=%llu dtack=%llu wait=%llu "
+			       "avg_len=%llu avg_wait=%llu max_len=%u\n",
+			       calib_bus_profile_name(i),
+			       (unsigned long long)calib_bus_starts[i],
+			       (unsigned long long)calib_bus_done[i],
+			       (unsigned long long)calib_bus_cycles[i],
+			       (unsigned long long)calib_bus_dtack[i],
+			       (unsigned long long)calib_bus_wait[i],
+			       (unsigned long long)avg_len,
+			       (unsigned long long)avg_wait,
+			       calib_bus_max_len[i]);
+		}
+	}
+	if (scsi_audit_enable) {
+		printf("SCSI audit: bytes=%llu mismatches=%d cpu_reads=%llu cpu_mismatches=%d image0=%zu\n",
+		       (unsigned long long)scsi_audit_bytes,
+		       scsi_audit_mismatches,
+		       (unsigned long long)scsi_audit_cpu_reads,
+		       scsi_audit_cpu_mismatches,
+		       scsi_audit_image[0].size());
+	}
 }
 
 // 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
@@ -1221,19 +2151,76 @@ int verilate() {
 			}
 			top->eval();
 			if (clk_sys.clk) { bus.AfterEval(); blockdevice.AfterEval(); }
-			if (force_calib_enable && !*bus.ioctl_download &&
-			    video.count_frame >= force_calib_min_frame) {
-				ram_write_word(0x0D00, force_calib_0d00);
-				ram_write_word(0x0DA6, force_calib_0da6);
+				if (force_calib_enable && !*bus.ioctl_download &&
+				    video.count_frame >= force_calib_min_frame) {
+					ram_write_word(0x0D00, force_calib_0d00);
+					ram_write_word(0x0DA6, force_calib_0da6);
 				if (!force_calib_reported) {
 					fprintf(stderr, "FORCE_CALIB frame=%d W0D00=%04X W0DA6=%04X\n",
 					        video.count_frame, force_calib_0d00, force_calib_0da6);
-					force_calib_reported = true;
+						force_calib_reported = true;
+					}
 				}
-			}
 
-			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
-				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (!*bus.ioctl_download && watch_ram_write_enabled) {
+					bool ram_we_rise = VERTOPINTERN->debug_ram_we && !watch_ram_write_prev_we;
+					uint32_t ram_word_addr = (((uint32_t)VERTOPINTERN->debug_ram_addr) << 1) & 0x00FFFFFE;
+					uint32_t ram_start = ram_word_addr;
+					uint32_t ram_end = ram_word_addr + 1;
+					if (VERTOPINTERN->debug_ram_ds == 0b10) {
+						ram_end = ram_start;
+					} else if (VERTOPINTERN->debug_ram_ds == 0b01) {
+						ram_start = ram_end;
+					}
+					if (ram_we_rise &&
+					    video.count_frame >= watch_ram_write_min_frame &&
+					    watch_ram_write_count < watch_ram_write_max &&
+					    ram_start <= watch_ram_write_end &&
+					    ram_end >= watch_ram_write_start) {
+						fprintf(stderr,
+							"*** WATCH_RAM_WRITE frame=%d tick=%08X kind=ram_we addr=%08X-%08X data=%04X ds=%d%d "
+							"time=%llu pc=%08X op=%04X D0=%08X D1=%08X A0=%08X A2=%08X A4=%08X A5=%08X bytes=",
+							video.count_frame,
+							lowmem_tick_016a(),
+							ram_start,
+							ram_end,
+							VERTOPINTERN->debug_ram_din,
+							(VERTOPINTERN->debug_ram_ds >> 1) & 1,
+							VERTOPINTERN->debug_ram_ds & 1,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0),
+							tg68_reg(1),
+							tg68_reg(8),
+							tg68_reg(10),
+							tg68_reg(12),
+							tg68_reg(13));
+						uint32_t dump_start = watch_ram_write_start & ~1u;
+						uint32_t dump_end = watch_ram_write_end;
+						for (uint32_t p = dump_start; p <= dump_end && p < dump_start + 32; p++) {
+							fprintf(stderr, "%02X", ram_byte(p));
+						}
+						fprintf(stderr, " ***\n");
+						watch_ram_write_count++;
+					}
+				}
+				watch_ram_write_prev_we = VERTOPINTERN->debug_ram_we;
+
+				if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
+					uint32_t pc = VERTOPINTERN->debug_pc;
+					if (pc != recent_fetch_last_pc) {
+					recent_fetch_hist[recent_fetch_hist_pos & 127] = {
+						pc,
+						VERTOPINTERN->debug_opcode,
+						lowmem_tick_016a(),
+						main_time,
+						video.count_frame,
+						(uint8_t)VERTOPINTERN->debug_fc
+					};
+					recent_fetch_hist_pos++;
+					recent_fetch_last_pc = pc;
+				}
 				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
 					record_bootmask_history(pc);
 					if (bootmask_once_pc(pc)) {
@@ -1255,6 +2242,9 @@ int verilate() {
 						late_adb_stop_requested = true;
 					}
 				}
+				maybe_print_return_stack_debug(pc);
+				maybe_print_stack_exit_debug(pc);
+				maybe_print_trap_dispatch_debug(pc);
 				if (pc != unique_fetch_last_pc) {
 					unique_fetch_last_pc = pc;
 					unique_fetch_count++;
@@ -1480,6 +2470,82 @@ int verilate() {
 			}
 
 			if (!*bus.ioctl_download) {
+				if (cpu_timing_profile_enable) {
+					cpu_profile_sys_cycles++;
+					if (VERTOPINTERN->debug_cpu_en_p) cpu_profile_en_p++;
+					if (VERTOPINTERN->debug_cpu_en_n) cpu_profile_en_n++;
+					if (VERTOPINTERN->debug_tg68_clkena) cpu_profile_core_en++;
+
+					bool as_active = !VERTOPINTERN->debug_cpuAS;
+					bool dtack_asserted = !VERTOPINTERN->debug_cpuDTACK;
+					if (as_active) {
+						cpu_profile_as_active++;
+						if (dtack_asserted) cpu_profile_dtack_asserted++;
+						else cpu_profile_dtack_wait++;
+						if (VERTOPINTERN->debug_selectRAM) cpu_profile_ram_as++;
+						else if (VERTOPINTERN->debug_selectROM) cpu_profile_rom_as++;
+						else cpu_profile_io_as++;
+					}
+					if (VERTOPINTERN->debug_cpuBusControl) cpu_profile_cpu_bus++;
+					if (VERTOPINTERN->debug_memoryLatch) {
+						cpu_profile_mem_latch++;
+						if (VERTOPINTERN->debug_cpuBusControl)
+							cpu_profile_cpu_mem_latch++;
+					}
+
+					uint8_t s_state = VERTOPINTERN->debug_tg68_state & 7;
+					uint8_t busstate = VERTOPINTERN->debug_tg68_busstate & 3;
+					cpu_profile_tg68_state[s_state]++;
+					cpu_profile_tg68_busstate[busstate]++;
+				}
+
+				if (calib_bus_profile_enable) {
+					bool as_active = !VERTOPINTERN->debug_cpuAS;
+					bool dtack_asserted = !VERTOPINTERN->debug_cpuDTACK;
+					if (!calib_bus_prev_as && as_active) {
+						uint32_t pc = VERTOPINTERN->debug_pc;
+						bool in_calib = (pc >= 0x40800540u && pc <= 0x40800680u);
+						calib_bus_cur_kind = -1;
+						calib_bus_cur_len = 0;
+						calib_bus_cur_wait = 0;
+						if (in_calib) {
+							if (VERTOPINTERN->debug_selectVIA || VERTOPINTERN->debug_selectVIA2)
+								calib_bus_cur_kind = 0;
+							else if (VERTOPINTERN->debug_selectSCC)
+								calib_bus_cur_kind = 1;
+							else if (VERTOPINTERN->debug_selectSCSI)
+								calib_bus_cur_kind = 2;
+							else if (VERTOPINTERN->debug_selectIWM ||
+							         VERTOPINTERN->debug_selectASC ||
+							         VERTOPINTERN->debug_selectNuBus)
+								calib_bus_cur_kind = 3;
+						}
+						if (calib_bus_cur_kind >= 0)
+							calib_bus_starts[calib_bus_cur_kind]++;
+					}
+
+					if (as_active && calib_bus_cur_kind >= 0) {
+						calib_bus_cycles[calib_bus_cur_kind]++;
+						calib_bus_cur_len++;
+						if (dtack_asserted) {
+							calib_bus_dtack[calib_bus_cur_kind]++;
+						} else {
+							calib_bus_wait[calib_bus_cur_kind]++;
+							calib_bus_cur_wait++;
+						}
+					}
+
+					if (calib_bus_prev_as && !as_active && calib_bus_cur_kind >= 0) {
+						calib_bus_done[calib_bus_cur_kind]++;
+						calib_bus_len_sum[calib_bus_cur_kind] += calib_bus_cur_len;
+						calib_bus_wait_sum[calib_bus_cur_kind] += calib_bus_cur_wait;
+						if (calib_bus_cur_len > calib_bus_max_len[calib_bus_cur_kind])
+							calib_bus_max_len[calib_bus_cur_kind] = calib_bus_cur_len;
+						calib_bus_cur_kind = -1;
+					}
+					calib_bus_prev_as = as_active;
+				}
+
 				uint8_t cur_ipl = VERTOPINTERN->debug_cpuIPL & 0x07;
 				if (cur_ipl != profile_last_ipl) {
 					profile_irq_change_count++;
@@ -1923,6 +2989,89 @@ int verilate() {
 				bus_handshake_debug_prev_dtack = dtack_n;
 				bus_handshake_debug_prev_vma = vma_n;
 				bus_handshake_debug_prev_vpa_non_via = vpa_non_via;
+			}
+
+			if (mem_bus_debug_enable && !*bus.ioctl_download &&
+			    video.count_frame >= mem_bus_debug_min_frame &&
+			    mem_bus_debug_count < mem_bus_debug_max) {
+				bool as_n = VERTOPINTERN->debug_cpuAS;
+				bool dtack_n = VERTOPINTERN->debug_cpuDTACK;
+				bool latch = VERTOPINTERN->debug_memoryLatch;
+				bool bus_control = VERTOPINTERN->debug_cpuBusControl;
+				bool active = !as_n;
+				bool selected = VERTOPINTERN->debug_selectRAM ||
+				                VERTOPINTERN->debug_selectROM ||
+				                VERTOPINTERN->debug_selectVIA ||
+				                VERTOPINTERN->debug_selectVIA2;
+				bool interesting_pc = mem_bus_debug_pc_window(VERTOPINTERN->debug_pc);
+				bool as_edge = as_n != mem_bus_debug_prev_as;
+				bool dtack_edge = active && (dtack_n != mem_bus_debug_prev_dtack);
+				bool latch_edge = active && (latch != mem_bus_debug_prev_latch);
+				bool bus_edge = active && (bus_control != mem_bus_debug_prev_bus_control);
+
+				if (selected && interesting_pc && (as_edge || dtack_edge || latch_edge || bus_edge)) {
+					const char* event =
+						(as_edge && active) ? "AS+" :
+						(as_edge && !active) ? "AS-" :
+						dtack_edge ? (!dtack_n ? "DTACK+" : "DTACK-") :
+						latch_edge ? (latch ? "LATCH+" : "LATCH-") :
+						bus_edge ? (bus_control ? "BUS+" : "BUS-") : "EDGE";
+					fprintf(stderr,
+						"MEM_BUS hit=%d frame=%d tick=%08X time=%llu event=%s pc=%08X op=%04X fc=%u "
+						"%s %s addr=%08X din=%04X dout=%04X AS=%d DTACK=%d VPA=%d VMA=%d UDS=%d LDS=%d "
+						"tgstate=%u tgbus=%u tgdin=%04X tgsample=%04X "
+						"bus=%d latch=%d videoBus=%d dioBus=%d romOE=%d ramOE=%d ramWE=%d memUDS=%d memLDS=%d "
+						"ramAddr=%07X ramDin=%04X ramRaw=%04X ramFinal=%04X ramWE=%d ramOE=%d ramDS=%u\n",
+						mem_bus_debug_count,
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						event,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_fc,
+						VERTOPINTERN->debug_cpuRW ? "RD" : "WR",
+						mem_bus_debug_dev_name(),
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut,
+						active ? 1 : 0,
+						!dtack_n ? 1 : 0,
+						!VERTOPINTERN->debug_cpuVPA ? 1 : 0,
+						!VERTOPINTERN->debug_cpuVMA ? 1 : 0,
+						!VERTOPINTERN->debug_cpuUDS ? 1 : 0,
+						!VERTOPINTERN->debug_cpuLDS ? 1 : 0,
+						VERTOPINTERN->debug_tg68_state,
+						VERTOPINTERN->debug_tg68_busstate,
+						VERTOPINTERN->debug_tg68_din_live,
+						VERTOPINTERN->debug_tg68_din_sample,
+						bus_control ? 1 : 0,
+						latch ? 1 : 0,
+						VERTOPINTERN->debug_videoBusControl ? 1 : 0,
+						VERTOPINTERN->debug_dioBusControl ? 1 : 0,
+						!VERTOPINTERN->debug_romOE ? 1 : 0,
+						!VERTOPINTERN->debug_ramOE ? 1 : 0,
+						!VERTOPINTERN->debug_ramWE ? 1 : 0,
+						!VERTOPINTERN->debug_memoryUDS ? 1 : 0,
+						!VERTOPINTERN->debug_memoryLDS ? 1 : 0,
+						VERTOPINTERN->debug_ram_addr,
+						VERTOPINTERN->debug_ram_din,
+						VERTOPINTERN->debug_ram_dout,
+						VERTOPINTERN->debug_ram_data_final,
+						VERTOPINTERN->debug_ram_we ? 1 : 0,
+						VERTOPINTERN->debug_ram_oe ? 1 : 0,
+						VERTOPINTERN->debug_ram_ds);
+					mem_bus_debug_count++;
+				}
+
+				mem_bus_debug_prev_as = as_n;
+				mem_bus_debug_prev_dtack = dtack_n;
+				mem_bus_debug_prev_latch = latch;
+				mem_bus_debug_prev_bus_control = bus_control;
+			}
+
+			if (scsi_audit_enable && !*bus.ioctl_download) {
+				scsi_audit_tick();
 			}
 
 			if (scsi_debug_enable && !*bus.ioctl_download && video.count_frame >= scsi_debug_min_frame) {
@@ -2865,6 +4014,88 @@ int verilate() {
 				if (!in_excpt_entry && pc != 0)
 					prev_pc = pc;
 
+				// System 7 is currently reaching the ROM SystemError dialog with
+				// no visible text. Capture the first path into the ROM's error UI
+				// and the recent control-flow history so we can identify the
+				// caller/error code without enabling a full CPU trace.
+				{
+					struct PcHist {
+						uint32_t pc;
+						uint16_t op;
+						uint32_t tick;
+						uint64_t time;
+						int frame;
+					};
+					static PcHist pc_hist[64] = {};
+					static unsigned pc_hist_pos = 0;
+					static uint32_t pc_hist_last = 0;
+					static bool sys_error_logged = false;
+					static bool sys_error_trap_logged = false;
+					uint16_t op = VERTOPINTERN->debug_opcode;
+
+					if (pc != pc_hist_last) {
+						pc_hist[pc_hist_pos & 63] = { pc, op, lowmem_tick_016a(), main_time, video.count_frame };
+						pc_hist_pos++;
+						pc_hist_last = pc;
+					}
+
+					if (op == 0xA9C9 && !sys_error_trap_logged) {
+						sys_error_trap_logged = true;
+						fprintf(stderr,
+							"*** SYSERROR_TRAP frame=%d tick=%08X time=%llu pc=%08X D0=%08X A0=%08X A7=%08X "
+							"DSErr=%04X savedPC=%08X savedSR=%04X MBState=%02X ***\n",
+							video.count_frame,
+							lowmem_tick_016a(),
+							(unsigned long long)main_time,
+							pc,
+							tg68_reg(0),
+							tg68_reg(8),
+							tg68_reg(15),
+							ram_word(0x0AF0),
+							ram_long(0x0C70),
+							ram_word(0x0C74),
+							ram_byte(0x0172));
+					}
+
+					if (!sys_error_logged && pc >= 0x40802120 && pc <= 0x4080248E) {
+						sys_error_logged = true;
+						fprintf(stderr,
+							"*** SYSERROR_ENTRY frame=%d tick=%08X time=%llu pc=%08X op=%04X prev_pc=%08X "
+							"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+							"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X "
+							"DSErr=%04X savedPC=%08X savedSR=%04X stackSR=%04X stackPC=%08X MBState=%02X DSAlertTab=%08X ***\n",
+							video.count_frame,
+							lowmem_tick_016a(),
+							(unsigned long long)main_time,
+							pc,
+							op,
+							prev_pc,
+							tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
+							tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7),
+							tg68_reg(8), tg68_reg(9), tg68_reg(10), tg68_reg(11),
+							tg68_reg(12), tg68_reg(13), tg68_reg(14), tg68_reg(15),
+							ram_word(0x0AF0),
+							ram_long(0x0C70),
+							ram_word(0x0C74),
+							ram_word(tg68_reg(15)),
+							ram_long(tg68_reg(15) + 2),
+							ram_byte(0x0172),
+							ram_long(0x02BA));
+						fprintf(stderr, "*** SYSERROR_PC_HISTORY newest_last count=%u ***\n", pc_hist_pos < 64 ? pc_hist_pos : 64);
+						unsigned count = pc_hist_pos < 64 ? pc_hist_pos : 64;
+						for (unsigned i = 0; i < count; i++) {
+							unsigned idx = (pc_hist_pos - count + i) & 63;
+							fprintf(stderr, "  hist[%02u] frame=%d tick=%08X time=%llu pc=%08X op=%04X\n",
+								i,
+								pc_hist[idx].frame,
+								pc_hist[idx].tick,
+								(unsigned long long)pc_hist[idx].time,
+								pc_hist[idx].pc,
+								pc_hist[idx].op);
+						}
+					}
+				}
+
 				// Log boot-init checkpoints between InitZone and the magic check
 				// so we know which trap/instruction precedes the exception.
 				if (pc == 0x408001B8)
@@ -2879,6 +4110,149 @@ int verilate() {
 					fprintf(stderr, "*** BOOT $8AE reached (writes 5A932BC7 magic) at cycle %llu ***\n", (unsigned long long)main_time);
 				if (pc == 0x40801E1C)
 					fprintf(stderr, "*** BOOT $1E1C magic check at cycle %llu ***\n", (unsigned long long)main_time);
+			}
+
+			// Late SystemError dialog tracking. Some late ROM wait paths leave
+			// debug_fetch_valid low even while debug_pc is stable in the
+			// SystemError code, so track unique debug_pc values directly here.
+			if (!*bus.ioctl_download) {
+				struct SysPcHist {
+					uint32_t pc;
+					uint16_t op;
+					uint32_t tick;
+					uint64_t time;
+					int frame;
+				};
+				static SysPcHist sys_pc_hist[64] = {};
+				static unsigned sys_pc_hist_pos = 0;
+				static uint32_t sys_pc_last = 0;
+				static bool sys_pc_error_logged = false;
+				static bool pattern_fetch_logged = false;
+				static uint16_t last_dserr = 0;
+				static int late_ram_pc_count = 0;
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				uint16_t op = VERTOPINTERN->debug_opcode;
+
+				if (pc != sys_pc_last) {
+					sys_pc_hist[sys_pc_hist_pos & 63] = { pc, op, lowmem_tick_016a(), main_time, video.count_frame };
+					sys_pc_hist_pos++;
+					sys_pc_last = pc;
+				}
+
+				if (video.count_frame >= 1100 && pc >= 0x001F0000 && pc < 0x00200000 &&
+				    late_ram_pc_count < 160) {
+					fprintf(stderr,
+						"*** LATE_RAM_PC frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+						"cpuAddr=%08X rw=%d fc=%d D0=%08X A0=%08X A1=%08X A7=%08X ***\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						pc,
+						op,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc,
+						tg68_reg(0),
+						tg68_reg(8),
+						tg68_reg(9),
+						tg68_reg(15));
+					late_ram_pc_count++;
+				}
+
+				bool pattern_fetch = video.count_frame >= 1000 &&
+				                     (op == 0x6DB6 || op == 0xDB6D ||
+				                      pc == 0xDB6D6DB6 || pc == 0x6DB6DB6D);
+				if (!pattern_fetch_logged && pattern_fetch &&
+				    !(pc >= 0x40803700 && pc < 0x40803800)) {
+					pattern_fetch_logged = true;
+					fprintf(stderr,
+						"*** PATTERN_FETCH frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+						"cpuAddr=%08X rw=%d fc=%d D0=%08X D1=%08X D2=%08X D3=%08X "
+						"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X "
+						"VBR=%08X stackSR=%04X stackPC=%08X ***\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						pc,
+						op,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc,
+						tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
+						tg68_reg(8), tg68_reg(9), tg68_reg(10), tg68_reg(11),
+						tg68_reg(12), tg68_reg(13), tg68_reg(14), tg68_reg(15),
+						VERTOPINTERN->debug_vbr,
+						ram_word(tg68_reg(15)),
+						ram_long(tg68_reg(15) + 2));
+					unsigned count = sys_pc_hist_pos < 64 ? sys_pc_hist_pos : 64;
+					fprintf(stderr, "*** PATTERN_FETCH_HISTORY newest_last count=%u ***\n", count);
+					for (unsigned i = 0; i < count; i++) {
+						unsigned idx = (sys_pc_hist_pos - count + i) & 63;
+						fprintf(stderr, "  hist[%02u] frame=%d tick=%08X time=%llu pc=%08X op=%04X\n",
+							i,
+							sys_pc_hist[idx].frame,
+							sys_pc_hist[idx].tick,
+							(unsigned long long)sys_pc_hist[idx].time,
+							sys_pc_hist[idx].pc,
+							sys_pc_hist[idx].op);
+					}
+				}
+
+				uint16_t dserr_now = ram_word(0x0AF0);
+				if (video.count_frame >= 1000 && dserr_now != last_dserr) {
+					fprintf(stderr,
+						"*** DSERR_CHANGE frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+						"DSErr=%04X savedPC=%08X savedSR=%04X A7=%08X stackSR=%04X stackPC=%08X ***\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						pc,
+						op,
+						dserr_now,
+						ram_long(0x0C70),
+						ram_word(0x0C74),
+						tg68_reg(15),
+						ram_word(tg68_reg(15)),
+						ram_long(tg68_reg(15) + 2));
+					last_dserr = dserr_now;
+				}
+
+				if (!sys_pc_error_logged && pc >= 0x40802120 && pc <= 0x4080248E) {
+					sys_pc_error_logged = true;
+					fprintf(stderr,
+						"*** SYSERROR_PC_ENTRY frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+						"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
+						"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X "
+						"DSErr=%04X savedPC=%08X savedSR=%04X stackSR=%04X stackPC=%08X MBState=%02X DSAlertTab=%08X ***\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						pc,
+						op,
+						tg68_reg(0), tg68_reg(1), tg68_reg(2), tg68_reg(3),
+						tg68_reg(4), tg68_reg(5), tg68_reg(6), tg68_reg(7),
+						tg68_reg(8), tg68_reg(9), tg68_reg(10), tg68_reg(11),
+						tg68_reg(12), tg68_reg(13), tg68_reg(14), tg68_reg(15),
+						ram_word(0x0AF0),
+						ram_long(0x0C70),
+						ram_word(0x0C74),
+						ram_word(tg68_reg(15)),
+						ram_long(tg68_reg(15) + 2),
+						ram_byte(0x0172),
+						ram_long(0x02BA));
+					unsigned count = sys_pc_hist_pos < 64 ? sys_pc_hist_pos : 64;
+					fprintf(stderr, "*** SYSERROR_PC_HISTORY newest_last count=%u ***\n", count);
+					for (unsigned i = 0; i < count; i++) {
+						unsigned idx = (sys_pc_hist_pos - count + i) & 63;
+						fprintf(stderr, "  hist[%02u] frame=%d tick=%08X time=%llu pc=%08X op=%04X\n",
+							i,
+							sys_pc_hist[idx].frame,
+							sys_pc_hist[idx].tick,
+							(unsigned long long)sys_pc_hist[idx].time,
+							sys_pc_hist[idx].pc,
+							sys_pc_hist[idx].op);
+					}
+				}
 			}
 
 			// Watch CPU writes to $0AF0 (exception code), $0C70 (saved PC),
@@ -2913,6 +4287,66 @@ int verilate() {
 					}
 				}
 			}
+				if (VERTOPINTERN->debug_write_valid && !*bus.ioctl_download) {
+					uint32_t addr = VERTOPINTERN->debug_write_addr & 0x00FFFFFF;
+					if (watch_ram_write_enabled &&
+					    video.count_frame >= watch_ram_write_min_frame &&
+					    watch_ram_write_count < watch_ram_write_max) {
+						uint32_t word_start = addr & ~1u;
+						uint32_t word_end = word_start + 1;
+						if (word_start <= watch_ram_write_end && word_end >= watch_ram_write_start) {
+							fprintf(stderr,
+								"*** WATCH_RAM_WRITE frame=%d tick=%08X kind=bus_valid addr=%08X data=%04X "
+							"time=%llu pc=%08X op=%04X D0=%08X D1=%08X A0=%08X A2=%08X A4=%08X A5=%08X bytes=",
+							video.count_frame,
+							lowmem_tick_016a(),
+							addr,
+							VERTOPINTERN->debug_write_data,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0),
+							tg68_reg(1),
+							tg68_reg(8),
+							tg68_reg(10),
+							tg68_reg(12),
+							tg68_reg(13));
+						uint32_t dump_start = watch_ram_write_start & ~1u;
+						uint32_t dump_end = watch_ram_write_end;
+						for (uint32_t p = dump_start; p <= dump_end && p < dump_start + 32; p++) {
+							fprintf(stderr, "%02X", ram_byte(p));
+						}
+						fprintf(stderr, " ***\n");
+						watch_ram_write_count++;
+					}
+				}
+				if (addr == 0x000AF0 || addr == 0x000AF1 ||
+				    addr == 0x000C70 || addr == 0x000C71 ||
+				    addr == 0x000C72 || addr == 0x000C73 ||
+				    addr == 0x000C74 || addr == 0x000C75 ||
+				    addr == 0x000C7C || addr == 0x000C7D ||
+				    addr == 0x000C7E || addr == 0x000C7F ||
+				    addr == 0x000C80 || addr == 0x000C81 ||
+				    addr == 0x000C82 || addr == 0x000C83) {
+					static int wr_valid_log_count = 0;
+					if (wr_valid_log_count < 96) {
+						fprintf(stderr,
+							"*** EXCPT_SAVE_VALID frame=%d tick=%08X addr=%08X data=%04X "
+							"time=%llu pc=%08X op=%04X DSErr=%04X savedPC=%08X savedSR=%04X ***\n",
+							video.count_frame,
+							lowmem_tick_016a(),
+							addr,
+							VERTOPINTERN->debug_write_data,
+							(unsigned long long)main_time,
+							VERTOPINTERN->debug_pc,
+							VERTOPINTERN->debug_opcode,
+							ram_word(0x0AF0),
+							ram_long(0x0C70),
+							ram_word(0x0C74));
+						wr_valid_log_count++;
+					}
+				}
+			}
 
 			// BERR rising-edge log: which PC, address, FC asserted bus error.
 			{
@@ -2928,6 +4362,41 @@ int verilate() {
 					berr_log_count++;
 				}
 				last_berr = berr_now;
+			}
+
+			// Late OS boot BERR log. The System 7 bomb after the Welcome screen
+			// reports DSErr 1, so record the actual physical fault address around
+			// the old failure window.
+			{
+				static int last_late_berr = 0;
+				static int late_berr_count = 0;
+				int berr_now = VERTOPINTERN->debug_berr ? 1 : 0;
+				if (video.count_frame >= 840 && berr_now && !last_late_berr && late_berr_count < 64) {
+					fprintf(stderr,
+						"*** LATE_BERR frame=%d tick=%08X time=%llu pc=%08X op=%04X cpuAddr=%08X "
+						"RW=%d FC=%d selRAM=%d selROM=%d selNuBus=%d selVIA=%d selVIA2=%d selSCSI=%d "
+						"D0=%08X A0=%08X A1=%08X A7=%08X ***\n",
+						video.count_frame,
+						lowmem_tick_016a(),
+						(unsigned long long)main_time,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuRW,
+						VERTOPINTERN->debug_fc,
+						VERTOPINTERN->debug_selectRAM ? 1 : 0,
+						VERTOPINTERN->debug_selectROM ? 1 : 0,
+						VERTOPINTERN->debug_selectNuBus ? 1 : 0,
+						VERTOPINTERN->debug_viaRd || VERTOPINTERN->debug_viaWr ? 1 : 0,
+						VERTOPINTERN->debug_selectVIA2 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__selectSCSI ? 1 : 0,
+						tg68_reg(0),
+						tg68_reg(8),
+						tg68_reg(9),
+						tg68_reg(15));
+					late_berr_count++;
+				}
+				last_late_berr = berr_now;
 			}
 
 			// ===================================================================
@@ -3161,10 +4630,13 @@ void show_help() {
 	printf("  --no-via-debug                Disable VIA debug logging\n");
 	printf("  --periph-debug                Enable peripheral access logging to periph_debug.log\n");
 	printf("  --verbose-debug               Enable ad-hoc boot diagnostics on stderr\n");
+	printf("  --ram-size <1M|2M|4M>         Select RAM size (default 4M)\n");
 	printf("  +poll268_debug, --poll268-debug\n");
 	printf("                                Trace the ROM wait loop around PC 408268F8\n");
 	printf("  --scsi-debug                  Trace focused NCR5380 bus transactions\n");
 	printf("  --scsi-debug-min-frame <n>    Start SCSI debug logging at frame n\n");
+	printf("  --scsi-audit                  Compare SCSI target READ bytes against mounted image\n");
+	printf("  --scsi-audit-min-frame <n>    Start SCSI audit at frame n\n");
 	printf("  --scsi-timeout-loop-debug     Trace ROM SCSI timeout DBNE loop state\n");
 	printf("  --iwm-debug                   Trace focused IWM/floppy bus transactions\n");
 	printf("  --iwm-debug-min-frame <n>     Delay IWM tracing until frame n\n");
@@ -3178,10 +4650,24 @@ void show_help() {
 	printf("  --late-adb-debug-min-frame <n>\n");
 	printf("  --bus-handshake-debug         Trace CPU AS/VPA/VMA/DTACK handshakes for I/O cycles\n");
 	printf("  --bus-handshake-debug-min-frame <n>\n");
+	printf("  --mem-bus-debug               Trace focused RAM/ROM/VIA timing in suspect ROM paths\n");
+	printf("  --mem-bus-debug-min-frame <n> Delay memory-bus tracing until frame n\n");
+	printf("  --mem-bus-debug-max <n>       Limit memory-bus trace lines (default 2000)\n");
+	printf("  --return-stack-debug          Trace stack/registers around late bad-return ROM paths\n");
+	printf("  --return-stack-debug-min-frame <n>\n");
+	printf("  --return-stack-debug-max <n>  Limit return-stack trace lines (default 800)\n");
+	printf("  --stack-exit-debug            Trace ROM epilogue at PC 40812F60-40812F84\n");
+	printf("  --stack-exit-debug-min-frame <n>\n");
+	printf("  --stack-exit-debug-max <n>    Limit stack-exit trace lines (default 120)\n");
+	printf("  --trap-dispatch-debug         Trace A-trap dispatch and low-RAM stubs\n");
+	printf("  --trap-dispatch-debug-min-frame <n>\n");
+	printf("  --trap-dispatch-debug-max <n> Limit trap-dispatch trace lines (default 80)\n");
 	printf("  --wait-debug                  Trace ROM wait helper around PC 40801610\n");
 	printf("  --wait-debug-min-frame <n>    Delay wait-helper tracing until frame n\n");
 	printf("  --calib-debug                 Trace VIA timers and low-memory delay calibration\n");
 	printf("  --calib-loop-debug            Trace delay calibration DBF loop counts and VIA1 T2 state\n");
+	printf("  --calib-bus-profile           Summarize VIA/SCC/SCSI bus waits during delay calibration\n");
+	printf("  --cpu-timing-profile          Count CPU phase, TG68 core, DTACK, and bus ownership cycles\n");
 	printf("  --force-mame-calib            Force MAME delay words $0D00/$0DA6 for timing diagnosis\n");
 	printf("  --force-calib <0d00> <0da6>   Force custom delay words for timing diagnosis\n");
 	printf("  --force-calib-min-frame <n>   Delay forced calibration writes until frame n\n");
@@ -3203,6 +4689,12 @@ void show_help() {
 	printf("  --stop-at-frame <frame>       Exit simulation after specified frame\n");
 	printf("  --stop-at-tick <hex|dec>      Exit after low-memory tick long $016A reaches value\n");
 	printf("  --stop-at-pc <hex|dec>        Exit when debug PC is fetched\n");
+	printf("  --stop-at-pc-min-tick <hex|dec> Ignore stop-at-PC before low-memory tick $016A\n");
+	printf("  --stop-on-dserr               Exit when SystemError low-memory word $0AF0 first becomes nonzero\n");
+	printf("  --stop-on-dserr-min-frame <n> Ignore SystemError word changes before frame n\n");
+	printf("  --stop-on-dserr-value <hex|dec> Stop only when SystemError word $0AF0 equals this value\n");
+	printf("  --stop-on-savedpc <hex|dec>   Exit when SystemError saved PC $0C70 equals this value\n");
+	printf("  --dump-ram-at-stop <addr> <bytes> Dump a RAM window in the stop-state summary\n");
 	printf("\n");
 	printf("Examples:\n");
 	printf("  ./Vemu                        Run simulator in windowed mode\n");
@@ -3406,10 +4898,15 @@ int main(int argc, char** argv, char** env) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-audit") == 0) {
+			scsi_audit_enable = true;
 		} else if (strcmp(argv[i], "--scsi-timeout-loop-debug") == 0) {
 			scsi_timeout_loop_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-debug-min-frame") == 0 && i + 1 < argc) {
 			scsi_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--scsi-audit-min-frame") == 0 && i + 1 < argc) {
+			scsi_audit_min_frame = std::stoi(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "--iwm-debug") == 0) {
 			iwm_debug_enable = true;
@@ -3439,6 +4936,38 @@ int main(int argc, char** argv, char** env) {
 		} else if (strcmp(argv[i], "--bus-handshake-debug-min-frame") == 0 && i + 1 < argc) {
 			bus_handshake_debug_min_frame = std::stoi(argv[i + 1]);
 			i++;
+		} else if (strcmp(argv[i], "--mem-bus-debug") == 0) {
+			mem_bus_debug_enable = true;
+		} else if (strcmp(argv[i], "--mem-bus-debug-min-frame") == 0 && i + 1 < argc) {
+			mem_bus_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--mem-bus-debug-max") == 0 && i + 1 < argc) {
+			mem_bus_debug_max = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--return-stack-debug") == 0) {
+			return_stack_debug_enable = true;
+		} else if (strcmp(argv[i], "--return-stack-debug-min-frame") == 0 && i + 1 < argc) {
+			return_stack_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--return-stack-debug-max") == 0 && i + 1 < argc) {
+			return_stack_debug_max = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--stack-exit-debug") == 0) {
+			stack_exit_debug_enable = true;
+		} else if (strcmp(argv[i], "--stack-exit-debug-min-frame") == 0 && i + 1 < argc) {
+			stack_exit_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--stack-exit-debug-max") == 0 && i + 1 < argc) {
+			stack_exit_debug_max = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--trap-dispatch-debug") == 0) {
+			trap_dispatch_debug_enable = true;
+		} else if (strcmp(argv[i], "--trap-dispatch-debug-min-frame") == 0 && i + 1 < argc) {
+			trap_dispatch_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--trap-dispatch-debug-max") == 0 && i + 1 < argc) {
+			trap_dispatch_debug_max = std::stoi(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "--wait-debug") == 0) {
 			wait_debug_enable = true;
 		} else if (strcmp(argv[i], "--wait-debug-min-frame") == 0 && i + 1 < argc) {
@@ -3447,6 +4976,10 @@ int main(int argc, char** argv, char** env) {
 			calib_debug_enable = true;
 		} else if (strcmp(argv[i], "--calib-loop-debug") == 0) {
 			calib_loop_debug_enable = true;
+		} else if (strcmp(argv[i], "--calib-bus-profile") == 0) {
+			calib_bus_profile_enable = true;
+		} else if (strcmp(argv[i], "--cpu-timing-profile") == 0) {
+			cpu_timing_profile_enable = true;
 		} else if (strcmp(argv[i], "--force-mame-calib") == 0) {
 			force_calib_enable = true;
 			force_calib_0d00 = 0x0A3B;
@@ -3458,6 +4991,18 @@ int main(int argc, char** argv, char** env) {
 			force_calib_0da6 = (uint16_t)strtoul(argv[++i], nullptr, 0);
 		} else if (strcmp(argv[i], "--force-calib-min-frame") == 0 && i + 1 < argc) {
 			force_calib_min_frame = std::stoi(argv[++i]);
+		} else if (strcmp(argv[i], "--ram-size") == 0 && i + 1 < argc) {
+			const char* size = argv[++i];
+			if (strcmp(size, "1M") == 0 || strcmp(size, "1m") == 0 || strcmp(size, "1") == 0) {
+				cfg_memSize = 0;
+			} else if (strcmp(size, "2M") == 0 || strcmp(size, "2m") == 0 || strcmp(size, "2") == 0) {
+				cfg_memSize = 1;
+			} else if (strcmp(size, "4M") == 0 || strcmp(size, "4m") == 0 || strcmp(size, "4") == 0) {
+				cfg_memSize = 2;
+			} else {
+				fprintf(stderr, "Unsupported --ram-size '%s' (use 1M, 2M, or 4M)\n", size);
+				return 1;
+			}
 		} else if (strcmp(argv[i], "--ramtest-debug") == 0) {
 			ramtest_debug_enable = true;
 		} else if (strcmp(argv[i], "--nubus-video-debug") == 0) {
@@ -3538,6 +5083,56 @@ int main(int argc, char** argv, char** env) {
 				stop_at_pc_enabled = true;
 				printf("Will stop at PC %08X\n", stop_at_pc);
 				i++;
+			} else if (strcmp(argv[i], "--stop-at-pc-min-frame") == 0 && i + 1 < argc) {
+				stop_at_pc_min_frame = std::stoi(argv[i + 1]);
+				printf("Will ignore stop-at-PC before frame %d\n", stop_at_pc_min_frame);
+				i++;
+			} else if (strcmp(argv[i], "--stop-at-pc-min-tick") == 0 && i + 1 < argc) {
+				stop_at_pc_min_tick = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
+				stop_at_pc_min_tick_enabled = true;
+				printf("Will ignore stop-at-PC before low-memory tick $016A >= 0x%08X\n", stop_at_pc_min_tick);
+				i++;
+			} else if (strcmp(argv[i], "--stop-on-dserr") == 0) {
+				stop_on_dserr_enabled = true;
+				printf("Will stop when SystemError word $0AF0 first becomes nonzero\n");
+			} else if (strcmp(argv[i], "--stop-on-dserr-min-frame") == 0 && i + 1 < argc) {
+				stop_on_dserr_min_frame = std::stoi(argv[i + 1]);
+				printf("Will ignore SystemError stop before frame %d\n", stop_on_dserr_min_frame);
+				i++;
+			} else if (strcmp(argv[i], "--stop-on-dserr-value") == 0 && i + 1 < argc) {
+				stop_on_dserr_value = (uint16_t)strtoul(argv[i + 1], nullptr, 0);
+				stop_on_dserr_value_enabled = true;
+				stop_on_dserr_enabled = true;
+				printf("Will stop when SystemError word $0AF0 equals %04X\n", stop_on_dserr_value);
+				i++;
+			} else if (strcmp(argv[i], "--stop-on-savedpc") == 0 && i + 1 < argc) {
+				stop_on_savedpc_value = (uint32_t)strtoul(argv[i + 1], nullptr, 0);
+				stop_on_savedpc_enabled = true;
+				printf("Will stop when SystemError saved PC $0C70 equals %08X\n", stop_on_savedpc_value);
+				i++;
+			} else if (strcmp(argv[i], "--watch-ram-write") == 0 && i + 2 < argc) {
+				watch_ram_write_start = (uint32_t)strtoul(argv[i + 1], nullptr, 0) & 0x00FFFFFF;
+				uint32_t len = (uint32_t)strtoul(argv[i + 2], nullptr, 0);
+				watch_ram_write_end = watch_ram_write_start + (len ? len - 1 : 0);
+				watch_ram_write_enabled = true;
+				printf("Will log RAM writes overlapping %08X-%08X\n", watch_ram_write_start, watch_ram_write_end);
+				i += 2;
+			} else if (strcmp(argv[i], "--watch-ram-write-min-frame") == 0 && i + 1 < argc) {
+				watch_ram_write_min_frame = std::stoi(argv[i + 1]);
+				printf("Will ignore watched RAM writes before frame %d\n", watch_ram_write_min_frame);
+				i++;
+			} else if (strcmp(argv[i], "--watch-ram-write-max") == 0 && i + 1 < argc) {
+				watch_ram_write_max = std::stoi(argv[i + 1]);
+				printf("Will log at most %d watched RAM writes\n", watch_ram_write_max);
+				i++;
+			} else if (strcmp(argv[i], "--dump-ram-at-stop") == 0 && i + 2 < argc) {
+				dump_ram_at_stop_start = (uint32_t)strtoul(argv[i + 1], nullptr, 0) & 0x00FFFFFF;
+				dump_ram_at_stop_bytes = (uint32_t)strtoul(argv[i + 2], nullptr, 0);
+				dump_ram_at_stop_enabled = true;
+				printf("Will dump RAM window %08X+%u at stop\n",
+					dump_ram_at_stop_start,
+					dump_ram_at_stop_bytes);
+				i += 2;
 			}
 	}
 
@@ -3571,6 +5166,18 @@ int main(int argc, char** argv, char** env) {
 	for (int disk_index = 0; disk_index < 2; disk_index++) {
 		if (!scsi_disk_files[disk_index].empty()) {
 			blockdevice.MountDisk(scsi_disk_files[disk_index], disk_index);
+			if (scsi_audit_enable) {
+				if (load_file_bytes(scsi_disk_files[disk_index], scsi_audit_image[disk_index])) {
+					fprintf(stderr, "SCSI audit loaded disk %d: %s (%zu bytes)\n",
+					        disk_index,
+					        scsi_disk_files[disk_index].c_str(),
+					        scsi_audit_image[disk_index].size());
+				} else {
+					fprintf(stderr, "SCSI audit could not read disk %d: %s\n",
+					        disk_index,
+					        scsi_disk_files[disk_index].c_str());
+				}
+			}
 		}
 	}
 
@@ -3716,6 +5323,9 @@ int main(int argc, char** argv, char** env) {
 						if (stop_at_tick_enabled && lowmem_tick_reached()) {
 							break;
 						}
+						if (stop_dserr_reached() || stop_savedpc_reached()) {
+							break;
+						}
 				}
 			}
 			else {
@@ -3733,6 +5343,31 @@ int main(int argc, char** argv, char** env) {
 						video.count_frame,
 						VERTOPINTERN->debug_opcode,
 						VERTOPINTERN->debug_vbr);
+					print_recent_fetch_history();
+					print_scsi_stop_state();
+					break;
+				}
+
+				if (stop_dserr_reached()) {
+					printf("Reached first nonzero SystemError word $0AF0=%04X, exiting... frame=%d PC=%08X Op=%04X VBR=%08X\n",
+						ram_word(0x0AF0),
+						video.count_frame,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_vbr);
+					print_recent_fetch_history();
+					print_scsi_stop_state();
+					break;
+				}
+
+				if (stop_savedpc_reached()) {
+					printf("Reached SystemError saved PC $0C70=%08X, exiting... frame=%d PC=%08X Op=%04X VBR=%08X\n",
+						ram_long(0x0C70),
+						video.count_frame,
+						VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_opcode,
+						VERTOPINTERN->debug_vbr);
+					print_recent_fetch_history();
 					print_scsi_stop_state();
 					break;
 				}
@@ -3905,7 +5540,7 @@ int main(int argc, char** argv, char** env) {
 		// Machine configuration (display only - requires restart to change)
 		ImGui::Separator();
 		ImGui::Text("Machine: Mac II | CPU: TG68K | RAM: %s",
-			cfg_memSize ? "4MB" : "1MB");
+			cfg_memSize == 0 ? "1MB" : (cfg_memSize == 1 ? "2MB" : "4MB"));
 
 		ImGui::End();
 
@@ -4017,6 +5652,31 @@ int main(int argc, char** argv, char** env) {
 					video.count_frame,
 					VERTOPINTERN->debug_opcode,
 					VERTOPINTERN->debug_vbr);
+				print_recent_fetch_history();
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (stop_dserr_reached()) {
+				printf("Reached first nonzero SystemError word $0AF0=%04X, exiting... frame=%d PC=%08X Op=%04X VBR=%08X\n",
+					ram_word(0x0AF0),
+					video.count_frame,
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
+				print_recent_fetch_history();
+				print_scsi_stop_state();
+				break;
+			}
+
+			if (stop_savedpc_reached()) {
+				printf("Reached SystemError saved PC $0C70=%08X, exiting... frame=%d PC=%08X Op=%04X VBR=%08X\n",
+					ram_long(0x0C70),
+					video.count_frame,
+					VERTOPINTERN->debug_pc,
+					VERTOPINTERN->debug_opcode,
+					VERTOPINTERN->debug_vbr);
+				print_recent_fetch_history();
 				print_scsi_stop_state();
 				break;
 			}
@@ -4067,6 +5727,9 @@ int main(int argc, char** argv, char** env) {
 				for (int step = 0; step < batchSize; step++) {
 					verilate();
 					if (stop_pc_reached()) {
+						break;
+					}
+					if (stop_dserr_reached() || stop_savedpc_reached()) {
 						break;
 					}
 				}
