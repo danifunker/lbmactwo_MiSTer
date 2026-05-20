@@ -320,4 +320,54 @@ module debug_probes (
         .source_ena(1'b1)
     );
 
+    // ------------------------------------------------------------------
+    // Mac/video SDRAM contention counters (race verification).
+    //
+    // Counts Mac read-cycle starts (rising edge of arb_mac_oe) and how many
+    // of those begin while a video SDRAM transaction is mid-flight
+    // (vram_state == VRAM_WAIT, i.e. the SDRAM is busy serving the video
+    // word and sdram_dout is NOT Mac's data yet).  Because mac_dout is
+    // combinational and the Mac's RAM/ROM DTACK is near-immediate (turbo),
+    // a read that starts in this window can hand the Mac the video word.
+    // A nonzero MRDW/MRDT ratio confirms the race fires often enough to
+    // corrupt Mac data reads (e.g. its palette-table fetches).  Free-running
+    // 32-bit; sample once after boot settles and compute the ratio.
+    // ------------------------------------------------------------------
+    localparam VRAM_WAIT_STATE = 3'd1;
+    reg        arb_mac_oe_d;
+    reg [31:0] mac_rd_total;
+    reg [31:0] mac_rd_during_wait;
+    always @(posedge clk) begin
+        arb_mac_oe_d <= arb_mac_oe;
+        if (arb_mac_oe && !arb_mac_oe_d) begin
+            mac_rd_total <= mac_rd_total + 32'd1;
+            if (vram_state == VRAM_WAIT_STATE)
+                mac_rd_during_wait <= mac_rd_during_wait + 32'd1;
+        end
+    end
+
+    altsource_probe #(
+        .instance_id ("MRDT"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_mrdt (
+        .probe (mac_rd_total),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
+    altsource_probe #(
+        .instance_id ("MRDW"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_mrdw (
+        .probe (mac_rd_during_wait),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+
 endmodule
