@@ -208,25 +208,33 @@ module sdram_arbiter (
 
                 VRAM_WAIT: begin
                     // If Mac preempts at any point, mark the transaction
-                    // dirty.  We don't abort early — we still ride out the
-                    // wait so the SDRAM controller has time to finish whatever
-                    // it started — but we won't latch the result.
+                    // dirty.  We ride out the full wait so the SDRAM
+                    // controller finishes whatever it started.
                     if (mac_active) video_clean <= 1'b0;
 
                     if (vram_wait_cnt > 3'd0) begin
                         vram_wait_cnt <= vram_wait_cnt - 3'd1;
                     end else begin
+                        // ALWAYS complete the transaction.  This is critical:
+                        // the video card's FSM blocks in S_VIDEO_WAIT until
+                        // vram_ready, and that same FSM also services Mac's
+                        // NuBus CPU accesses from S_IDLE.  If we ever WITHHELD
+                        // vram_ready (the old "preempted -> back to IDLE
+                        // without ready" path), a run of Mac-preempted video
+                        // reads could hang the FSM in S_VIDEO_WAIT, the card
+                        // would stop ACKing Mac's NuBus cycles, and the Mac
+                        // CPU would stall -> black screen / no boot.
+                        //
+                        // On a CLEAN transaction we capture fresh data.  On a
+                        // preempted (dirty) one we KEEP the previous
+                        // vram_din_reg value -- stale framebuffer data is far
+                        // less harmful than latching an unrelated Mac word,
+                        // and we never deadlock.
                         if (video_clean && !mac_active) begin
-                            // Clean transaction: capture data, signal ready
-                            vram_din_reg     <= sdram_dout;
-                            vram_ready_latch <= 1'b1;
-                            vram_state       <= VRAM_READY;
-                        end else begin
-                            // Preempted: drop this transaction silently.
-                            // Returning to IDLE without ready makes the
-                            // video card hold vram_rd and retry next cycle.
-                            vram_state <= VRAM_IDLE;
+                            vram_din_reg <= sdram_dout;
                         end
+                        vram_ready_latch <= 1'b1;
+                        vram_state       <= VRAM_READY;
                     end
                 end
 
