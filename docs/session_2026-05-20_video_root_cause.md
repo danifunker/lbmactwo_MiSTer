@@ -80,6 +80,38 @@ rough order of safety:
 All three are arbiter-side and bridge the video & boot domains. The video
 display logic itself needs no further changes.
 
+## RESOLUTION (v11 -- commit on video-arbiter-fixes)
+
+Verified the race with JTAG counters (MRDT/MRDW in debug_probes): **~50% of
+Mac reads begin while video holds the SDRAM** (vram_state==VRAM_WAIT), so the
+combinational `mac_dout = sdram_dout` + immediate "turbo" DTACK handed the CPU
+the video word half the time -> corrupted data -> wrong palette + unstable boot.
+
+Fix (v11):
+- `sdram_arbiter.v` exports `mac_dout_valid`, derived by counting `clk8_en_p`
+  (SDRAM t=0) edges while a Mac read is asserted. Because
+  `grant_video = !mac_active`, the Mac wins the next SDRAM slot the instant it
+  asserts: the 1st edge latches the Mac command, by the 2nd edge `sdram_dout`
+  holds the Mac word. Always releases within ~1-2 SDRAM cycles, so it cannot
+  wedge the CPU the way the old blanket `mac_stall` did.
+- `LBMacTwo.sv` defers the RAM/ROM **read** DTACK until `mac_dout_valid`.
+  Writes and the turbo fast path are unchanged.
+
+Result on hardware:
+- CPU stays alive (MRDT keeps incrementing ~2.16M reads/s -- no wedge).
+- Behaviour is now (mostly) deterministic; the corruption is gone.
+- On a boot that progresses far enough the Mac writes the correct B&W palette
+  (clut[0]=FFFFFF white, clut[1]=000000 black) **by itself**, and the NATURAL
+  scanout renders a clean, stable gray desktop stipple -- no forced CLUT, no
+  red/yellow noise.  See captures/screen_v11_correct_181725.png.
+
+Remaining (boot domain, not video/arbiter):
+- Boots still vary in how far they get before parking in the SCSI boot-device
+  wait (no bootable disk). Some reach the full white/black palette; others
+  hang mid palette-load (clut[0] shows red = only the R byte landed). This is
+  boot stability / SCSI, owned by the boot effort -- the coherency fix should
+  *help* it since the CPU now executes on uncorrupted data.
+
 ## Probe / script reference
 - `RHIX` (source, idx) + `RHDT` (probe, 32-bit) — RAMDAC write history.
   Entry = `{addr[4:0], uds_lds[1:0], ramdac_rgb[1:0], data_in[15:0]}`.
