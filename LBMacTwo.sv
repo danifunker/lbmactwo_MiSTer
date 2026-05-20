@@ -518,14 +518,16 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
                       ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 // DTACK: FPU uses DSACK protocol (assert DTACK when either DSACK line goes low)
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
-// arb_mac_stall is asserted while video has the SDRAM committed; we hold
-// DTACK high (deasserted) for RAM/ROM accesses in that case so the Mac
-// CPU waits for the SDRAM cycle to actually belong to Mac before
-// latching its data.  Other access types (FPU/NuBus/SCSI/VIA) have
-// their own handshake and don't go through SDRAM, so we leave them
-// unaffected by mac_stall.
+//
+// REGRESSION REVERT (2026-05-20): mac_stall used to be OR'd into the
+// RAM/ROM DTACK to hold the Mac CPU off while video had the SDRAM
+// committed.  This manipulates the CPU's bus handshake directly and
+// is the highest-risk change for boot timing.  Reverting it -- the
+// arbiter's video_clean tracking + registered vram_din already keep
+// video reads correct without touching the Mac CPU's DTACK.  Restore
+// the original DTACK so Mac bus timing matches the known-good build.
 wire ram_or_rom_dtack = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) |
-                         (status_turbo & !turbo_dtack_en)) | arb_mac_stall;
+                         (status_turbo & !turbo_dtack_en));
 
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
