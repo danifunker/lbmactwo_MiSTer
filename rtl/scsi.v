@@ -814,26 +814,51 @@ module scsi_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=9)
 	output reg [DATAWIDTH-1:0] q_d
 );
 
-reg [DATAWIDTH-1:0] ram[0:(1<<ADDRWIDTH)-1];
+// ram_ab is a true dual-port RAM serving the existing q_a/q_b read paths
+// (each read at its port's write address). ram_c and ram_d are simple
+// dual-port mirrors used for the look-ahead read ports q_c/q_d.
+//
+// wren_a and wren_b are mutually exclusive in this design (wren_a is
+// driven by the SD->buffer path during PHASE_DATA_OUT, wren_b by the
+// SCSI->buffer path during PHASE_DATA_IN), so muxing them into a single
+// SDP write port keeps the mirrors coherent without needing two write
+// ports on those arrays. Using a single ram array with >2 reads fails
+// Quartus's TDP inference and produces "multiple constant drivers"
+// errors on the ram net.
+reg [DATAWIDTH-1:0] ram_ab[0:(1<<ADDRWIDTH)-1];
+reg [DATAWIDTH-1:0] ram_c [0:(1<<ADDRWIDTH)-1];
+reg [DATAWIDTH-1:0] ram_d [0:(1<<ADDRWIDTH)-1];
+
+wire                  mirror_we    = wren_a | wren_b;
+wire [ADDRWIDTH-1:0]  mirror_waddr = wren_a ? address_a : address_b;
+wire [DATAWIDTH-1:0]  mirror_wdata = wren_a ? data_a    : data_b;
 
 always @(posedge clock) begin
 	if(wren_a) begin
-		ram[address_a] <= data_a;
+		ram_ab[address_a] <= data_a;
 		q_a <= data_a;
 	end else begin
-		q_a <= ram[address_a];
+		q_a <= ram_ab[address_a];
 	end
 end
 
 always @(posedge clock) begin
 	if(wren_b) begin
-		ram[address_b] <= data_b;
+		ram_ab[address_b] <= data_b;
 		q_b <= data_b;
 	end else begin
-		q_b <= ram[address_b];
+		q_b <= ram_ab[address_b];
 	end
-	q_c <= ram[address_c];
-	q_d <= ram[address_d];
+end
+
+always @(posedge clock) begin
+	if(mirror_we) ram_c[mirror_waddr] <= mirror_wdata;
+	q_c <= ram_c[address_c];
+end
+
+always @(posedge clock) begin
+	if(mirror_we) ram_d[mirror_waddr] <= mirror_wdata;
+	q_d <= ram_d[address_d];
 end
 
 endmodule
