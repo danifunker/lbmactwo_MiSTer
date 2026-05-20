@@ -158,11 +158,10 @@ module ncr5380
 				dma_word_latched <= dma_word;
 				dma_longword_latched <= dma_longword;
 				dma_second_word_latched <= dma_second_word;
-				dma_suppress_ack_latched <= dma_longword_second_pending & dma_second_word;
-				dma_longword_second_pending <= (dma_longword_second_pending & dma_second_word) ? 1'b0 :
-				                               (dma_word & dma_longword & !dma_second_word);
-				if (dma_word & dma_longword & !dma_second_word)
-					dma_second_word_data <= din_pair_next;
+				// TG68K presents the later boot-driver pseudo-DMA loop as
+				// independent 16-bit bus cycles; each one consumes two bytes.
+				dma_suppress_ack_latched <= 1'b0;
+				dma_longword_second_pending <= 1'b0;
 			end
 			if(~old_dma_wr & i_dma_wr) begin
 				dma_word_latched <= dma_word;
@@ -174,8 +173,8 @@ module ncr5380
 			if(~old_reg_wr & i_reg_wr) reg_wr <= 1;
 			if (dma_ack_holdoff != 3'd0) begin
 				/* Keep DREQ dropped while the target observes the ACK low edge.
-				 * A 68020 longword pseudo-DMA read is two 16-bit bus cycles;
-				 * only the first cycle should consume the four SCSI bytes.
+				 * A 16-bit pseudo-DMA cycle consumes two SCSI bytes via two ACK
+				 * pulses.
 				 */
 				dma_ack <= dma_ack_holdoff[0];
 				dma_ack_holdoff <= dma_ack_holdoff - 3'd1;
@@ -184,9 +183,7 @@ module ncr5380
 			             !dma_suppress_ack_latched)) begin
 				dma_ack <= dma_en & bsr_pmatch;
 				if (dma_en & bsr_pmatch)
-					dma_ack_holdoff <= (old_dma_rd & ~i_dma_rd) ?
-						(dma_longword_latched ? 3'd6 : (dma_word_latched ? 3'd2 : 3'd0)) :
-						(dma_word_latched ? 3'd2 : 3'd0);
+					dma_ack_holdoff <= dma_word_latched ? 3'd2 : 3'd0;
 			end
 		end
 	end
@@ -218,7 +215,7 @@ module ncr5380
 	wire [7:0] dma_write_data = (dma_ack_holdoff == 3'd1 && dma_word_latched) ? dma_write_low_byte : dout;
 	wire [7:0] scsi_bus_data = (out_en ? dma_write_data : 8'h00) | din;
 	wire [7:0] cur_data = scsi_bus_data;
-	wire [15:0] cur_data_pair = out_en ? { dout, dout } : (dma_suppress_ack_latched ? dma_second_word_data : din_pair);
+	wire [15:0] cur_data_pair = out_en ? { dout, dout } : din_pair;
 
 	/* ICR read wires */
 	wire [7:0] icr_read = { icr[`ICR_A_RST],

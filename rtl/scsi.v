@@ -54,23 +54,24 @@ localparam PHASE_DATA_IN     = 3'd3;
 localparam PHASE_STATUS_OUT  = 3'd4;
 localparam PHASE_MESSAGE_OUT = 3'd5;
 reg [2:0]  phase;
-reg [11:0] phase_change_delay;
-reg [11:0] sector_gap_delay;
-localparam [11:0] PHASE_COMPLETE_DELAY_DEFAULT = 12'd4095;
-localparam [11:0] SECTOR_BOUNDARY_DELAY_DEFAULT = 12'd4095;
+reg [1:0]  req_settle_delay;
+reg [19:0] phase_change_delay;
+reg [19:0] sector_gap_delay;
+localparam [19:0] PHASE_COMPLETE_DELAY_DEFAULT = 20'd4095;
+localparam [19:0] SECTOR_BOUNDARY_DELAY_DEFAULT = 20'd4095;
 `ifdef SIMULATION
-reg [11:0] phase_complete_delay_cfg = PHASE_COMPLETE_DELAY_DEFAULT;
-reg [11:0] sector_boundary_delay_cfg = SECTOR_BOUNDARY_DELAY_DEFAULT;
+reg [19:0] phase_complete_delay_cfg = PHASE_COMPLETE_DELAY_DEFAULT;
+reg [19:0] sector_boundary_delay_cfg = SECTOR_BOUNDARY_DELAY_DEFAULT;
 initial begin
 	integer delay_arg;
 	if ($value$plusargs("scsi_phase_delay=%d", delay_arg) && delay_arg >= 0)
-		phase_complete_delay_cfg = delay_arg[11:0];
+		phase_complete_delay_cfg = delay_arg[19:0];
 	if ($value$plusargs("scsi_sector_gap=%d", delay_arg) && delay_arg >= 0)
-		sector_boundary_delay_cfg = delay_arg[11:0];
+		sector_boundary_delay_cfg = delay_arg[19:0];
 end
 `else
-wire [11:0] phase_complete_delay_cfg = PHASE_COMPLETE_DELAY_DEFAULT;
-wire [11:0] sector_boundary_delay_cfg = SECTOR_BOUNDARY_DELAY_DEFAULT;
+wire [19:0] phase_complete_delay_cfg = PHASE_COMPLETE_DELAY_DEFAULT;
+wire [19:0] sector_boundary_delay_cfg = SECTOR_BOUNDARY_DELAY_DEFAULT;
 `endif
 
 // ------------ sector buffer IO controller read/write -----------------------
@@ -153,7 +154,8 @@ assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase =
 	                 (phase == PHASE_DATA_IN  && (wr_pending | io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
 	                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete && (sector_gap_delay == 12'd0);
+	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete &&
+	             (sector_gap_delay == 20'd0) && (req_settle_delay == 2'd0);
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -396,6 +398,15 @@ always @(posedge clk) begin
 	stb_adv <= (old_ack & ~ack); // on falling edge
 end
 
+always @(posedge clk) begin
+	if ((phase == PHASE_IDLE) || ack)
+		req_settle_delay <= 2'd0;
+	else if (stb_adv)
+		req_settle_delay <= 2'd2;
+	else if (req_settle_delay != 2'd0)
+		req_settle_delay <= req_settle_delay - 2'd1;
+end
+
 reg buffer0_wr, buffer1_wr;
 
 // store data on rising edge of ack, ...
@@ -437,10 +448,10 @@ always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
 		data_cnt <= 0;
 		data_complete <= 0;
-		sector_gap_delay <= 12'd0;
+		sector_gap_delay <= 20'd0;
 	end else begin
-		if (sector_gap_delay != 12'd0)
-			sector_gap_delay <= sector_gap_delay - 12'd1;
+		if (sector_gap_delay != 20'd0)
+			sector_gap_delay <= sector_gap_delay - 20'd1;
 		if(stb_adv)begin
 			if(!data_complete) data_cnt <= data_cnt + 1'd1;
 			data_complete <= (data_len - 1'd1) == data_cnt;
@@ -526,16 +537,16 @@ wire [15:0] tlen10 = { cmd[7], cmd[8] };
 always @(posedge clk) begin
 	if(rst) begin
 		phase <= PHASE_IDLE;
-		phase_change_delay <= 12'd0;
+		phase_change_delay <= 20'd0;
 	end else begin
 		if(phase == PHASE_IDLE) begin
-			phase_change_delay <= 12'd0;
+			phase_change_delay <= 20'd0;
 			if(sel && din[ID] && mounted)  // own id on bus during selection?
 				phase <= PHASE_CMD_IN;
 		end
 
 		else if(phase == PHASE_CMD_IN) begin
-			phase_change_delay <= 12'd0;
+			phase_change_delay <= 20'd0;
 			// check if a full command is in the buffer
 			if(cmd_cpl) begin
 				if (debug_commands)
@@ -563,48 +574,48 @@ always @(posedge clk) begin
 
 		else if(phase == PHASE_DATA_OUT) begin
 			if(data_complete) begin
-				if (phase_change_delay == 12'd0 && phase_complete_delay_cfg == 12'd0)
+				if (phase_change_delay == 20'd0 && phase_complete_delay_cfg == 20'd0)
 					phase <= PHASE_STATUS_OUT;
-				else if (phase_change_delay == 12'd0)
+				else if (phase_change_delay == 20'd0)
 					phase_change_delay <= phase_complete_delay_cfg;
 				else begin
-					phase_change_delay <= phase_change_delay - 12'd1;
-					if (phase_change_delay == 12'd1)
+					phase_change_delay <= phase_change_delay - 20'd1;
+					if (phase_change_delay == 20'd1)
 						phase <= PHASE_STATUS_OUT;
 				end
 			end else begin
-				phase_change_delay <= 12'd0;
+				phase_change_delay <= 20'd0;
 			end
 		end
 
 		else if(phase == PHASE_DATA_IN) begin
 			if(data_complete) begin
-				if (phase_change_delay == 12'd0 && phase_complete_delay_cfg == 12'd0)
+				if (phase_change_delay == 20'd0 && phase_complete_delay_cfg == 20'd0)
 					phase <= PHASE_STATUS_OUT;
-				else if (phase_change_delay == 12'd0)
+				else if (phase_change_delay == 20'd0)
 					phase_change_delay <= phase_complete_delay_cfg;
 				else begin
-					phase_change_delay <= phase_change_delay - 12'd1;
-					if (phase_change_delay == 12'd1)
+					phase_change_delay <= phase_change_delay - 20'd1;
+					if (phase_change_delay == 20'd1)
 						phase <= PHASE_STATUS_OUT;
 				end
 			end else begin
-				phase_change_delay <= 12'd0;
+				phase_change_delay <= 20'd0;
 			end
 		end
 
 		else if(phase == PHASE_STATUS_OUT) begin
-			phase_change_delay <= 12'd0;
+			phase_change_delay <= 20'd0;
 			if(status_sent) phase <= PHASE_MESSAGE_OUT;
 		end
 
 		else if(phase == PHASE_MESSAGE_OUT) begin
-			phase_change_delay <= 12'd0;
+			phase_change_delay <= 20'd0;
 			if(message_sent) phase <= PHASE_IDLE;
 		end
 
 		else begin
-			phase_change_delay <= 12'd0;
+			phase_change_delay <= 20'd0;
 			phase <= PHASE_IDLE;  // should never happen
 		end
 	end

@@ -32,6 +32,7 @@ local function in_target_pc(pc)
 	return (pc >= 0x40806530 and pc <= 0x40806566)
 		or (pc >= 0x4080d650 and pc <= 0x4080d6b4)
 		or (pc >= 0x4080de80 and pc <= 0x4080dfc0)
+		or (pc >= 0x4080e100 and pc <= 0x4080e160)
 		or (pc >= 0x000fe000 and pc < 0x00100000)
 end
 
@@ -43,11 +44,14 @@ local function probe_fetch(offset, data, mask)
 	last_pc = pc
 	local sp = reg("A7") & 0x00ffffff
 	print(string.format(
-		"MAME_RETURN frame=%d pc=%s op=%04X tick=%s d0=%s d1=%s d2=%s d5=%s d6=%s a0=%s a1=%s a2=%s a3=%s a4=%s a6=%s a7=%s spw=%04X spl0=%s spl1=%s l08ee=%s l0d10=%s l0d14=%s",
+		"MAME_RETURN frame=%d pc=%s op=%04X tick=%s d0=%s d1=%s d2=%s d5=%s d6=%s a0=%s a1=%s a2=%s a3=%s a4=%s a5=%s a6=%s a7=%s spw=%04X spl0=%s spl1=%s memtop=%s bufptr=%s heapend=%s appllimit=%s syszone=%s applzone=%s dserr=%04X savedpc=%s ioresult_ffc0c=%04X l08ee=%s l0d10=%s l0d14=%s",
 		frames, hex(pc), data or 0, hex(u32(0x016a)), hex(reg("D0")), hex(reg("D1")),
 		hex(reg("D2")), hex(reg("D5")), hex(reg("D6")), hex(reg("A0")), hex(reg("A1")),
-		hex(reg("A2")), hex(reg("A3")), hex(reg("A4")), hex(reg("A6")), hex(reg("A7")),
-		u16(sp), hex(u32(sp + 2)), hex(u32(sp + 6)), hex(u32(0x08ee)),
+		hex(reg("A2")), hex(reg("A3")), hex(reg("A4")), hex(reg("A5")), hex(reg("A6")), hex(reg("A7")),
+		u16(sp), hex(u32(sp + 2)), hex(u32(sp + 6)), hex(u32(0x0108)), hex(u32(0x010c)),
+		hex(u32(0x0114)), hex(u32(0x0130)), hex(u32(0x02a6)), hex(u32(0x02aa)),
+		u16(0x0af0), hex(u32(0x0c70)),
+		u16(0x0ffc0c), hex(u32(0x08ee)),
 		hex(u32(0x0d10)), hex(u32(0x0d14))))
 	printed = printed + 1
 end
@@ -55,6 +59,7 @@ end
 mem:install_read_tap(0x40806530, 0x40806567, "return_stack_trap", probe_fetch)
 mem:install_read_tap(0x4080d650, 0x4080d6b7, "return_stack_d6", probe_fetch)
 mem:install_read_tap(0x4080de80, 0x4080dfc3, "return_stack_de", probe_fetch)
+mem:install_read_tap(0x4080e100, 0x4080e163, "return_stack_e1", probe_fetch)
 
 emu.register_frame_done(function()
 	frames = frames + 1

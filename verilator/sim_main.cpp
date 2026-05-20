@@ -658,6 +658,7 @@ static bool return_stack_debug_pc(uint32_t pc) {
 	if ((pc >= 0x40806530 && pc <= 0x40806566) ||
 	    (pc >= 0x4080D650 && pc <= 0x4080D6B4) ||
 	    (pc >= 0x4080DE80 && pc <= 0x4080DFC0) ||
+	    (pc >= 0x4080E100 && pc <= 0x4080E160) ||
 	    (pc >= 0x40802100 && pc <= 0x40802150)) {
 		return true;
 	}
@@ -688,6 +689,7 @@ static void maybe_print_return_stack_debug(uint32_t pc) {
 		"D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X "
 		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X "
 		"SP=%04X %08X %08X %08X %08X A0@=%08X A1@=%08X A2@=%08X A6@=%08X "
+		"MemTop=%08X BufPtr=%08X HeapEnd=%08X ApplLimit=%08X SysZone=%08X ApplZone=%08X "
 		"L08EE=%08X L0D10=%08X L0D14=%08X DSErr=%04X savedPC=%08X cpuAddr=%08X RW=%d FC=%d ***\n",
 		video.count_frame,
 		lowmem_tick_016a(),
@@ -707,6 +709,12 @@ static void maybe_print_return_stack_debug(uint32_t pc) {
 		ram_long(a1),
 		ram_long(a2),
 		ram_long(a6),
+		ram_long(0x0108),
+		ram_long(0x010C),
+		ram_long(0x0114),
+		ram_long(0x0130),
+		ram_long(0x02A6),
+		ram_long(0x02AA),
 		ram_long(0x08EE),
 		ram_long(0x0D10),
 		ram_long(0x0D14),

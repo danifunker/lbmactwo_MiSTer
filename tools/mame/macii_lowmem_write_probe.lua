@@ -57,6 +57,12 @@ mem:install_write_tap(0x000002a4, 0x000002af, "lowmem_zone_w", function(offset, 
 	log_write(offset, data, mask)
 end)
 
+if cpu.debug then
+	local action = "printf \"MAME_LOWMEM_WP frame=? pc=%08X tick=%08X addr=%08X data=%08X size=%08X d0=%08X d1=%08X a0=%08X a7=%08X MemTop=%08X BufPtr=%08X StkLowPt=%08X HeapEnd=%08X ApplLimit=%08X SysZone=%08X ApplZone=%08X\\n\",pc,d@16a,wpaddr,wpdata,wpsize,d0,d1,a0,a7,d@108,d@10c,d@110,d@114,d@130,d@2a6,d@2aa; g"
+	cpu.debug:wpset(mem, "w", 0x00000108, 0x30, nil, action)
+	cpu.debug:wpset(mem, "w", 0x000002a4, 0x0c, nil, action)
+end
+
 emu.register_frame_done(function()
 	frames = frames + 1
 	if frames >= stop_frame then
