@@ -1,0 +1,755 @@
+Info: *******************************************************************
+Info: Running Quartus Prime SignalTap II TCL Only
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Wed May 20 13:17:06 2026
+Info: Command: quartus_stp_tcl -t scripts/issp_read.tcl 60 200
+Info: Quartus(args): 60 200
+All hardware found: {DE-SoC [USB-1]} {DE-SoC on 127.0.0.1 [USB-1]}
+Using JTAG hardware: DE-SoC [USB-1]
+Devices: {@1: SOCVHPS (0x4BA00477)} {@2: 5CSEBA6(.|ES)/5CSEMA6/.. (0x02D020DD)}
+Using device: @2: 5CSEBA6(.|ES)/5CSEMA6/.. (0x02D020DD)
+ISSP instance info (raw):
+  {0 1 32 CP0_} {1 1 32 DATA} {2 1 32 MAC_} {3 1 32 VID_} {4 1 32 SDRA} {5 1 32 VREG} {6 1 32 CLU0} {7 1 32 CLU1} {8 8 1 VTPN} {9 32 1 CLUE} {10 32 1 CLUF}
+ISSP count: 11
+Resolved indices: 0 1 2 3 4 5 6 7 8 9 10
+Resolved names:   CP0_ DATA MAC_ VID_ SDRA VREG CLU0 CLU1 VTPN CLUE CLUF
+------ Sample 0 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 3035E400
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 1 ------
+  probe 0 (CP0_): 026CC244
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802020
+  probe 3 (VID_): 304FE084
+  probe 4 (SDRA): 55553400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 2 ------
+  probe 0 (CP0_): 026CCAFC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FE6D848
+  probe 3 (VID_): 3031B800
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 3 ------
+  probe 0 (CP0_): 026CC644
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 3072ED80
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 4 ------
+  probe 0 (CP0_): 026CCA44
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 1FEBDC48
+  probe 3 (VID_): 30326B80
+  probe 4 (SDRA): 40820500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 5 ------
+  probe 0 (CP0_): 026CC04C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 01366300
+  probe 3 (VID_): 300F3800
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 6 ------
+  probe 0 (CP0_): 026CCA4C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 3051EC80
+  probe 4 (SDRA): 00004500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 7 ------
+  probe 0 (CP0_): 026CC844
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 18802000
+  probe 3 (VID_): 3077F800
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 8 ------
+  probe 0 (CP0_): 026CCA4C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 18802000
+  probe 3 (VID_): 3003E880
+  probe 4 (SDRA): 55550500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 9 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): C9025555
+  probe 2 (MAC_): 21366048
+  probe 3 (VID_): 30633800
+  probe 4 (SDRA): 00400400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 10 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00005555
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 303B9884
+  probe 4 (SDRA): 00001500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 11 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 000556C9
+  probe 2 (MAC_): 28000050
+  probe 3 (VID_): 300D5084
+  probe 4 (SDRA): E1AD1400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 12 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 301F1780
+  probe 4 (SDRA): 082B0400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 13 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): C9020000
+  probe 2 (MAC_): 30000050
+  probe 3 (VID_): 30282900
+  probe 4 (SDRA): 55550400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 14 ------
+  probe 0 (CP0_): 026CCA4C
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 303D64A8
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 15 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): FFFFAAAA
+  probe 2 (MAC_): 21366340
+  probe 3 (VID_): 304E3800
+  probe 4 (SDRA): 00001500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 16 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): FFFF56CD
+  probe 2 (MAC_): 30000040
+  probe 3 (VID_): 3051B800
+  probe 4 (SDRA): 55550400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 17 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 1FF6E640
+  probe 3 (VID_): 3074E280
+  probe 4 (SDRA): 00003500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 18 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 1FDE6658
+  probe 3 (VID_): 301F6100
+  probe 4 (SDRA): 56C92500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 19 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05055555
+  probe 2 (MAC_): 1FDF6E48
+  probe 3 (VID_): 3018A384
+  probe 4 (SDRA): 45550500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 20 ------
+  probe 0 (CP0_): 026CC644
+  probe 1 (DATA): 00820000
+  probe 2 (MAC_): 21366240
+  probe 3 (VID_): 3033E1A8
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 21 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FD39450
+  probe 3 (VID_): 3009A180
+  probe 4 (SDRA): AAAAF500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 22 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FF74340
+  probe 3 (VID_): 30495F80
+  probe 4 (SDRA): 0000B500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 23 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 18802020
+  probe 3 (VID_): 30013400
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 24 ------
+  probe 0 (CP0_): 0224F4FC
+  probe 1 (DATA): FFFF51CD
+  probe 2 (MAC_): 01355E20
+  probe 3 (VID_): 30492C80
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 25 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FF50040
+  probe 3 (VID_): 305C3800
+  probe 4 (SDRA): 00003500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 26 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 30163700
+  probe 4 (SDRA): 55550500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 27 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): C9020000
+  probe 2 (MAC_): 1FF37950
+  probe 3 (VID_): 303D9A00
+  probe 4 (SDRA): 0000F500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 28 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 01366410
+  probe 3 (VID_): 30463800
+  probe 4 (SDRA): 56CD0400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 29 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): FFFF56CD
+  probe 2 (MAC_): 18802020
+  probe 3 (VID_): 30607584
+  probe 4 (SDRA): AAAAA500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 30 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 30157800
+  probe 4 (SDRA): 082B0400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 31 ------
+  probe 0 (CP0_): 026CC04C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 1FEE0858
+  probe 3 (VID_): 3026A300
+  probe 4 (SDRA): AAAA0400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 32 ------
+  probe 0 (CP0_): 026CC244
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 1FEAD258
+  probe 3 (VID_): 30139228
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 33 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 05055555
+  probe 2 (MAC_): 1FF6D458
+  probe 3 (VID_): 302DF484
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 34 ------
+  probe 0 (CP0_): 026CC244
+  probe 1 (DATA): FFFF082B
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 301A7384
+  probe 4 (SDRA): 01622400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 35 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 28000140
+  probe 3 (VID_): 3034A200
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 36 ------
+  probe 0 (CP0_): 00608044
+  probe 1 (DATA): 05055555
+  probe 2 (MAC_): 21366040
+  probe 3 (VID_): 3044A184
+  probe 4 (SDRA): 00001500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 37 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0505AAAA
+  probe 2 (MAC_): 18802020
+  probe 3 (VID_): 3042E784
+  probe 4 (SDRA): 00001500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 38 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): FFFF082B
+  probe 2 (MAC_): 21366540
+  probe 3 (VID_): 30511280
+  probe 4 (SDRA): AAAA3500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 39 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 300D5D80
+  probe 4 (SDRA): 00002500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 40 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 21366340
+  probe 3 (VID_): 30593800
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 41 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 09FC0006
+  probe 2 (MAC_): 28000648
+  probe 3 (VID_): 302DD284
+  probe 4 (SDRA): 00060400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 42 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): FFFF082B
+  probe 2 (MAC_): 28000950
+  probe 3 (VID_): 304E3800
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 43 ------
+  probe 0 (CP0_): 026CCAFC
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802000
+  probe 3 (VID_): 3077F800
+  probe 4 (SDRA): 00401400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 44 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 0005FFF8
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 302A3384
+  probe 4 (SDRA): 00060400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 45 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): C9020000
+  probe 2 (MAC_): 18802000
+  probe 3 (VID_): 30175300
+  probe 4 (SDRA): AAAAF400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 46 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 302D9880
+  probe 4 (SDRA): 00400400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 47 ------
+  probe 0 (CP0_): 026CC844
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 306B7084
+  probe 4 (SDRA): 00060400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 48 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 09FE0040
+  probe 2 (MAC_): 18802000
+  probe 3 (VID_): 30082D80
+  probe 4 (SDRA): 00000500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 49 ------
+  probe 0 (CP0_): 026CC24C
+  probe 1 (DATA): 00010000
+  probe 2 (MAC_): 1FE6C210
+  probe 3 (VID_): 30735880
+  probe 4 (SDRA): AAAA4500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 50 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 1FD2C910
+  probe 3 (VID_): 30263800
+  probe 4 (SDRA): 55550400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 51 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 00050000
+  probe 2 (MAC_): 21366140
+  probe 3 (VID_): 30256480
+  probe 4 (SDRA): 56C9C500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 52 ------
+  probe 0 (CP0_): 026CC044
+  probe 1 (DATA): 0005FFF8
+  probe 2 (MAC_): 18802010
+  probe 3 (VID_): 302A3800
+  probe 4 (SDRA): 00001500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 53 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 050556C9
+  probe 2 (MAC_): 01366130
+  probe 3 (VID_): 30331784
+  probe 4 (SDRA): AAAA3500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 54 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 30000048
+  probe 3 (VID_): 3039F700
+  probe 4 (SDRA): 56C98500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 55 ------
+  probe 0 (CP0_): 026CC844
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 21366248
+  probe 3 (VID_): 304DF800
+  probe 4 (SDRA): 55550500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 56 ------
+  probe 0 (CP0_): 026CC24C
+  probe 1 (DATA): 00020000
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 3064B780
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 57 ------
+  probe 0 (CP0_): 026CC84C
+  probe 1 (DATA): 05050000
+  probe 2 (MAC_): 30000058
+  probe 3 (VID_): 3077F800
+  probe 4 (SDRA): 00000400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 58 ------
+  probe 0 (CP0_): F100405C
+  probe 1 (DATA): 05055555
+  probe 2 (MAC_): 18802020
+  probe 3 (VID_): 3077F800
+  probe 4 (SDRA): 55553400
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+------ Sample 59 ------
+  probe 0 (CP0_): 07F75C04
+  probe 1 (DATA): 0000E0C2
+  probe 2 (MAC_): 18802030
+  probe 3 (VID_): 3007B800
+  probe 4 (SDRA): 0000F500
+  probe 5 (VREG): 80008080
+  probe 6 (CLU0): FFFFFF00
+  probe 7 (CLU1): 00000000
+  probe 8 (VTPN): 0
+  probe 9 (CLUE): 0
+  probe 10 (CLUF): 0
+Info (23030): Evaluation of Tcl script scripts/issp_read.tcl was successful
+Info: Quartus Prime SignalTap II TCL Only was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4318 megabytes
+    Info: Processing ended: Wed May 20 13:17:21 2026
+    Info: Elapsed time: 00:00:15
+    Info: Total CPU time (on all processors): 00:00:05
