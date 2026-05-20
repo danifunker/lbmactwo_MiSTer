@@ -525,8 +525,23 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 // arbiter's video_clean tracking + registered vram_din already keep
 // video reads correct without touching the Mac CPU's DTACK.  Restore
 // the original DTACK so Mac bus timing matches the known-good build.
-wire ram_or_rom_dtack = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) |
+wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) |
                          (status_turbo & !turbo_dtack_en));
+
+// COHERENCY FIX (2026-05-20): the SDRAM is shared with the NuBus video card
+// through sdram_arbiter, and JTAG measurement showed ~50% of Mac reads begin
+// while video holds the SDRAM (sdram_dout = the video word, not Mac's data).
+// With the old immediate "turbo" DTACK the CPU latched that video word and
+// executed/used corrupted data -> non-deterministic palette + boot stall.
+// For a RAM/ROM READ, defer DTACK until the arbiter asserts mac_dout_valid
+// (a clean SDRAM slot completed with the Mac's address).  Because
+// grant_video = !mac_active, the Mac wins the next SDRAM slot the instant it
+// asserts, so this always releases within ~1-2 SDRAM cycles -- it cannot
+// wedge the CPU the way the old blanket mac_stall did.  Writes and the turbo
+// fast path are unchanged.
+wire mac_is_sdram_read = (!_ramOE || !_romOE);
+wire ram_or_rom_dtack = (mac_is_sdram_read && !arb_mac_dout_valid) ? 1'b1
+                                                                   : ram_or_rom_dtack_raw;
 
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
@@ -772,6 +787,10 @@ wire [23:0] dbg_clut1;
 // the real SDRAM data instead of latching the video's mid-transaction
 // word and executing a corrupted instruction.
 wire        arb_mac_stall;
+// Mac READ data-valid from the arbiter: high once sdram_dout holds the Mac's
+// own read word (a clean SDRAM slot completed).  Gates the RAM/ROM read
+// DTACK below so the CPU never latches the video's in-flight word.
+wire        arb_mac_dout_valid;
 // JTAG-controlled video test pattern (driven by altsource_probe source).
 wire [2:0]  dbg_test_pattern;
 // JTAG-controlled CLUT override for slots 0/1.
@@ -1152,7 +1171,8 @@ sdram_arbiter arbiter (
 	.dbg_mac_idle_cnt(dbg_mac_idle_cnt),
 	.dbg_vram_state(dbg_vram_state),
 
-	.mac_stall(arb_mac_stall)
+	.mac_stall(arb_mac_stall),
+	.mac_dout_valid(arb_mac_dout_valid)
 );
 
 // ---- JTAG debug instrumentation ----

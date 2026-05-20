@@ -52,7 +52,25 @@ module sdram_arbiter (
     // word.  Without this, Mac can pick up garbage and execute corrupted
     // code (the BERR at PC=$40806A0E -> Error1Handler -> Test Manager
     // poll loop the project's docs/new-scc.md describes).
-    output        mac_stall
+    output        mac_stall,
+
+    // Mac READ data-valid handshake (the real coherency fix).
+    //
+    // The SDRAM controller samples oe/addr only at t=0 of its 8-state cycle
+    // (marked by clk8_en_p) and the read word lands in sdram_dout at t=5.
+    // The Mac's old "turbo" DTACK asserted immediately on AS, which is only
+    // safe when the Mac wins every SDRAM slot -- but video steals ~50% of
+    // them, so the Mac latched the video word ~half the time.
+    //
+    // Because grant_video = !mac_active, the Mac wins the *next* t=0 slot
+    // the instant it asserts a read, and keeps winning while it waits.  So
+    // we count clk8_en_p edges while a Mac read is asserted: the first edge
+    // latches the Mac command into the SDRAM, by the second edge sdram_dout
+    // holds the Mac word and is stable.  mac_dout_valid then rises and the
+    // CPU DTACK is allowed to assert.  Guaranteed to release (the Mac always
+    // wins the slot), so it cannot wedge the CPU the way the blanket
+    // mac_stall did.
+    output        mac_dout_valid
 );
 
     // ------------------------------------------------------------------------
@@ -279,6 +297,38 @@ module sdram_arbiter (
     end
     assign mac_stall = ((vram_state != VRAM_IDLE) || (post_video_cnt != 4'd0))
                        & mac_active;
+
+    // ------------------------------------------------------------------------
+    // Mac READ data-valid handshake (coherency fix -- see port comment).
+    //
+    // While the Mac holds a read (mac_oe), count clk8_en_p edges (SDRAM t=0
+    // boundaries).  grant_video = !mac_active, so every t=0 reached while the
+    // Mac waits serves the Mac's address.  The first edge latches the Mac
+    // command; by the second edge sdram_dout holds the Mac word (latched at
+    // t=5 of the first slot) and is stable.  Assert valid then.  Writes do
+    // not need this (Mac latches no read data); they keep the fast path.
+    // The counter resets the moment the read deasserts, so the next read
+    // starts fresh and the handshake always releases.
+    // ------------------------------------------------------------------------
+    reg [1:0] mac_rd_t0_cnt;
+    reg       mac_dout_valid_r;
+    always @(posedge clk) begin
+        if (reset) begin
+            mac_rd_t0_cnt    <= 2'd0;
+            mac_dout_valid_r <= 1'b0;
+        end else if (!mac_oe) begin
+            // No read in progress -- arm for the next one.
+            mac_rd_t0_cnt    <= 2'd0;
+            mac_dout_valid_r <= 1'b0;
+        end else begin
+            // Mac read asserted: advance on each SDRAM cycle boundary.
+            if (clk8_en_p && mac_rd_t0_cnt != 2'd2)
+                mac_rd_t0_cnt <= mac_rd_t0_cnt + 2'd1;
+            if (mac_rd_t0_cnt == 2'd2)
+                mac_dout_valid_r <= 1'b1;
+        end
+    end
+    assign mac_dout_valid = mac_dout_valid_r;
 
     // Debug exposures for JTAG instrumentation
     assign dbg_grant_video  = grant_video;
