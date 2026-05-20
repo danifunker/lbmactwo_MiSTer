@@ -16,5 +16,7 @@ set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc688
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_sgl_ops_unit.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_trig_unit.vhd ]
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_alu.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_top.vhd ]
+# mc68881_top.vhd uses a VHDL-2008 simplified sensitivity list (process(all))
+# in the CIR coprocessor microcode that main added, so compile it as VHDL 2008.
+set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_top.vhd ] -hdl_version VHDL_2008
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) vhdl/mc68881_fpu_lite.vhd ]
