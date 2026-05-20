@@ -242,7 +242,7 @@ wire status_video_mono = status[13];
 
 ////////////////////   CLOCKS   ///////////////////
 
-wire clk_sys, clk_mem, clk_mem_ps;
+wire clk_sys, clk_mem;
 wire pll_locked;
 
 pll pll
@@ -250,7 +250,6 @@ pll pll
 	.refclk(CLK_50M),
 	.outclk_0(clk_mem),      // 65MHz, 0° - SDRAM controller
 	.outclk_1(clk_sys),      // 32.5MHz, 180° - System
-	.outclk_2(clk_mem_ps),   // 65MHz, -90° - SDRAM chip clock
 	.locked(pll_locked)
 );
 
@@ -518,11 +517,24 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
                       ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 // DTACK: FPU uses DSACK protocol (assert DTACK when either DSACK line goes low)
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
+// COHERENCY FIX: the SDRAM is shared with the NuBus video card through
+// sdram_arbiter, and ~50% of Mac reads begin while video holds the SDRAM
+// (sdram_dout = the video word, not Mac's data). With the old immediate
+// "turbo" DTACK the CPU latched that video word and executed/used corrupted
+// data. For a RAM/ROM READ, defer DTACK until the arbiter asserts
+// mac_dout_valid (a clean SDRAM slot completed with the Mac's address).
+// grant_video = !mac_active means the Mac wins the next slot the instant it
+// asserts, so this always releases within ~1-2 SDRAM cycles. Writes and the
+// turbo fast path are unchanged.
+wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+wire mac_is_sdram_read    = (!_ramOE || !_romOE);
+wire ram_or_rom_dtack     = (mac_is_sdram_read && !arb_mac_dout_valid) ? 1'b1
+                                                                       : ram_or_rom_dtack_raw;
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
-                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+                        ram_or_rom_dtack;
 
 // Debug LED tracking - extended duration for visibility
 reg [27:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
@@ -1004,6 +1016,7 @@ wire [15:0] arb_mac_dout;
 wire  [1:0] arb_mac_ds;
 wire        arb_mac_we;
 wire        arb_mac_oe;
+wire        arb_mac_dout_valid;  // Mac read data-valid (coherency fix)
 
 wire [24:0] arb_vram_addr;
 wire [15:0] arb_vram_dout;
@@ -1023,7 +1036,6 @@ sdram sdram
 	// system interface
 	.init           ( !pll_locked              ),
 	.clk_64         ( clk_mem                  ),
-	.clk_64_ps      ( clk_mem_ps               ),  // Phase-shifted clock for SDRAM chip
 	.clk_8          ( clk8                     ),
 
 	.sd_clk         ( SDRAM_CLK                ),
@@ -1049,8 +1061,9 @@ sdram sdram
 // SDRAM Arbiter - share SDRAM between Mac and NuBus video
 sdram_arbiter arbiter (
 	.clk(clk_sys),
+	.clk8_en_p(clk8_en_p),  // SDRAM cycle T0 marker for the coherency handshake
 	.reset(!pll_locked),  // Reset with SDRAM, not CPU
-	
+
 	// Mac system port
 	.mac_addr(arb_mac_addr),
 	.mac_din(arb_mac_din),
@@ -1058,22 +1071,32 @@ sdram_arbiter arbiter (
 	.mac_ds(arb_mac_ds),
 	.mac_we(arb_mac_we),
 	.mac_oe(arb_mac_oe),
-	
-	// Video card port  
+
+	// Video card port
 	.vram_addr(arb_vram_addr),
 	.vram_dout(arb_vram_dout),
 	.vram_din(arb_vram_din),
 	.vram_rd(arb_vram_rd),
 	.vram_wr(arb_vram_wr),
 	.vram_ready(arb_vram_ready),
-	
+
 	// SDRAM controller
 	.sdram_addr(sdram_addr),
 	.sdram_din(sdram_din),
 	.sdram_dout(sdram_out),
 	.sdram_ds(sdram_ds),
 	.sdram_we(sdram_we),
-	.sdram_oe(sdram_oe)
+	.sdram_oe(sdram_oe),
+
+	// Debug exposures (unused on this branch)
+	.dbg_grant_video(),
+	.dbg_video_clean(),
+	.dbg_mac_idle_cnt(),
+	.dbg_vram_state(),
+	.mac_stall(),
+
+	// Mac READ data-valid handshake (coherency fix)
+	.mac_dout_valid(arb_mac_dout_valid)
 );
 
 endmodule

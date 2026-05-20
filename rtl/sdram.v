@@ -34,8 +34,7 @@ module sdram
 
 	// cpu/chipset interface
 	input               init,       // init signal after FPGA config to initialize RAM
-	input               clk_64,     // sdram controller clock at 64MHz
-	input               clk_64_ps,  // phase-shifted clock for SDRAM chip (-90° to -120°)
+	input               clk_64,     // sdram is accessed at 64MHz
 	input               clk_8,      // 8MHz chipset clock to which sdram state machine is synchronized
 
 	input [15:0]        din,        // data input from chipset/cpu
@@ -172,8 +171,29 @@ always @(posedge clk_64) begin
 	end
 end
 
-// Use phase-shifted clock directly from PLL for proper SDRAM timing
-// The phase shift (-90° to -120°) ensures data is stable before SDRAM samples it
-assign sd_clk = clk_64_ps;
+altddio_out
+#(
+	.extend_oe_disable("OFF"),
+	.intended_device_family("Cyclone V"),
+	.invert_output("OFF"),
+	.lpm_hint("UNUSED"),
+	.lpm_type("altddio_out"),
+	.oe_reg("UNREGISTERED"),
+	.power_up_high("OFF"),
+	.width(1)
+)
+sdramclk_ddr
+(
+	.datain_h(1'b0),
+	.datain_l(1'b1),
+	.outclock(clk_64),
+	.dataout(sd_clk),
+	.aclr(1'b0),
+	.aset(1'b0),
+	.oe(1'b1),
+	.outclocken(1'b1),
+	.sclr(1'b0),
+	.sset(1'b0)
+);
 
 endmodule
