@@ -77,7 +77,13 @@ module nubus_video_highres #(
     // palette into the real CLUT entries.
     input        dbg_clut_override,
     input [23:0] dbg_clut0_force,
-    input [23:0] dbg_clut1_force
+    input [23:0] dbg_clut1_force,
+
+    // RAMDAC write-history readback (JTAG): select an entry with
+    // dbg_ramdac_hist_idx, read {wptr[4:0], 2'b0, entry[8:0]} on
+    // dbg_ramdac_hist.
+    input  [4:0] dbg_ramdac_hist_idx,
+    output [15:0] dbg_ramdac_hist
 );
 
     // ========================================================================
@@ -213,9 +219,17 @@ module nubus_video_highres #(
     // Bt453 RAMDAC state
     reg [7:0] ramdac_addr;
     reg [1:0] ramdac_rgb;   // 0=R, 1=G, 2=B
-    reg [31:0] ramdac_last_addr;
-    reg [15:0] ramdac_last_data;
-    reg ramdac_dup_phase;
+    reg [31:0] ramdac_last_addr;   // (legacy, unused after v8)
+    reg [15:0] ramdac_last_data;   // (legacy, unused after v8)
+    reg ramdac_dup_phase;          // (legacy, unused after v8)
+
+    // RAMDAC write history ring buffer for hardware debugging.
+    // Each entry: bit 8 = addr[2] (0=address port, 1=data port),
+    //             bits 7:0 = the byte written (data_in[15:8]).
+    reg [8:0] ramdac_hist [0:31];
+    reg [4:0] ramdac_hist_wptr;
+    // Index-selectable read for ISSP: dbg_ramdac_hist_idx picks the entry.
+    assign dbg_ramdac_hist = {ramdac_hist_wptr, 2'b00, ramdac_hist[dbg_ramdac_hist_idx]};
 
     // VBL interrupt
     reg irq_active;
@@ -503,6 +517,7 @@ module nubus_video_highres #(
             ramdac_last_addr <= 32'd0;
             ramdac_last_data <= 16'd0;
             ramdac_dup_phase <= 1'b0;
+            ramdac_hist_wptr <= 5'd0;
             vbl_disable <= 1'b1;
             for (i = 0; i < 16; i = i + 1)
                 registers[i] <= 32'd0;
@@ -685,55 +700,39 @@ module nubus_video_highres #(
                         // byte-wide NuBus peripherals at even addresses.
                         // ---------------------------------------------------
                         else if (!rw_n && addr_is_ramdac) begin
-                            if (ramdac_dup_phase && ramdac_last_addr == addr && ramdac_last_data == data_in) begin
-                                ramdac_dup_phase <= 1'b0;
-                            end else begin
-                                ramdac_last_addr <= addr;
-                                ramdac_last_data <= data_in;
-                                ramdac_dup_phase <= 1'b1;
+                            // V8: removed the ramdac_dup_phase skip.  It skipped
+                            // a write whenever the previous RAMDAC access had the
+                            // same addr+data -- which is EXACTLY what white
+                            // (R=G=B=FF) and black (R=G=B=00) do.  That dropped a
+                            // color channel and misaligned the R/G/B sequence,
+                            // leaving slots at stale values (white came out
+                            // yellow/red, etc.).  The per-access ack handshake
+                            // (state S_IDLE, gated by ack_n + cpu_as_n) already
+                            // processes exactly one write per AS assertion, so
+                            // no dedup is needed here.
+                            //
+                            // Capture the write into a JTAG-readable history
+                            // ring so we can verify the real on-hardware write
+                            // stream: {addr[2] (0=addr port,1=data port), byte}.
+                            ramdac_hist[ramdac_hist_wptr] <= {addr[2], data_in[15:8]};
+                            ramdac_hist_wptr <= ramdac_hist_wptr + 5'd1;
 
-                                if (addr[2] == 1'b0) begin
-                                    // Set RAMDAC address, reset RGB counter.
-                                    // V6: removed XOR so Mac's slot writes
-                                    // land at the slot Mac intended.  With
-                                    // the XOR, Mac's slot 0 write went to
-                                    // our clut[0xFF], and our 1bpp display
-                                    // reads clut[0]/clut[1] (Mac's slots
-                                    // 0xFF/0xFE) which holds whatever junk
-                                    // colors Mac happened to write to the
-                                    // top of the palette -- cyan/red here.
-                                    ramdac_addr <= data_in[15:8];
-                                    ramdac_rgb <= 2'd0;
-                                end else begin
-                                    // Write palette R/G/B sequentially.  MAME's
-                                    // ramdac_w XORs the whole bus word with
-                                    // 0xFFFFFFFF before splitting into
-                                    // address_w / palette_w, so both the
-                                    // address and each color byte get
-                                    // inverted on the way in.  Reverting an
-                                    // earlier experimental change that
-                                    // dropped the color inversion: empirical
-                                    // testing (sim cursor came out negative)
-                                    // confirmed the inversion is needed.
-                                    // V6: dropped XOR on RGB so Mac's color
-                                    // bytes get stored verbatim.  Combined
-                                    // with the address-XOR removal above
-                                    // and the VRAM-XOR removal, the whole
-                                    // VRAM->display->CLUT->DAC pipeline is
-                                    // identity.  Mac writes white at slot
-                                    // 0, we render white where Mac wanted
-                                    // pixel value 0.
-                                    case (ramdac_rgb)
-                                        2'd0: clut[ramdac_addr][23:16] <= data_in[15:8]; // R
-                                        2'd1: clut[ramdac_addr][15:8]  <= data_in[15:8]; // G
-                                        2'd2: begin
-                                            clut[ramdac_addr][7:0] <= data_in[15:8];     // B
-                                            ramdac_addr <= ramdac_addr + 8'd1;            // Auto-increment
-                                        end
-                                        default: ;
-                                    endcase
-                                    ramdac_rgb <= (ramdac_rgb == 2'd2) ? 2'd0 : ramdac_rgb + 2'd1;
-                                end
+                            if (addr[2] == 1'b0) begin
+                                // Address port write: set slot index, reset RGB
+                                ramdac_addr <= data_in[15:8];
+                                ramdac_rgb <= 2'd0;
+                            end else begin
+                                // Data port write: R, then G, then B; auto-inc
+                                case (ramdac_rgb)
+                                    2'd0: clut[ramdac_addr][23:16] <= data_in[15:8]; // R
+                                    2'd1: clut[ramdac_addr][15:8]  <= data_in[15:8]; // G
+                                    2'd2: begin
+                                        clut[ramdac_addr][7:0] <= data_in[15:8];     // B
+                                        ramdac_addr <= ramdac_addr + 8'd1;
+                                    end
+                                    default: ;
+                                endcase
+                                ramdac_rgb <= (ramdac_rgb == 2'd2) ? 2'd0 : ramdac_rgb + 2'd1;
                             end
                             ack_delay <= 3'd2;
                         end

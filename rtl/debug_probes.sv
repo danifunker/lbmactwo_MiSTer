@@ -58,7 +58,11 @@ module debug_probes (
     // of what Mac actually wrote into the real CLUT.
     output wire        vid_clut_override,
     output wire [23:0] vid_clut0_force,
-    output wire [23:0] vid_clut1_force
+    output wire [23:0] vid_clut1_force,
+
+    // RAMDAC write-history readback: drive an index out, read the word back.
+    output wire [4:0]  vid_ramdac_hist_idx,
+    input  wire [15:0] vid_ramdac_hist
 );
 
     // Snapshot the wide buses on every clock so JTAG reads (which can land
@@ -283,5 +287,37 @@ module debug_probes (
         .source_ena(1'b1)
     );
     assign vid_clut1_force = clut1_src[23:0];
+
+    // SOURCE probe -- selects which RAMDAC-history entry to read (low 5 bits).
+    wire [7:0] hist_idx_src;
+    altsource_probe #(
+        .instance_id ("RHIX"),
+        .probe_width (1),
+        .source_width(8),
+        .source_initial_value("0"),
+        .sld_auto_instance_index ("YES")
+    ) cp_hist_idx (
+        .probe (1'b0),
+        .source(hist_idx_src),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
+    assign vid_ramdac_hist_idx = hist_idx_src[4:0];
+
+    // PROBE -- reads back the selected RAMDAC-history word
+    // {wptr[4:0], 2'b0, entry[8:0]}.
+    reg [15:0] hist_rd_r;
+    always @(posedge clk) hist_rd_r <= vid_ramdac_hist;
+    altsource_probe #(
+        .instance_id ("RHDT"),
+        .probe_width (16),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_hist_rd (
+        .probe (hist_rd_r),
+        .source(),
+        .source_clk(clk),
+        .source_ena(1'b1)
+    );
 
 endmodule

@@ -778,6 +778,9 @@ wire [2:0]  dbg_test_pattern;
 wire        dbg_clut_override;
 wire [23:0] dbg_clut0_force;
 wire [23:0] dbg_clut1_force;
+// RAMDAC write-history readback.
+wire [4:0]  dbg_ramdac_hist_idx;
+wire [15:0] dbg_ramdac_hist;
 
 nubus_video_highres nubus_card (
 	.clk(clk_sys),
@@ -827,7 +830,9 @@ nubus_video_highres nubus_card (
 	.dbg_test_pattern(dbg_test_pattern),
 	.dbg_clut_override(dbg_clut_override),
 	.dbg_clut0_force(dbg_clut0_force),
-	.dbg_clut1_force(dbg_clut1_force)
+	.dbg_clut1_force(dbg_clut1_force),
+	.dbg_ramdac_hist_idx(dbg_ramdac_hist_idx),
+	.dbg_ramdac_hist(dbg_ramdac_hist)
 );
 
 dataController_top #(SCSI_DEVS) dc0
@@ -1192,7 +1197,9 @@ debug_probes dbg (
     .vid_test_pattern   (dbg_test_pattern),
     .vid_clut_override  (dbg_clut_override),
     .vid_clut0_force    (dbg_clut0_force),
-    .vid_clut1_force    (dbg_clut1_force)
+    .vid_clut1_force    (dbg_clut1_force),
+    .vid_ramdac_hist_idx (dbg_ramdac_hist_idx),
+    .vid_ramdac_hist    (dbg_ramdac_hist)
 );
 
 endmodule
