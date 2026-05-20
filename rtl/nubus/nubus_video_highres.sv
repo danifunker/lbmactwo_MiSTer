@@ -83,7 +83,7 @@ module nubus_video_highres #(
     // dbg_ramdac_hist_idx, read {wptr[4:0], 2'b0, entry[8:0]} on
     // dbg_ramdac_hist.
     input  [4:0] dbg_ramdac_hist_idx,
-    output [15:0] dbg_ramdac_hist
+    output [31:0] dbg_ramdac_hist
 );
 
     // ========================================================================
@@ -224,11 +224,16 @@ module nubus_video_highres #(
     reg ramdac_dup_phase;          // (legacy, unused after v8)
 
     // RAMDAC write history ring buffer for hardware debugging.
-    // Each entry: bit 8 = addr[2] (0=address port, 1=data port),
-    //             bits 7:0 = the byte written (data_in[15:8]).
-    reg [8:0] ramdac_hist [0:31];
-    reg [4:0] ramdac_hist_wptr;
-    // Index-selectable read for ISSP: dbg_ramdac_hist_idx picks the entry.
+    // Each 25-bit entry packs the full context of one RAMDAC access so we
+    // can tell a doubled bus cycle / wrong byte-lane / genuine Mac write
+    // apart on real hardware:
+    //   [24:20] = addr[4:0]   (port = addr[2]; low bits show lane/register)
+    //   [19:18] = uds_lds      (active byte strobes)
+    //   [17:16] = ramdac_rgb   (R/G/B phase the hardware assigned this write)
+    //   [15:0]  = data_in       (BOTH byte lanes)
+    reg [24:0] ramdac_hist [0:31];
+    reg [4:0]  ramdac_hist_wptr;
+    // Index-selectable read for ISSP: {wptr[4:0], 2'b0, entry[24:0]} = 32 bits.
     assign dbg_ramdac_hist = {ramdac_hist_wptr, 2'b00, ramdac_hist[dbg_ramdac_hist_idx]};
 
     // VBL interrupt
@@ -714,7 +719,7 @@ module nubus_video_highres #(
                             // Capture the write into a JTAG-readable history
                             // ring so we can verify the real on-hardware write
                             // stream: {addr[2] (0=addr port,1=data port), byte}.
-                            ramdac_hist[ramdac_hist_wptr] <= {addr[2], data_in[15:8]};
+                            ramdac_hist[ramdac_hist_wptr] <= {addr[4:0], uds_lds, ramdac_rgb, data_in};
                             ramdac_hist_wptr <= ramdac_hist_wptr + 5'd1;
 
                             if (addr[2] == 1'b0) begin

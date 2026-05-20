@@ -62,7 +62,7 @@ module debug_probes (
 
     // RAMDAC write-history readback: drive an index out, read the word back.
     output wire [4:0]  vid_ramdac_hist_idx,
-    input  wire [15:0] vid_ramdac_hist
+    input  wire [31:0] vid_ramdac_hist
 );
 
     // Snapshot the wide buses on every clock so JTAG reads (which can land
@@ -305,12 +305,12 @@ module debug_probes (
     assign vid_ramdac_hist_idx = hist_idx_src[4:0];
 
     // PROBE -- reads back the selected RAMDAC-history word
-    // {wptr[4:0], 2'b0, entry[8:0]}.
-    reg [15:0] hist_rd_r;
+    // {wptr[4:0], 2'b0, entry[24:0]}.
+    reg [31:0] hist_rd_r;
     always @(posedge clk) hist_rd_r <= vid_ramdac_hist;
     altsource_probe #(
         .instance_id ("RHDT"),
-        .probe_width (16),
+        .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_hist_rd (

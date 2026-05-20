@@ -780,7 +780,7 @@ wire [23:0] dbg_clut0_force;
 wire [23:0] dbg_clut1_force;
 // RAMDAC write-history readback.
 wire [4:0]  dbg_ramdac_hist_idx;
-wire [15:0] dbg_ramdac_hist;
+wire [31:0] dbg_ramdac_hist;
 
 nubus_video_highres nubus_card (
 	.clk(clk_sys),
