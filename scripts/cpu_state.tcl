@@ -26,7 +26,16 @@ foreach inst $info {
     if {$nm eq "PSC2"} { set idx(PSC2) $i }
     if {$nm eq "PSC3"} { set idx(PSC3) $i }
     if {$nm eq "PSC4"} { set idx(PSC4) $i }
+    if {$nm eq "PSC5"} { set idx(PSC5) $i }
     incr i
+}
+
+proc decode_hs2 {v} {
+    set ss  [expr {($v >> 3) & 1}]
+    set rm  [expr {($v >> 2) & 1}]
+    set sis [expr {($v >> 1) & 1}]
+    set aim [expr {$v & 1}]
+    return [format "status_sent=%d reached_MSG=%d sel_in_status=%d ack_in_msg=%d" $ss $rm $sis $aim]
 }
 
 proc decode_hs {v} {
@@ -129,6 +138,15 @@ for {set s 1} {$s <= 6} {incr s} {
         set hs1 [expr {($s4 >> 8) & 0xFF}]
         puts "           HS t0(ID6): [decode_hs $hs0]"
         puts "           HS t1(ID5): [decode_hs $hs1]"
+    }
+    if {[info exists idx(PSC5)]} {
+        set s5 [rd $idx(PSC5)]
+        set rstc [expr {($s5 >> 8) & 0xFF}]
+        set h2t0 [expr {$s5 & 0xF}]
+        set h2t1 [expr {($s5 >> 4) & 0xF}]
+        puts [format "           BUS_RESETS=%d" $rstc]
+        puts "           CMPL t0(ID6): [decode_hs2 $h2t0]"
+        puts "           CMPL t1(ID5): [decode_hs2 $h2t1]"
     }
     after 300
 }

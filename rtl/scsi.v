@@ -40,7 +40,8 @@ module scsi
 
 	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
-	output [7:0]  dbg_hs        // JTAG debug: REQ/ACK handshake observations
+	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
+	output [3:0]  dbg_hs2       // JTAG debug: completion flags (survive bus reset)
 );
 
 // SCSI device id
@@ -581,6 +582,22 @@ always @(posedge clk) begin
 end
 assign dbg_hs = { dbg_max_cmd_cnt, dbg_cmd_cpl, dbg_ack_in_cmd,
                   dbg_req_in_status, dbg_ack_in_status };
+
+// Completion-phase flags that DELIBERATELY survive a SCSI bus reset (no rst
+// clause), so they accumulate the truth across the Mac's reset/retry cycles:
+//   [3] status byte was ACKed (status_sent fired) in STATUS_OUT
+//   [2] target ever reached MSG_OUT
+//   [1] Mac re-asserted SEL while we were in STATUS_OUT (mid-command select)
+//   [0] Mac ever ACKed a MESSAGE byte (stb_adv in MSG_OUT)
+reg dbg_status_sent_ever, dbg_reached_msg_ever, dbg_sel_in_status_ever, dbg_ack_in_msg_ever;
+always @(posedge clk) begin
+	if((phase == PHASE_STATUS_OUT) && stb_adv) dbg_status_sent_ever  <= 1'b1;
+	if(phase == PHASE_MESSAGE_OUT)             dbg_reached_msg_ever   <= 1'b1;
+	if((phase == PHASE_STATUS_OUT) && sel)     dbg_sel_in_status_ever <= 1'b1;
+	if((phase == PHASE_MESSAGE_OUT) && stb_adv) dbg_ack_in_msg_ever   <= 1'b1;
+end
+assign dbg_hs2 = { dbg_status_sent_ever, dbg_reached_msg_ever,
+                   dbg_sel_in_status_ever, dbg_ack_in_msg_ever };
 
 endmodule
 

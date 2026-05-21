@@ -899,11 +899,13 @@ dataController_top #(SCSI_DEVS) dc0
 	.sd_buff_wr(sd_buff_wr),
 	.dbg_scsi(dbg_scsi),
 	.dbg_scsi2(dbg_scsi2),
-	.dbg_scsi3(dbg_scsi3)
+	.dbg_scsi3(dbg_scsi3),
+	.dbg_scsi4(dbg_scsi4)
 );
 wire [15:0] dbg_scsi;
 wire [15:0] dbg_scsi2;
 wire [15:0] dbg_scsi3;
+wire [15:0] dbg_scsi4;
 
 reg disk_act;
 always @(posedge clk_sys) begin
@@ -1141,7 +1143,8 @@ dbg_min dbg_min_inst (
 	.sd_ack         (sd_ack),
 	.scsi_dbg       (dbg_scsi),
 	.scsi_dbg2      (dbg_scsi2),
-	.scsi_dbg3      (dbg_scsi3)
+	.scsi_dbg3      (dbg_scsi3),
+	.scsi_dbg4      (dbg_scsi4)
 );
 
 endmodule
