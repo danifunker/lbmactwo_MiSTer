@@ -42,7 +42,8 @@ module dbg_min (
     input wire [15:0] scsi_dbg,         // NCR5380 selection/arbitration state
     input wire [15:0] scsi_dbg2,        // NCR5380 phase + io handshake
     input wire [15:0] scsi_dbg3,        // per-target REQ/ACK observations
-    input wire [15:0] scsi_dbg4         // bus-reset count + completion flags
+    input wire [15:0] scsi_dbg4,        // bus-reset count + completion flags
+    input wire [15:0] scsi_dbg5         // per-target command-type bitmap
 );
 
     // Coherent snapshots on clk.
@@ -228,5 +229,17 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psc5 (.probe(scsi5_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // Per-target command-type bitmap.
+    reg [31:0] scsi6_r;
+    always @(posedge clk)
+        scsi6_r <= {16'd0, scsi_dbg5};
+
+    altsource_probe #(
+        .instance_id ("PSC6"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

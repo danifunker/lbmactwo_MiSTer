@@ -27,7 +27,22 @@ foreach inst $info {
     if {$nm eq "PSC3"} { set idx(PSC3) $i }
     if {$nm eq "PSC4"} { set idx(PSC4) $i }
     if {$nm eq "PSC5"} { set idx(PSC5) $i }
+    if {$nm eq "PSC6"} { set idx(PSC6) $i }
     incr i
+}
+
+proc decode_cmd {v} {
+    set s {}
+    if {$v & 0x80} {lappend s READ}
+    if {$v & 0x40} {lappend s WRITE}
+    if {$v & 0x20} {lappend s INQUIRY}
+    if {$v & 0x10} {lappend s TEST_UNIT_READY}
+    if {$v & 0x08} {lappend s READ_CAPACITY}
+    if {$v & 0x04} {lappend s MODE_SENSE}
+    if {$v & 0x02} {lappend s UNSUPPORTED}
+    if {$v & 0x01} {lappend s REQUEST_SENSE}
+    if {[llength $s] == 0} {return "(none)"}
+    return [join $s ,]
 }
 
 proc decode_hs2 {v} {
@@ -147,6 +162,13 @@ for {set s 1} {$s <= 6} {incr s} {
         puts [format "           BUS_RESETS=%d" $rstc]
         puts "           CMPL t0(ID6): [decode_hs2 $h2t0]"
         puts "           CMPL t1(ID5): [decode_hs2 $h2t1]"
+    }
+    if {[info exists idx(PSC6)]} {
+        set s6 [rd $idx(PSC6)]
+        set c0 [expr {$s6 & 0xFF}]
+        set c1 [expr {($s6 >> 8) & 0xFF}]
+        puts "           CMDS t0(ID6): [decode_cmd $c0]"
+        puts "           CMDS t1(ID5): [decode_cmd $c1]"
     }
     after 300
 }

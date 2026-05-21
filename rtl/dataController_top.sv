@@ -111,7 +111,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi,
 	output           [15:0] dbg_scsi2,
 	output           [15:0] dbg_scsi3,
-	output           [15:0] dbg_scsi4
+	output           [15:0] dbg_scsi4,
+	output           [15:0] dbg_scsi5
 );
 
 	// CPU reset generation
@@ -201,7 +202,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_scsi(dbg_scsi),
 		.dbg_scsi2(dbg_scsi2),
 		.dbg_scsi3(dbg_scsi3),
-		.dbg_scsi4(dbg_scsi4)
+		.dbg_scsi4(dbg_scsi4),
+		.dbg_scsi5(dbg_scsi5)
 	);
 
 	// ASC (Apple Sound Chip)
