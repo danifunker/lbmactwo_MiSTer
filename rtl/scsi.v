@@ -169,19 +169,30 @@ wire [7:0] cmd_dout =
 		cmd_inquiry?inquiry_dout:
 		cmd_read_capacity?read_capacity_dout:
 		cmd_mode_sense?mode_sense_dout:
+		cmd_request_sense?request_sense_dout:
 		8'h00;
 wire [15:0] cmd_dout_pair =
 		cmd_read?(data_cnt[0] ? {buffer1_dout, buffer0_dout_next} : {buffer0_dout, buffer1_dout}):
 		cmd_inquiry?{inquiry_dout, inquiry_dout_next}:
 		cmd_read_capacity?{read_capacity_dout, read_capacity_dout_next}:
 		cmd_mode_sense?{mode_sense_dout, mode_sense_dout_next}:
+		cmd_request_sense?{request_sense_dout, request_sense_dout_next}:
 		16'h0000;
 wire [15:0] cmd_dout_pair_next =
 		cmd_read?(data_cnt[0] ? {buffer1_dout_next, buffer0_dout_next2} : {buffer0_dout_next, buffer1_dout_next}):
 		cmd_inquiry?{inquiry_dout_next2, inquiry_dout_next3}:
 		cmd_read_capacity?{read_capacity_dout_next2, read_capacity_dout_next3}:
 		cmd_mode_sense?{mode_sense_dout_next2, mode_sense_dout_next3}:
+		cmd_request_sense?{request_sense_dout_next2, request_sense_dout_next3}:
 		16'h0000;
+
+// REQUEST SENSE response: minimal fixed-format sense, "NO SENSE".
+//   byte 0 = 0x70 (current error, valid=0), byte 7 = 0x0a (add'l length 10),
+//   sense key (byte 2) = 0 = NO SENSE, all else 0.
+wire [7:0] request_sense_dout       = (data_cnt       == 32'd0)?8'h70:(data_cnt       == 32'd7)?8'h0a:8'h00;
+wire [7:0] request_sense_dout_next  = (data_cnt_next  == 32'd0)?8'h70:(data_cnt_next  == 32'd7)?8'h0a:8'h00;
+wire [7:0] request_sense_dout_next2 = (data_cnt_next2 == 32'd0)?8'h70:(data_cnt_next2 == 32'd7)?8'h0a:8'h00;
+wire [7:0] request_sense_dout_next3 = (data_cnt_next3 == 32'd0)?8'h70:(data_cnt_next3 == 32'd7)?8'h0a:8'h00;
 
 // output of inquiry command, identify as "SEAGATE ST225N"
 wire [7:0] inquiry_dout =
@@ -470,11 +481,18 @@ wire       cmd_read_buffer = (op_code == 8'h3b);  // fake
 wire       cmd_write_buffer = (op_code == 8'h3c); // fake
 wire       cmd_verify6 = (op_code == 8'h13); // fake
 wire       cmd_verify10 = (op_code == 8'h2f); // fake
+// REQUEST SENSE (0x03) is MANDATORY: after any CHECK CONDITION the initiator
+// issues it to recover the sense data.  The target previously rejected it
+// (cmd_ok=0 -> CHECK CONDITION), so on hardware -- where a transient error
+// triggers the recovery path -- the Mac could never clear the condition and
+// wedged.  Support it and return a clean "NO SENSE" block.
+wire       cmd_request_sense = (op_code == 8'h03);
 
 // valid command in buffer? TODO: check for valid command parameters
-wire  cmd_ok = cmd_read || cmd_write || cmd_inquiry || cmd_test_unit_ready || 
+wire  cmd_ok = cmd_read || cmd_write || cmd_inquiry || cmd_test_unit_ready ||
 		  cmd_read_capacity || cmd_mode_select || cmd_format || cmd_mode_sense ||
-		  cmd_read_buffer || cmd_write_buffer || cmd_verify6 || cmd_verify10;
+		  cmd_read_buffer || cmd_write_buffer || cmd_verify6 || cmd_verify10 ||
+		  cmd_request_sense;
 
 // latch parameters once command is complete
 reg [31:0] lba;
@@ -522,7 +540,7 @@ always @(posedge clk) begin
 					// continue according to command
 
 					// these commands return data
-					if(cmd_read || cmd_inquiry || cmd_read_capacity || cmd_mode_sense || cmd_read_buffer) phase <= PHASE_DATA_OUT;
+					if(cmd_read || cmd_inquiry || cmd_read_capacity || cmd_mode_sense || cmd_read_buffer || cmd_request_sense) phase <= PHASE_DATA_OUT;
 					// these commands receive dataa
 					else if(cmd_write || cmd_mode_select || cmd_write_buffer) phase <= PHASE_DATA_IN;
 					// and all other valid commands are just "ok"
