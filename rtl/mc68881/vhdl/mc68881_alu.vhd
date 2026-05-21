@@ -259,6 +259,10 @@ begin
     trig_save_data <= (others => '0');
   end generate;
 
+  -- Hardware divide/remainder/sqrt unit is ~6,000 ALMs.  In lite mode it is
+  -- omitted entirely; FDIV/FSQRT (and MOD/REM, already lite-disabled) F-line
+  -- trap to the software FPSP via op_disabled_by_lite in mc68881_top.vhd.
+  gen_divrem_full : if not fpu_lite generate
   divrem_inst : entity work.mc68881_divrem_unit
     generic map (
       enable_modrem_post => not fpu_lite
@@ -303,6 +307,35 @@ begin
       restore_addr   => divrem_restore_addr,
       restore_wr     => divrem_restore_wr
     );
+  end generate;
+
+  gen_divrem_lite : if fpu_lite generate
+  begin
+    divrem_busy           <= '0';
+    divrem_done           <= '0';
+    divrem_result         <= (others => '0');
+    divrem_quotient_byte  <= (others => '0');
+    divrem_quotient_valid <= '0';
+    divrem_flag_divzero   <= '0';
+    divrem_flag_overflow  <= '0';
+    divrem_flag_underflow <= '0';
+    divrem_flag_inexact   <= '0';
+    -- divrem's requests to the shared fp80 mul/add units: never assert in lite
+    -- (start = '0' makes the operand muxes ignore the data lines below).
+    modrem_mul_start <= '0';
+    modrem_mul_a     <= (others => '0');
+    modrem_mul_b     <= (others => '0');
+    modrem_add_start <= '0';
+    modrem_add_a     <= (others => '0');
+    modrem_add_b     <= (others => '0');
+    modrem_add_sub   <= false;
+    modrem_add_rm    <= FP_RND_NEAREST;
+    modrem_add_rp    <= FP_PREC_EXTENDED;
+    divrem_save_data    <= (others => '0');
+    divrem_save_addr    <= 0;
+    divrem_restore_addr <= 0;
+    divrem_restore_wr   <= '0';
+  end generate;
 
   gen_sglops_full : if not fpu_lite generate
     sglops_inst : entity work.mc68881_sgl_ops_unit
@@ -670,7 +703,7 @@ begin
               latency_count_reg <= op_alu_latency(op_sel) - 1;
             end if;
           end if;
-        elsif is_divrem_op(op_sel) and (not fpu_lite or (op_sel = FPU_OP_DIV or op_sel = FPU_OP_SQRT)) then
+        elsif is_divrem_op(op_sel) and not fpu_lite then
           divrem_op_reg <= op_sel;
           divrem_a_reg <= a_in;
           divrem_b_reg <= b_in;

@@ -419,6 +419,10 @@ architecture rtl of mc68881_top is
            op = FPU_OP_TWOTOX  or
            op = FPU_OP_MOD     or op = FPU_OP_REM     or
            op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL  or
+           -- DIV/SQRT now also disabled in lite: the hardware divrem unit
+           -- (~6,000 ALMs) is omitted from the lite build, so these F-line
+           -- trap to the software FPSP like the other divrem ops.
+           op = FPU_OP_DIV     or op = FPU_OP_SQRT    or
            op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN;
   end function;
 
