@@ -63,6 +63,25 @@ reg [2:0]  phase;
 // the buffer itself. Can hold two sectors
 reg sd_buff_sel;
 
+// HPS sector-buffer byte order.  buffer0 always holds the byte the Mac reads
+// FIRST (even byte) and buffer1 the odd byte.  The byte that lands in each
+// physical buffer depends on how the IO controller packs sd_buff_dout:
+//   * the real MiSTer HPS packs WIDE words LITTLE-endian: disk byte0 -> [7:0].
+//   * the Verilator sim model (sim_blkdevice.cpp) packs BIG-endian: byte0->[15:8].
+// JTAG probe PSC8 showed 0x5245 ('RE') on hardware where 0x4552 ('ER') was
+// expected, confirming the swap.  Map the lanes so the Mac always receives the
+// disk's natural big-endian byte order in both builds.
+wire [7:0] buf0_q_a, buf1_q_a;
+`ifdef VERILATOR
+wire [7:0] buf0_data_a = sd_buff_dout[15:8];   // sim packs byte0 in high half
+wire [7:0] buf1_data_a = sd_buff_dout[7:0];
+assign sd_buff_din = {buf0_q_a, buf1_q_a};
+`else
+wire [7:0] buf0_data_a = sd_buff_dout[7:0];    // real HPS packs byte0 in low half
+wire [7:0] buf1_data_a = sd_buff_dout[15:8];
+assign sd_buff_din = {buf1_q_a, buf0_q_a};
+`endif
+
 wire [7:0] buffer0_dout;
 wire [7:0] buffer0_dout_next;
 wire [7:0] buffer0_dout_next2;
@@ -71,9 +90,9 @@ scsi_dpram buffer0
 	.clock(clk),
 
 	.address_a({sd_buff_sel, sd_buff_addr}),
-	.data_a(sd_buff_dout[15:8]),
+	.data_a(buf0_data_a),
 	.wren_a(sd_buff_wr),
-	.q_a(sd_buff_din[15:8]),
+	.q_a(buf0_q_a),
 
 	.address_b(data_cnt[9:1]),
 	.data_b(din),
@@ -95,9 +114,9 @@ scsi_dpram buffer1
 	.clock(clk),
 
 	.address_a({sd_buff_sel, sd_buff_addr}),
-	.data_a(sd_buff_dout[7:0]),
+	.data_a(buf1_data_a),
 	.wren_a(sd_buff_wr),
-	.q_a(sd_buff_din[7:0]),
+	.q_a(buf1_q_a),
 
 	.address_b(data_cnt[9:1]),
 	.data_b(din),
