@@ -25,7 +25,17 @@ foreach inst $info {
     if {$nm eq "PSCS"} { set idx(PSCS) $i }
     if {$nm eq "PSC2"} { set idx(PSC2) $i }
     if {$nm eq "PSC3"} { set idx(PSC3) $i }
+    if {$nm eq "PSC4"} { set idx(PSC4) $i }
     incr i
+}
+
+proc decode_hs {v} {
+    set mcc  [expr {($v >> 4) & 0xF}]
+    set cpl  [expr {($v >> 3) & 1}]
+    set aic  [expr {($v >> 2) & 1}]
+    set ris  [expr {($v >> 1) & 1}]
+    set ais  [expr {$v & 1}]
+    return [format "max_cmd_bytes=%d cmd_cpl=%d ack_in_cmd=%d req_in_status=%d ack_in_status=%d" $mcc $cpl $aic $ris $ais]
 }
 
 proc phname {p} {
@@ -113,6 +123,15 @@ for {set s 1} {$s <= 6} {incr s} {
         puts [format "           PHASE now: t0=%s t1=%s | max: t0=%s t1=%s | io_ack_seen=%d sd_ack_seen=%d" \
             [phname $cp0] [phname $cp1] [phname $mp0] [phname $mp1] $iackseen $sackseen]
     }
+    if {[info exists idx(PSC4)]} {
+        set s4 [rd $idx(PSC4)]
+        set hs0 [expr {$s4 & 0xFF}]
+        set hs1 [expr {($s4 >> 8) & 0xFF}]
+        puts "           HS t0(ID6): [decode_hs $hs0]"
+        puts "           HS t1(ID5): [decode_hs $hs1]"
+    }
+    after 300
+}
     after 300
 }
 end_insystem_source_probe

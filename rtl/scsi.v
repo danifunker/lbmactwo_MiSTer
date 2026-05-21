@@ -39,7 +39,8 @@ module scsi
 	input         sd_buff_wr,
 
 	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
-	output [2:0]  dbg_phase     // JTAG debug: current target phase
+	output [2:0]  dbg_phase,    // JTAG debug: current target phase
+	output [7:0]  dbg_hs        // JTAG debug: REQ/ACK handshake observations
 );
 
 // SCSI device id
@@ -574,8 +575,35 @@ always @(posedge clk) begin
 			phase <= PHASE_IDLE;  // should never happen
 	end
 end
-   
-   
+
+// ----------------------------------------------------------------------
+// JTAG debug: REQ/ACK handshake observations (sticky since reset).
+//   [7:4] max command bytes received (cmd_cnt high-water)
+//   [3]   cmd_cpl seen (a full command was assembled)
+//   [2]   Mac ACKed a command byte  (stb_adv in CMD_IN)
+//   [1]   target asserted REQ in STATUS_OUT
+//   [0]   Mac ACKed the status byte (stb_adv in STATUS_OUT)
+// ----------------------------------------------------------------------
+reg [3:0] dbg_max_cmd_cnt;
+reg       dbg_cmd_cpl, dbg_ack_in_cmd, dbg_req_in_status, dbg_ack_in_status;
+always @(posedge clk) begin
+	if(rst) begin
+		dbg_max_cmd_cnt   <= 4'd0;
+		dbg_cmd_cpl       <= 1'b0;
+		dbg_ack_in_cmd    <= 1'b0;
+		dbg_req_in_status <= 1'b0;
+		dbg_ack_in_status <= 1'b0;
+	end else begin
+		if((phase == PHASE_CMD_IN) && (cmd_cnt > dbg_max_cmd_cnt)) dbg_max_cmd_cnt <= cmd_cnt;
+		if((phase == PHASE_CMD_IN) && cmd_cpl)  dbg_cmd_cpl       <= 1'b1;
+		if((phase == PHASE_CMD_IN) && stb_adv)  dbg_ack_in_cmd    <= 1'b1;
+		if((phase == PHASE_STATUS_OUT) && req)  dbg_req_in_status <= 1'b1;
+		if((phase == PHASE_STATUS_OUT) && stb_adv) dbg_ack_in_status <= 1'b1;
+	end
+end
+assign dbg_hs = { dbg_max_cmd_cnt, dbg_cmd_cpl, dbg_ack_in_cmd,
+                  dbg_req_in_status, dbg_ack_in_status };
+
 endmodule
 
 module scsi_empty_cd

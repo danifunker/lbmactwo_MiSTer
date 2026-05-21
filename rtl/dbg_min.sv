@@ -40,7 +40,8 @@ module dbg_min (
     input wire [1:0]  sd_wr,            // SCSI disk write requests
     input wire [1:0]  sd_ack,           // HPS disk-op completion
     input wire [15:0] scsi_dbg,         // NCR5380 selection/arbitration state
-    input wire [15:0] scsi_dbg2         // NCR5380 phase + io handshake
+    input wire [15:0] scsi_dbg2,        // NCR5380 phase + io handshake
+    input wire [15:0] scsi_dbg3         // per-target REQ/ACK observations
 );
 
     // Coherent snapshots on clk.
@@ -202,5 +203,17 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // Per-target REQ/ACK observations (sticky, from scsi.v dbg_hs).
+    reg [31:0] scsi4_r;
+    always @(posedge clk)
+        scsi4_r <= {16'd0, scsi_dbg3};
+
+    altsource_probe #(
+        .instance_id ("PSC4"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc4 (.probe(scsi4_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

@@ -82,7 +82,10 @@ module ncr5380
 	// JTAG debug: post-selection phase + HPS disk handshake
 	//   [13:11] target_phase[1]  [10:8] target_phase[0]
 	//   [5:4] io_rd  [3:2] io_wr  [1:0] io_ack
-	output      [15:0] dbg_scsi2
+	output      [15:0] dbg_scsi2,
+	// JTAG debug: per-target REQ/ACK handshake observations
+	//   [15:8] target1 dbg_hs   [7:0] target0 dbg_hs
+	output      [15:0] dbg_scsi3
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -373,6 +376,7 @@ module ncr5380
 	// input signals from targets
 	wire [DEVS-1:0] target_mounted;
 	wire [2:0]      target_phase[DEVS];
+	wire [7:0]      target_hs[DEVS];
 	wire [DEVS-1:0] target_bsy;
 	wire [DEVS-1:0] target_msg;
 	wire [DEVS-1:0] target_io;
@@ -449,7 +453,8 @@ module ncr5380
 				.sd_buff_din( sd_buff_din[i] ),
 				.sd_buff_wr( sd_buff_wr & target_bsy[i] ),
 				.dbg_mounted( target_mounted[i] ),
-				.dbg_phase( target_phase[i] )
+				.dbg_phase( target_phase[i] ),
+				.dbg_hs( target_hs[i] )
 			);
 		end
 	endgenerate
@@ -468,5 +473,7 @@ module ncr5380
 
 	assign dbg_scsi2 = { 2'b0, target_phase[1], target_phase[0],
 	                     io_rd[1:0], io_wr[1:0], io_ack[1:0] };
+
+	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
 
 endmodule
