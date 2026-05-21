@@ -32,6 +32,8 @@ foreach inst $info {
     if {$nm eq "PSC8"} { set idx(PSC8) $i }
     if {$nm eq "PSC9"} { set idx(PSC9) $i }
     if {$nm eq "PSCA"} { set idx(PSCA) $i }
+    if {$nm eq "PSCB"} { set idx(PSCB) $i }
+    if {$nm eq "PSCC"} { set idx(PSCC) $i }
     incr i
 }
 
@@ -200,6 +202,14 @@ for {set s 1} {$s <= 6} {incr s} {
         set lvl_max [expr {7 - $ipl_min}]
         puts [format "           IRQ: ipl_now=%d(lvl%d) highest_req=lvl%d irq_ever=%d | IACK_cycles=%u last_iack_lvl=%d" \
             $ipl_now $lvl_now $lvl_max $irq_seen $iack_cnt $iack_lvl]
+    }
+    if {[info exists idx(PSCB)] && [info exists idx(PSCC)]} {
+        set baddr [rd $idx(PSCB)]
+        set bc    [rd $idx(PSCC)]
+        set bcnt  [expr {($bc >> 16) & 0xFFFF}]
+        set bcap  [expr {($bc >> 6) & 0x1}]
+        set bfc   [expr {$bc & 0x7}]
+        puts [format "           BERR: count=%u captured=%d first_addr=0x%08X first_fc=%d" $bcnt $bcap $baddr $bfc]
     }
     after 300
 }

@@ -30,6 +30,10 @@ module dbg_min (
     // Interrupt path (diagnose the frozen Ticks/60Hz boot hang).
     input wire [2:0]  cpuIPL_n,   // _cpuIPL: 111=none 110=VIA1 101=VIA2 011=SCC
 
+    // Bus-error watchdog (catch the unmapped/non-responding access that may
+    // be dropping the Mac into the ROM serial monitor).
+    input wire        berr,
+
     // Video card state
     input wire        video_en,
     input wire [15:0] vram_wr_cnt,      // CPU VRAM writes (Mac drawing)
@@ -334,5 +338,47 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psca (.probe(irq_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ---- Bus-error capture (PSCB/PSCC) ------------------------------------
+    // berr_out fires when a CPU bus cycle hits no decoded select for ~8us.
+    // If the boot dropped into the ROM monitor after a fault, this catches the
+    // offending access:  first_berr_addr = address that never responded,
+    // first_berr_fc = its function code, berr_cnt = total bus errors.
+    reg        berr_d;
+    reg [31:0] first_berr_addr;
+    reg [2:0]  first_berr_fc;
+    reg [15:0] berr_cnt;
+    reg        berr_captured;
+    initial begin first_berr_addr = 32'd0; first_berr_fc = 3'd0; berr_cnt = 16'd0; berr_captured = 1'b0; berr_d = 1'b0; end
+    always @(posedge clk) begin
+        berr_d <= berr;
+        if (berr && !berr_d) begin            // rising edge of berr_out
+            berr_cnt <= berr_cnt + 16'd1;
+            if (!berr_captured) begin
+                berr_captured   <= 1'b1;
+                first_berr_addr <= cpuAddr;
+                first_berr_fc   <= cpuFC;
+            end
+        end
+    end
+    reg [31:0] berr_addr_r, berr_cnt_r;
+    always @(posedge clk) begin
+        berr_addr_r <= first_berr_addr;
+        berr_cnt_r  <= {berr_cnt, 9'd0, berr_captured, 3'd0, first_berr_fc};
+    end
+
+    altsource_probe #(
+        .instance_id ("PSCB"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscb (.probe(berr_addr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PSCC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscc (.probe(berr_cnt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

@@ -1151,7 +1151,8 @@ dbg_min dbg_min_inst (
 	.sd_buff_dout   (sd_buff_dout),
 	.sd_buff_addr   (sd_buff_addr),
 	.sd_buff_wr     (sd_buff_wr),
-	.cpuIPL_n       (_cpuIPL)
+	.cpuIPL_n       (_cpuIPL),
+	.berr           (berr_out)
 );
 
 endmodule
