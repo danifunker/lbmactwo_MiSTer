@@ -27,6 +27,9 @@ module dbg_min (
     input wire        fpu_dsack1_n,
     input wire        mac_dout_valid,
 
+    // Interrupt path (diagnose the frozen Ticks/60Hz boot hang).
+    input wire [2:0]  cpuIPL_n,   // _cpuIPL: 111=none 110=VIA1 101=VIA2 011=SCC
+
     // Video card state
     input wire        video_en,
     input wire [15:0] vram_wr_cnt,      // CPU VRAM writes (Mac drawing)
@@ -294,5 +297,42 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psc9 (.probe(disk_cnt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ---- Interrupt-path diagnosis (PSCA) ----------------------------------
+    // The Mac boot spins at ROM 0x2432 waiting on low-mem Ticks(0x16A), which
+    // is bumped only by the VIA1 60Hz interrupt service routine.  Determine
+    // whether (a) the VIA ever REQUESTS an interrupt (cpuIPL_n leaves 111) and
+    // (b) the CPU ever ACKNOWLEDGES one (a CPU-space bus cycle, cpuFC==7, that
+    // is not an FPU coprocessor access -> autovectored IACK).
+    //   irq_seen : sticky, VIA/SCC ever asserted IPL
+    //   ipl_min  : sticky lowest cpuIPL_n observed (highest-priority request)
+    //   iack_cnt : count of interrupt-acknowledge bus cycles
+    //   iack_lvl : interrupt level of the most recent IACK (cpuAddr[3:1])
+    wire is_iack = (cpuFC == 3'b111) && !selectFPU;
+    reg        irq_seen;
+    reg [2:0]  ipl_min;
+    reg [15:0] iack_cnt;
+    reg [2:0]  iack_lvl;
+    reg        iack_as_d;
+    initial begin irq_seen = 1'b0; ipl_min = 3'b111; iack_cnt = 16'd0; iack_lvl = 3'd0; iack_as_d = 1'b0; end
+    always @(posedge clk) begin
+        if (cpuIPL_n != 3'b111) irq_seen <= 1'b1;
+        if (cpuIPL_n < ipl_min) ipl_min <= cpuIPL_n;
+        iack_as_d <= (is_iack && !cpuAS_n);
+        if (is_iack && !cpuAS_n && !iack_as_d) begin   // new IACK bus cycle
+            iack_cnt <= iack_cnt + 16'd1;
+            iack_lvl <= cpuAddr[3:1];
+        end
+    end
+    reg [31:0] irq_r;
+    always @(posedge clk)
+        irq_r <= {5'd0, iack_lvl, 3'd0, irq_seen, ipl_min, cpuIPL_n, iack_cnt};
+
+    altsource_probe #(
+        .instance_id ("PSCA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psca (.probe(irq_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

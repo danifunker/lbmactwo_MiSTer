@@ -31,6 +31,7 @@ foreach inst $info {
     if {$nm eq "PSC7"} { set idx(PSC7) $i }
     if {$nm eq "PSC8"} { set idx(PSC8) $i }
     if {$nm eq "PSC9"} { set idx(PSC9) $i }
+    if {$nm eq "PSCA"} { set idx(PSCA) $i }
     incr i
 }
 
@@ -186,6 +187,19 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$w0 == 0x4552} { set sig " (Mac DDM 'ER' OK)" }
         if {$w0 == 0x5245} { set sig " (BYTE-SWAPPED 'RE')" }
         puts [format "           DISK sd_buff: word0=0x%04X word1=0x%04X  wr_strobes=%u%s" $w0 $w1 $wc $sig]
+    }
+    if {[info exists idx(PSCA)]} {
+        set sa [rd $idx(PSCA)]
+        set iack_cnt [expr {$sa & 0xFFFF}]
+        set ipl_now  [expr {($sa >> 16) & 0x7}]
+        set ipl_min  [expr {($sa >> 19) & 0x7}]
+        set irq_seen [expr {($sa >> 22) & 0x1}]
+        set iack_lvl [expr {($sa >> 24) & 0x7}]
+        # cpuIPL_n is active-low encoded: level = 7 - value (111=none, 110=lvl1...)
+        set lvl_now [expr {7 - $ipl_now}]
+        set lvl_max [expr {7 - $ipl_min}]
+        puts [format "           IRQ: ipl_now=%d(lvl%d) highest_req=lvl%d irq_ever=%d | IACK_cycles=%u last_iack_lvl=%d" \
+            $ipl_now $lvl_now $lvl_max $irq_seen $iack_cnt $iack_lvl]
     }
     after 300
 }
