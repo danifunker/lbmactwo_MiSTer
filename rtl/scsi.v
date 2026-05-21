@@ -136,7 +136,14 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
+	// Do not drive REQ while SEL is still asserted.  After we assert BSY the
+	// initiator must release SEL to complete selection; only then may the
+	// target begin the information-transfer (REQ/ACK) handshake.  Asserting
+	// REQ during selection races with the initiator's SEL release and made
+	// the command phase intermittently stall on hardware (sim's ideal timing
+	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
+	// this only gates the first REQ right after selection.
+	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
 
 assign bsy = (phase != PHASE_IDLE);
 

@@ -108,8 +108,10 @@ for {set s 1} {$s <= 6} {incr s} {
         set mp1  [expr {($s3 >> 10) & 0x7}]
         set iackseen [expr {($s3 >> 14) & 0x3}]
         set sackseen [expr {($s3 >> 16) & 0x3}]
-        puts [format "           PHASE max: target0=%s target1=%s | io_rd=%d io_wr=%d io_ack(now)=%d | io_ack_seen=%d sd_ack_seen=%d" \
-            [phname $mp0] [phname $mp1] $iord $iowr $ioack $iackseen $sackseen]
+        set cp0 [expr {($s3 >> 18) & 0x7}]
+        set cp1 [expr {($s3 >> 21) & 0x7}]
+        puts [format "           PHASE now: t0=%s t1=%s | max: t0=%s t1=%s | io_ack_seen=%d sd_ack_seen=%d" \
+            [phname $cp0] [phname $cp1] [phname $mp0] [phname $mp1] $iackseen $sackseen]
     }
     after 300
 }

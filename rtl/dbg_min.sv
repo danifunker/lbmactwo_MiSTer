@@ -194,7 +194,7 @@ module dbg_min (
     end
     reg [31:0] scsi3_r;
     always @(posedge clk)
-        scsi3_r <= {14'd0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
+        scsi3_r <= {8'd0, ph1, ph0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
 
     altsource_probe #(
         .instance_id ("PSC3"),
