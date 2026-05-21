@@ -37,7 +37,8 @@ module dbg_min (
     input wire [15:0] scsi_rd_data,     // dataControllerDataOut (SCSI reg value)
     input wire [1:0]  img_mounted,      // HPS disk-mount pulses
     input wire [1:0]  sd_rd,            // SCSI disk read requests
-    input wire [1:0]  sd_wr             // SCSI disk write requests
+    input wire [1:0]  sd_wr,            // SCSI disk write requests
+    input wire [15:0] scsi_dbg          // NCR5380 selection/arbitration state
 );
 
     // Coherent snapshots on clk.
@@ -143,5 +144,24 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // NCR5380 selection/arbitration state.  Also latch the value seen while
+    // SEL is asserted (scsi_dbg[14]) so we capture the selection-time bus.
+    reg [15:0] scsi_dbg_now;
+    reg [15:0] scsi_dbg_sel;   // snapshot while SEL asserted
+    always @(posedge clk) begin
+        scsi_dbg_now <= scsi_dbg;
+        if (scsi_dbg[14]) scsi_dbg_sel <= scsi_dbg;  // bit14 = scsi_sel
+    end
+    reg [31:0] scsi2_r;
+    always @(posedge clk)
+        scsi2_r <= {scsi_dbg_sel, scsi_dbg_now};
+
+    altsource_probe #(
+        .instance_id ("PSC2"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc2 (.probe(scsi2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

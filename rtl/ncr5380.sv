@@ -75,7 +75,10 @@ module ncr5380
 	input        [7:0] sd_buff_addr,
 	input       [15:0] sd_buff_dout,
 	output      [15:0] sd_buff_din[DEVS],
-	input              sd_buff_wr
+	input              sd_buff_wr,
+
+	// JTAG debug: selection/arbitration state for the hardware hang
+	output      [15:0] dbg_scsi
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -442,5 +445,18 @@ module ncr5380
 			);
 		end
 	endgenerate
+
+	// JTAG debug: capture the selection/arbitration handshake state.
+	//  [15]    out_en       (initiator driving the data bus?)
+	//  [14]    scsi_sel     (SEL asserted)
+	//  [13]    scsi_bsy     (any BSY on the bus)
+	//  [12:11] target_bsy   (which target asserted BSY)
+	//  [10]    arb_active
+	//  [9]     mr[MR_ARB]
+	//  [8]     icr[ICR_A_DATA]
+	//  [7:0]   scsi_bus_data (ID bits driven during selection)
+	assign dbg_scsi = { out_en, scsi_sel, scsi_bsy, target_bsy[1:0],
+	                    arb_active, mr[`MR_ARB], icr[`ICR_A_DATA],
+	                    scsi_bus_data };
 
 endmodule

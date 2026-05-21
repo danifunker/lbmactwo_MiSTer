@@ -23,7 +23,21 @@ foreach inst $info {
     if {$nm eq "PVID"} { set idx(PVID) $i }
     if {$nm eq "PVFC"} { set idx(PVFC) $i }
     if {$nm eq "PSCS"} { set idx(PSCS) $i }
+    if {$nm eq "PSC2"} { set idx(PSC2) $i }
     incr i
+}
+
+proc decode_scsi {v} {
+    set oe   [expr {($v >> 15) & 1}]
+    set sel  [expr {($v >> 14) & 1}]
+    set bsy  [expr {($v >> 13) & 1}]
+    set tbsy [expr {($v >> 11) & 0x3}]
+    set arb  [expr {($v >> 10) & 1}]
+    set mrarb [expr {($v >> 9) & 1}]
+    set adb  [expr {($v >> 8) & 1}]
+    set data [expr {$v & 0xFF}]
+    return [format "out_en=%d SEL=%d BSY=%d target_bsy=0x%X arb=%d MR.ARB=%d ICR.ADB=%d data_bus=0x%02X" \
+        $oe $sel $bsy $tbsy $arb $mrarb $adb $data]
 }
 if {![info exists idx(PADR)]} { puts "PADR/PSTA/PACT not found (need dbg_min bitstream)"; exit 1 }
 
@@ -73,6 +87,13 @@ for {set s 1} {$s <= 6} {incr s} {
         set sdwr [expr {($sc >> 28) & 0x3}]
         puts [format "           SCSI: last_reg_off=0x%02X last_read=0x%04X | img_mounted_seen=%d sd_rd_seen=%d sd_wr_seen=%d" \
             $sreg $rdv $img $sdrd $sdwr]
+    }
+    if {[info exists idx(PSC2)]} {
+        set s2 [rd $idx(PSC2)]
+        set now [expr {$s2 & 0xFFFF}]
+        set sel [expr {($s2 >> 16) & 0xFFFF}]
+        puts "           NCR now: [decode_scsi $now]"
+        puts "           NCR@SEL: [decode_scsi $sel]"
     }
     after 300
 }
