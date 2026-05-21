@@ -367,6 +367,7 @@ module ncr5380
 	end
 
 	// input signals from targets
+	wire [DEVS-1:0] target_mounted;
 	wire [DEVS-1:0] target_bsy;
 	wire [DEVS-1:0] target_msg;
 	wire [DEVS-1:0] target_io;
@@ -441,7 +442,8 @@ module ncr5380
 				.sd_buff_addr( sd_buff_addr ),
 				.sd_buff_dout( sd_buff_dout ),
 				.sd_buff_din( sd_buff_din[i] ),
-				.sd_buff_wr( sd_buff_wr & target_bsy[i] )
+				.sd_buff_wr( sd_buff_wr & target_bsy[i] ),
+				.dbg_mounted( target_mounted[i] )
 			);
 		end
 	endgenerate
@@ -451,12 +453,11 @@ module ncr5380
 	//  [14]    scsi_sel     (SEL asserted)
 	//  [13]    scsi_bsy     (any BSY on the bus)
 	//  [12:11] target_bsy   (which target asserted BSY)
-	//  [10]    arb_active
-	//  [9]     mr[MR_ARB]
+	//  [10:9]  target_mounted (per-target disk-present state)
 	//  [8]     icr[ICR_A_DATA]
 	//  [7:0]   scsi_bus_data (ID bits driven during selection)
 	assign dbg_scsi = { out_en, scsi_sel, scsi_bsy, target_bsy[1:0],
-	                    arb_active, mr[`MR_ARB], icr[`ICR_A_DATA],
+	                    target_mounted[1:0], icr[`ICR_A_DATA],
 	                    scsi_bus_data };
 
 endmodule

@@ -32,12 +32,11 @@ proc decode_scsi {v} {
     set sel  [expr {($v >> 14) & 1}]
     set bsy  [expr {($v >> 13) & 1}]
     set tbsy [expr {($v >> 11) & 0x3}]
-    set arb  [expr {($v >> 10) & 1}]
-    set mrarb [expr {($v >> 9) & 1}]
+    set tmnt [expr {($v >> 9)  & 0x3}]
     set adb  [expr {($v >> 8) & 1}]
     set data [expr {$v & 0xFF}]
-    return [format "out_en=%d SEL=%d BSY=%d target_bsy=0x%X arb=%d MR.ARB=%d ICR.ADB=%d data_bus=0x%02X" \
-        $oe $sel $bsy $tbsy $arb $mrarb $adb $data]
+    return [format "out_en=%d SEL=%d BSY=%d target_bsy=0x%X target_mounted=0x%X ICR.ADB=%d data_bus=0x%02X" \
+        $oe $sel $bsy $tbsy $tmnt $adb $data]
 }
 if {![info exists idx(PADR)]} { puts "PADR/PSTA/PACT not found (need dbg_min bitstream)"; exit 1 }
 
@@ -90,10 +89,10 @@ for {set s 1} {$s <= 6} {incr s} {
     }
     if {[info exists idx(PSC2)]} {
         set s2 [rd $idx(PSC2)]
-        set now [expr {$s2 & 0xFFFF}]
-        set sel [expr {($s2 >> 16) & 0xFFFF}]
-        puts "           NCR now: [decode_scsi $now]"
-        puts "           NCR@SEL: [decode_scsi $sel]"
+        set hi  [expr {$s2 & 0xFFFF}]
+        set ids [expr {($s2 >> 16) & 0xFF}]
+        puts [format "           SCSI scanned IDs (bitmask, bit7=initiator)=0x%02X" $ids]
+        puts "           NCR@ID6/5 sel: [decode_scsi $hi]"
     }
     after 300
 }

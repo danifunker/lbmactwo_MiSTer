@@ -145,17 +145,27 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // NCR5380 selection/arbitration state.  Also latch the value seen while
-    // SEL is asserted (scsi_dbg[14]) so we capture the selection-time bus.
-    reg [15:0] scsi_dbg_now;
-    reg [15:0] scsi_dbg_sel;   // snapshot while SEL asserted
+    // NCR5380 selection diagnosis.
+    //   sel_ids     : sticky OR of every ID byte driven while SEL asserted
+    //                 (shows which SCSI IDs the Mac actually selected)
+    //   scsi_dbg_hi : snapshot of the full state captured the moment the Mac
+    //                 selects a HIGH id (bit6=ID6 or bit5=ID5 -- where the
+    //                 disks live), so target_mounted/target_bsy are visible
+    //                 for the disks' own selection.
+    // scsi_dbg bit map: [14]=SEL [13]=BSY [12:11]=target_bsy [10:9]=mounted
+    //                   [8]=ICR.ADB [7:0]=data_bus(ID bits)
+    reg [15:0] scsi_dbg_hi;
+    reg [7:0]  sel_ids;
     always @(posedge clk) begin
-        scsi_dbg_now <= scsi_dbg;
-        if (scsi_dbg[14]) scsi_dbg_sel <= scsi_dbg;  // bit14 = scsi_sel
+        if (scsi_dbg[14]) begin                   // SEL asserted
+            sel_ids <= sel_ids | scsi_dbg[7:0];
+            if (scsi_dbg[6] || scsi_dbg[5])        // selecting ID6 or ID5
+                scsi_dbg_hi <= scsi_dbg;
+        end
     end
     reg [31:0] scsi2_r;
     always @(posedge clk)
-        scsi2_r <= {scsi_dbg_sel, scsi_dbg_now};
+        scsi2_r <= {8'd0, sel_ids, scsi_dbg_hi};
 
     altsource_probe #(
         .instance_id ("PSC2"),
