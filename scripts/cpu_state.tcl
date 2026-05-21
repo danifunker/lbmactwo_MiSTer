@@ -167,8 +167,7 @@ for {set s 1} {$s <= 6} {incr s} {
         set s6 [rd $idx(PSC6)]
         set c0 [expr {$s6 & 0xFF}]
         set c1 [expr {($s6 >> 8) & 0xFF}]
-        puts "           CMDS t0(ID6): [decode_cmd $c0]"
-        puts "           CMDS t1(ID5): [decode_cmd $c1]"
+        puts [format "           UNSUPPORTED opcode: t0(ID6)=0x%02X t1(ID5)=0x%02X" $c0 $c1]
     }
     after 300
 }

@@ -622,21 +622,15 @@ assign dbg_hs2 = { dbg_status_sent_ever, dbg_reached_msg_ever,
 // Survives bus reset so it shows everything the Mac tried across retries.
 //   [7]=READ [6]=WRITE [5]=INQUIRY [4]=TEST_UNIT_READY
 //   [3]=READ_CAPACITY [2]=MODE_SENSE [1]=unsupported(cmd_ok=0) [0]=REQUEST_SENSE
-reg dbg_c_rd, dbg_c_wr, dbg_c_inq, dbg_c_tur, dbg_c_rdcap, dbg_c_msense, dbg_c_unsup, dbg_c_rqs;
+// Repurposed: capture the LAST opcode the initiator sent that this target
+// does NOT support (cmd_ok=0).  Survives bus reset so it accumulates the
+// offending opcode across retries.  Lets us add proper support for it.
+reg [7:0] dbg_unsup_op;
 always @(posedge clk) begin
-	if((phase == PHASE_CMD_IN) && cmd_cpl) begin
-		if(cmd_read)        dbg_c_rd     <= 1'b1;
-		if(cmd_write)       dbg_c_wr     <= 1'b1;
-		if(cmd_inquiry)     dbg_c_inq    <= 1'b1;
-		if(op_code == 8'h00) dbg_c_tur   <= 1'b1;
-		if(op_code == 8'h25) dbg_c_rdcap <= 1'b1;
-		if(op_code == 8'h1a) dbg_c_msense<= 1'b1;
-		if(!cmd_ok)         dbg_c_unsup  <= 1'b1;
-		if(op_code == 8'h03) dbg_c_rqs   <= 1'b1;
-	end
+	if((phase == PHASE_CMD_IN) && cmd_cpl && !cmd_ok)
+		dbg_unsup_op <= op_code;
 end
-assign dbg_cmd = { dbg_c_rd, dbg_c_wr, dbg_c_inq, dbg_c_tur,
-                   dbg_c_rdcap, dbg_c_msense, dbg_c_unsup, dbg_c_rqs };
+assign dbg_cmd = dbg_unsup_op;
 
 endmodule
 
