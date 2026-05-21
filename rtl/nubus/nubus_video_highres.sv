@@ -270,7 +270,12 @@ module nubus_video_highres #(
 
             vga_hs_reg <= ~(h_cnt >= H_SYNC_START && h_cnt < H_SYNC_END);
             vga_vs_reg <= ~(v_cnt >= V_SYNC_START && v_cnt < V_SYNC_END);
-            blanking <= (h_cnt >= H_RES) || (v_cnt >= V_RES) || !video_en;
+            // DE must stay active in the visible region regardless of video_en,
+            // otherwise the MiSTer scaler measures no active pixels and reports
+            // 0x0 / no-signal (the "0x0x0hz" symptom) until the Mac enables
+            // video. Keep DE tied only to the visible window so the card always
+            // presents a measurable 640x480 frame.
+            blanking <= (h_cnt >= H_RES) || (v_cnt >= V_RES);
         end
     end
 
