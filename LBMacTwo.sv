@@ -1126,7 +1126,12 @@ dbg_min dbg_min_inst (
 	.mac_dout_valid (arb_mac_dout_valid),
 	.video_en       (dbg_video_en),
 	.vram_wr_cnt    (dbg_vram_wr_cnt),
-	.vram_fetch_cnt (dbg_vram_fetch_cnt)
+	.vram_fetch_cnt (dbg_vram_fetch_cnt),
+	.selectSCSI     (selectSCSI),
+	.scsi_rd_data   (dataControllerDataOut),
+	.img_mounted    (img_mounted),
+	.sd_rd          (sd_rd),
+	.sd_wr          (sd_wr)
 );
 
 endmodule

@@ -22,6 +22,7 @@ foreach inst $info {
     if {$nm eq "PACT"} { set idx(PACT) $i }
     if {$nm eq "PVID"} { set idx(PVID) $i }
     if {$nm eq "PVFC"} { set idx(PVFC) $i }
+    if {$nm eq "PSCS"} { set idx(PSCS) $i }
     incr i
 }
 if {![info exists idx(PADR)]} { puts "PADR/PSTA/PACT not found (need dbg_min bitstream)"; exit 1 }
@@ -62,6 +63,16 @@ for {set s 1} {$s <= 6} {incr s} {
         set wrc  [expr {$vid & 0xFFFF}]
         set ftc  [expr {$vfc & 0xFFFF}]
         puts [format "           VIDEO: video_en=%d  vram_writes=%u  vram_fetches=%u" $ven $wrc $ftc]
+    }
+    if {[info exists idx(PSCS)]} {
+        set sc [rd $idx(PSCS)]
+        set rdv  [expr {$sc & 0xFFFF}]
+        set sreg [expr {($sc >> 16) & 0x7F}]
+        set img  [expr {($sc >> 24) & 0x3}]
+        set sdrd [expr {($sc >> 26) & 0x3}]
+        set sdwr [expr {($sc >> 28) & 0x3}]
+        puts [format "           SCSI: last_reg_off=0x%02X last_read=0x%04X | img_mounted_seen=%d sd_rd_seen=%d sd_wr_seen=%d" \
+            $sreg $rdv $img $sdrd $sdwr]
     }
     after 300
 }

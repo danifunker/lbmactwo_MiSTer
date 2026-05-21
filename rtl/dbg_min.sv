@@ -30,7 +30,14 @@ module dbg_min (
     // Video card state
     input wire        video_en,
     input wire [15:0] vram_wr_cnt,      // CPU VRAM writes (Mac drawing)
-    input wire [15:0] vram_fetch_cnt    // completed video scanout fetches
+    input wire [15:0] vram_fetch_cnt,   // completed video scanout fetches
+
+    // SCSI state (diagnose the bus-status poll hang)
+    input wire        selectSCSI,
+    input wire [15:0] scsi_rd_data,     // dataControllerDataOut (SCSI reg value)
+    input wire [1:0]  img_mounted,      // HPS disk-mount pulses
+    input wire [1:0]  sd_rd,            // SCSI disk read requests
+    input wire [1:0]  sd_wr             // SCSI disk write requests
 );
 
     // Coherent snapshots on clk.
@@ -106,5 +113,35 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pvfc (.probe(vfetch_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // SCSI diagnosis:
+    //   scsi_last_rd  : value the CPU last read from the SCSI controller
+    //   scsi_last_reg : NCR5380 register offset of that read (cpuAddr[6:0])
+    //   img_seen      : sticky OR of img_mounted (did the HPS mount a disk?)
+    //   sdrd/sdwr_seen: sticky OR of sd_rd/sd_wr (did SCSI ever touch the disk?)
+    reg [15:0] scsi_last_rd;
+    reg [6:0]  scsi_last_reg;
+    reg [1:0]  img_seen;
+    reg [1:0]  sdrd_seen;
+    reg [1:0]  sdwr_seen;
+    always @(posedge clk) begin
+        if (selectSCSI && cpuRW) begin   // a CPU read of a SCSI register
+            scsi_last_rd  <= scsi_rd_data;
+            scsi_last_reg <= cpuAddr[6:0];
+        end
+        img_seen  <= img_seen  | img_mounted;
+        sdrd_seen <= sdrd_seen | sd_rd;
+        sdwr_seen <= sdwr_seen | sd_wr;
+    end
+    reg [31:0] scsi_r;
+    always @(posedge clk)
+        scsi_r <= {sdwr_seen, sdrd_seen, img_seen, 1'b0, scsi_last_reg, scsi_last_rd};
+
+    altsource_probe #(
+        .instance_id ("PSCS"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
