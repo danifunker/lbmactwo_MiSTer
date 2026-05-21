@@ -490,13 +490,36 @@ wire [15:0] tlen10 = { cmd[7], cmd[8] };
 
 // the 5380 changes phase in the falling edge, thus we monitor it
 // on the rising edge
+//
+// DESELECTION / RECOVERY (hardware fix): a real initiator asserts SEL only
+// during a selection, which begins from BUS FREE.  After it sees our BSY it
+// releases SEL and we run the command.  If SEL is asserted AGAIN after having
+// been released, the initiator is starting a NEW selection -- i.e. it gave up
+// on this transaction (timed out / aborted a probe).  Without handling this,
+// the target stays in CMD_IN/STATUS_OUT holding BSY forever; with several
+// stuck targets the bus wedges and boot hangs (works in sim only because the
+// sim initiator always completes a command cleanly and never re-selects mid
+// transaction).  Track when SEL has gone low after selection, and return to
+// IDLE (releasing BSY) if it then re-asserts.
+reg sel_was_low = 1'b0;
 always @(posedge clk) begin
 	if(rst) begin
 		phase <= PHASE_IDLE;
+		sel_was_low <= 1'b0;
 	end else begin
+		if(!sel) sel_was_low <= 1'b1;
+
 		if(phase == PHASE_IDLE) begin
+			sel_was_low <= 1'b0;
 			if(sel && din[ID] && mounted)  // own id on bus during selection?
 				phase <= PHASE_CMD_IN;
+		end
+
+		// Initiator re-asserted SEL after releasing it -> new selection,
+		// abandon this transaction and free the bus.
+		else if(sel && sel_was_low) begin
+			phase <= PHASE_IDLE;
+			sel_was_low <= 1'b0;
 		end
 
 		else if(phase == PHASE_CMD_IN) begin
