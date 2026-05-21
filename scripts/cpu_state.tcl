@@ -29,6 +29,8 @@ foreach inst $info {
     if {$nm eq "PSC5"} { set idx(PSC5) $i }
     if {$nm eq "PSC6"} { set idx(PSC6) $i }
     if {$nm eq "PSC7"} { set idx(PSC7) $i }
+    if {$nm eq "PSC8"} { set idx(PSC8) $i }
+    if {$nm eq "PSC9"} { set idx(PSC9) $i }
     incr i
 }
 
@@ -174,8 +176,17 @@ for {set s 1} {$s <= 6} {incr s} {
         set s7 [expr {[rd $idx(PSC7)] & 0xFFFF}]
         puts "           NCR live: [decode_scsi $s7]"
     }
-    after 300
-}
+    if {[info exists idx(PSC8)]} {
+        set s8 [rd $idx(PSC8)]
+        set w0 [expr {$s8 & 0xFFFF}]
+        set w1 [expr {($s8 >> 16) & 0xFFFF}]
+        set wc 0
+        if {[info exists idx(PSC9)]} { set wc [expr {[rd $idx(PSC9)] & 0xFFFF}] }
+        set sig ""
+        if {$w0 == 0x4552} { set sig " (Mac DDM 'ER' OK)" }
+        if {$w0 == 0x5245} { set sig " (BYTE-SWAPPED 'RE')" }
+        puts [format "           DISK sd_buff: word0=0x%04X word1=0x%04X  wr_strobes=%u%s" $w0 $w1 $wc $sig]
+    }
     after 300
 }
 end_insystem_source_probe

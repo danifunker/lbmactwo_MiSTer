@@ -1147,7 +1147,10 @@ dbg_min dbg_min_inst (
 	.scsi_dbg2      (dbg_scsi2),
 	.scsi_dbg3      (dbg_scsi3),
 	.scsi_dbg4      (dbg_scsi4),
-	.scsi_dbg5      (dbg_scsi5)
+	.scsi_dbg5      (dbg_scsi5),
+	.sd_buff_dout   (sd_buff_dout),
+	.sd_buff_addr   (sd_buff_addr),
+	.sd_buff_wr     (sd_buff_wr)
 );
 
 endmodule

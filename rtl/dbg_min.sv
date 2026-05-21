@@ -43,7 +43,12 @@ module dbg_min (
     input wire [15:0] scsi_dbg2,        // NCR5380 phase + io handshake
     input wire [15:0] scsi_dbg3,        // per-target REQ/ACK observations
     input wire [15:0] scsi_dbg4,        // bus-reset count + completion flags
-    input wire [15:0] scsi_dbg5         // per-target command-type bitmap
+    input wire [15:0] scsi_dbg5,        // per-target command-type bitmap
+
+    // Raw disk data the HPS delivers (to catch byte-order/corruption)
+    input wire [15:0] sd_buff_dout,
+    input wire [7:0]  sd_buff_addr,
+    input wire        sd_buff_wr
 );
 
     // Coherent snapshots on clk.
@@ -254,5 +259,40 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // Raw disk-data capture: the first two 16-bit words the HPS writes into
+    // each sector buffer (sd_buff_addr 0 and 1).  A Mac disk block 0 (Driver
+    // Descriptor Map) begins with the signature 0x4552 ('ER').  If PSC8 shows
+    // 0x5245 the bytes are swapped; garbage means the data path is corrupt.
+    // disk_wr_cnt counts sd_buff_wr strobes so we can tell if any data flows.
+    reg [15:0] disk_word0, disk_word1;
+    reg [15:0] disk_wr_cnt;
+    always @(posedge clk) begin
+        if (sd_buff_wr) begin
+            disk_wr_cnt <= disk_wr_cnt + 16'd1;
+            if (sd_buff_addr == 8'd0) disk_word0 <= sd_buff_dout;
+            if (sd_buff_addr == 8'd1) disk_word1 <= sd_buff_dout;
+        end
+    end
+    reg [31:0] disk_r;
+    reg [31:0] disk_cnt_r;
+    always @(posedge clk) begin
+        disk_r     <= {disk_word1, disk_word0};
+        disk_cnt_r <= {16'd0, disk_wr_cnt};
+    end
+
+    altsource_probe #(
+        .instance_id ("PSC8"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc8 (.probe(disk_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PSC9"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc9 (.probe(disk_cnt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
