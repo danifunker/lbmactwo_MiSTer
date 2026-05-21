@@ -794,8 +794,16 @@ nubus_video_highres nubus_card (
 	.ioctl_addr(ioctl_addr),
 	.ioctl_data(ioctl_data),
 	.ioctl_download(dio_download),
-	.ioctl_index(dio_index)
+	.ioctl_index(dio_index),
+
+	// JTAG debug exposures
+	.dbg_video_en(dbg_video_en),
+	.dbg_vram_wr_cnt(dbg_vram_wr_cnt),
+	.dbg_vram_fetch_cnt(dbg_vram_fetch_cnt)
 );
+wire        dbg_video_en;
+wire [15:0] dbg_vram_wr_cnt;
+wire [15:0] dbg_vram_fetch_cnt;
 
 dataController_top #(SCSI_DEVS) dc0
 (
@@ -1115,7 +1123,10 @@ dbg_min dbg_min_inst (
 	.selectNuBus    (selectNuBus),
 	.fpu_dsack0_n   (fpu_dsack0_n),
 	.fpu_dsack1_n   (fpu_dsack1_n),
-	.mac_dout_valid (arb_mac_dout_valid)
+	.mac_dout_valid (arb_mac_dout_valid),
+	.video_en       (dbg_video_en),
+	.vram_wr_cnt    (dbg_vram_wr_cnt),
+	.vram_fetch_cnt (dbg_vram_fetch_cnt)
 );
 
 endmodule

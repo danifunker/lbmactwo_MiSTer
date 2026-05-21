@@ -25,7 +25,12 @@ module dbg_min (
     input wire        selectNuBus,
     input wire        fpu_dsack0_n,
     input wire        fpu_dsack1_n,
-    input wire        mac_dout_valid
+    input wire        mac_dout_valid,
+
+    // Video card state
+    input wire        video_en,
+    input wire [15:0] vram_wr_cnt,      // CPU VRAM writes (Mac drawing)
+    input wire [15:0] vram_fetch_cnt    // completed video scanout fetches
 );
 
     // Coherent snapshots on clk.
@@ -76,5 +81,30 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pact (.probe(as_cycles), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // Video card state: {video_en, vram_wr_cnt[15:0], vram_fetch_cnt[15:0]}.
+    // If vram_wr_cnt advances, the Mac is drawing the framebuffer; if
+    // vram_fetch_cnt advances, scanout is reading VRAM. video_en shows
+    // whether the Mac has enabled the card.
+    reg [31:0] vid_r;
+    always @(posedge clk)
+        vid_r <= {15'd0, video_en, vram_wr_cnt};
+    reg [31:0] vfetch_r;
+    always @(posedge clk)
+        vfetch_r <= {16'd0, vram_fetch_cnt};
+
+    altsource_probe #(
+        .instance_id ("PVID"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pvid (.probe(vid_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PVFC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pvfc (.probe(vfetch_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

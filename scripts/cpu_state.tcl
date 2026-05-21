@@ -20,6 +20,8 @@ foreach inst $info {
     if {$nm eq "PADR"} { set idx(PADR) $i }
     if {$nm eq "PSTA"} { set idx(PSTA) $i }
     if {$nm eq "PACT"} { set idx(PACT) $i }
+    if {$nm eq "PVID"} { set idx(PVID) $i }
+    if {$nm eq "PVFC"} { set idx(PVFC) $i }
     incr i
 }
 if {![info exists idx(PADR)]} { puts "PADR/PSTA/PACT not found (need dbg_min bitstream)"; exit 1 }
@@ -53,6 +55,14 @@ for {set s 1} {$s <= 6} {incr s} {
     set act [rd $idx(PACT)]
     puts [format "sample %d: PC/addr=0x%08X  AS_cycles=%u" $s $adr $act]
     puts "           [decode_sta $sta]"
+    if {[info exists idx(PVID)]} {
+        set vid [rd $idx(PVID)]
+        set vfc [rd $idx(PVFC)]
+        set ven  [expr {($vid >> 16) & 1}]
+        set wrc  [expr {$vid & 0xFFFF}]
+        set ftc  [expr {$vfc & 0xFFFF}]
+        puts [format "           VIDEO: video_en=%d  vram_writes=%u  vram_fetches=%u" $ven $wrc $ftc]
+    }
     after 300
 }
 end_insystem_source_probe

@@ -52,7 +52,15 @@ module nubus_video_highres #(
     input        monochrome,
 
     // Pixel clock enable output
-    output       ce_pixel
+    output       ce_pixel,
+
+    // JTAG debug exposures (diagnose the hardware black-screen):
+    //   dbg_video_en      : has the Mac enabled video (REG_SOFTRESET[0])?
+    //   dbg_vram_wr_cnt   : count of CPU VRAM writes (Mac drawing)
+    //   dbg_vram_fetch_cnt: count of completed video VRAM fetches (reads)
+    output       dbg_video_en,
+    output [15:0] dbg_vram_wr_cnt,
+    output [15:0] dbg_vram_fetch_cnt
 );
 
     // ========================================================================
@@ -917,5 +925,29 @@ module nubus_video_highres #(
     end
 `endif
     // synthesis translate_on
+
+    // ========================================================================
+    // JTAG debug exposures (hardware black-screen diagnosis)
+    // ========================================================================
+    assign dbg_video_en = video_en;
+
+    reg [15:0] vram_wr_cnt_r;      // CPU VRAM writes (Mac drawing the framebuffer)
+    reg [15:0] vram_fetch_cnt_r;   // completed video VRAM fetches (scanout reads)
+    reg        vram_wr_d;
+    assign dbg_vram_wr_cnt    = vram_wr_cnt_r;
+    assign dbg_vram_fetch_cnt = vram_fetch_cnt_r;
+    always @(posedge clk) begin
+        if (reset) begin
+            vram_wr_cnt_r    <= 16'd0;
+            vram_fetch_cnt_r <= 16'd0;
+            vram_wr_d        <= 1'b0;
+        end else begin
+            vram_wr_d <= vram_wr;
+            if (vram_wr && !vram_wr_d)               // rising edge: a VRAM write
+                vram_wr_cnt_r <= vram_wr_cnt_r + 16'd1;
+            if (state == S_VIDEO_WAIT && vram_ready)  // a video fetch completed
+                vram_fetch_cnt_r <= vram_fetch_cnt_r + 16'd1;
+        end
+    end
 
 endmodule
