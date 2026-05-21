@@ -339,32 +339,50 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_psca (.probe(irq_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // ---- Bus-error capture (PSCB/PSCC) ------------------------------------
+    // ---- Bus-error capture (PSCB/PSCC/PSCD) -------------------------------
     // berr_out fires when a CPU bus cycle hits no decoded select for ~8us.
-    // If the boot dropped into the ROM monitor after a fault, this catches the
-    // offending access:  first_berr_addr = address that never responded,
-    // first_berr_fc = its function code, berr_cnt = total bus errors.
+    // NOTE: empty NuBus slots bus-error BY DESIGN -- the Mac II Slot Manager
+    // probes slots 9-E and expects (and recovers from) berrs on empty ones.
+    // So the diagnostic berr is one at a NON-slot address, or the most recent
+    // berr before the hang.  We capture:
+    //   PSCB = last_berr_addr : most recent faulting address (likely the fatal
+    //                           one, since the SCC monitor poll itself decodes)
+    //   PSCD = susp_berr_addr : first faulting address that is NOT NuBus slot
+    //                           space -> an I/O/RAM access that should respond
+    //   PSCC = {berr_cnt, susp_seen, susp_fc, last_fc}
+    // A NuBus slot address: A[31:28]=9..E (standard) or A[31:28]=F & A[27:24]=9..E.
+    wire is_slot_addr = ((cpuAddr[31:28] >= 4'h9 && cpuAddr[31:28] <= 4'hE) ||
+                         (cpuAddr[31:28] == 4'hF && cpuAddr[27:24] >= 4'h9 && cpuAddr[27:24] <= 4'hE));
     reg        berr_d;
-    reg [31:0] first_berr_addr;
-    reg [2:0]  first_berr_fc;
+    reg [31:0] last_berr_addr;
+    reg [31:0] susp_berr_addr;
+    reg [2:0]  last_berr_fc;
+    reg [2:0]  susp_berr_fc;
     reg [15:0] berr_cnt;
-    reg        berr_captured;
-    initial begin first_berr_addr = 32'd0; first_berr_fc = 3'd0; berr_cnt = 16'd0; berr_captured = 1'b0; berr_d = 1'b0; end
+    reg        susp_seen;
+    initial begin
+        last_berr_addr = 32'd0; susp_berr_addr = 32'd0;
+        last_berr_fc = 3'd0; susp_berr_fc = 3'd0;
+        berr_cnt = 16'd0; susp_seen = 1'b0; berr_d = 1'b0;
+    end
     always @(posedge clk) begin
         berr_d <= berr;
         if (berr && !berr_d) begin            // rising edge of berr_out
-            berr_cnt <= berr_cnt + 16'd1;
-            if (!berr_captured) begin
-                berr_captured   <= 1'b1;
-                first_berr_addr <= cpuAddr;
-                first_berr_fc   <= cpuFC;
+            berr_cnt       <= berr_cnt + 16'd1;
+            last_berr_addr <= cpuAddr;
+            last_berr_fc   <= cpuFC;
+            if (!is_slot_addr && !susp_seen) begin
+                susp_seen      <= 1'b1;
+                susp_berr_addr <= cpuAddr;
+                susp_berr_fc   <= cpuFC;
             end
         end
     end
-    reg [31:0] berr_addr_r, berr_cnt_r;
+    reg [31:0] berr_last_r, berr_susp_r, berr_cnt_r;
     always @(posedge clk) begin
-        berr_addr_r <= first_berr_addr;
-        berr_cnt_r  <= {berr_cnt, 9'd0, berr_captured, 3'd0, first_berr_fc};
+        berr_last_r <= last_berr_addr;
+        berr_susp_r <= susp_berr_addr;
+        berr_cnt_r  <= {berr_cnt, 6'd0, susp_seen, susp_berr_fc, 1'b0, last_berr_fc};
     end
 
     altsource_probe #(
@@ -372,7 +390,7 @@ module dbg_min (
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pscb (.probe(berr_addr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pscb (.probe(berr_last_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     altsource_probe #(
         .instance_id ("PSCC"),
@@ -380,5 +398,12 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pscc (.probe(berr_cnt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PSCD"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscd (.probe(berr_susp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

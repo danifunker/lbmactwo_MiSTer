@@ -204,12 +204,16 @@ for {set s 1} {$s <= 6} {incr s} {
             $ipl_now $lvl_now $lvl_max $irq_seen $iack_cnt $iack_lvl]
     }
     if {[info exists idx(PSCB)] && [info exists idx(PSCC)]} {
-        set baddr [rd $idx(PSCB)]
+        set blast [rd $idx(PSCB)]
         set bc    [rd $idx(PSCC)]
         set bcnt  [expr {($bc >> 16) & 0xFFFF}]
-        set bcap  [expr {($bc >> 6) & 0x1}]
-        set bfc   [expr {$bc & 0x7}]
-        puts [format "           BERR: count=%u captured=%d first_addr=0x%08X first_fc=%d" $bcnt $bcap $baddr $bfc]
+        set sseen [expr {($bc >> 7) & 0x1}]
+        set sfc   [expr {($bc >> 4) & 0x7}]
+        set lfc   [expr {$bc & 0x7}]
+        set bsusp 0
+        if {[info exists idx(PSCD)]} { set bsusp [rd $idx(PSCD)] }
+        puts [format "           BERR: count=%u | last_addr=0x%08X(fc%d) | susp_nonslot=%d susp_addr=0x%08X(fc%d)" \
+            $bcnt $blast $lfc $sseen $bsusp $sfc]
     }
     after 300
 }
