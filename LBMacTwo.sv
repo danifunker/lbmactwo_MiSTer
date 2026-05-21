@@ -1099,4 +1099,23 @@ sdram_arbiter arbiter (
 	.mac_dout_valid(arb_mac_dout_valid)
 );
 
+// Minimal JTAG CPU-state probes to diagnose the early-boot hang.
+dbg_min dbg_min_inst (
+	.clk            (clk_sys),
+	.cpuAddr        (cpuAddr),
+	.cpuFC          (cpuFC),
+	.cpuAS_n        (_cpuAS),
+	.cpuRW          (_cpuRW),
+	.cpuDTACK_n     (_cpuDTACK),
+	.cpuUDS_n       (_cpuUDS),
+	.cpuLDS_n       (_cpuLDS),
+	.selectFPU      (selectFPU),
+	.selectRAM      (selectRAM),
+	.selectROM      (selectROM),
+	.selectNuBus    (selectNuBus),
+	.fpu_dsack0_n   (fpu_dsack0_n),
+	.fpu_dsack1_n   (fpu_dsack1_n),
+	.mac_dout_valid (arb_mac_dout_valid)
+);
+
 endmodule
