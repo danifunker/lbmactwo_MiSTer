@@ -28,6 +28,7 @@ foreach inst $info {
     if {$nm eq "PSC4"} { set idx(PSC4) $i }
     if {$nm eq "PSC5"} { set idx(PSC5) $i }
     if {$nm eq "PSC6"} { set idx(PSC6) $i }
+    if {$nm eq "PSC7"} { set idx(PSC7) $i }
     incr i
 }
 
@@ -168,6 +169,10 @@ for {set s 1} {$s <= 6} {incr s} {
         set c0 [expr {$s6 & 0xFF}]
         set c1 [expr {($s6 >> 8) & 0xFF}]
         puts [format "           UNSUPPORTED opcode: t0(ID6)=0x%02X t1(ID5)=0x%02X" $c0 $c1]
+    }
+    if {[info exists idx(PSC7)]} {
+        set s7 [expr {[rd $idx(PSC7)] & 0xFFFF}]
+        puts "           NCR live: [decode_scsi $s7]"
     }
     after 300
 }

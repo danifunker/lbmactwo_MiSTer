@@ -230,6 +230,19 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_psc5 (.probe(scsi5_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // LIVE snapshot of the NCR5380 selection state (what the Mac is doing in
+    // the stuck loop right now): {out_en,SEL,BSY,target_bsy,mounted,ADB,data}.
+    reg [31:0] scsi7_r;
+    always @(posedge clk)
+        scsi7_r <= {16'd0, scsi_dbg};
+
+    altsource_probe #(
+        .instance_id ("PSC7"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc7 (.probe(scsi7_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
     // Per-target command-type bitmap.
     reg [31:0] scsi6_r;
     always @(posedge clk)
