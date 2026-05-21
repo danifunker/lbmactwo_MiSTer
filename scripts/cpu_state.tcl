@@ -24,7 +24,12 @@ foreach inst $info {
     if {$nm eq "PVFC"} { set idx(PVFC) $i }
     if {$nm eq "PSCS"} { set idx(PSCS) $i }
     if {$nm eq "PSC2"} { set idx(PSC2) $i }
+    if {$nm eq "PSC3"} { set idx(PSC3) $i }
     incr i
+}
+
+proc phname {p} {
+    switch $p {0 {return IDLE} 1 {return CMD_IN} 2 {return DATA_OUT} 3 {return DATA_IN} 4 {return STATUS_OUT} 5 {return MSG_OUT} default {return ?}}
 }
 
 proc decode_scsi {v} {
@@ -93,6 +98,18 @@ for {set s 1} {$s <= 6} {incr s} {
         set ids [expr {($s2 >> 16) & 0xFF}]
         puts [format "           SCSI scanned IDs (bitmask, bit7=initiator)=0x%02X" $ids]
         puts "           NCR@ID6/5 sel: [decode_scsi $hi]"
+    }
+    if {[info exists idx(PSC3)]} {
+        set s3 [rd $idx(PSC3)]
+        set iord [expr {($s3 >> 4) & 0x3}]
+        set iowr [expr {($s3 >> 2) & 0x3}]
+        set ioack [expr {$s3 & 0x3}]
+        set mp0  [expr {($s3 >> 6)  & 0x7}]
+        set mp1  [expr {($s3 >> 10) & 0x7}]
+        set iackseen [expr {($s3 >> 14) & 0x3}]
+        set sackseen [expr {($s3 >> 16) & 0x3}]
+        puts [format "           PHASE max: target0=%s target1=%s | io_rd=%d io_wr=%d io_ack(now)=%d | io_ack_seen=%d sd_ack_seen=%d" \
+            [phname $mp0] [phname $mp1] $iord $iowr $ioack $iackseen $sackseen]
     }
     after 300
 }

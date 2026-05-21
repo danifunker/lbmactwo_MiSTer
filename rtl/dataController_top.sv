@@ -108,7 +108,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input                   sd_buff_wr,
 
 	// JTAG debug passthrough: NCR5380 selection/arbitration state
-	output           [15:0] dbg_scsi
+	output           [15:0] dbg_scsi,
+	output           [15:0] dbg_scsi2
 );
 
 	// CPU reset generation
@@ -195,7 +196,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.sd_buff_dout(sd_buff_dout),
 		.sd_buff_din(sd_buff_din),
 		.sd_buff_wr(sd_buff_wr),
-		.dbg_scsi(dbg_scsi)
+		.dbg_scsi(dbg_scsi),
+		.dbg_scsi2(dbg_scsi2)
 	);
 
 	// ASC (Apple Sound Chip)

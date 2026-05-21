@@ -38,7 +38,9 @@ module dbg_min (
     input wire [1:0]  img_mounted,      // HPS disk-mount pulses
     input wire [1:0]  sd_rd,            // SCSI disk read requests
     input wire [1:0]  sd_wr,            // SCSI disk write requests
-    input wire [15:0] scsi_dbg          // NCR5380 selection/arbitration state
+    input wire [1:0]  sd_ack,           // HPS disk-op completion
+    input wire [15:0] scsi_dbg,         // NCR5380 selection/arbitration state
+    input wire [15:0] scsi_dbg2         // NCR5380 phase + io handshake
 );
 
     // Coherent snapshots on clk.
@@ -173,5 +175,32 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psc2 (.probe(scsi2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // Post-selection progress: track the MAX phase each target reaches and
+    // whether the HPS ever completes a disk op (sd_ack).  scsi_dbg2 layout:
+    //   [13:11] target_phase[1]  [10:8] target_phase[0]
+    //   [5:4] io_rd  [3:2] io_wr  [1:0] io_ack
+    // phases: 0 IDLE,1 CMD_IN,2 DATA_OUT,3 DATA_IN,4 STATUS_OUT,5 MSG_OUT
+    reg [2:0] max_ph0, max_ph1;
+    reg [1:0] io_ack_seen;
+    reg [1:0] sd_ack_seen;
+    wire [2:0] ph0 = scsi_dbg2[10:8];
+    wire [2:0] ph1 = scsi_dbg2[13:11];
+    always @(posedge clk) begin
+        if (ph0 > max_ph0) max_ph0 <= ph0;
+        if (ph1 > max_ph1) max_ph1 <= ph1;
+        io_ack_seen <= io_ack_seen | scsi_dbg2[1:0];
+        sd_ack_seen <= sd_ack_seen | sd_ack;
+    end
+    reg [31:0] scsi3_r;
+    always @(posedge clk)
+        scsi3_r <= {14'd0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
+
+    altsource_probe #(
+        .instance_id ("PSC3"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

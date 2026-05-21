@@ -38,13 +38,15 @@ module scsi
 	output [15:0] sd_buff_din,
 	input         sd_buff_wr,
 
-	output        dbg_mounted   // JTAG debug: is a disk mounted on this target?
+	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
+	output [2:0]  dbg_phase     // JTAG debug: current target phase
 );
 
 // SCSI device id
 parameter [2:0] ID = 0;
 
 assign dbg_mounted = mounted;
+assign dbg_phase = phase;
 
 localparam PHASE_IDLE        = 3'd0;
 localparam PHASE_CMD_IN      = 3'd1;
