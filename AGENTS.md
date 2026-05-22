@@ -4,6 +4,15 @@
 
 These instructions apply to the whole repository.
 
+## Debugging on real MiSTer hardware
+
+If you are bringing up or debugging the core on a **real MiSTer / DE10-Nano**
+(not just the Verilator sim), read **`docs/MISTER_HARDWARE_DEBUGGING.md`** first.
+It covers the Quartus build/program/probe loop, JTAG in-system probes
+(`rtl/dbg_min.sv` + `scripts/cpu_state.tcl`), SignalTap, the MiSTer web UI /
+Remote API for screenshots, ROM-loading quirks, and the sim-vs-hardware
+differences behind "works in sim, fails on hardware" bugs.
+
 ## Workflow
 
 - Keep work on the newest active branch for this effort. Check `git status --short --branch` before committing.
