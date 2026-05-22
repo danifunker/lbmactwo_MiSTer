@@ -656,12 +656,15 @@ assign dbg_hs2 = { dbg_status_sent_ever, dbg_reached_msg_ever,
 // Survives bus reset so it shows everything the Mac tried across retries.
 //   [7]=READ [6]=WRITE [5]=INQUIRY [4]=TEST_UNIT_READY
 //   [3]=READ_CAPACITY [2]=MODE_SENSE [1]=unsupported(cmd_ok=0) [0]=REQUEST_SENSE
-// Repurposed: capture the LAST opcode the initiator sent that this target
-// does NOT support (cmd_ok=0).  Survives bus reset so it accumulates the
-// offending opcode across retries.  Lets us add proper support for it.
+// Repurposed: capture the LAST opcode the initiator sent to this target
+// (any command, not just unsupported -- unsupported was always 0x00).
+// Survives bus reset so it shows the most recent command the Mac issued
+// before it gave up and re-scanned, revealing the boot-logic reject point.
 reg [7:0] dbg_unsup_op;
+reg       cmd_cpl_d2;
 always @(posedge clk) begin
-	if((phase == PHASE_CMD_IN) && cmd_cpl && !cmd_ok)
+	cmd_cpl_d2 <= (phase == PHASE_CMD_IN) && cmd_cpl;
+	if((phase == PHASE_CMD_IN) && cmd_cpl && !cmd_cpl_d2)
 		dbg_unsup_op <= op_code;
 end
 assign dbg_cmd = dbg_unsup_op;

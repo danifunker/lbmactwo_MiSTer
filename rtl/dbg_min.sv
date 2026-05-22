@@ -267,6 +267,28 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // Disk-flow: first word of the most recent sector + write-strobe count, to
+    // tell whether disk reads are STILL happening during the stuck scan or
+    // frozen (data already wired; cheap to re-add).
+    reg [15:0] disk_word0;
+    reg [15:0] disk_wr_cnt;
+    always @(posedge clk) begin
+        if (sd_buff_wr) begin
+            disk_wr_cnt <= disk_wr_cnt + 16'd1;
+            if (sd_buff_addr == 8'd0) disk_word0 <= sd_buff_dout;
+        end
+    end
+    reg [31:0] disk_r;
+    always @(posedge clk)
+        disk_r <= {disk_wr_cnt, disk_word0};
+
+    altsource_probe #(
+        .instance_id ("PSC8"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc8 (.probe(disk_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
     // ---- Bus-reset trigger snapshot (PSCF) --------------------------------
     // Latch the SCSI target phase/io-handshake state at the moment the Mac
     // issues each bus reset, to see whether resets fire MID-READ (a target in

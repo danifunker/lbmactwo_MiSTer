@@ -175,7 +175,7 @@ for {set s 1} {$s <= 6} {incr s} {
         set s6 [rd $idx(PSC6)]
         set c0 [expr {$s6 & 0xFF}]
         set c1 [expr {($s6 >> 8) & 0xFF}]
-        puts [format "           UNSUPPORTED opcode: t0(ID6)=0x%02X t1(ID5)=0x%02X" $c0 $c1]
+        puts [format "           LAST opcode: t0(ID6)=0x%02X t1(ID5)=0x%02X" $c0 $c1]
     }
     if {[info exists idx(PSC7)]} {
         set s7 [expr {[rd $idx(PSC7)] & 0xFFFF}]
@@ -184,13 +184,8 @@ for {set s 1} {$s <= 6} {incr s} {
     if {[info exists idx(PSC8)]} {
         set s8 [rd $idx(PSC8)]
         set w0 [expr {$s8 & 0xFFFF}]
-        set w1 [expr {($s8 >> 16) & 0xFFFF}]
-        set wc 0
-        if {[info exists idx(PSC9)]} { set wc [expr {[rd $idx(PSC9)] & 0xFFFF}] }
-        set sig ""
-        if {$w0 == 0x4552} { set sig " (Mac DDM 'ER' OK)" }
-        if {$w0 == 0x5245} { set sig " (BYTE-SWAPPED 'RE')" }
-        puts [format "           DISK sd_buff: word0=0x%04X word1=0x%04X  wr_strobes=%u%s" $w0 $w1 $wc $sig]
+        set wc [expr {($s8 >> 16) & 0xFFFF}]
+        puts [format "           DISK sd_buff: word0=0x%04X  wr_strobes=%u" $w0 $wc]
     }
     if {[info exists idx(PSCA)]} {
         set sa [rd $idx(PSCA)]
