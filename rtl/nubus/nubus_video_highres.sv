@@ -107,6 +107,18 @@ module nubus_video_highres #(
     // ========================================================================
     (* ramstyle = "M10K" *) reg [15:0] rom [0:4095];
 
+    // Bake the 341-0660 declaration ROM into the bitstream.  On real MiSTer
+    // hardware the HPS only auto-loads ONE ROM (boot0.rom @ index 0); there is
+    // no mechanism to send boot1.rom @ index 1, so the card never received its
+    // declaration ROM and the Slot Manager could not initialize it (no video).
+    // Initializing rom[] here makes the card self-contained, like real hardware
+    // where the declaration ROM lives on the card.  The ioctl path below still
+    // overwrites it when a host (e.g. the Verilator sim) does provide the ROM.
+    // boot1.hex = releases/boot1.rom as 4096 big-endian 16-bit words
+    // (xxd -p -c 2 releases/boot1.rom > boot1.hex), stored inverted exactly as
+    // the file is; the read path de-inverts (rom_byte ^ 0xFF).
+    initial $readmemh("boot1.hex", rom);
+
     // ROM read — byte-lane 3 addressing
     // Each ROM byte at every 4th NuBus address (addr[1:0]==3).
     // ROM byte index = addr[14:2], ROM word index = addr[14:3].
