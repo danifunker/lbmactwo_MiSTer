@@ -149,42 +149,9 @@ module sdram_arbiter (
     // intermittent retries are harmless.
     // ------------------------------------------------------------------------
 
-    // ------------------------------------------------------------------------
-    // Video bandwidth guarantee (the "garbage/streaky video" fix).
-    //
-    // Original: grant_video = !mac_active, i.e. video only got an SDRAM slot
-    // when the Mac was idle.  During boot/drawing the Mac is bus-active ~98% of
-    // the time, so the scanout starved -- the card's tiny 2-word cache went
-    // stale and the screen filled with repeated/garbage words (cyan noise /
-    // solid-colour streaks that shift frame to frame).
-    //
-    // Fix: if a video request goes unserved for STARVE_THRESH cycles, let it
-    // PREEMPT a Mac *read* (or idle) slot.  Safe because the Mac read path now
-    // waits on mac_dout_valid (DTACK held until the Mac's own SDRAM word is
-    // valid -- see the handshake at the bottom of this file): a stolen read
-    // slot merely extends the Mac's read, it never latches video's word.  Mac
-    // *writes* are never preempted (their DTACK is the immediate fast path and
-    // cannot wait); a write burst can still briefly starve video, but bursts to
-    // system RAM are short.  vid_req stays asserted for the whole fetch (the
-    // card holds vram_rd until vram_ready), so once forced the grant holds and
-    // the counter only resets when the request drops between fetches.
-    // ------------------------------------------------------------------------
-    wire vid_req     = vram_rd | vram_wr;
-    wire mac_writing = mac_we;
-    localparam [4:0] STARVE_THRESH = 5'd5;
-    reg  [4:0] vid_starve_cnt;
-    wire vid_starving = vid_starve_cnt >= STARVE_THRESH;
-
-    // SDRAM signal muxes — Mac keeps priority except when video is starving and
-    // the Mac is only reading (or idle).
-    wire grant_video = vid_req & (!mac_active | (vid_starving & mac_oe & !mac_writing));
-
-    always @(posedge clk) begin
-        if (reset || !vid_req)
-            vid_starve_cnt <= 5'd0;
-        else if (!grant_video && vid_starve_cnt != 5'h1F)
-            vid_starve_cnt <= vid_starve_cnt + 5'd1;
-    end
+    // SDRAM signal muxes — Mac priority preserved (mac_active blocks video).
+    // No quiescence gating: empirically that starved video almost entirely.
+    wire grant_video = !mac_active & (vram_rd | vram_wr);
 
     assign sdram_addr = grant_video ? vram_addr : mac_addr;
     assign sdram_din  = grant_video ? vram_dout : mac_din;
@@ -258,13 +225,10 @@ module sdram_arbiter (
                 end
 
                 VRAM_WAIT: begin
-                    // If we LOSE the SDRAM grant at any point (a Mac write, or
-                    // the forced-grant condition lapsing), the SDRAM mux flips
-                    // to mac_addr mid-transaction, so mark it dirty.  Note we
-                    // check !grant_video, not mac_active: while video holds a
-                    // forced grant the Mac may be active (a stalled read) yet
-                    // the SDRAM bus is still ours, so the fetch stays clean.
-                    if (!grant_video) video_clean <= 1'b0;
+                    // If Mac preempts at any point, mark the transaction
+                    // dirty.  We ride out the full wait so the SDRAM
+                    // controller finishes whatever it started.
+                    if (mac_active) video_clean <= 1'b0;
 
                     if (vram_wait_cnt > 3'd0) begin
                         vram_wait_cnt <= vram_wait_cnt - 3'd1;
@@ -284,9 +248,7 @@ module sdram_arbiter (
                         // vram_din_reg value -- stale framebuffer data is far
                         // less harmful than latching an unrelated Mac word,
                         // and we never deadlock.
-                        if (video_clean) begin
-                            // video_clean means we held the SDRAM grant for the
-                            // whole transaction, so sdram_dout is our word.
+                        if (video_clean && !mac_active) begin
                             vram_din_reg <= sdram_dout;
                         end
                         vram_ready_latch <= 1'b1;
@@ -359,12 +321,8 @@ module sdram_arbiter (
             mac_rd_t0_cnt    <= 2'd0;
             mac_dout_valid_r <= 1'b0;
         end else begin
-            // Mac read asserted: advance only on SDRAM cycle boundaries where
-            // the Mac actually OWNS the bus (grant_video low).  When video
-            // preempts a slot the Mac's command was not issued, so we must not
-            // count it -- otherwise mac_dout_valid would rise before the Mac's
-            // word is in sdram_dout and the CPU would latch video's data.
-            if (clk8_en_p && !grant_video && mac_rd_t0_cnt != 2'd2)
+            // Mac read asserted: advance on each SDRAM cycle boundary.
+            if (clk8_en_p && mac_rd_t0_cnt != 2'd2)
                 mac_rd_t0_cnt <= mac_rd_t0_cnt + 2'd1;
             if (mac_rd_t0_cnt == 2'd2)
                 mac_dout_valid_r <= 1'b1;
