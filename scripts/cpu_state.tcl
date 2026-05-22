@@ -35,6 +35,7 @@ foreach inst $info {
     if {$nm eq "PSCB"} { set idx(PSCB) $i }
     if {$nm eq "PSCC"} { set idx(PSCC) $i }
     if {$nm eq "PSCE"} { set idx(PSCE) $i }
+    if {$nm eq "PSCF"} { set idx(PSCF) $i }
     incr i
 }
 
@@ -224,6 +225,16 @@ for {set s 1} {$s <= 6} {incr s} {
         set s5o [expr {($se >> 24) & 0xFF}]
         puts [format "           RESEL: ID6 attempts=%u ok=%u | ID5 attempts=%u ok=%u (ok<attempts => disk re-selection FAILING)" \
             $s6a $s6o $s5a $s5o]
+    }
+    if {[info exists idx(PSCF)]} {
+        set sf [rd $idx(PSCF)]
+        set rseen [expr {($sf >> 24) & 0xFF}]
+        set ph0r  [expr {($sf >> 8)  & 0x7}]
+        set ph1r  [expr {($sf >> 11) & 0x7}]
+        set iordr [expr {($sf >> 4)  & 0x3}]
+        set iowrr [expr {($sf >> 2)  & 0x3}]
+        puts [format "           RST-SNAP: resets_seen=%u | at last reset: phase t0=%s t1=%s io_rd=%d io_wr=%d" \
+            $rseen [phname $ph0r] [phname $ph1r] $iordr $iowrr]
     }
     after 300
 }

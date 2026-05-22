@@ -454,4 +454,34 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_psce (.probe(resel_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ---- Bus-reset trigger snapshot (PSCF) --------------------------------
+    // Latch the SCSI target phase/io-handshake state at the moment the Mac
+    // issues each bus reset, to see whether resets fire MID-READ (a target in
+    // DATA_OUT => transfer problem, supports the stale-io_rd theory) or BETWEEN
+    // transactions (targets IDLE => higher-level reject).  rst_count lives in
+    // scsi_dbg4[15:8]; scsi_dbg2 carries the phases:
+    //   [13:11]=phase t1(ID5) [10:8]=phase t0(ID6) [5:4]=io_rd [3:2]=io_wr [1:0]=io_ack
+    wire [7:0] dmin_rstc = scsi_dbg4[15:8];
+    reg  [7:0] dmin_rstc_d;
+    reg  [7:0] dmin_rst_seen;
+    reg [15:0] dbg2_at_rst;
+    initial begin dmin_rstc_d = 8'd0; dmin_rst_seen = 8'd0; dbg2_at_rst = 16'd0; end
+    always @(posedge clk) begin
+        dmin_rstc_d <= dmin_rstc;
+        if (dmin_rstc != dmin_rstc_d) begin   // bus-reset count changed
+            dbg2_at_rst   <= scsi_dbg2;
+            dmin_rst_seen <= dmin_rst_seen + 8'd1;
+        end
+    end
+    reg [31:0] rstsnap_r;
+    always @(posedge clk)
+        rstsnap_r <= {dmin_rst_seen, 8'd0, dbg2_at_rst};
+
+    altsource_probe #(
+        .instance_id ("PSCF"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscf (.probe(rstsnap_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
 endmodule

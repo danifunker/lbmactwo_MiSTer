@@ -377,23 +377,38 @@ always @(posedge clk) begin
 	reg old_rd, old_wr;
 	reg wr_pending, rd_pending;
 
-	old_rd <= req_rd;
-	old_wr <= req_wr;
-	if(~old_rd & req_rd) rd_pending <= 1;
-	if(~old_wr & req_wr) wr_pending <= 1;
-
-	if(io_ack) begin
+	// A SCSI bus reset aborts any in-flight/queued disk IO.  Without this,
+	// io_rd/io_wr (and the pending latches) survive the reset; if the Mac
+	// re-selects before the stale io_rd clears via io_ack, the next CMD_IN
+	// phase sees io_busy=1 (phase!=DATA && io_rd) which suppresses REQ, the
+	// command never transfers, the Mac times out and resets again -> the
+	// intermittent reset/re-scan loop observed on hardware.
+	if(rst) begin
 		io_rd <= 1'b0;
 		io_wr <= 1'b0;
+		rd_pending <= 0;
+		wr_pending <= 0;
+		old_rd <= 0;
+		old_wr <= 0;
 	end else begin
-		if (rd_pending && !io_rd) begin
-			io_rd <= 1;
-			rd_pending <= 0;
-		end
+		old_rd <= req_rd;
+		old_wr <= req_wr;
+		if(~old_rd & req_rd) rd_pending <= 1;
+		if(~old_wr & req_wr) wr_pending <= 1;
 
-		if (wr_pending && !io_wr) begin
-			io_wr <= 1;
-			wr_pending <= 0;
+		if(io_ack) begin
+			io_rd <= 1'b0;
+			io_wr <= 1'b0;
+		end else begin
+			if (rd_pending && !io_rd) begin
+				io_rd <= 1;
+				rd_pending <= 0;
+			end
+
+			if (wr_pending && !io_wr) begin
+				io_wr <= 1;
+				wr_pending <= 0;
+			end
 		end
 	end
 end
