@@ -406,4 +406,52 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pscd (.probe(berr_susp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ---- SCSI disk re-selection tracking (PSCE) ---------------------------
+    // The Mac boots intermittently: sometimes SCSI fully works, sometimes it
+    // gets stuck re-scanning IDs in the ROM bus-status poll.  Determine whether
+    // re-selection of the DISKS (ID6=target0, ID5=target1) is failing: count
+    // selection ATTEMPTS (SEL rises with that ID on the data bus) vs SUCCESSES
+    // (the target asserted BSY during the attempt).  If attempts keep climbing
+    // while successes stall, disk re-selection is the failure point.
+    // scsi_dbg: [14]=SEL [12]=target_bsy[ID5] [11]=target_bsy[ID6] [7:0]=data_bus.
+    wire scsi_sel   = scsi_dbg[14];
+    wire scsi_d6    = scsi_dbg[6];     // data-bus bit 6 -> selecting ID6
+    wire scsi_d5    = scsi_dbg[5];     // data-bus bit 5 -> selecting ID5
+    wire scsi_tbsy6 = scsi_dbg[11];    // target0 (ID6) asserting BSY
+    wire scsi_tbsy5 = scsi_dbg[12];    // target1 (ID5) asserting BSY
+    reg        sel_d2;
+    reg        a6_active, a5_active;
+    reg        a6_gotbsy, a5_gotbsy;
+    reg [7:0]  sel6_att, sel6_ok, sel5_att, sel5_ok;
+    initial begin
+        sel_d2 = 1'b0; a6_active = 1'b0; a5_active = 1'b0;
+        a6_gotbsy = 1'b0; a5_gotbsy = 1'b0;
+        sel6_att = 8'd0; sel6_ok = 8'd0; sel5_att = 8'd0; sel5_ok = 8'd0;
+    end
+    always @(posedge clk) begin
+        sel_d2 <= scsi_sel;
+        if (scsi_sel && !sel_d2) begin            // SEL rising = new selection attempt
+            if (scsi_d6) begin a6_active <= 1'b1; a5_active <= 1'b0; a6_gotbsy <= 1'b0; sel6_att <= sel6_att + 8'd1; end
+            else if (scsi_d5) begin a5_active <= 1'b1; a6_active <= 1'b0; a5_gotbsy <= 1'b0; sel5_att <= sel5_att + 8'd1; end
+            else begin a6_active <= 1'b0; a5_active <= 1'b0; end
+        end else if (scsi_sel) begin               // during the attempt
+            if (a6_active && scsi_tbsy6) a6_gotbsy <= 1'b1;
+            if (a5_active && scsi_tbsy5) a5_gotbsy <= 1'b1;
+        end else if (!scsi_sel && sel_d2) begin    // SEL falling = end of attempt
+            if (a6_active && a6_gotbsy) sel6_ok <= sel6_ok + 8'd1;
+            if (a5_active && a5_gotbsy) sel5_ok <= sel5_ok + 8'd1;
+            a6_active <= 1'b0; a5_active <= 1'b0;
+        end
+    end
+    reg [31:0] resel_r;
+    always @(posedge clk)
+        resel_r <= {sel5_ok, sel5_att, sel6_ok, sel6_att};
+
+    altsource_probe #(
+        .instance_id ("PSCE"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psce (.probe(resel_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
 endmodule

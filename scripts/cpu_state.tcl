@@ -34,6 +34,7 @@ foreach inst $info {
     if {$nm eq "PSCA"} { set idx(PSCA) $i }
     if {$nm eq "PSCB"} { set idx(PSCB) $i }
     if {$nm eq "PSCC"} { set idx(PSCC) $i }
+    if {$nm eq "PSCE"} { set idx(PSCE) $i }
     incr i
 }
 
@@ -214,6 +215,15 @@ for {set s 1} {$s <= 6} {incr s} {
         if {[info exists idx(PSCD)]} { set bsusp [rd $idx(PSCD)] }
         puts [format "           BERR: count=%u | last_addr=0x%08X(fc%d) | susp_nonslot=%d susp_addr=0x%08X(fc%d)" \
             $bcnt $blast $lfc $sseen $bsusp $sfc]
+    }
+    if {[info exists idx(PSCE)]} {
+        set se [rd $idx(PSCE)]
+        set s6a [expr {$se & 0xFF}]
+        set s6o [expr {($se >> 8) & 0xFF}]
+        set s5a [expr {($se >> 16) & 0xFF}]
+        set s5o [expr {($se >> 24) & 0xFF}]
+        puts [format "           RESEL: ID6 attempts=%u ok=%u | ID5 attempts=%u ok=%u (ok<attempts => disk re-selection FAILING)" \
+            $s6a $s6o $s5a $s5o]
     }
     after 300
 }
