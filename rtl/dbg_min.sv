@@ -55,7 +55,12 @@ module dbg_min (
     // Raw disk data the HPS delivers (to catch byte-order/corruption)
     input wire [15:0] sd_buff_dout,
     input wire [7:0]  sd_buff_addr,
-    input wire        sd_buff_wr
+    input wire        sd_buff_wr,
+
+    // HPS ROM-download stream (confirm the NuBus video declaration ROM,
+    // boot1.rom @ index 1, actually reaches the card on hardware).
+    input wire        ioctl_wr,
+    input wire [7:0]  ioctl_idx
 );
 
     // Coherent snapshots on clk.
@@ -288,6 +293,41 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psc8 (.probe(disk_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ---- ROM-download verification (PSCG) ---------------------------------
+    // Count HPS ioctl writes per ROM index, to confirm the NuBus video
+    // declaration ROM (boot1.rom @ index 1) actually loads on hardware:
+    //   idx0_cnt = system ROM bytes (boot0.rom) - should be large (~256K)
+    //   idx1_cnt = video declaration ROM bytes (boot1.rom) - expect ~8192
+    // If idx1_cnt is 0 the card never gets its declaration ROM (Slot Manager
+    // can't init it -> no video).  ~4096 would indicate the wrong (Toby) ROM.
+    reg [31:0] idx0_cnt, idx1_cnt;
+    initial begin idx0_cnt = 32'd0; idx1_cnt = 32'd0; end
+    always @(posedge clk) begin
+        if (ioctl_wr) begin
+            if (ioctl_idx == 8'd0) idx0_cnt <= idx0_cnt + 32'd1;
+            if (ioctl_idx == 8'd1) idx1_cnt <= idx1_cnt + 32'd1;
+        end
+    end
+    reg [31:0] idx1_r, idx0_r;
+    always @(posedge clk) begin
+        idx1_r <= idx1_cnt;
+        idx0_r <= idx0_cnt;
+    end
+
+    altsource_probe #(
+        .instance_id ("PSCG"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscg (.probe(idx1_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PSCH"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psch (.probe(idx0_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ---- Bus-reset trigger snapshot (PSCF) --------------------------------
     // Latch the SCSI target phase/io-handshake state at the moment the Mac

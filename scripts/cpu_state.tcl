@@ -36,6 +36,8 @@ foreach inst $info {
     if {$nm eq "PSCC"} { set idx(PSCC) $i }
     if {$nm eq "PSCE"} { set idx(PSCE) $i }
     if {$nm eq "PSCF"} { set idx(PSCF) $i }
+    if {$nm eq "PSCG"} { set idx(PSCG) $i }
+    if {$nm eq "PSCH"} { set idx(PSCH) $i }
     incr i
 }
 
@@ -230,6 +232,15 @@ for {set s 1} {$s <= 6} {incr s} {
         set iowrr [expr {($sf >> 2)  & 0x3}]
         puts [format "           RST-SNAP: resets_seen=%u | at last reset: phase t0=%s t1=%s io_rd=%d io_wr=%d" \
             $rseen [phname $ph0r] [phname $ph1r] $iordr $iowrr]
+    }
+    if {[info exists idx(PSCG)] && [info exists idx(PSCH)]} {
+        set i1 [rd $idx(PSCG)]
+        set i0 [rd $idx(PSCH)]
+        set vnote ""
+        if {$i1 == 0}    { set vnote " <- video decl ROM NOT loaded!" }
+        if {$i1 > 0 && $i1 < 6144} { set vnote " <- looks like wrong/small ROM (Toby=4096?)" }
+        if {$i1 >= 6144} { set vnote " <- Hi-Res decl ROM loaded OK" }
+        puts [format "           ROMLOAD: boot0(sys idx0)=%u writes | boot1(video decl idx1)=%u writes%s" $i0 $i1 $vnote]
     }
     after 300
 }
