@@ -76,7 +76,12 @@ module nubus_video_highres #(
     // VRAM in SDRAM — 512KB at offset $30_0000
     // ========================================================================
     localparam VRAM_BASE = 25'h300000;
-    localparam VRAM_SIZE = 262144;  // 0x80000 bytes / 2 = 256K words
+    // VRAM now lives in dedicated on-chip BRAM (vram_ram, 2^17 words = 256 KB),
+    // which fits comfortably in M10K (256/472 free blocks).  Cap the size to the
+    // BRAM depth so addresses can't alias past it.  256 KB covers 1/2/4 bpp at
+    // 640x480 (boot is 1 bpp); full 512 KB (8 bpp) would need 512 blocks (>free).
+    localparam VRAM_SIZE = 131072;  // 0x40000 bytes-pairs = 128K words = 256 KB
+
 
     // ========================================================================
     // CLUT — 256 entries x 24-bit RGB, on-chip

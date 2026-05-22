@@ -779,13 +779,16 @@ nubus_video_highres nubus_card (
 	.ce_pixel(nubus_ce_pixel),
 	.nmrq_n(nubus_irq_n),
 
-	// SDRAM VRAM interface via arbiter
+	// Dedicated on-chip VRAM (vram_ram).  The framebuffer no longer lives in
+	// shared SDRAM, so the scanout never competes with the Mac for SDRAM and
+	// always reads coherent data (Mac keeps SDRAM to itself).  Card outputs
+	// (addr/dout/rd/wr) drive the BRAM; read data/ready come back from it.
 	.vram_addr(arb_vram_addr),
 	.vram_dout(arb_vram_dout),
-	.vram_din(arb_vram_din),
+	.vram_din(vram_bram_din),
 	.vram_rd(arb_vram_rd),
 	.vram_wr(arb_vram_wr),
-	.vram_ready(arb_vram_ready),
+	.vram_ready(vram_bram_ready),
 
 	.overlay_en(status_overlay_en),
 	.monochrome(status_video_mono),
@@ -1038,10 +1041,25 @@ wire        arb_mac_dout_valid;  // Mac read data-valid (coherency fix)
 
 wire [24:0] arb_vram_addr;
 wire [15:0] arb_vram_dout;
-wire [15:0] arb_vram_din;
+wire [15:0] arb_vram_din;   // (legacy SDRAM-VRAM read path; now unused)
 wire        arb_vram_rd;
 wire        arb_vram_wr;
-wire        arb_vram_ready;
+wire        arb_vram_ready;  // (legacy; now unused)
+
+// Dedicated on-chip VRAM for the NuBus video card (replaces shared-SDRAM
+// framebuffer).  The card's VRAM port drives this BRAM directly; the SDRAM
+// arbiter's video port is tied off below so the Mac owns SDRAM exclusively.
+wire [15:0] vram_bram_din;
+wire        vram_bram_ready;
+vram_ram #(.AW(17)) vram_inst (   // 2^17 words = 256 KB (1/2/4 bpp @ 640x480)
+	.clk   (clk_sys),
+	.addr  (arb_vram_addr),
+	.din   (arb_vram_dout),
+	.dout  (vram_bram_din),
+	.rd    (arb_vram_rd),
+	.wr    (arb_vram_wr),
+	.ready (vram_bram_ready)
+);
 
 wire [24:0] sdram_addr;
 wire [15:0] sdram_din;
@@ -1090,12 +1108,14 @@ sdram_arbiter arbiter (
 	.mac_we(arb_mac_we),
 	.mac_oe(arb_mac_oe),
 
-	// Video card port
-	.vram_addr(arb_vram_addr),
-	.vram_dout(arb_vram_dout),
+	// Video card port — TIED OFF.  VRAM now lives in dedicated on-chip BRAM
+	// (vram_ram), not shared SDRAM, so the arbiter never grants video and the
+	// Mac owns SDRAM exclusively (no contention, no coherency races).
+	.vram_addr(25'd0),
+	.vram_dout(16'd0),
 	.vram_din(arb_vram_din),
-	.vram_rd(arb_vram_rd),
-	.vram_wr(arb_vram_wr),
+	.vram_rd(1'b0),
+	.vram_wr(1'b0),
 	.vram_ready(arb_vram_ready),
 
 	// SDRAM controller
