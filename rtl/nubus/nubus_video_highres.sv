@@ -32,13 +32,18 @@ module nubus_video_highres #(
     output vga_blank,
     output vga_clk,
 
-    // SDRAM Interface for VRAM
+    // VRAM Port A — CPU read/write (via FSM)
     output reg [24:0] vram_addr,
     output reg [15:0] vram_dout,
     input [15:0] vram_din,
     output reg vram_rd,
     output reg vram_wr,
     input vram_ready,
+
+    // VRAM Port B — dedicated scanout read (no cache, never misses)
+    output     [24:0] vram_scan_addr,
+    output            vram_scan_rd,
+    input      [15:0] vram_scan_data,
 
     // IOCTL Interface for ROM Download
     input        ioctl_wr,
@@ -356,6 +361,14 @@ module nubus_video_highres #(
 
     // Convert to 16-bit word address for SDRAM
     wire [18:0] fetch_word_addr = fetch_byte_addr[19:1];
+
+    // Dedicated scanout read port (port B of the VRAM BRAM): present the current
+    // pixel's word address every displayed pixel.  The BRAM returns it
+    // (registered) on the next clk_video_en, aligned with byte_sel_d/h_cnt_d in
+    // the pixel pipeline below -- so the scanout always has the correct word and
+    // never depends on the CPU port or a cache.
+    assign vram_scan_addr = VRAM_BASE + {6'd0, fetch_word_addr};
+    assign vram_scan_rd   = clk_video_en;
 
     // Which byte within the 16-bit word (0=high byte, 1=low byte, big-endian)
     wire fetch_byte_sel = fetch_byte_addr[0];
@@ -751,13 +764,12 @@ module nubus_video_highres #(
                         ack_n <= 1'b1;
                         ack_delay <= 3'd0;
 
-                    end else if (!select && video_fetch_valid) begin
-                        vram_addr <= VRAM_BASE + {6'd0, video_fetch_target};
-                        video_fetch_word <= video_fetch_target;
-                        vram_rd <= 1'b1;
-                        state <= S_VIDEO_FETCH;
-
                     end
+                    // Scanout no longer fetches through this (CPU) port -- it
+                    // reads directly from the dedicated VRAM port B.  So port A
+                    // (this FSM) is CPU-only now; the old S_VIDEO_FETCH path is
+                    // retired (the 2-word cache + opportunistic fetch caused the
+                    // stale-word garbling).
                 end
 
                 S_CPU_WRITE: begin
@@ -862,7 +874,10 @@ module nubus_video_highres #(
         end
     end
 
-    wire [7:0] vram_byte = byte_sel_d ? display_cache_word_d[7:0] : display_cache_word_d[15:8];
+    // Scanout reads straight from the dedicated VRAM port B (vram_scan_data,
+    // registered in the BRAM on clk_video_en) -- always the correct word,
+    // aligned with byte_sel_d/h_cnt_d.  No cache, so no stale-word garbling.
+    wire [7:0] vram_byte = byte_sel_d ? vram_scan_data[7:0] : vram_scan_data[15:8];
 
     // Extract pixel index from byte based on mode
     reg [7:0] pixel_idx;
@@ -899,8 +914,9 @@ module nubus_video_highres #(
         endcase
     end
 
-    // CLUT lookup and output
-    wire pixel_valid = video_en && !blanking_d && (display_word_cached_d || vram_cache_any_valid_d);
+    // CLUT lookup and output.  Scanout data is always available from VRAM port
+    // B, so validity is just enable + active region (no cache-hit dependency).
+    wire pixel_valid = video_en && !blanking_d;
     wire mono_mode = DEFAULT_MONOCHROME || monochrome;
     wire [7:0] mono_pixel = pixel_idx[0] ? 8'h22 : 8'hee;
     assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16]) : 8'd0;

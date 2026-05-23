@@ -790,6 +790,11 @@ nubus_video_highres nubus_card (
 	.vram_wr(arb_vram_wr),
 	.vram_ready(vram_bram_ready),
 
+	// VRAM port B — dedicated scanout read (no cache, never misses)
+	.vram_scan_addr(vram_scan_addr),
+	.vram_scan_rd(vram_scan_rd),
+	.vram_scan_data(vram_scan_data),
+
 	.overlay_en(status_overlay_en),
 	.monochrome(status_video_mono),
 
@@ -1051,14 +1056,22 @@ wire        arb_vram_ready;  // (legacy; now unused)
 // arbiter's video port is tied off below so the Mac owns SDRAM exclusively.
 wire [15:0] vram_bram_din;
 wire        vram_bram_ready;
+wire [24:0] vram_scan_addr;
+wire        vram_scan_rd;
+wire [15:0] vram_scan_data;
 vram_ram #(.AW(17)) vram_inst (   // 2^17 words = 256 KB (1/2/4 bpp @ 640x480)
-	.clk   (clk_sys),
-	.addr  (arb_vram_addr),
-	.din   (arb_vram_dout),
-	.dout  (vram_bram_din),
-	.rd    (arb_vram_rd),
-	.wr    (arb_vram_wr),
-	.ready (vram_bram_ready)
+	.clk    (clk_sys),
+	// Port A — CPU read/write (card FSM)
+	.addr   (arb_vram_addr),
+	.din    (arb_vram_dout),
+	.dout   (vram_bram_din),
+	.rd     (arb_vram_rd),
+	.wr     (arb_vram_wr),
+	.ready  (vram_bram_ready),
+	// Port B — dedicated scanout read
+	.addr_b (vram_scan_addr),
+	.rd_b   (vram_scan_rd),
+	.dout_b (vram_scan_data)
 );
 
 wire [24:0] sdram_addr;
