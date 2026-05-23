@@ -1059,7 +1059,7 @@ wire        vram_bram_ready;
 wire [24:0] vram_scan_addr;
 wire        vram_scan_rd;
 wire [15:0] vram_scan_data;
-vram_ram #(.AW(17)) vram_inst (   // 2^17 words = 256 KB (1/2/4 bpp @ 640x480)
+vram_ram #(.AW(16)) vram_inst (   // 2^16 words = 128 KB (1/2 bpp @ 640x480; dual-port)
 	.clk    (clk_sys),
 	// Port A — CPU read/write (card FSM)
 	.addr   (arb_vram_addr),

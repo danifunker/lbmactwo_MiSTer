@@ -3,25 +3,26 @@
 //
 // Dedicated on-chip VRAM for the NuBus Hi-Res video card, dual-port.
 //
-// Replaces the shared-SDRAM framebuffer path.  On real hardware the framebuffer
-// previously lived in the same SDRAM as Mac system RAM, behind sdram_arbiter, so
-// the video scanout competed with the CPU for SDRAM bandwidth and starved (the
-// cyan/green/red noise).  Giving video its own block RAM matches how a real Mac
-// II works (VRAM lives on the card) and removes the contention entirely.
+// Replaces the shared-SDRAM framebuffer path so the scanout never competes with
+// the Mac for SDRAM (the cyan/green/red noise).  Matches how a real Mac II works
+// (VRAM on the card).
 //
 // Dual-port:
-//   * Port A (read/write) — CPU VRAM access via the card's FSM (rd/wr + ready).
-//   * Port B (read-only)  — the video SCANOUT.  Reading scanout on its own port
-//     means it NEVER misses: every pixel's word comes straight from BRAM,
-//     independent of CPU writes.  This eliminates the old 2-word cache (which
-//     fell back to a stale word on a miss -> garbled text/edges) and the FSM
-//     time-sharing of a single port between scanout and CPU.
+//   * Port A (read/write, write-through) — CPU VRAM access via the card's FSM.
+//   * Port B (read-only)                 — the video SCANOUT, on its own port so
+//     it NEVER misses (every pixel's word comes straight from BRAM, independent
+//     of CPU writes).  This retires the old 2-word cache that fell back to a
+//     stale word on a miss -> garbled text/edges.
 //
-// 256 KB (2^17 16-bit words = ~256 of 472 free M10K blocks); covers 1/2/4 bpp at
-// 640x480 (boot is 1 bpp).
+// Sizing: 128 KB (2^16 16-bit words).  A 256 KB dual-port instance was getting
+// duplicated by the M10K mapper (2 reads + 1 write -> two arrays) and overflowed
+// the 553 M10K blocks.  128 KB fits even if duplicated (~256 blocks) and covers
+// 1/2 bpp at 640x480 -- the Mac's boot screens (gray desktop, dialogs, happy
+// Mac, Welcome) are 1 bpp.  Revisit for deeper colour once a non-duplicating
+// 256 KB mapping is confirmed.
 //
 module vram_ram #(
-    parameter integer AW = 17                 // 2^17 words = 256 KB
+    parameter integer AW = 16                 // 2^16 words = 128 KB
 ) (
     input             clk,
 
@@ -47,19 +48,19 @@ module vram_ram #(
     wire [AW-1:0] idx_a = addr[AW-1:0];
     wire [AW-1:0] idx_b = addr_b[AW-1:0];
 
-    // Port A: CPU read/write
+    // Port A: CPU read/write, canonical write-through true-dual-port style.
     always @(posedge clk) begin
-        ready <= 1'b0;
         if (wr) begin
             mem[idx_a] <= din;
-            ready      <= 1'b1;
-        end else if (rd) begin
-            dout  <= mem[idx_a];
-            ready <= 1'b1;
+            dout       <= din;          // write-through (new data)
+        end else begin
+            dout       <= mem[idx_a];
         end
+        ready <= rd | wr;
     end
 
-    // Port B: scanout read (enabled per displayed pixel-word)
+    // Port B: scanout read (enabled per displayed pixel-word, so it advances in
+    // lockstep with the pixel pipeline's clk_video_en-gated registers).
     always @(posedge clk) begin
         if (rd_b)
             dout_b <= mem[idx_b];

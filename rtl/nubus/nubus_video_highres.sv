@@ -85,7 +85,7 @@ module nubus_video_highres #(
     // which fits comfortably in M10K (256/472 free blocks).  Cap the size to the
     // BRAM depth so addresses can't alias past it.  256 KB covers 1/2/4 bpp at
     // 640x480 (boot is 1 bpp); full 512 KB (8 bpp) would need 512 blocks (>free).
-    localparam VRAM_SIZE = 131072;  // 0x40000 bytes-pairs = 128K words = 256 KB
+    localparam VRAM_SIZE = 65536;   // 2^16 words = 128 KB (dual-port BRAM; 1/2 bpp)
 
 
     // ========================================================================
