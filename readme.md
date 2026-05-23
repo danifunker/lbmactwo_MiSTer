@@ -8,8 +8,11 @@ This is an initial build, I doubt any of it works yet!
 
 * Copy the *.rbf onto the root of the SD card (build from source with Quartus)
 * Copy ROM files to the `lbmactwo` folder on the SD card:
-  * `boot0.rom` — Mac II system ROM (256K). Use `1987-12 - 9779D2C4 - MacII (800k v2).ROM`
-  * `boot1.rom` — NuBus Toby video card declaration ROM. Use `342-0008-a.bin` (this must match the Toby card hardware implemented in the core)
+  * `boot0.rom` — Mac II system ROM (256K). Use `1987-12 - 9779D2C4 - MacII (800k v2).ROM` (md5 `66223be1497460f1e60885eeb35e03cc`).
+    * Optionally, the memory-test-skip variant produced by `scripts/patch_rom_nomemtest.sh` (see [Skipping the power-on memory test](#skipping-the-power-on-memory-test)) is also a valid `boot0.rom` (md5 `3ac98d2aab2ebd399bce2d52c9a80753`).
+
+
+The core emulates the **Apple Macintosh II High Resolution Video Card** (TFB 2.2 ASIC + Bt453 RAMDAC, 640×480) as a NuBus card. Its declaration ROM (`341-0660.bin`, md5 `9ae47fa338406441a5a6a39321c990fa`) is **baked into the FPGA bitstream**, just like a real card carries its own ROM, so you do **not** need to copy it to the SD card. (It is only supplied at runtime as `boot1.rom`, index 1, by the Verilator simulator.)
 * Copy disk images in dsk format (e.g. Disk605.dsk) to lbmactwo folder
 
 After a few seconds, the floppy disk icon should appear. Open the on-screen display using the F12 key and select the a disk image. The upload of the disk image will take a few seconds. If a bootable system is found on disk, a smiling Mac icon will appear. lbmactwo will then begin booting into the desktop.
@@ -48,7 +51,17 @@ The CPU speed can be adjusted to 8 MHz (original speed) or 16 MHz. This port imp
 
 ## Memory
 
-1MB and 4MB memory configurations are available. Cold boot with 4MB RAM selected takes some time before it starts to boot from FDD/SCSI, so be patient. Warm boot won't take as long.
+1MB, 4MB, and 8MB memory configurations are available and can be selected from the on-screen display. Cold boot with a larger RAM size selected takes some time before it starts to boot from FDD/SCSI, so be patient. Warm boot won't take as long.
+
+### Skipping the power-on memory test
+
+The long cold-boot delay is the Mac II ROM's destructive RAM test. The ROM normally skips this test when it detects a warm start (a "WLSC" flag in low memory); the [snow](https://github.com/twvd/snow) emulator boots quickly by faking that flag. You can get the same fast cold boot by patching `boot0.rom` so the test is always skipped:
+
+```sh
+scripts/patch_rom_nomemtest.sh boot0.rom
+```
+
+This flips the two warm-start branches in the ROM and fixes up the ROM checksum, writing the result back in place (a pristine copy is kept at `boot0.rom.bak`). It is pure POSIX `sh`, so it can be run directly on the MiSTer. Pass a second argument to write to a separate file instead of patching in place. The script only supports the original Mac II system ROM (checksum `9779D2C4`).
 
 ## Keyboard
 
