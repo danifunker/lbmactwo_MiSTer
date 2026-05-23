@@ -102,13 +102,13 @@ module emu
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
-	input         cfg_memSize       // 0=1MB, 1=4MB
+	input  [1:0]  cfg_memSize       // RAM size: 00=1MB, 01=2MB, 10=4MB, 11=8MB
 );
 
 	localparam SCSI_DEVS = 2;
 
 	// Configuration - directly from inputs (Mac II)
-	wire      status_mem = cfg_memSize;      // 0=1MB, 1=4MB
+	wire [1:0] status_mem = cfg_memSize;     // RAM size (matches FPGA status[5:4])
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
 	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables.
 	// Sim plusarg +cpu8 lets us test whether boot divergence is CPU/bus pacing.
@@ -193,7 +193,7 @@ module emu
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
-	wire [1:0] configRAMSize = 2'b11; // 8MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
+	wire [1:0] configRAMSize = cfg_memSize; // RAM size from --ram (00=1MB,01=2MB,10=4MB,11=8MB)
 
 	// Serial Ports — connected to serial terminal in sim_main.cpp
 	wire serialOut;              // SCC Channel A TX (driven by SCC)

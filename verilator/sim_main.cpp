@@ -68,7 +68,7 @@ int multi_step_amount = 1024;
 // Mac II only (uses TG68K 68020 mode)
 // TG68K documents cpu=2'b11 as 68020 mode. The Mac II ROM depends on it.
 int cfg_cpuType = 3;
-int cfg_memSize = 0;       // 0=1MB, 1=4MB
+int cfg_memSize = 3;       // RAM size: 0=1MB, 1=2MB, 2=4MB, 3=8MB (set via --ram)
 
 // CPU trace
 // ---------
@@ -3196,6 +3196,7 @@ void show_help() {
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
 	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
 	printf("  --floppy1 <file>              Insert a raw .dsk image in the external floppy drive\n");
+	printf("  --ram <1|2|4|8>               RAM size in MB (default 8)\n");
 	printf("  --send-mouse <frame>:<dx>,<dy>[,<btn>[,<dur>]]\n");
 	printf("                                Send headless mouse input at specified frame\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
@@ -3488,6 +3489,19 @@ int main(int argc, char** argv, char** env) {
 		} else if (strcmp(argv[i], "--floppy1") == 0 && i + 1 < argc) {
 			floppy_disk_files[1] = argv[i + 1];
 			i++;
+		} else if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) {
+			// RAM size in MB: 1, 2, 4, or 8 -> configRAMSize 0/1/2/3
+			int mb = atoi(argv[++i]);
+			switch (mb) {
+				case 1: cfg_memSize = 0; break;
+				case 2: cfg_memSize = 1; break;
+				case 4: cfg_memSize = 2; break;
+				case 8: cfg_memSize = 3; break;
+				default:
+					fprintf(stderr, "Error: --ram must be 1, 2, 4, or 8 (got %s)\n", argv[i]);
+					return 1;
+			}
+			printf("RAM size: %d MB (configRAMSize=%d)\n", mb, cfg_memSize);
 		} else if (strcmp(argv[i], "--send-mouse") == 0 && i + 1 < argc) {
 			std::string arg = argv[++i];
 			size_t colon = arg.find(':');
@@ -3904,8 +3918,8 @@ int main(int argc, char** argv, char** env) {
 
 		// Machine configuration (display only - requires restart to change)
 		ImGui::Separator();
-		ImGui::Text("Machine: Mac II | CPU: TG68K | RAM: %s",
-			cfg_memSize ? "4MB" : "1MB");
+		ImGui::Text("Machine: Mac II | CPU: TG68K | RAM: %dMB",
+			(1 << cfg_memSize)); // 0->1MB,1->2MB,2->4MB,3->8MB
 
 		ImGui::End();
 
