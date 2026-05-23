@@ -102,13 +102,13 @@ module emu
 
 	// Machine configuration inputs
 	input  [1:0]  cfg_cpuType,      // 00=FX68K, 01/10/11=TG68K variants
-	input         cfg_memSize       // 0=1MB, 1=4MB
+	input  [1:0]  cfg_memSize       // RAM size: 00=1MB, 01=2MB, 10=4MB, 11=8MB
 );
 
 	localparam SCSI_DEVS = 2;
 
 	// Configuration - directly from inputs (Mac II)
-	wire      status_mem = cfg_memSize;      // 0=1MB, 1=4MB
+	wire [1:0] status_mem = cfg_memSize;     // RAM size (matches FPGA status[5:4])
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
 	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables.
 	// Sim plusarg +cpu8 lets us test whether boot divergence is CPU/bus pacing.
@@ -193,7 +193,7 @@ module emu
 
 	// Mac II memory configuration
 	localparam configROMSize = 2'b10;  // 256K ROM
-	wire [1:0] configRAMSize = 2'b01; // 2MB (00=1MB, 01=2MB, 10=4MB, 11=8MB)
+	wire [1:0] configRAMSize = cfg_memSize; // RAM size from --ram (00=1MB,01=2MB,10=4MB,11=8MB)
 
 	// Serial Ports — connected to serial terminal in sim_main.cpp
 	wire serialOut;              // SCC Channel A TX (driven by SCC)
@@ -247,7 +247,7 @@ module emu
 	wire videoBusControl;
 	wire dioBusControl;
 	wire cpuBusControl;
-	wire [21:0] memoryAddr;
+	wire [22:0] memoryAddr;	// 23-bit byte address (8MB max RAM)
 	wire [15:0] memoryDataOut;
 	wire memoryLatch;
 	wire capslock;
@@ -841,19 +841,16 @@ module emu
 	                         ((dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3) ? dio_a_floppy :
 	                          {dio_index[6], dio_addr[19:0]});
 
-	// Address mapping for sim_ram:
-	// sim_ram uses addr[21:0] for a 4M word (8MB) array
-	//
-	// For RAM path: {3'b000, dskReadAck, memoryAddr[21:1]}
-	//   - This gives addr[21:0] = {dskReadAck, memoryAddr[21:1]}
-	//   - Normal RAM (dskReadAck=0): uses 0x000000 - 0x1FFFFF (4MB = 2M words)
-	//
-	// For ROM path: Need bit 21 = 1 to avoid collision with RAM
-	//   - {3'b000, 1'b1, dio_a_comb[20:0]} gives addr[21:0] = {1, dio_a_comb[20:0]} = 0x200000 + dio_a_comb
-	wire [24:0] ram_addr = download_cycle ? {3'b000, 1'b1, dio_a_comb[20:0] } :  // ROM at 0x200000+ (bit 21 set)
-						   ~_romOE        ?
-						   {3'b000, 1'b1, 4'b0000, memoryAddr[17:1]} :  // ROM reads at 0x200000+ (256K ROM) - must be 25 bits!
-										  {3'b000, (dskReadAckInt || dskReadAckExt), memoryAddr[21:1]};  // RAM at 0x000000+
+	// Address mapping for sim_ram (matches the FPGA SDRAM map, 8MB-capable):
+	//   RAM        : 0x000000 - 0x3FFFFF (A22=0)  — up to 4M words = 8MB
+	//   ROM / disk : 0x400000 +          (A22=1)  — moved above the 8MB RAM
+	//                                               window so it no longer
+	//                                               collides (it used to sit at
+	//                                               A21=0x200000, inside 8MB RAM).
+	wire [24:0] ram_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a_comb[20:0] } :   // ROM/disk download @ 0x400000+
+						   ~_romOE        ? {2'b00, 1'b1, 5'b00000, memoryAddr[17:1]} : // ROM reads @ 0x400000+ (256K ROM)
+						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
+										  {3'b000, memoryAddr[22:1]};                  // RAM 0x000000-0x3FFFFF (8MB)
 	// Use ioctl_dout directly for download (bypass registered dio_data)
 	wire [15:0] ram_din  = download_cycle ? ioctl_dout            : memoryDataOut;
 	wire  [1:0] ram_ds   = download_cycle ? 2'b11                 : { !_memoryUDS, !_memoryLDS };
@@ -861,7 +858,7 @@ module emu
 	wire        ram_we   = download_cycle ? 1'b1                  : !_ramWE;
 	wire        ram_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 	wire [15:0] ram_do_raw;
-	wire [21:0] ram_next_word_addr = ram_addr[21:0] + 22'd1;
+	wire [22:0] ram_next_word_addr = ram_addr[22:0] + 23'd1;
 	wire [15:0] ram_odd_word_do = {ram_do_raw[7:0], ram.mem[ram_next_word_addr][15:8]};
 	wire        ram_odd_full_read = !download_cycle && !(dskReadAckInt || dskReadAckExt) &&
 	                                ram_oe && !ram_we && memoryAddr[0] &&

@@ -458,7 +458,7 @@ wire _memoryUDS, _memoryLDS;
 wire videoBusControl;
 wire dioBusControl;
 wire cpuBusControl;
-wire [21:0] memoryAddr;
+wire [22:0] memoryAddr;			// 23-bit byte address (8MB max RAM)
 wire [15:0] memoryDataOut;
 wire memoryLatch;
 
@@ -1015,10 +1015,18 @@ wire download_cycle = dio_download && dioBusControl;
 
 ////////////////////////// SDRAM /////////////////////////////////
 
-// Route Mac system signals through arbiter
-assign arb_mac_addr = download_cycle ? {4'b0001, dio_a[20:0] } :
-                      ~_romOE        ? {4'b0001, 2'b00, 1'b0, memoryAddr[18:1]} : // Mac II ROM at SDRAM offset
-                                       {3'b000, (dskReadAckInt || dskReadAckExt), memoryAddr[21:1]};
+// Route Mac system signals through arbiter.
+//
+// SDRAM word-address map (8MB-capable):
+//   RAM        : 0x000000 - 0x3FFFFF (A22=0)  — up to 4M words = 8MB
+//   ROM / disk : 0x400000 +          (A22=1)  — moved above RAM so it no longer
+//                                               collides with the 8MB RAM window
+//                                               (it used to sit at A21=0x200000,
+//                                               inside the 8MB RAM span).
+assign arb_mac_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
+                      ~_romOE        ? {2'b00, 1'b1, 4'b0000, memoryAddr[18:1]} :    // Mac II ROM @ 0x400000+
+                      (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
+                                       {3'b000, memoryAddr[22:1]};                   // RAM 0x000000-0x3FFFFF (8MB)
 
 assign arb_mac_din  = download_cycle ? dio_data              : memoryDataOut;
 assign arb_mac_ds   = download_cycle ? 2'b11                 : { !_memoryUDS, !_memoryLDS };

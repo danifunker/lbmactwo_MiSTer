@@ -21,7 +21,7 @@ module addrController_top(
 	input _cpuAS,
 	
 	// RAM/ROM:
-	output [21:0] memoryAddr,
+	output [22:0] memoryAddr,			// 23-bit byte address (8MB max RAM)
 	output _memoryUDS,
 	output _memoryLDS,	
 	output _romOE,
@@ -114,8 +114,10 @@ module addrController_top(
 	
 	assign _memoryUDS = cpuBusControl ? _cpuUDS : 1'b0;
 	assign _memoryLDS = cpuBusControl ? _cpuLDS : 1'b0;
-	wire [21:0] addrMux = videoBusControl ? videoAddr : cpuAddr[21:0];
-	wire [21:0] macAddr;
+	// 23-bit address path so 8MB RAM (cpuAddr[22:0]) is reachable.  The built-in
+	// video framebuffer only lives in the low 4MB, so its A22 is forced to 0.
+	wire [22:0] addrMux = videoBusControl ? {1'b0, videoAddr} : cpuAddr[22:0];
+	wire [22:0] macAddr;
 	assign macAddr[15:0] = addrMux[15:0];
 
 	// video always addresses ram
@@ -145,15 +147,16 @@ module addrController_top(
 	assign macAddr[21] = rom_access ? 1'b0 :
 									ram2m_bank_a_mirror ? 1'b0 :
 									addrMux[21];
-	
+	assign macAddr[22] = rom_access ? 1'b0 : addrMux[22];   // A22 selects upper 4MB of an 8MB SIMM set
+
 			
 	// floppy emulation gets extra slots 0 and 1
 	assign dskReadAckInt = (extraBusControl == 1'b1) && (extra_slot_count == 0);
 	assign dskReadAckExt = (extraBusControl == 1'b1) && (extra_slot_count == 1);
 
 	assign memoryAddr =
-		dskReadAckInt ? dskReadAddrInt + 22'h100000:   // first dsk image at 1MB
-		dskReadAckExt ? dskReadAddrExt + 22'h200000:   // second dsk image at 2MB
+		dskReadAckInt ? {1'b0, dskReadAddrInt} + 23'h100000:   // first dsk image at 1MB
+		dskReadAckExt ? {1'b0, dskReadAddrExt} + 23'h200000:   // second dsk image at 2MB
 		macAddr;
 
 	// address decoding

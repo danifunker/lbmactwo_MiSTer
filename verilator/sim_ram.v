@@ -20,20 +20,20 @@ module sim_ram
 	input [31:0]        debug_pc    // CPU PC for watchpoint logging
 );
 
-// 4MB of RAM (2M words of 16 bits) + ROM space
-// Upper address bits select ROM vs RAM area
-// ROM area (addr[21]=1) uses 256K words for 512KB ROM + disk images
-// RAM area: 2M words (addr[20:0]). Accesses beyond 4MB return 0
-// and writes are ignored — matches real hardware (BERR/no response).
-reg [15:0] mem [0:4194303];  // 4M words: 2M RAM + 2M ROM/disk
+// 8MB of RAM (4M words of 16 bits) + ROM/disk space (8MB-capable map).
+// Address map (matches the FPGA SDRAM map):
+//   RAM        : addr[22]=0  -> 0x000000-0x3FFFFF (4M words = 8MB)
+//   ROM / disk : addr[22]=1  -> 0x400000 + (system ROM, NuBus ROM, disk images)
+// Array spans both regions; sized to cover the relocated ROM/disk top.
+reg [15:0] mem [0:8388607];  // 8M words: 4M RAM + 4M ROM/disk
 
-// RAM range check: addr[21]==0 means within 4MB RAM space (2M words)
-// ROM/other: addr[21] set (ROM downloads, ROM reads, disk reads)
-wire ram_in_range = (addr[21] == 1'b0);
-wire is_rom = addr[21];
+// RAM range check: addr[22]==0 means within 8MB RAM space (4M words)
+// ROM/other: addr[22] set (ROM downloads, ROM reads, disk reads)
+wire ram_in_range = (addr[22] == 1'b0);
+wire is_rom = addr[22];
 
 // Combinational read - no latency, data available immediately when oe is asserted
-wire [21:0] effective_addr = is_rom ? addr[21:0] : {1'b0, addr[20:0]};
+wire [22:0] effective_addr = is_rom ? addr[22:0] : {1'b0, addr[21:0]};
 assign dout = (ram_in_range || is_rom) ? mem[effective_addr] : 16'h0000;
 
 // Simple synchronous read/write
