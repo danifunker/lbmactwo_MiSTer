@@ -86,7 +86,7 @@ V_SRC = \
 	$(RTL)/asc.sv \
 	$(RTL)/videoTimer.v \
 	$(RTL)/videoShifter.v \
-	sim_vram.v \
+	$(RTL)/nubus/vram_ram.sv \
 	$(RTL)/nubus/nubus_arbiter.sv \
 	$(RTL)/nubus/nubus_video_highres.sv \
 	$(RTL)/via6522.sv \

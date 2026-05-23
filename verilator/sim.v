@@ -594,7 +594,10 @@ module emu
 	wire [1:0] diskMotor, diskAct;
 
 	// NuBus Video Card — Mac II High-Resolution (TFB 2.2 + Bt453)
-	// Sim VRAM: simple synchronous RAM standing in for SDRAM
+	// VRAM: use the real dual-port on-chip BRAM (vram_ram) so sim matches
+	// hardware.  Port A = CPU read/write (card FSM); Port B = video scanout.
+	// (Previously sim used a single-port sim_vram and never wired Port B, so
+	// the scanout read undriven 0 -> black screen.)
 	wire [24:0] sim_vram_addr;
 	wire [15:0] sim_vram_dout;
 	wire [15:0] sim_vram_din;
@@ -602,15 +605,23 @@ module emu
 	wire        sim_vram_wr;
 	wire        sim_vram_ready;
 
-	sim_vram #(.ADDR_BITS(19)) sim_vram_inst (
-		.clk(clk_sys),
-		.reset(!_cpuReset),
-		.addr(sim_vram_addr[18:0]),
-		.din(sim_vram_dout),
-		.dout(sim_vram_din),
-		.rd(sim_vram_rd),
-		.wr(sim_vram_wr),
-		.ready(sim_vram_ready)
+	wire [24:0] sim_vram_scan_addr;
+	wire        sim_vram_scan_rd;
+	wire [15:0] sim_vram_scan_data;
+
+	vram_ram #(.AW(16)) sim_vram_inst (   // 2^16 words = 128 KB (matches hardware)
+		.clk    (clk_sys),
+		// Port A — CPU read/write (card FSM)
+		.addr   (sim_vram_addr),
+		.din    (sim_vram_dout),
+		.dout   (sim_vram_din),
+		.rd     (sim_vram_rd),
+		.wr     (sim_vram_wr),
+		.ready  (sim_vram_ready),
+		// Port B — dedicated scanout read
+		.addr_b (sim_vram_scan_addr),
+		.rd_b   (sim_vram_scan_rd),
+		.dout_b (sim_vram_scan_data)
 	);
 
 	nubus_video_highres nubus_card (
@@ -641,6 +652,10 @@ module emu
 		.vram_rd(sim_vram_rd),
 		.vram_wr(sim_vram_wr),
 		.vram_ready(sim_vram_ready),
+
+		.vram_scan_addr(sim_vram_scan_addr),
+		.vram_scan_rd(sim_vram_scan_rd),
+		.vram_scan_data(sim_vram_scan_data),
 
 		.overlay_en(1'b0),
 		.monochrome(1'b0),
