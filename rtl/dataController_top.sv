@@ -553,6 +553,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg via1_sr_ext_load;
 	reg [7:0] via1_sr_ext_data;
 	reg via1_sr_out_done;            // pulses when shift-out timer expires
+	reg via1_sr_out_pending;
+	reg via1_sr_out_ack;
 
 	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin.
 	localparam SHIFT_DELAY = 17'd100000;
@@ -567,10 +569,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			via1_sr_ext_load <= 1'b0;
 			via1_sr_ext_data <= 8'h00;
 			via1_sr_out_done <= 1'b0;
+			via1_sr_out_pending <= 1'b0;
 		end else begin
 			via1_sr_ext_complete <= 1'b0;
 			via1_sr_ext_load <= 1'b0;
 			via1_sr_out_done <= 1'b0;
+			if (via1_sr_out_ack) begin
+				via1_sr_out_pending <= 1'b0;
+			end
 
 			// Track ACR writes — shadow the shift mode bits
 			if (via1_acr_wr) begin
@@ -611,6 +617,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 				via1_shift_timer <= 17'd0;
 				via1_sr_ext_complete <= 1'b1;
 				via1_sr_out_done <= via1_shift_dir;
+				if (via1_shift_dir) begin
+					via1_sr_out_pending <= 1'b1;
+				end
 				if (!via1_shift_dir) begin
 					// Shift-in complete: load response into SR
 					via1_sr_ext_load <= 1'b1;
@@ -678,6 +687,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			adb_recv_pending <= 0;
 			ADBListenD <= 0;
 			via1_sr_active_d <= 0;
+			via1_sr_out_ack <= 1'b0;
 		end else if (clk8_en_p) begin
 			if (kbd_in_strobe && !machineType) begin
 				kbd_to_mac <= kbd_in_data;
@@ -695,13 +705,15 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 			kbd_out_strobe <= 0;
 			adb_din_strobe <= 0;
+			via1_sr_out_ack <= 1'b0;
 			kbdclk_d <= kbdclk;
 			via1_sr_active_d <= via1_sr_active;
 
 			// Snow-style shift-out completion: deliver byte to ADB transceiver
-			if (via1_sr_out_done && machineType) begin
+			if (via1_sr_out_pending && machineType) begin
 				adb_din_strobe <= 1;
 				adb_din <= via1_sr_shadow;
+				via1_sr_out_ack <= 1'b1;
 			end
 
 			// Only the Macintosh can initiate communication over the keyboard lines. On

@@ -148,7 +148,7 @@ task process_command;
 						else if (cmd_reg == 2'd3 && listen_len >= 2) begin
 							// Reg 3 write — check for address reassignment
 							if (listen_data[1][7:0] == 8'hFE) begin
-								kbd_addr <= listen_data[0][7:4]; // New address from high nibble
+								kbd_addr <= listen_data[0][3:0];
 							end
 						end
 						cmd_processed <= 1;
@@ -214,7 +214,7 @@ task process_command;
 					if (do_finish) begin
 						if (cmd_reg == 2'd3 && listen_len >= 2) begin
 							if (listen_data[1][7:0] == 8'hFE) begin
-								mouse_addr <= listen_data[0][7:4];
+								mouse_addr <= listen_data[0][3:0];
 							end
 						end
 						cmd_processed <= 1;
@@ -339,8 +339,9 @@ always @(posedge clk) begin
 		// Process command as soon as cmd_byte settles (1 cycle after receipt).
 		// This ensures response[] and resp_len are ready before the Data1 transition.
 		// Listen commands are excluded — they defer to process_command(finish=true).
-		if (cmd_valid && !cmd_processed && st == ST_COMMAND) begin
+		if (cmd_valid && !cmd_processed && st == ST_COMMAND && cmd_type != 2'b10) begin
 			process_command(1'b0);
+			cmd_valid <= 0;
 		end
 
 		// Receive Listen data during Data phases (ROM sends via SR)
