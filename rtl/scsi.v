@@ -464,13 +464,34 @@ always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
 		data_cnt <= 0;
 		data_complete <= 0;
-	end else begin	
-		if(stb_adv)begin	
+	end else begin
+		if(stb_adv)begin
 			if(!data_complete) data_cnt <= data_cnt + 1'd1;
 			data_complete <= (data_len - 1'd1) == data_cnt;
 		end
 	end
 end
+
+`ifdef SIMULATION
+// Stall probe: when REQ is held in a data phase but the byte counter is not
+// advancing (host has stopped reading), dump the target vs. transfer counts
+// so the exact host/target byte mismatch behind the $C624 hang is visible.
+reg [31:0] stall_cnt;
+reg  [2:0] phase_d;
+always @(posedge clk) begin
+	phase_d <= phase;
+	if (phase != phase_d && $test$plusargs("scsi_stall_debug"))
+		$display("SCSI_PHASE ID=%0d %0d->%0d data_cnt=%0d data_len=%0d complete=%0d cmd=%02h tlen=%0d",
+		         ID, phase_d, phase, data_cnt, data_len, data_complete, cmd[0], tlen);
+	if ((phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) && req && !stb_adv && !io_busy) begin
+		stall_cnt <= stall_cnt + 1'd1;
+		if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
+			$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d data_len=%0d complete=%0d req=%b ack=%b cmd=%02h tlen=%0d",
+			         ID, phase, data_cnt, data_len, data_complete, req, ack, cmd[0], tlen);
+	end else
+		stall_cnt <= 0;
+end
+`endif
 
 // check whether status byte has been sent
 reg status_sent;
