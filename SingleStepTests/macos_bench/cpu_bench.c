@@ -125,6 +125,19 @@ static u8 *emit_state_dump(u8 *p, Snapshot *snap, int is_init)
     return p;
 }
 
+/* Set by invoke_program before JSR. Used in two places:
+ *   (1) invoke_program's post-JSR `movel g_saved_sp, sp` -- restores SP
+ *       so the C epilogue's `moveml (sp)+` pops the right callee-saved
+ *       regs even if the test left SP slightly off.
+ *   (2) For tests whose final instruction unbalances SP enough that the
+ *       test's OWN trailing RTS would pop garbage (e.g. test 452
+ *       "BSR.W / RTD #4" leaves SP +4), build_program emits a per-test
+ *       epilogue that reloads SP from this variable before the RTS.
+ *       That epilogue is opt-in by test name to keep the harness
+ *       byte-identical for the other 717/718 tests. Forward declared so
+ *       build_program can take its address. */
+static unsigned long g_saved_sp;
+
 /* Build one test program. Returns the entry point (start of prog_buffer). */
 static u8 *build_program(const CpuTestSpec *t)
 {
@@ -172,6 +185,20 @@ static u8 *build_program(const CpuTestSpec *t)
 
     p = emit_state_dump(p, &final_snap, 0);
 
+    /* Per-test SP-fixup epilogue. Most tests reach this point with SP
+     * exactly where they entered, so the trailing RTS pops the JSR
+     * return address fine -- no epilogue needed. A handful intentionally
+     * leave SP unbalanced (test 452 "BSR.W / RTD #4" lands +4); for
+     * those we reload SP from g_saved_sp (= pre-JSR SP), then SUBQ.L #4
+     * to land on the JSR return address. Matched by name so the byte
+     * sequence is unchanged for the other 717/718 tests. */
+    if (strstr(t->name, "RTD #") != NULL &&
+        strstr(t->name, "RTD #0") == NULL) {
+        p = put_w(p, 0x2E79);           /* MOVE.L (abs.L), A7 */
+        p = put_l(p, (u32) &g_saved_sp);
+        p = put_w(p, 0x598F);           /* SUBQ.L #4, A7 */
+    }
+
     *p++ = 0x4E; *p++ = 0x75;     /* RTS */
     return entry;
 }
@@ -190,14 +217,12 @@ static void flush_icache(void)
 
 /* Save callee-saved regs, jsr into the assembled test, restore.
  *
- * Some tests intentionally leave SP at a different value than RTS
- * would expect (e.g. test 452 "BSR.W / RTD #4" — net SP delta +4).
- * To survive those, we save the post-push SP to a static variable
- * before jsr, then forcibly restore SP from it after. The test's
- * own RTS will have popped (or not) its own return frame; we don't
- * care what state SP is in after — we just reset it. */
-static unsigned long g_saved_sp;
-
+ * Stashes post-moveml SP into g_saved_sp and forcibly restores it after
+ * the JSR returns. This covers tests that left SP slightly off but
+ * whose own RTS still managed to find a return address. Tests whose
+ * trailing RTS itself would crash on a mangled SP (test 452) are
+ * handled separately in build_program's per-test epilogue, which uses
+ * the same g_saved_sp to reload SP BEFORE their RTS. */
 static void invoke_program(u8 *entry)
 {
     asm volatile (
@@ -281,8 +306,11 @@ static void test_output_path(char *buf, int i)
     if (test_num <= 99) lo = 1;
     else lo = (test_num / 100) * 100;
 
-    if (lo == 1) sprintf(dir, "%s:1-99", CPU_OUTPUT_DIR);
-    else         sprintf(dir, "%s:%d-%d", CPU_OUTPUT_DIR, lo, lo + 99);
+    /* Leading ':' makes the partial pathname relative to the working
+     * directory; without it HFS treats the first component as a
+     * volume name (per IM:Files partial-pathname rules). */
+    if (lo == 1) sprintf(dir, ":%s:1-99", CPU_OUTPUT_DIR);
+    else         sprintf(dir, ":%s:%d-%d", CPU_OUTPUT_DIR, lo, lo + 99);
     sprintf(buf, "%s:%04d.jsonl", dir, test_num);
 
     if (lo != last_bucket_lo) {
@@ -320,6 +348,15 @@ int main(void)
             if (t->privileged)        skip_reason = "  [SKIPPED: privileged]";
             else if (t->raises_exception) skip_reason = "  [SKIPPED: raises exception]";
             else if (t->hw_unsafe)    skip_reason = "  [SKIPPED: hw-unsafe]";
+
+            /* Per-test line so a freeze reveals exactly which test wedged
+             * the machine. Clear the screen every 50 tests to keep the
+             * console buffer bounded (per-test printf historically grew
+             * unbounded and crashed the Toolbox around test 240). The
+             * clear happens BEFORE the new line so the screen is never
+             * left blank — the user always sees the current test header. */
+            if (i > 0 && (i % 50) == 0)
+                printf("\033[H\033[2J");
             printf("[%d/%u] %s%s\n", i + 1, CPU_N_TESTS, t->name,
                    skip_reason ? skip_reason : "");
 

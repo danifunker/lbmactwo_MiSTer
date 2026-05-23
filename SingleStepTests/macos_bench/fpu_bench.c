@@ -326,8 +326,10 @@ static void test_output_path(char *buf, int i)
     if (test_num <= 99) lo = 1;
     else lo = (test_num / 100) * 100;
 
-    if (lo == 1) sprintf(dir, "%s:1-99", FPU_OUTPUT_DIR);
-    else         sprintf(dir, "%s:%d-%d", FPU_OUTPUT_DIR, lo, lo + 99);
+    /* Leading ':' makes the partial pathname relative to the working
+     * directory; see cpu_bench.c for the rationale. */
+    if (lo == 1) sprintf(dir, ":%s:1-99", FPU_OUTPUT_DIR);
+    else         sprintf(dir, ":%s:%d-%d", FPU_OUTPUT_DIR, lo, lo + 99);
     sprintf(buf, "%s:%04d.jsonl", dir, test_num);
 
     if (lo != last_bucket_lo) {

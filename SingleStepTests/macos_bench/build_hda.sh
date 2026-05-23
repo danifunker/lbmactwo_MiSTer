@@ -1,101 +1,89 @@
 #!/bin/bash
 # build_hda.sh — assemble /tmp/macos_bench.hda from scratch.
 #
-# Pipeline:
-#   1. Start from ~/testdisk.hda (clean, formatted, hfsutils-incompatible
-#      but rb-cli understands it just fine).
-#   2. For each bench APPL:
-#      a) extract its resource fork from Retro68's MacBinary `.bin`
-#      b) `rb-cli put`  — create a 0-byte data fork with type/creator
-#      c) `rb-cli setrsrc` — install the resource fork
+# Pipeline (mirrors the workflow that produced the original
+# /tmp/cpubench_macos.hda artifact — the one the Mac mounted quickly):
+#   1. Take ~/testdisk.hda as APM template (DDR + driver + Apple_HFS).
+#   2. Extract the HFS partition to a flat .dsk.
+#   3. hformat that partition fresh with volume label "MacBench".
+#      Re-formatting wipes the catalog/bitmap cruft inherited from
+#      testdisk.hda's HFS area and produces a layout that hfsutils
+#      (and the classic Mac Finder) accepts without a desktop rebuild.
+#   4. hmount + hcopy -m each MacBinary'd APPL. -m unpacks both forks
+#      and the full Finder info, which is what makes the Finder boot
+#      fast (no scanning resources to recover icon metadata).
+#   5. humount, splice the partition back into the .hda in place.
 #
-# Why two-step put+setrsrc: Retro68 APPLs have an empty data fork; all
-# the code/icon/BNDL resources live in the resource fork. rb-cli's `put`
-# only writes one fork at a time, so we use --zero 0 for the data fork
-# and then setrsrc for the resource fork.
+# Why not rb-cli put + setrsrc: that works but only writes type + creator;
+# Finder flags, dates, and window position are zeroed, so the Finder
+# desktop-rebuilds on every mount — perceived as a slow startup.
 
 set -euo pipefail
 
 TEMPLATE="${TEMPLATE:-$HOME/testdisk.hda}"
 HDA="${HDA:-/tmp/macos_bench.hda}"
 BUILD="${BUILD:-$(dirname "$0")/build}"
+VOL_LABEL="${VOL_LABEL:-MacBench}"
+PART_OFFSET=96             # HFS partition start, in 512-byte blocks
+PART_BLOCKS=40960          # 20 MiB partition
+PART_TMP="/tmp/macos_bench_hfs.dsk"
+
 RB="${RB:-$HOME/repos/rusty-backup/target/release/rb-cli}"
 
-# rb-cli partition index of the Apple_HFS volume. rb-cli counts only
-# data partitions (skipping the APM map + driver), so @1 is the HFS vol.
-HFS_PART=1
-
-# (mac_name, creator_code, source_bin)
+# (mac_name, host_bin)
 BENCHES=(
-    "CpuBench;CpuB;CpuBench.bin"
-    "FpuBench;FpuB;FpuBench.bin"
-    "CpuFpuBench;CFpB;CpuFpuBench.bin"
+    "CpuBench;CpuBench.bin"
+    "FpuBench;FpuBench.bin"
+    "CpuFpuBench;CpuFpuBench.bin"
 )
 
-# ---- Sanity ---------------------------------------------------------------
+# ---- Sanity --------------------------------------------------------------
 [[ -f "$TEMPLATE" ]] || { echo "missing template $TEMPLATE"; exit 1; }
-[[ -x "$RB" ]]       || { echo "missing $RB (cargo build --release --bin rb-cli first)"; exit 1; }
+command -v hformat >/dev/null  || { echo "hformat not found (apt install hfsutils)"; exit 1; }
+command -v hmount  >/dev/null  || { echo "hmount not found"; exit 1; }
+command -v hcopy   >/dev/null  || { echo "hcopy not found"; exit 1; }
 for b in "${BENCHES[@]}"; do
     bin="${b##*;}"
-    [[ -f "$BUILD/$bin" ]] || { echo "missing $BUILD/$bin — cmake --build $BUILD first"; exit 1; }
+    [[ -f "$BUILD/$bin" ]] || { echo "missing $BUILD/$bin — run cmake --build $BUILD first"; exit 1; }
 done
 
-# ---- Fresh image from template -------------------------------------------
+# Verify APM layout so the splice-back math is right.
+if [[ -x "$RB" ]]; then
+    "$RB" inspect "$TEMPLATE" | grep -q "Apple_HFS" || {
+        echo "$TEMPLATE doesn't look like an APM disk with Apple_HFS"; exit 1; }
+fi
+
+# ---- Build the .hda ------------------------------------------------------
 cp -f "$TEMPLATE" "$HDA"
 echo "seeded $HDA from $TEMPLATE"
 
-# ---- Helper: extract resource fork from a MacBinary I file ----------------
-# MacBinary I header is 128 bytes. Data fork follows (length at offset 83,
-# big-endian u32; padded to 128-byte multiple). Resource fork follows
-# (length at offset 87, big-endian u32). Retro68 APPLs always have a
-# 0-byte data fork, so the resource fork begins at byte 128, but we honor
-# the header lengths anyway so this works for non-empty data forks too.
-extract_rsrc() {
-    python3 - "$1" "$2" <<'PY'
-import struct, sys
-src, dst = sys.argv[1], sys.argv[2]
-with open(src, 'rb') as f:
-    hdr = f.read(128)
-data_len = struct.unpack('>I', hdr[83:87])[0]
-rsrc_len = struct.unpack('>I', hdr[87:91])[0]
-data_padded = (data_len + 127) & ~127
-with open(src, 'rb') as f:
-    f.seek(128 + data_padded)
-    rsrc = f.read(rsrc_len)
-if len(rsrc) != rsrc_len:
-    sys.exit(f"short read: wanted {rsrc_len}, got {len(rsrc)}")
-with open(dst, 'wb') as g:
-    g.write(rsrc)
-print(f"  {src}: rsrc fork {rsrc_len} bytes -> {dst}")
-PY
-}
+dd if="$HDA" of="$PART_TMP" bs=512 skip="$PART_OFFSET" count="$PART_BLOCKS" status=none
 
-# ---- Inject benches ------------------------------------------------------
+# Fresh HFS format. -f forces (won't prompt about overwriting), -l sets
+# the volume name visible in the Finder.
+hformat -f -l "$VOL_LABEL" "$PART_TMP" >/dev/null
+echo "formatted HFS volume '$VOL_LABEL'"
+
+hmount "$PART_TMP" >/dev/null
+trap 'humount "$PART_TMP" >/dev/null 2>&1 || true' EXIT
+
 for b in "${BENCHES[@]}"; do
-    IFS=';' read -r name creator bin <<<"$b"
-    rsrc=/tmp/${name}.rsrc.bin
-
-    echo ""
-    echo "=== $name ($creator) ==="
-    extract_rsrc "$BUILD/$bin" "$rsrc"
-
-    # Create file with empty data fork + correct type/creator. --force
-    # so re-runs replace any prior entry.
-    "$RB" put "$HDA@$HFS_PART" --dst "/$name" --zero 0 \
-        --type APPL --creator "$creator" --force
-
-    # Install the resource fork.
-    "$RB" setrsrc "$HDA@$HFS_PART" "/$name" --from-file "$rsrc"
-
-    rm -f "$rsrc"
+    IFS=';' read -r name bin <<<"$b"
+    # hcopy -m: MacBinary unpack → data fork + resource fork + Finder info.
+    hcopy -m "$BUILD/$bin" ":$name"
+    echo "  injected $name"
 done
 
-# ---- Verify --------------------------------------------------------------
 echo ""
-echo "=== final volume contents ==="
-"$RB" ls "$HDA@$HFS_PART" /
-echo ""
-"$RB" show fs-info "$HDA@$HFS_PART" 2>/dev/null || "$RB" inspect "$HDA" | sed -n '/Apple_HFS/,$p' | head -10
+echo "--- post-injection volume contents ---"
+hls -la
+
+humount "$PART_TMP" >/dev/null
+trap - EXIT
+
+# Splice the freshly-built partition back into the APM container.
+dd if="$PART_TMP" of="$HDA" bs=512 seek="$PART_OFFSET" count="$PART_BLOCKS" conv=notrunc status=none
+rm -f "$PART_TMP"
 
 echo ""
 echo "wrote $HDA ($(stat -c%s "$HDA") bytes) — ready for BlueSCSI"
