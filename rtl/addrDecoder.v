@@ -207,7 +207,17 @@ module addrDecoder(
 		//        00/01 = $00-$2F (2MB physical plus 1MB bank-A mirror)
 		//        10/11 = $00-$0F only while ROM probes invalid bank-B placements
 		//   4MB: $00-$3F (no mirror)
-		//   8MB: $00-$7F (no mirror, overrides 24-bit ROM/SCSI)
+		//   8MB: dynamic Mac II GLUE layout (two 4MB banks) from VIA2 PA7:6,
+		//        matching MAME apple/macii.cpp via2_out_a() for memsize==8MB:
+		//          glue 00/01/10 (bank-B window <= 8MB): contiguous 8MB at
+		//            $00-$7F PLUS a bank-A (4MB) mirror at $80-$BF.  The ROM
+		//            memory-sizing test probes $80_0000 expecting this mirror;
+		//            without it POST fails and the boot wedges in the
+		//            diagnostic loop.  The mirror maps for free because
+		//            addrController's macAddr only keeps cpuAddr[22:0], so
+		//            $80_0000-$BF_FFFF folds onto bank A ($00_0000-$3F_FFFF).
+		//          glue 11 (bank-B window 32MB > 8MB): only 1MB valid at $00-$0F
+		//            (the ROM probes this invalid placement transiently).
 		if (address[31:24] == 8'h00 || address[31:24] == 8'hFF || address[31:24] == 8'h80) begin
 
 			// Check if address is within RAM range (including mirror space)
@@ -217,7 +227,8 @@ module addrDecoder(
 				(configRAMSize == 2'b01 && (glueRAMSize == 2'b00 || glueRAMSize == 2'b01) && address[23:20] <= 4'h2) ||
 				(configRAMSize == 2'b01 && (glueRAMSize == 2'b10 || glueRAMSize == 2'b11) && address[23:20] == 4'h0) ||
 				(configRAMSize == 2'b10 && address[23:22] == 2'b00) ||               // 4MB: $00-$3F
-				(configRAMSize == 2'b11 && address[23]    == 1'b0)))                  // 8MB: $00-$7F
+				(configRAMSize == 2'b11 && glueRAMSize != 2'b11 && address[23:22] != 2'b11) || // 8MB: $00-$BF (8MB + bank-A mirror)
+				(configRAMSize == 2'b11 && glueRAMSize == 2'b11 && address[23:20] == 4'h0)))    // 8MB glue=11 probe: 1MB
 			begin
 				selectRAM = !_cpuAS;
 			end
