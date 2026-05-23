@@ -36,11 +36,20 @@ module scsi
 	input   [7:0] sd_buff_addr,
 	input  [15:0] sd_buff_dout,
 	output [15:0] sd_buff_din,
-	input         sd_buff_wr
+	input         sd_buff_wr,
+
+	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
+	output [2:0]  dbg_phase,    // JTAG debug: current target phase
+	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
+	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
+	output [7:0]  dbg_cmd       // JTAG debug: command-type bitmap (survive reset)
 );
 
 // SCSI device id
 parameter [2:0] ID = 0;
+
+assign dbg_mounted = mounted;
+assign dbg_phase = phase;
 
 localparam PHASE_IDLE        = 3'd0;
 localparam PHASE_CMD_IN      = 3'd1;
@@ -54,6 +63,25 @@ reg [2:0]  phase;
 // the buffer itself. Can hold two sectors
 reg sd_buff_sel;
 
+// HPS sector-buffer byte order.  buffer0 always holds the byte the Mac reads
+// FIRST (even byte) and buffer1 the odd byte.  The byte that lands in each
+// physical buffer depends on how the IO controller packs sd_buff_dout:
+//   * the real MiSTer HPS packs WIDE words LITTLE-endian: disk byte0 -> [7:0].
+//   * the Verilator sim model (sim_blkdevice.cpp) packs BIG-endian: byte0->[15:8].
+// JTAG probe PSC8 showed 0x5245 ('RE') on hardware where 0x4552 ('ER') was
+// expected, confirming the swap.  Map the lanes so the Mac always receives the
+// disk's natural big-endian byte order in both builds.
+wire [7:0] buf0_q_a, buf1_q_a;
+`ifdef VERILATOR
+wire [7:0] buf0_data_a = sd_buff_dout[15:8];   // sim packs byte0 in high half
+wire [7:0] buf1_data_a = sd_buff_dout[7:0];
+assign sd_buff_din = {buf0_q_a, buf1_q_a};
+`else
+wire [7:0] buf0_data_a = sd_buff_dout[7:0];    // real HPS packs byte0 in low half
+wire [7:0] buf1_data_a = sd_buff_dout[15:8];
+assign sd_buff_din = {buf1_q_a, buf0_q_a};
+`endif
+
 wire [7:0] buffer0_dout;
 wire [7:0] buffer0_dout_next;
 wire [7:0] buffer0_dout_next2;
@@ -62,9 +90,9 @@ scsi_dpram buffer0
 	.clock(clk),
 
 	.address_a({sd_buff_sel, sd_buff_addr}),
-	.data_a(sd_buff_dout[15:8]),
+	.data_a(buf0_data_a),
 	.wren_a(sd_buff_wr),
-	.q_a(sd_buff_din[15:8]),
+	.q_a(buf0_q_a),
 
 	.address_b(data_cnt[9:1]),
 	.data_b(din),
@@ -86,9 +114,9 @@ scsi_dpram buffer1
 	.clock(clk),
 
 	.address_a({sd_buff_sel, sd_buff_addr}),
-	.data_a(sd_buff_dout[7:0]),
+	.data_a(buf1_data_a),
 	.wren_a(sd_buff_wr),
-	.q_a(sd_buff_din[7:0]),
+	.q_a(buf1_q_a),
 
 	.address_b(data_cnt[9:1]),
 	.data_b(din),
@@ -130,7 +158,14 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
+	// Do not drive REQ while SEL is still asserted.  After we assert BSY the
+	// initiator must release SEL to complete selection; only then may the
+	// target begin the information-transfer (REQ/ACK) handshake.  Asserting
+	// REQ during selection races with the initiator's SEL release and made
+	// the command phase intermittently stall on hardware (sim's ideal timing
+	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
+	// this only gates the first REQ right after selection.
+	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -153,19 +188,30 @@ wire [7:0] cmd_dout =
 		cmd_inquiry?inquiry_dout:
 		cmd_read_capacity?read_capacity_dout:
 		cmd_mode_sense?mode_sense_dout:
+		cmd_request_sense?request_sense_dout:
 		8'h00;
 wire [15:0] cmd_dout_pair =
 		cmd_read?(data_cnt[0] ? {buffer1_dout, buffer0_dout_next} : {buffer0_dout, buffer1_dout}):
 		cmd_inquiry?{inquiry_dout, inquiry_dout_next}:
 		cmd_read_capacity?{read_capacity_dout, read_capacity_dout_next}:
 		cmd_mode_sense?{mode_sense_dout, mode_sense_dout_next}:
+		cmd_request_sense?{request_sense_dout, request_sense_dout_next}:
 		16'h0000;
 wire [15:0] cmd_dout_pair_next =
 		cmd_read?(data_cnt[0] ? {buffer1_dout_next, buffer0_dout_next2} : {buffer0_dout_next, buffer1_dout_next}):
 		cmd_inquiry?{inquiry_dout_next2, inquiry_dout_next3}:
 		cmd_read_capacity?{read_capacity_dout_next2, read_capacity_dout_next3}:
 		cmd_mode_sense?{mode_sense_dout_next2, mode_sense_dout_next3}:
+		cmd_request_sense?{request_sense_dout_next2, request_sense_dout_next3}:
 		16'h0000;
+
+// REQUEST SENSE response: minimal fixed-format sense, "NO SENSE".
+//   byte 0 = 0x70 (current error, valid=0), byte 7 = 0x0a (add'l length 10),
+//   sense key (byte 2) = 0 = NO SENSE, all else 0.
+wire [7:0] request_sense_dout       = (data_cnt       == 32'd0)?8'h70:(data_cnt       == 32'd7)?8'h0a:8'h00;
+wire [7:0] request_sense_dout_next  = (data_cnt_next  == 32'd0)?8'h70:(data_cnt_next  == 32'd7)?8'h0a:8'h00;
+wire [7:0] request_sense_dout_next2 = (data_cnt_next2 == 32'd0)?8'h70:(data_cnt_next2 == 32'd7)?8'h0a:8'h00;
+wire [7:0] request_sense_dout_next3 = (data_cnt_next3 == 32'd0)?8'h70:(data_cnt_next3 == 32'd7)?8'h0a:8'h00;
 
 // output of inquiry command, identify as "SEAGATE ST225N"
 wire [7:0] inquiry_dout =
@@ -331,23 +377,38 @@ always @(posedge clk) begin
 	reg old_rd, old_wr;
 	reg wr_pending, rd_pending;
 
-	old_rd <= req_rd;
-	old_wr <= req_wr;
-	if(~old_rd & req_rd) rd_pending <= 1;
-	if(~old_wr & req_wr) wr_pending <= 1;
-
-	if(io_ack) begin
+	// A SCSI bus reset aborts any in-flight/queued disk IO.  Without this,
+	// io_rd/io_wr (and the pending latches) survive the reset; if the Mac
+	// re-selects before the stale io_rd clears via io_ack, the next CMD_IN
+	// phase sees io_busy=1 (phase!=DATA && io_rd) which suppresses REQ, the
+	// command never transfers, the Mac times out and resets again -> the
+	// intermittent reset/re-scan loop observed on hardware.
+	if(rst) begin
 		io_rd <= 1'b0;
 		io_wr <= 1'b0;
+		rd_pending <= 0;
+		wr_pending <= 0;
+		old_rd <= 0;
+		old_wr <= 0;
 	end else begin
-		if (rd_pending && !io_rd) begin
-			io_rd <= 1;
-			rd_pending <= 0;
-		end
+		old_rd <= req_rd;
+		old_wr <= req_wr;
+		if(~old_rd & req_rd) rd_pending <= 1;
+		if(~old_wr & req_wr) wr_pending <= 1;
 
-		if (wr_pending && !io_wr) begin
-			io_wr <= 1;
-			wr_pending <= 0;
+		if(io_ack) begin
+			io_rd <= 1'b0;
+			io_wr <= 1'b0;
+		end else begin
+			if (rd_pending && !io_rd) begin
+				io_rd <= 1;
+				rd_pending <= 0;
+			end
+
+			if (wr_pending && !io_wr) begin
+				io_wr <= 1;
+				wr_pending <= 0;
+			end
 		end
 	end
 end
@@ -454,11 +515,18 @@ wire       cmd_read_buffer = (op_code == 8'h3b);  // fake
 wire       cmd_write_buffer = (op_code == 8'h3c); // fake
 wire       cmd_verify6 = (op_code == 8'h13); // fake
 wire       cmd_verify10 = (op_code == 8'h2f); // fake
+// REQUEST SENSE (0x03) is MANDATORY: after any CHECK CONDITION the initiator
+// issues it to recover the sense data.  The target previously rejected it
+// (cmd_ok=0 -> CHECK CONDITION), so on hardware -- where a transient error
+// triggers the recovery path -- the Mac could never clear the condition and
+// wedged.  Support it and return a clean "NO SENSE" block.
+wire       cmd_request_sense = (op_code == 8'h03);
 
 // valid command in buffer? TODO: check for valid command parameters
-wire  cmd_ok = cmd_read || cmd_write || cmd_inquiry || cmd_test_unit_ready || 
+wire  cmd_ok = cmd_read || cmd_write || cmd_inquiry || cmd_test_unit_ready ||
 		  cmd_read_capacity || cmd_mode_select || cmd_format || cmd_mode_sense ||
-		  cmd_read_buffer || cmd_write_buffer || cmd_verify6 || cmd_verify10;
+		  cmd_read_buffer || cmd_write_buffer || cmd_verify6 || cmd_verify10 ||
+		  cmd_request_sense;
 
 // latch parameters once command is complete
 reg [31:0] lba;
@@ -484,6 +552,7 @@ wire [15:0] tlen10 = { cmd[7], cmd[8] };
 
 // the 5380 changes phase in the falling edge, thus we monitor it
 // on the rising edge
+//
 always @(posedge clk) begin
 	if(rst) begin
 		phase <= PHASE_IDLE;
@@ -505,7 +574,7 @@ always @(posedge clk) begin
 					// continue according to command
 
 					// these commands return data
-					if(cmd_read || cmd_inquiry || cmd_read_capacity || cmd_mode_sense || cmd_read_buffer) phase <= PHASE_DATA_OUT;
+					if(cmd_read || cmd_inquiry || cmd_read_capacity || cmd_mode_sense || cmd_read_buffer || cmd_request_sense) phase <= PHASE_DATA_OUT;
 					// these commands receive dataa
 					else if(cmd_write || cmd_mode_select || cmd_write_buffer) phase <= PHASE_DATA_IN;
 					// and all other valid commands are just "ok"
@@ -538,8 +607,68 @@ always @(posedge clk) begin
 			phase <= PHASE_IDLE;  // should never happen
 	end
 end
-   
-   
+
+// ----------------------------------------------------------------------
+// JTAG debug: REQ/ACK handshake observations (sticky since reset).
+//   [7:4] max command bytes received (cmd_cnt high-water)
+//   [3]   cmd_cpl seen (a full command was assembled)
+//   [2]   Mac ACKed a command byte  (stb_adv in CMD_IN)
+//   [1]   target asserted REQ in STATUS_OUT
+//   [0]   Mac ACKed the status byte (stb_adv in STATUS_OUT)
+// ----------------------------------------------------------------------
+reg [3:0] dbg_max_cmd_cnt;
+reg       dbg_cmd_cpl, dbg_ack_in_cmd, dbg_req_in_status, dbg_ack_in_status;
+always @(posedge clk) begin
+	if(rst) begin
+		dbg_max_cmd_cnt   <= 4'd0;
+		dbg_cmd_cpl       <= 1'b0;
+		dbg_ack_in_cmd    <= 1'b0;
+		dbg_req_in_status <= 1'b0;
+		dbg_ack_in_status <= 1'b0;
+	end else begin
+		if((phase == PHASE_CMD_IN) && (cmd_cnt > dbg_max_cmd_cnt)) dbg_max_cmd_cnt <= cmd_cnt;
+		if((phase == PHASE_CMD_IN) && cmd_cpl)  dbg_cmd_cpl       <= 1'b1;
+		if((phase == PHASE_CMD_IN) && stb_adv)  dbg_ack_in_cmd    <= 1'b1;
+		if((phase == PHASE_STATUS_OUT) && req)  dbg_req_in_status <= 1'b1;
+		if((phase == PHASE_STATUS_OUT) && stb_adv) dbg_ack_in_status <= 1'b1;
+	end
+end
+assign dbg_hs = { dbg_max_cmd_cnt, dbg_cmd_cpl, dbg_ack_in_cmd,
+                  dbg_req_in_status, dbg_ack_in_status };
+
+// Completion-phase flags that DELIBERATELY survive a SCSI bus reset (no rst
+// clause), so they accumulate the truth across the Mac's reset/retry cycles:
+//   [3] status byte was ACKed (status_sent fired) in STATUS_OUT
+//   [2] target ever reached MSG_OUT
+//   [1] Mac re-asserted SEL while we were in STATUS_OUT (mid-command select)
+//   [0] Mac ever ACKed a MESSAGE byte (stb_adv in MSG_OUT)
+reg dbg_status_sent_ever, dbg_reached_msg_ever, dbg_sel_in_status_ever, dbg_ack_in_msg_ever;
+always @(posedge clk) begin
+	if((phase == PHASE_STATUS_OUT) && stb_adv) dbg_status_sent_ever  <= 1'b1;
+	if(phase == PHASE_MESSAGE_OUT)             dbg_reached_msg_ever   <= 1'b1;
+	if((phase == PHASE_STATUS_OUT) && sel)     dbg_sel_in_status_ever <= 1'b1;
+	if((phase == PHASE_MESSAGE_OUT) && stb_adv) dbg_ack_in_msg_ever   <= 1'b1;
+end
+assign dbg_hs2 = { dbg_status_sent_ever, dbg_reached_msg_ever,
+                   dbg_sel_in_status_ever, dbg_ack_in_msg_ever };
+
+// Sticky bitmap of which command types the initiator issued to this target.
+// Survives bus reset so it shows everything the Mac tried across retries.
+//   [7]=READ [6]=WRITE [5]=INQUIRY [4]=TEST_UNIT_READY
+//   [3]=READ_CAPACITY [2]=MODE_SENSE [1]=unsupported(cmd_ok=0) [0]=REQUEST_SENSE
+// Repurposed: capture the LAST opcode the initiator sent to this target
+// (any command, not just unsupported -- unsupported was always 0x00).
+// Survives bus reset so it shows the most recent command the Mac issued
+// before it gave up and re-scanned, revealing the boot-logic reject point.
+reg [7:0] dbg_unsup_op;
+reg       cmd_cpl_d2;
+always @(posedge clk) begin
+	cmd_cpl_d2 <= (phase == PHASE_CMD_IN) && cmd_cpl;
+	if((phase == PHASE_CMD_IN) && cmd_cpl && !cmd_cpl_d2)
+		dbg_unsup_op <= op_code;
+end
+assign dbg_cmd = dbg_unsup_op;
+
 endmodule
 
 module scsi_empty_cd
@@ -814,26 +943,51 @@ module scsi_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=9)
 	output reg [DATAWIDTH-1:0] q_d
 );
 
-reg [DATAWIDTH-1:0] ram[0:(1<<ADDRWIDTH)-1];
+// ram_ab is a true dual-port RAM serving the existing q_a/q_b read paths
+// (each read at its port's write address). ram_c and ram_d are simple
+// dual-port mirrors used for the look-ahead read ports q_c/q_d.
+//
+// wren_a and wren_b are mutually exclusive in this design (wren_a is
+// driven by the SD->buffer path during PHASE_DATA_OUT, wren_b by the
+// SCSI->buffer path during PHASE_DATA_IN), so muxing them into a single
+// SDP write port keeps the mirrors coherent without needing two write
+// ports on those arrays. Using a single ram array with >2 reads fails
+// Quartus's TDP inference and produces "multiple constant drivers"
+// errors on the ram net.
+reg [DATAWIDTH-1:0] ram_ab[0:(1<<ADDRWIDTH)-1];
+reg [DATAWIDTH-1:0] ram_c [0:(1<<ADDRWIDTH)-1];
+reg [DATAWIDTH-1:0] ram_d [0:(1<<ADDRWIDTH)-1];
+
+wire                  mirror_we    = wren_a | wren_b;
+wire [ADDRWIDTH-1:0]  mirror_waddr = wren_a ? address_a : address_b;
+wire [DATAWIDTH-1:0]  mirror_wdata = wren_a ? data_a    : data_b;
 
 always @(posedge clock) begin
 	if(wren_a) begin
-		ram[address_a] <= data_a;
+		ram_ab[address_a] <= data_a;
 		q_a <= data_a;
 	end else begin
-		q_a <= ram[address_a];
+		q_a <= ram_ab[address_a];
 	end
 end
 
 always @(posedge clock) begin
 	if(wren_b) begin
-		ram[address_b] <= data_b;
+		ram_ab[address_b] <= data_b;
 		q_b <= data_b;
 	end else begin
-		q_b <= ram[address_b];
+		q_b <= ram_ab[address_b];
 	end
-	q_c <= ram[address_c];
-	q_d <= ram[address_d];
+end
+
+always @(posedge clock) begin
+	if(mirror_we) ram_c[mirror_waddr] <= mirror_wdata;
+	q_c <= ram_c[address_c];
+end
+
+always @(posedge clock) begin
+	if(mirror_we) ram_d[mirror_waddr] <= mirror_wdata;
+	q_d <= ram_d[address_d];
 end
 
 endmodule

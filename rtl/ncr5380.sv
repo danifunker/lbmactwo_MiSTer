@@ -75,7 +75,24 @@ module ncr5380
 	input        [7:0] sd_buff_addr,
 	input       [15:0] sd_buff_dout,
 	output      [15:0] sd_buff_din[DEVS],
-	input              sd_buff_wr
+	input              sd_buff_wr,
+
+	// JTAG debug: selection/arbitration state for the hardware hang
+	output      [15:0] dbg_scsi,
+	// JTAG debug: post-selection phase + HPS disk handshake
+	//   [13:11] target_phase[1]  [10:8] target_phase[0]
+	//   [5:4] io_rd  [3:2] io_wr  [1:0] io_ack
+	output      [15:0] dbg_scsi2,
+	// JTAG debug: per-target REQ/ACK handshake observations
+	//   [15:8] target1 dbg_hs   [7:0] target0 dbg_hs
+	output      [15:0] dbg_scsi3,
+	// JTAG debug: bus-reset count + per-target completion flags
+	//   [15:8] scsi_rst assertion count (saturating)
+	//   [7:4]  target1 dbg_hs2   [3:0] target0 dbg_hs2
+	output      [15:0] dbg_scsi4,
+	// JTAG debug: per-target command-type bitmap
+	//   [15:8] target1 dbg_cmd   [7:0] target0 dbg_cmd
+	output      [15:0] dbg_scsi5
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -364,7 +381,27 @@ module ncr5380
 	end
 
 	// input signals from targets
+	wire [DEVS-1:0] target_mounted;
+	wire [2:0]      target_phase[DEVS];
+	wire [7:0]      target_hs[DEVS];
+	wire [3:0]      target_hs2[DEVS];
+	wire [7:0]      target_cmd[DEVS];
 	wire [DEVS-1:0] target_bsy;
+
+	// Count SCSI bus resets (Mac asserting ICR.RST) -- the abort/retry signal.
+	// Resets only on the global module reset, so it survives scsi_rst.
+	reg [7:0] dbg_rst_count;
+	reg       dbg_rst_d;
+	always @(posedge clk or posedge reset) begin
+		if (reset) begin
+			dbg_rst_count <= 8'd0;
+			dbg_rst_d     <= 1'b0;
+		end else begin
+			dbg_rst_d <= scsi_rst;
+			if (scsi_rst && !dbg_rst_d && dbg_rst_count != 8'hFF)
+				dbg_rst_count <= dbg_rst_count + 8'd1;
+		end
+	end
 	wire [DEVS-1:0] target_msg;
 	wire [DEVS-1:0] target_io;
 	wire [DEVS-1:0] target_cd;
@@ -438,9 +475,35 @@ module ncr5380
 				.sd_buff_addr( sd_buff_addr ),
 				.sd_buff_dout( sd_buff_dout ),
 				.sd_buff_din( sd_buff_din[i] ),
-				.sd_buff_wr( sd_buff_wr & target_bsy[i] )
+				.sd_buff_wr( sd_buff_wr & target_bsy[i] ),
+				.dbg_mounted( target_mounted[i] ),
+				.dbg_phase( target_phase[i] ),
+				.dbg_hs( target_hs[i] ),
+				.dbg_hs2( target_hs2[i] ),
+				.dbg_cmd( target_cmd[i] )
 			);
 		end
 	endgenerate
+
+	// JTAG debug: capture the selection/arbitration handshake state.
+	//  [15]    out_en       (initiator driving the data bus?)
+	//  [14]    scsi_sel     (SEL asserted)
+	//  [13]    scsi_bsy     (any BSY on the bus)
+	//  [12:11] target_bsy   (which target asserted BSY)
+	//  [10:9]  target_mounted (per-target disk-present state)
+	//  [8]     icr[ICR_A_DATA]
+	//  [7:0]   scsi_bus_data (ID bits driven during selection)
+	assign dbg_scsi = { out_en, scsi_sel, scsi_bsy, target_bsy[1:0],
+	                    target_mounted[1:0], icr[`ICR_A_DATA],
+	                    scsi_bus_data };
+
+	assign dbg_scsi2 = { 2'b0, target_phase[1], target_phase[0],
+	                     io_rd[1:0], io_wr[1:0], io_ack[1:0] };
+
+	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
+
+	assign dbg_scsi4 = { dbg_rst_count, target_hs2[1], target_hs2[0] };
+
+	assign dbg_scsi5 = { target_cmd[1], target_cmd[0] };
 
 endmodule

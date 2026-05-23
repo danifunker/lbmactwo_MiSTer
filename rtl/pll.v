@@ -10,7 +10,6 @@ module pll (
 		input  wire  rst,      //   reset.reset
 		output wire  outclk_0, // outclk0.clk (65MHz, 0°)
 		output wire  outclk_1, // outclk1.clk (32.5MHz, 180°)
-		output wire  outclk_2, // outclk2.clk (65MHz, -90° for SDRAM)
 		output wire  locked    //  locked.export
 	);
 
@@ -19,7 +18,6 @@ module pll (
 		.rst      (rst),      //   reset.reset
 		.outclk_0 (outclk_0), // outclk0.clk
 		.outclk_1 (outclk_1), // outclk1.clk
-		.outclk_2 (outclk_2), // outclk2.clk (phase-shifted for SDRAM)
 		.locked   (locked)    //  locked.export
 	);
 

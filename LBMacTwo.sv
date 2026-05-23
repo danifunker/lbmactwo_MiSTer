@@ -242,7 +242,7 @@ wire status_video_mono = status[13];
 
 ////////////////////   CLOCKS   ///////////////////
 
-wire clk_sys, clk_mem, clk_mem_ps;
+wire clk_sys, clk_mem;
 wire pll_locked;
 
 pll pll
@@ -250,7 +250,6 @@ pll pll
 	.refclk(CLK_50M),
 	.outclk_0(clk_mem),      // 65MHz, 0° - SDRAM controller
 	.outclk_1(clk_sys),      // 32.5MHz, 180° - System
-	.outclk_2(clk_mem_ps),   // 65MHz, -90° - SDRAM chip clock
 	.locked(pll_locked)
 );
 
@@ -518,11 +517,24 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
                       ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 // DTACK: FPU uses DSACK protocol (assert DTACK when either DSACK line goes low)
 // Do not assert DTACK for VIA accesses — they use VPA/VMA synchronous handshake
+// COHERENCY FIX: the SDRAM is shared with the NuBus video card through
+// sdram_arbiter, and ~50% of Mac reads begin while video holds the SDRAM
+// (sdram_dout = the video word, not Mac's data). With the old immediate
+// "turbo" DTACK the CPU latched that video word and executed/used corrupted
+// data. For a RAM/ROM READ, defer DTACK until the arbiter asserts
+// mac_dout_valid (a clean SDRAM slot completed with the Mac's address).
+// grant_video = !mac_active means the Mac wins the next slot the instant it
+// asserts, so this always releases within ~1-2 SDRAM cycles. Writes and the
+// turbo fast path are unchanged.
+wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+wire mac_is_sdram_read    = (!_ramOE || !_romOE);
+wire ram_or_rom_dtack     = (mac_is_sdram_read && !arb_mac_dout_valid) ? 1'b1
+                                                                       : ram_or_rom_dtack_raw;
 assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
-                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+                        ram_or_rom_dtack;
 
 // Debug LED tracking - extended duration for visibility
 reg [27:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
@@ -767,13 +779,21 @@ nubus_video_highres nubus_card (
 	.ce_pixel(nubus_ce_pixel),
 	.nmrq_n(nubus_irq_n),
 
-	// SDRAM VRAM interface via arbiter
+	// Dedicated on-chip VRAM (vram_ram).  The framebuffer no longer lives in
+	// shared SDRAM, so the scanout never competes with the Mac for SDRAM and
+	// always reads coherent data (Mac keeps SDRAM to itself).  Card outputs
+	// (addr/dout/rd/wr) drive the BRAM; read data/ready come back from it.
 	.vram_addr(arb_vram_addr),
 	.vram_dout(arb_vram_dout),
-	.vram_din(arb_vram_din),
+	.vram_din(vram_bram_din),
 	.vram_rd(arb_vram_rd),
 	.vram_wr(arb_vram_wr),
-	.vram_ready(arb_vram_ready),
+	.vram_ready(vram_bram_ready),
+
+	// VRAM port B — dedicated scanout read (no cache, never misses)
+	.vram_scan_addr(vram_scan_addr),
+	.vram_scan_rd(vram_scan_rd),
+	.vram_scan_data(vram_scan_data),
 
 	.overlay_en(status_overlay_en),
 	.monochrome(status_video_mono),
@@ -782,8 +802,16 @@ nubus_video_highres nubus_card (
 	.ioctl_addr(ioctl_addr),
 	.ioctl_data(ioctl_data),
 	.ioctl_download(dio_download),
-	.ioctl_index(dio_index)
+	.ioctl_index(dio_index),
+
+	// JTAG debug exposures
+	.dbg_video_en(dbg_video_en),
+	.dbg_vram_wr_cnt(dbg_vram_wr_cnt),
+	.dbg_vram_fetch_cnt(dbg_vram_fetch_cnt)
 );
+wire        dbg_video_en;
+wire [15:0] dbg_vram_wr_cnt;
+wire [15:0] dbg_vram_fetch_cnt;
 
 dataController_top #(SCSI_DEVS) dc0
 (
@@ -876,8 +904,18 @@ dataController_top #(SCSI_DEVS) dc0
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
-	.sd_buff_wr(sd_buff_wr)
+	.sd_buff_wr(sd_buff_wr),
+	.dbg_scsi(dbg_scsi),
+	.dbg_scsi2(dbg_scsi2),
+	.dbg_scsi3(dbg_scsi3),
+	.dbg_scsi4(dbg_scsi4),
+	.dbg_scsi5(dbg_scsi5)
 );
+wire [15:0] dbg_scsi;
+wire [15:0] dbg_scsi2;
+wire [15:0] dbg_scsi3;
+wire [15:0] dbg_scsi4;
+wire [15:0] dbg_scsi5;
 
 reg disk_act;
 always @(posedge clk_sys) begin
@@ -1004,13 +1042,37 @@ wire [15:0] arb_mac_dout;
 wire  [1:0] arb_mac_ds;
 wire        arb_mac_we;
 wire        arb_mac_oe;
+wire        arb_mac_dout_valid;  // Mac read data-valid (coherency fix)
 
 wire [24:0] arb_vram_addr;
 wire [15:0] arb_vram_dout;
-wire [15:0] arb_vram_din;
+wire [15:0] arb_vram_din;   // (legacy SDRAM-VRAM read path; now unused)
 wire        arb_vram_rd;
 wire        arb_vram_wr;
-wire        arb_vram_ready;
+wire        arb_vram_ready;  // (legacy; now unused)
+
+// Dedicated on-chip VRAM for the NuBus video card (replaces shared-SDRAM
+// framebuffer).  The card's VRAM port drives this BRAM directly; the SDRAM
+// arbiter's video port is tied off below so the Mac owns SDRAM exclusively.
+wire [15:0] vram_bram_din;
+wire        vram_bram_ready;
+wire [24:0] vram_scan_addr;
+wire        vram_scan_rd;
+wire [15:0] vram_scan_data;
+vram_ram #(.AW(16)) vram_inst (   // 2^16 words = 128 KB (1/2 bpp @ 640x480; dual-port)
+	.clk    (clk_sys),
+	// Port A — CPU read/write (card FSM)
+	.addr   (arb_vram_addr),
+	.din    (arb_vram_dout),
+	.dout   (vram_bram_din),
+	.rd     (arb_vram_rd),
+	.wr     (arb_vram_wr),
+	.ready  (vram_bram_ready),
+	// Port B — dedicated scanout read
+	.addr_b (vram_scan_addr),
+	.rd_b   (vram_scan_rd),
+	.dout_b (vram_scan_data)
+);
 
 wire [24:0] sdram_addr;
 wire [15:0] sdram_din;
@@ -1023,7 +1085,6 @@ sdram sdram
 	// system interface
 	.init           ( !pll_locked              ),
 	.clk_64         ( clk_mem                  ),
-	.clk_64_ps      ( clk_mem_ps               ),  // Phase-shifted clock for SDRAM chip
 	.clk_8          ( clk8                     ),
 
 	.sd_clk         ( SDRAM_CLK                ),
@@ -1049,8 +1110,9 @@ sdram sdram
 // SDRAM Arbiter - share SDRAM between Mac and NuBus video
 sdram_arbiter arbiter (
 	.clk(clk_sys),
+	.clk8_en_p(clk8_en_p),  // SDRAM cycle T0 marker for the coherency handshake
 	.reset(!pll_locked),  // Reset with SDRAM, not CPU
-	
+
 	// Mac system port
 	.mac_addr(arb_mac_addr),
 	.mac_din(arb_mac_din),
@@ -1058,22 +1120,74 @@ sdram_arbiter arbiter (
 	.mac_ds(arb_mac_ds),
 	.mac_we(arb_mac_we),
 	.mac_oe(arb_mac_oe),
-	
-	// Video card port  
-	.vram_addr(arb_vram_addr),
-	.vram_dout(arb_vram_dout),
+
+	// Video card port — TIED OFF.  VRAM now lives in dedicated on-chip BRAM
+	// (vram_ram), not shared SDRAM, so the arbiter never grants video and the
+	// Mac owns SDRAM exclusively (no contention, no coherency races).
+	.vram_addr(25'd0),
+	.vram_dout(16'd0),
 	.vram_din(arb_vram_din),
-	.vram_rd(arb_vram_rd),
-	.vram_wr(arb_vram_wr),
+	.vram_rd(1'b0),
+	.vram_wr(1'b0),
 	.vram_ready(arb_vram_ready),
-	
+
 	// SDRAM controller
 	.sdram_addr(sdram_addr),
 	.sdram_din(sdram_din),
 	.sdram_dout(sdram_out),
 	.sdram_ds(sdram_ds),
 	.sdram_we(sdram_we),
-	.sdram_oe(sdram_oe)
+	.sdram_oe(sdram_oe),
+
+	// Debug exposures (unused on this branch)
+	.dbg_grant_video(),
+	.dbg_video_clean(),
+	.dbg_mac_idle_cnt(),
+	.dbg_vram_state(),
+	.mac_stall(),
+
+	// Mac READ data-valid handshake (coherency fix)
+	.mac_dout_valid(arb_mac_dout_valid)
+);
+
+// Minimal JTAG CPU-state probes to diagnose the early-boot hang.
+dbg_min dbg_min_inst (
+	.clk            (clk_sys),
+	.cpuAddr        (cpuAddr),
+	.cpuFC          (cpuFC),
+	.cpuAS_n        (_cpuAS),
+	.cpuRW          (_cpuRW),
+	.cpuDTACK_n     (_cpuDTACK),
+	.cpuUDS_n       (_cpuUDS),
+	.cpuLDS_n       (_cpuLDS),
+	.selectFPU      (selectFPU),
+	.selectRAM      (selectRAM),
+	.selectROM      (selectROM),
+	.selectNuBus    (selectNuBus),
+	.fpu_dsack0_n   (fpu_dsack0_n),
+	.fpu_dsack1_n   (fpu_dsack1_n),
+	.mac_dout_valid (arb_mac_dout_valid),
+	.video_en       (dbg_video_en),
+	.vram_wr_cnt    (dbg_vram_wr_cnt),
+	.vram_fetch_cnt (dbg_vram_fetch_cnt),
+	.selectSCSI     (selectSCSI),
+	.scsi_rd_data   (dataControllerDataOut),
+	.img_mounted    (img_mounted),
+	.sd_rd          (sd_rd),
+	.sd_wr          (sd_wr),
+	.sd_ack         (sd_ack),
+	.scsi_dbg       (dbg_scsi),
+	.scsi_dbg2      (dbg_scsi2),
+	.scsi_dbg3      (dbg_scsi3),
+	.scsi_dbg4      (dbg_scsi4),
+	.scsi_dbg5      (dbg_scsi5),
+	.sd_buff_dout   (sd_buff_dout),
+	.sd_buff_addr   (sd_buff_addr),
+	.sd_buff_wr     (sd_buff_wr),
+	.cpuIPL_n       (_cpuIPL),
+	.berr           (berr_out),
+	.ioctl_wr       (ioctl_write),
+	.ioctl_idx      (dio_index[7:0])
 );
 
 endmodule

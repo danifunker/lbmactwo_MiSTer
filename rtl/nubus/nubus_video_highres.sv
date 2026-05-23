@@ -32,13 +32,18 @@ module nubus_video_highres #(
     output vga_blank,
     output vga_clk,
 
-    // SDRAM Interface for VRAM
+    // VRAM Port A — CPU read/write (via FSM)
     output reg [24:0] vram_addr,
     output reg [15:0] vram_dout,
     input [15:0] vram_din,
     output reg vram_rd,
     output reg vram_wr,
     input vram_ready,
+
+    // VRAM Port B — dedicated scanout read (no cache, never misses)
+    output     [24:0] vram_scan_addr,
+    output            vram_scan_rd,
+    input      [15:0] vram_scan_data,
 
     // IOCTL Interface for ROM Download
     input        ioctl_wr,
@@ -52,7 +57,15 @@ module nubus_video_highres #(
     input        monochrome,
 
     // Pixel clock enable output
-    output       ce_pixel
+    output       ce_pixel,
+
+    // JTAG debug exposures (diagnose the hardware black-screen):
+    //   dbg_video_en      : has the Mac enabled video (REG_SOFTRESET[0])?
+    //   dbg_vram_wr_cnt   : count of CPU VRAM writes (Mac drawing)
+    //   dbg_vram_fetch_cnt: count of completed video VRAM fetches (reads)
+    output       dbg_video_en,
+    output [15:0] dbg_vram_wr_cnt,
+    output [15:0] dbg_vram_fetch_cnt
 );
 
     // ========================================================================
@@ -68,7 +81,12 @@ module nubus_video_highres #(
     // VRAM in SDRAM — 512KB at offset $30_0000
     // ========================================================================
     localparam VRAM_BASE = 25'h300000;
-    localparam VRAM_SIZE = 262144;  // 0x80000 bytes / 2 = 256K words
+    // VRAM now lives in dedicated on-chip BRAM (vram_ram, 2^17 words = 256 KB),
+    // which fits comfortably in M10K (256/472 free blocks).  Cap the size to the
+    // BRAM depth so addresses can't alias past it.  256 KB covers 1/2/4 bpp at
+    // 640x480 (boot is 1 bpp); full 512 KB (8 bpp) would need 512 blocks (>free).
+    localparam VRAM_SIZE = 65536;   // 2^16 words = 128 KB (dual-port BRAM; 1/2 bpp)
+
 
     // ========================================================================
     // CLUT — 256 entries x 24-bit RGB, on-chip
@@ -98,6 +116,18 @@ module nubus_video_highres #(
     //            Snow mdc12.rs line 316 "ROM (byte lane 3)"
     // ========================================================================
     (* ramstyle = "M10K" *) reg [15:0] rom [0:4095];
+
+    // Bake the 341-0660 declaration ROM into the bitstream.  On real MiSTer
+    // hardware the HPS only auto-loads ONE ROM (boot0.rom @ index 0); there is
+    // no mechanism to send boot1.rom @ index 1, so the card never received its
+    // declaration ROM and the Slot Manager could not initialize it (no video).
+    // Initializing rom[] here makes the card self-contained, like real hardware
+    // where the declaration ROM lives on the card.  The ioctl path below still
+    // overwrites it when a host (e.g. the Verilator sim) does provide the ROM.
+    // boot1.hex = releases/boot1.rom as 4096 big-endian 16-bit words
+    // (xxd -p -c 2 releases/boot1.rom > boot1.hex), stored inverted exactly as
+    // the file is; the read path de-inverts (rom_byte ^ 0xFF).
+    initial $readmemh("boot1.hex", rom);
 
     // ROM read — byte-lane 3 addressing
     // Each ROM byte at every 4th NuBus address (addr[1:0]==3).
@@ -270,7 +300,12 @@ module nubus_video_highres #(
 
             vga_hs_reg <= ~(h_cnt >= H_SYNC_START && h_cnt < H_SYNC_END);
             vga_vs_reg <= ~(v_cnt >= V_SYNC_START && v_cnt < V_SYNC_END);
-            blanking <= (h_cnt >= H_RES) || (v_cnt >= V_RES) || !video_en;
+            // DE must stay active in the visible region regardless of video_en,
+            // otherwise the MiSTer scaler measures no active pixels and reports
+            // 0x0 / no-signal (the "0x0x0hz" symptom) until the Mac enables
+            // video. Keep DE tied only to the visible window so the card always
+            // presents a measurable 640x480 frame.
+            blanking <= (h_cnt >= H_RES) || (v_cnt >= V_RES);
         end
     end
 
@@ -326,6 +361,14 @@ module nubus_video_highres #(
 
     // Convert to 16-bit word address for SDRAM
     wire [18:0] fetch_word_addr = fetch_byte_addr[19:1];
+
+    // Dedicated scanout read port (port B of the VRAM BRAM): present the current
+    // pixel's word address every displayed pixel.  The BRAM returns it
+    // (registered) on the next clk_video_en, aligned with byte_sel_d/h_cnt_d in
+    // the pixel pipeline below -- so the scanout always has the correct word and
+    // never depends on the CPU port or a cache.
+    assign vram_scan_addr = VRAM_BASE + {6'd0, fetch_word_addr};
+    assign vram_scan_rd   = clk_video_en;
 
     // Which byte within the 16-bit word (0=high byte, 1=low byte, big-endian)
     wire fetch_byte_sel = fetch_byte_addr[0];
@@ -721,13 +764,12 @@ module nubus_video_highres #(
                         ack_n <= 1'b1;
                         ack_delay <= 3'd0;
 
-                    end else if (!select && video_fetch_valid) begin
-                        vram_addr <= VRAM_BASE + {6'd0, video_fetch_target};
-                        video_fetch_word <= video_fetch_target;
-                        vram_rd <= 1'b1;
-                        state <= S_VIDEO_FETCH;
-
                     end
+                    // Scanout no longer fetches through this (CPU) port -- it
+                    // reads directly from the dedicated VRAM port B.  So port A
+                    // (this FSM) is CPU-only now; the old S_VIDEO_FETCH path is
+                    // retired (the 2-word cache + opportunistic fetch caused the
+                    // stale-word garbling).
                 end
 
                 S_CPU_WRITE: begin
@@ -832,7 +874,10 @@ module nubus_video_highres #(
         end
     end
 
-    wire [7:0] vram_byte = byte_sel_d ? display_cache_word_d[7:0] : display_cache_word_d[15:8];
+    // Scanout reads straight from the dedicated VRAM port B (vram_scan_data,
+    // registered in the BRAM on clk_video_en) -- always the correct word,
+    // aligned with byte_sel_d/h_cnt_d.  No cache, so no stale-word garbling.
+    wire [7:0] vram_byte = byte_sel_d ? vram_scan_data[7:0] : vram_scan_data[15:8];
 
     // Extract pixel index from byte based on mode
     reg [7:0] pixel_idx;
@@ -869,8 +914,9 @@ module nubus_video_highres #(
         endcase
     end
 
-    // CLUT lookup and output
-    wire pixel_valid = video_en && !blanking_d && (display_word_cached_d || vram_cache_any_valid_d);
+    // CLUT lookup and output.  Scanout data is always available from VRAM port
+    // B, so validity is just enable + active region (no cache-hit dependency).
+    wire pixel_valid = video_en && !blanking_d;
     wire mono_mode = DEFAULT_MONOCHROME || monochrome;
     wire [7:0] mono_pixel = pixel_idx[0] ? 8'h22 : 8'hee;
     assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16]) : 8'd0;
@@ -912,5 +958,29 @@ module nubus_video_highres #(
     end
 `endif
     // synthesis translate_on
+
+    // ========================================================================
+    // JTAG debug exposures (hardware black-screen diagnosis)
+    // ========================================================================
+    assign dbg_video_en = video_en;
+
+    reg [15:0] vram_wr_cnt_r;      // CPU VRAM writes (Mac drawing the framebuffer)
+    reg [15:0] vram_fetch_cnt_r;   // completed video VRAM fetches (scanout reads)
+    reg        vram_wr_d;
+    assign dbg_vram_wr_cnt    = vram_wr_cnt_r;
+    assign dbg_vram_fetch_cnt = vram_fetch_cnt_r;
+    always @(posedge clk) begin
+        if (reset) begin
+            vram_wr_cnt_r    <= 16'd0;
+            vram_fetch_cnt_r <= 16'd0;
+            vram_wr_d        <= 1'b0;
+        end else begin
+            vram_wr_d <= vram_wr;
+            if (vram_wr && !vram_wr_d)               // rising edge: a VRAM write
+                vram_wr_cnt_r <= vram_wr_cnt_r + 16'd1;
+            if (state == S_VIDEO_WAIT && vram_ready)  // a video fetch completed
+                vram_fetch_cnt_r <= vram_fetch_cnt_r + 16'd1;
+        end
+    end
 
 endmodule

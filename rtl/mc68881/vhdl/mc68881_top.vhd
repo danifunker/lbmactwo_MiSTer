@@ -13,7 +13,13 @@ entity mc68881_top is
   generic (
     -- `true`: full packed-decimal conversion path.
     -- `false`: synthesis-safe packed-decimal fallback for debug/triage builds.
-    packed_decimal_full_g : boolean := true;
+    -- DEFAULT FORCED TO FALSE: Quartus 17.0 has a known issue where VHDL
+    -- boolean generics from a wrapper instantiation can be ignored, leaving
+    -- the entity elaborated with its default value. The full BCD engine has
+    -- combinational paths that violate clk_sys timing by 3.79 ns. Forcing
+    -- the default false guarantees the full block is excluded regardless
+    -- of how Quartus interprets the wrapper's generic map.
+    packed_decimal_full_g : boolean := false;
     -- `true`: MC68040 hardware subset (11 ALU ops, no trig/sglops/modrem/getexp/getman).
     -- `false`: full MC68881 (37 ALU ops + 10 control/move).
     fpu_lite_g : boolean := false;
@@ -413,6 +419,10 @@ architecture rtl of mc68881_top is
            op = FPU_OP_TWOTOX  or
            op = FPU_OP_MOD     or op = FPU_OP_REM     or
            op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL  or
+           -- DIV/SQRT now also disabled in lite: the hardware divrem unit
+           -- (~6,000 ALMs) is omitted from the lite build, so these F-line
+           -- trap to the software FPSP like the other divrem ops.
+           op = FPU_OP_DIV     or op = FPU_OP_SQRT    or
            op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN;
   end function;
 
