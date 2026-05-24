@@ -16,6 +16,19 @@ include ../common/make/common.mk
 
 BUILD := build
 
+# IOTEST_MODE: which phases of each size test to run.
+#   read       — read /Read_<label> only; no write+verify
+#   full       — read, then write + readback-verify (default)
+# Read-only mode is for isolating SCSI read-path bugs without the
+# additional complexity of write+verify. Switch via `make IOTEST_MODE=full`.
+IOTEST_MODE ?= read
+
+ifeq ($(IOTEST_MODE),read)
+    CFLAGS += -DIOTEST_READ_ONLY
+else ifneq ($(IOTEST_MODE),full)
+    $(error Unknown IOTEST_MODE=$(IOTEST_MODE); use 'read' or 'full')
+endif
+
 COMMON_RUNTIME := $(COMMON)/runtime
 COMMON_DISPLAY := $(COMMON)/display
 

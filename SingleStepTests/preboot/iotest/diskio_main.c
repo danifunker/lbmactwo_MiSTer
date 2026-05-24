@@ -82,24 +82,47 @@ extern void paint_progress(u32 idx, u32 total);
 
 static u8 * const g_io_buf = (u8 *)IOBUF_BASE;
 
-/* Parameter block for _Read / _Write. */
+/* IOParam parameter block for _Read / _Write. Field offsets must
+ * match Inside Macintosh: Files exactly — the Device Manager reads
+ * the trap arguments from these byte offsets regardless of how we
+ * choose to name them in C.
+ *
+ *   0  ioQLink       (long)
+ *   4  ioQType       (word)
+ *   6  ioTrap        (word)
+ *   8  ioCmdAddr     (long)
+ *  12  ioCompletion  (long)
+ *  16  ioResult      (word)         ← signed; 0 = noErr
+ *  18  ioNamePtr     (long)
+ *  22  ioVRefNum     (word)
+ *  24  ioRefNum      (word)         ← driver refnum (signed)
+ *  26  ioVersNum     (byte)
+ *  27  ioPermssn     (byte)
+ *  28  ioMisc        (long)         ← 4 BYTES, not 6 (earlier bug)
+ *  32  ioBuffer      (long)
+ *  36  ioReqCount    (long)
+ *  40  ioActCount    (long)
+ *  44  ioPosMode     (word)
+ *  46  ioPosOffset   (long)
+ *
+ * Total 50 bytes through ioPosOffset. Padded to PB_SIZE (80) so the
+ * struct length matches what `jsonl_writer.c` already uses. */
 typedef struct {
-    u8  pad_qlink[12];
-    u16 qtype;             /* offset 12 */
-    u16 io_trap;           /* offset 14 */
+    u8  pad_qlink[12];     /* offsets 0..11 (qlink + qtype + ioTrap + ioCmdAddr) */
+    u32 io_completion;     /* offset 12 */
     u16 io_result;         /* offset 16 */
-    u8  pad_name[4];
+    u32 io_name_ptr;       /* offset 18 */
     u16 io_vrefnum;        /* offset 22 */
     u16 io_refnum;         /* offset 24 */
-    u8  io_versnum;
-    u8  io_permssn;
-    u8  pad_misc[6];
+    u8  io_versnum;        /* offset 26 */
+    u8  io_permssn;        /* offset 27 */
+    u32 io_misc;           /* offset 28 */
     u32 io_buffer;         /* offset 32 */
     u32 io_req_count;      /* offset 36 */
     u32 io_act_count;      /* offset 40 */
     u16 io_pos_mode;       /* offset 44 */
     u32 io_pos_offset;     /* offset 46 */
-    u8  pad_rest[30];
+    u8  pad_rest[30];      /* offsets 50..79 */
 } ParamBlock;
 
 static ParamBlock g_pb;
@@ -249,6 +272,7 @@ void bench_main(void)
         t_us = timer_elapsed_us();
         emit_read_line(&g_jw, s, t_us, err);
 
+#ifndef IOTEST_READ_ONLY
         /* ----- WRITE + READBACK ----- */
         paint_string(10, 4, "WRITE  ", 7);
         fill_pattern(g_io_buf, s->length, (u8)i);
@@ -273,6 +297,7 @@ void bench_main(void)
 
         int ok = (err == 0) && verify_pattern(g_io_buf, s->length, (u8)i);
         emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, ok);
+#endif
     }
 
     paint_string(10, 4, "DONE       ", 11);
