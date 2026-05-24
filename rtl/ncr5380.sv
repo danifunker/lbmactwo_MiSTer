@@ -135,6 +135,9 @@ module ncr5380
 	wire i_dma_rd = bus_cs &  dack & ior;
 	wire i_dma_wr = bus_cs &  dack & iow;
 	wire i_reg_wr = bus_cs & ~dack & iow;
+	// Host read of the Current SCSI Bus Status register (REQ poll) — used by the
+	// target's block-boundary REQ pulse to know the host has observed REQ=0.
+	wire csr_rd = bus_cs & ~dack & ior & (bus_rs == `RREG_CSR);
 
 	always @(posedge clk or posedge reset) begin
 		if (reset) begin
@@ -451,6 +454,7 @@ module ncr5380
 				.atn    ( scsi_atn ),
 
 				.ack    ( scsi_ack ),
+				.host_csr_rd ( csr_rd ),
 
 				.bsy    ( target_bsy[i]  ),
 				.msg    ( target_msg[i]  ),
