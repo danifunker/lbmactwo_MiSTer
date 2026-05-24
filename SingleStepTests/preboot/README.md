@@ -100,6 +100,38 @@ make dsk             # produces build/payload_iotest_dsk.bin + boot_stub.bin
 partition 1. `build_dsk.sh` creates a fresh 800 KB HFS floppy from
 scratch.
 
+**Read-only vs full mode (`IOTEST_MODE`).** Each size test has two
+phases:
+
+1. **READ** — `_Read` `s->length` bytes from `/Read_<label>` into the
+   I/O buffer at `IOBUF_BASE` ($200000). Timed via VIA1 T2.
+2. **WRITE + READBACK-VERIFY** — fill the buffer with a pattern,
+   `_Write` it to `/Write_<label>`, clear the buffer, `_Read` it back,
+   memcmp. Three trap invocations per size, two of them timed.
+
+`IOTEST_MODE` selects which phases get compiled in:
+
+| Value | Phases | When to use |
+|---|---|---|
+| `read` (default) | READ only | Isolate the SCSI/Sony read path before introducing write complexity. The bench loops over the size table doing just one `_Read` per size. |
+| `full` | READ + WRITE + VERIFY | After read is verified working. Emits a `"write"` JSONL record per size with `verified:0/1`. |
+
+```bash
+# Read-only (default):
+make
+./build_hda.sh
+
+# Full:
+rm -rf build         # IOTEST_MODE isn't a Make dependency, so clean first
+make IOTEST_MODE=full
+./build_hda.sh
+```
+
+Make rejects any other `IOTEST_MODE` value with a clear error. The
+build is **single-binary** — there's no separate read-only/full
+output filename; rebuild whichever variant you want and run the
+build script again.
+
 ### supervisor_bench (CPU / FPU correctness)
 
 ```bash
