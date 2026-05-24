@@ -130,7 +130,7 @@ void paint_glyph_at(u8 *fb_ptr, char c)
     if ((u8)c < 0x20 || (u8)c > 0x7E) c = '?';
     g = &g_font[((u8)c - 0x20) * 8];
     for (row = 0; row < 8; row++) {
-        fb_ptr[row * 80] = (u8) ~(*g++);
+        fb_ptr[row * ROW_BYTES] = (u8) ~(*g++);
     }
 }
 
@@ -143,7 +143,7 @@ void paint_string(u32 row, u32 col_byte, const char *s, u32 max_chars)
     u8 *p;
     u32 n;
     if (fb == 0 || fb < 0x00100000) return;
-    p = (u8 *)fb + row * 80 + col_byte;
+    p = (u8 *)fb + row * ROW_BYTES + col_byte;
     for (n = 0; n < max_chars && *s; n++) {
         paint_glyph_at(p, *s++);
         p += 1;

@@ -2,7 +2,9 @@
 | For now: paints "PAYLOAD OK" then writes one JSONL-style line to
 | /Results.jsonl via .Sony _Write at the file's known disk offset.
 
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
 PB_OFF_IORESULT     = 16
 PB_OFF_IOVREFNUM    = 22

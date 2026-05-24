@@ -3,7 +3,9 @@
 | Loads the boot handoff (driver refnum + drive number) from $00041000,
 | clears the screen, paints a banner, then calls bench_main() in C.
 
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
     .text
     .global _payload_start

@@ -50,7 +50,9 @@ bbHeapSize:       .long 0x00020000
 | Bytes per row of the framebuffer. 80 = 640px @ 1bpp. If the actual
 | display is wider/narrower, the text will render mis-stretched and
 | we can adjust here without redesigning.
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
 startup:
     move.w  #0x2700, %sr

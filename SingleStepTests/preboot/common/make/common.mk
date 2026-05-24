@@ -16,12 +16,56 @@ OBJCOPY := $(PREFIX)objcopy
 #   preboot/<bench>/Makefile  -> ../common
 COMMON ?= ../common
 
+# ----------------------------------------------------------------------------
+# VIDEO_VARIANT — selects the display card the bench is built for. This
+# controls ROW_BYTES (the 1 bpp framebuffer stride in bytes), which the
+# card's declaration ROM programs into the TFB/CRTC at boot and must
+# match exactly or text renders as fragmented garbage across the top of
+# the screen (verified in MAME with --nb9 m2hires + iotest.hda).
+#
+# Why this is card-specific: each card's declaration ROM picks its
+# preferred default stride based on the card's max resolution, not the
+# visible 640-pixel area:
+#
+#   m2hires (Apple Mac II High Resolution Card)
+#     - Default 1 bpp, LENGTH register = 32 (32-bit words)
+#     - Stride = 32 * 4 = 128 bytes per row (1024-pixel-wide buffer,
+#       only first 640 visible)
+#
+#   mdc824  (Apple Macintosh Display Card 8•24, 341-0868)
+#     - Default 1 bpp, 80-byte stride (640 pixels exact)
+#
+#   toby    (Apple Macintosh II Video Card, 342-0008-a)
+#     - 1 bpp only, 80-byte stride (640 pixels exact)
+#
+# To add a future card: append a case to the ifeq cascade below.
+# Mismatched ROW_BYTES is the easiest-to-misdiagnose bug in this tree,
+# so the comment is verbose on purpose. Mac OS apps (Retro68) ignore
+# all of this; they paint via QuickDraw, which the OS programs to
+# match whatever card is active.
+# ----------------------------------------------------------------------------
+VIDEO_VARIANT ?= m2hires
+
+ifeq ($(VIDEO_VARIANT),m2hires)
+    ROW_BYTES := 128
+else ifeq ($(VIDEO_VARIANT),mdc824)
+    ROW_BYTES := 80
+else ifeq ($(VIDEO_VARIANT),toby)
+    ROW_BYTES := 80
+else
+    $(error Unknown VIDEO_VARIANT=$(VIDEO_VARIANT); known: m2hires mdc824 toby)
+endif
+
 CPUFLAGS := -m68020
 CFLAGS   := $(CPUFLAGS) -ffreestanding -fno-builtin -fomit-frame-pointer \
             -nostdlib -Os -Wall -Wextra -fno-pic -fno-exceptions \
             -fno-asynchronous-unwind-tables \
-            -I. -I$(COMMON)/runtime -I$(COMMON)/display
-ASFLAGS  := $(CPUFLAGS)
+            -I. -I$(COMMON)/runtime -I$(COMMON)/display \
+            -DROW_BYTES=$(ROW_BYTES)
+# gas: --defsym propagates ROW_BYTES into the .s files. Each .s wraps
+# its fallback default behind `.ifndef ROW_BYTES` so direct AS invocations
+# without the Makefile still assemble (the default is 80 = legacy).
+ASFLAGS  := $(CPUFLAGS) --defsym ROW_BYTES=$(ROW_BYTES)
 LDFLAGS  := -nostdlib --no-eh-frame-hdr
 
 # Linker scripts live in common/runtime.

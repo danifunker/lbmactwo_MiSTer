@@ -2,7 +2,9 @@
 | floppy). Sets up SP, hands global handoff slot ($00041000) to C,
 | clears the screen, paints "CPU BENCH", calls bench_main().
 
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
     .text
     .global _payload_start

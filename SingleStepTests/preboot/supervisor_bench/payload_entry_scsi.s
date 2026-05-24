@@ -2,7 +2,9 @@
 | Boot block places refnum at $00041000 (word) and drive number at
 | $00041002 (word). We paint both to screen as a sanity check.
 
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
 HANDOFF_ADDR        = 0x00041000
 

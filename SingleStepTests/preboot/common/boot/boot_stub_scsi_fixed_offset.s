@@ -31,7 +31,9 @@
 | of HFS partition (i.e. byte 0xC000 of physical disk). So /Payload
 | at byte offset 0x51600 within the partition is what we ask for.
 
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
     .text
     .global _start

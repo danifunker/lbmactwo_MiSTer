@@ -28,7 +28,9 @@
 |   +0x86  bbHeapSize      long
 |   +0x8A  startup
 
-ROW_BYTES = 80
+.ifndef ROW_BYTES
+    ROW_BYTES = 80
+.endif
 
     .text
     .global _start
