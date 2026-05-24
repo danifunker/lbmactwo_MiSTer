@@ -19,6 +19,7 @@ module scsi
 
 	output 	  req,
 	input 	  ack, // initiator acknowledges a request
+	input     host_csr_rd, // pulse: host read the Current SCSI Bus Status reg (REQ poll)
 
 	input   [7:0] din, // data from initiator to target
 	output  [7:0] dout, // data from target to initiator
@@ -175,22 +176,40 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// each interior boundary: long enough for the tight $C624 poll to observe
 	// REQ=0 and exit, short enough that REQ is back before the host re-enters
 	// the next block's transfer loop (which would otherwise bail on DRQ=0).
-	reg  [5:0] blk_breath;
+	// Drop REQ at each interior 512-byte boundary and hold it low until EITHER:
+	//   * the host reads CSR (its $C624 poll) — the careful per-block path, which
+	//     needs to observe REQ=0 to exit its wait loop and fetch the next block; OR
+	//   * a short timeout — the blind pseudo-DMA path never reads CSR, so it must
+	//     resume quickly.  The timeout MUST stay below the host's SCSI-DMA bus-error
+	//     watchdog (~260 sys cycles, sim.v/LBMacTwo.sv berr_counter): if REQ (hence
+	//     DREQ) stayed low longer, the blind path's stalled SDMA read would trip a
+	//     spurious /BERR and abort the transfer at the boundary.
+	// Tying the clear to the host's CSR read (rather than a guessed fixed width)
+	// makes the careful path interrupt-timing-independent; the sub-BERR timeout
+	// makes the boundary harmless to the blind path (a brief stall, never a BERR).
+	reg       blk_breath;
 	reg [31:0] data_cnt_q;
+	reg  [7:0] breath_timeout;
 	always @(posedge clk) begin
 		if (phase != PHASE_DATA_OUT) begin
-			blk_breath <= 6'd0;
-			data_cnt_q <= 32'd0;
+			blk_breath     <= 1'b0;
+			data_cnt_q     <= 32'd0;
+			breath_timeout <= 8'd0;
 		end else begin
 			data_cnt_q <= data_cnt;
 			if ((data_cnt != data_cnt_q) && (data_cnt[8:0] == 9'd0) &&
-			    (data_cnt != 32'd0) && !data_complete)
-				blk_breath <= 6'd32;
-			else if (blk_breath != 6'd0)
-				blk_breath <= blk_breath - 6'd1;
+			    (data_cnt != 32'd0) && !data_complete) begin
+				blk_breath     <= 1'b1;
+				breath_timeout <= 8'd180;     // < ~260-cycle SCSI-DMA BERR watchdog
+			end else if (blk_breath) begin
+				if (host_csr_rd || breath_timeout == 8'd0)
+					blk_breath <= 1'b0;
+				else
+					breath_timeout <= breath_timeout - 8'd1;
+			end
 		end
 	end
-	wire blk_breathing = (blk_breath != 6'd0);
+	wire blk_breathing = blk_breath;
 
 	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && !blk_breathing;
 
