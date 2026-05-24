@@ -29,7 +29,10 @@ module adb(
 	output reg       capslock,
 
 	input     [24:0] ps2_mouse,
-	input     [10:0] ps2_key
+	input     [10:0] ps2_key,
+
+	// Debug snapshot for JTAG ISSP (read-only): FSM + command state.
+	output    [15:0] dbg_adb
 );
 
 // ADB bus states (matches Snow's AdbBusState enum)
@@ -70,6 +73,11 @@ reg  [1:0] st_prev;
 wire [3:0] cmd_addr    = cmd_byte[7:4];
 wire [1:0] cmd_type    = cmd_byte[3:2];  // 00=Reset, 01=Flush, 10=Listen, 11=Talk
 wire [1:0] cmd_reg     = cmd_byte[1:0];
+
+// Read-only debug snapshot: {_int, dout_strobe, din_strobe, listen,
+//                            cmd_processed, cmd_valid, st[1:0], cmd_byte[7:0]}
+assign dbg_adb = {_int, adb_dout_strobe, adb_din_strobe, listen,
+                  cmd_processed, cmd_valid, st, cmd_byte};
 
 // Device register storage
 reg  [3:0] kbd_addr;          // Keyboard device address (default 2)

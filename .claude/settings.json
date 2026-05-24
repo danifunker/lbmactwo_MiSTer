@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/auto_recompile.sh:*)",
+      "Bash(bash scripts/read_probes.sh:*)"
+    ]
+  }
+}

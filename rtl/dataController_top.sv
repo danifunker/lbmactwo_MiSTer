@@ -112,7 +112,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi2,
 	output           [15:0] dbg_scsi3,
 	output           [15:0] dbg_scsi4,
-	output           [15:0] dbg_scsi5
+	output           [15:0] dbg_scsi5,
+	output           [31:0] dbg_adb,
+	output           [17:0] dbg_adb2
 );
 
 	// CPU reset generation
@@ -544,6 +546,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire via1_wr = selectVIA && !_cpuVMA && !_cpuRW;
 	wire via1_sr_wr = via1_wr && cpuAddrRegHi == 4'hA;  // SR write (reg $A)
 	wire via1_acr_wr = via1_wr && cpuAddrRegHi == 4'hB; // ACR write (reg $B)
+	wire via1_rd    = selectVIA && !_cpuVMA && _cpuRW;  // VIA1 register read
+	wire via1_sr_rd = via1_rd && cpuAddrRegHi == 4'hA;  // SR read (reg $A)
 
 	reg [2:0] via1_acr_shift_mode;
 	reg [7:0] via1_sr_shadow;
@@ -595,6 +599,21 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 				else if (cpuDataIn[12:10] == 3'b000) begin
 					via1_shift_timer <= 17'd0;
 				end
+			end
+
+			// Track SR reads — on Mac II the ADB driver reads the VIA SR to
+			// fetch each shift-in response byte, and (like a real 6522, and
+			// like via6522's trigger_serial which fires on ren|wen of reg $A)
+			// that read initiates the NEXT shift-in. via6522 re-arms its
+			// shift_active on the read, but the timer shim only watched writes,
+			// so the read-initiated shift-in never got a timer and never
+			// completed -> sr_ext_complete never pulsed -> shift_active/
+			// sr_active stuck high -> the CPU's completion poll spun forever.
+			// (Invisible in Verilator's ideal SR timing.) Arm the shift-in
+			// timer on an SR read while in shift-in mode to match.
+			if (via1_sr_rd && via1_acr_shift_mode == 3'b011) begin
+				via1_shift_timer <= SHIFT_DELAY;
+				via1_shift_dir <= 1'b0;
 			end
 
 			// Track SR writes — shadow the data and (re)start timer
@@ -874,8 +893,22 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.adb_dout_strobe(adb_dout_strobe),
 
 		.ps2_mouse(ps2_mouse),
-		.ps2_key(ps2_key)
+		.ps2_key(ps2_key),
+		.dbg_adb(adb_dbg)
 	);
+
+	// Read-only ADB/VIA1-SR debug snapshot for JTAG ISSP:
+	// [31:29] acr_shift_mode [28] shift_dir [27] sr_active [26] sr_out_done
+	// [25] sr_out_ack [24] sr_out_pending [23:16] sr_shadow [15:0] adb FSM state
+	wire [15:0] adb_dbg;
+	assign dbg_adb = {via1_acr_shift_mode, via1_shift_dir, via1_sr_active,
+	                  via1_sr_out_done, via1_sr_out_ack, via1_sr_out_pending,
+	                  via1_sr_shadow, adb_dbg};
+
+	// Shift-in completion diagnosis: [17:1]=via1_shift_timer (is it counting
+	// down or stuck?), [0]=via1_sr_ext_complete pulse (does completion ever
+	// fire?). dbg_min counts the completes and snapshots the timer.
+	assign dbg_adb2 = {via1_shift_timer, via1_sr_ext_complete};
 
 endmodule
 

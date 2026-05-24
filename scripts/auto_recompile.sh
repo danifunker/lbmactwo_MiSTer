@@ -4,7 +4,9 @@
 # uses to know we're building, so it doesn't try to grab JTAG mid-compile.
 # Designed to be run unattended.
 set -u
-cd "C:/Users/Alan/Documents/GitHub/lbmactwo_MiSTer"
+# Resolve the repo root relative to this script's location so it works on any
+# machine regardless of where the repo is checked out.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 export PATH="/c/intelFPGA_lite/17.0/quartus/bin64:$PATH"
 
 LOG="output_files/auto_compile_$(date +%Y%m%d_%H%M%S).log"

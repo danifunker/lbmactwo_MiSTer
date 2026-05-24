@@ -60,7 +60,17 @@ module dbg_min (
     // HPS ROM-download stream (confirm the NuBus video declaration ROM,
     // boot1.rom @ index 1, actually reaches the card on hardware).
     input wire        ioctl_wr,
-    input wire [7:0]  ioctl_idx
+    input wire [7:0]  ioctl_idx,
+
+    // ADB/VIA1-SR state (diagnose the mouse-fix boot spin).
+    // [31:29] acr_shift_mode [28] shift_dir [27] sr_active [26] sr_out_done
+    // [25] sr_out_ack [24] sr_out_pending [23:16] sr_shadow
+    // [15] adb_int [14] adb_dout_strobe [13] adb_din_strobe [12] listen
+    // [11] cmd_processed [10] cmd_valid [9:8] adb_st [7:0] cmd_byte
+    input wire [31:0] dbg_adb,
+
+    // Shift-in completion diagnosis: [17:1]=via1_shift_timer [0]=sr_ext_complete
+    input wire [17:0] dbg_adb2
 );
 
     // Coherent snapshots on clk.
@@ -358,5 +368,79 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pscf (.probe(rstsnap_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== ADB / VIA1-SR diagnostic probes (PADB / PAD2 / PAD3) ============
+    // DISABLED to free fit budget now that the ADB shift-in hang is fixed.
+    // These were used to diagnose the VIA1 SR shift-in completion bug (the
+    // read-initiated shift-in that never armed the timer). To re-enable for
+    // future ADB/VIA debugging: delete the surrounding /* */ block comment.
+    // The dbg_adb / dbg_adb2 inputs (and their plumbing through
+    // dataController_top -> LBMacTwo -> here) are left wired but unused; they
+    // synthesize away while disabled. NOTE: re-enabling adds 3 probes and the
+    // design is at ~19 probes / 82% ALMs — it may then fail to fit; trim an
+    // out-of-scope SCSI probe (PSC4/PSC5/PSCF) if so.
+    /*
+    // PADB: live coherent snapshot of the ADB FSM + VIA1 shift-register
+    // handshake. Sample it several times: if the CPU is spinning while ADB is
+    // wedged, the state (adb_st / cmd_valid / sr_out_pending) will be static.
+    reg [31:0] adb_r;
+    always @(posedge clk) adb_r <= dbg_adb;
+
+    altsource_probe #(
+        .instance_id ("PADB"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_padb (.probe(adb_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PAD2: edge counters for the two ADB strobes + the VIA1 sr_out_pending
+    // assertions. Tells whether byte delivery is happening repeatedly, once,
+    // or never during the spin.  {pend_cnt[7:0], dout_cnt[11:0], din_cnt[11:0]}.
+    reg din_d, dout_d, pend_d;
+    reg [11:0] din_cnt, dout_cnt;
+    reg [7:0]  pend_cnt;
+    initial begin din_cnt=0; dout_cnt=0; pend_cnt=0; din_d=0; dout_d=0; pend_d=0; end
+    always @(posedge clk) begin
+        din_d  <= dbg_adb[13];
+        dout_d <= dbg_adb[14];
+        pend_d <= dbg_adb[24];
+        if (dbg_adb[13] && !din_d)  din_cnt  <= din_cnt  + 12'd1;
+        if (dbg_adb[14] && !dout_d) dout_cnt <= dout_cnt + 12'd1;
+        if (dbg_adb[24] && !pend_d) pend_cnt <= pend_cnt + 8'd1;
+    end
+    reg [31:0] adb2_r;
+    always @(posedge clk) adb2_r <= {pend_cnt, dout_cnt, din_cnt};
+
+    altsource_probe #(
+        .instance_id ("PAD2"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pad2 (.probe(adb2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PAD3: VIA1 shift-in completion diagnosis.
+    //   {complete_cnt[14:0], via1_shift_timer[16:0]}
+    // If via1_shift_timer is a static nonzero value across samples it is NOT
+    // counting down; if it's 0 it was never armed; if complete_cnt never
+    // increments, sr_ext_complete never fires (shift_active never clears).
+    wire [16:0] shift_timer_now = dbg_adb2[17:1];
+    wire        sr_complete_now = dbg_adb2[0];
+    reg  sr_complete_d;
+    reg [14:0] complete_cnt;
+    initial begin complete_cnt = 15'd0; sr_complete_d = 1'b0; end
+    always @(posedge clk) begin
+        sr_complete_d <= sr_complete_now;
+        if (sr_complete_now && !sr_complete_d) complete_cnt <= complete_cnt + 15'd1;
+    end
+    reg [31:0] adb3_r;
+    always @(posedge clk) adb3_r <= {complete_cnt, shift_timer_now};
+
+    altsource_probe #(
+        .instance_id ("PAD3"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pad3 (.probe(adb3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    */
 
 endmodule

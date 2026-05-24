@@ -3,13 +3,26 @@
 #
 #   quartus_stp_tcl -t scripts/cpu_state.tcl
 
+# Pick the cable + device portably: prefer a DE-SoC cable (Alan's on-board
+# USB-Blaster II), else fall back to any cable (e.g. a standalone "USB-Blaster
+# [USB-0]"). For whichever cable, take the first device whose name matches the
+# Cyclone V (5CSE). This works on any machine regardless of cable name.
 set hw ""
 foreach h [get_hardware_names] {
-    if {[regexp {^DE-SoC \[USB-\d+\]$} $h]} { set hw $h; break }
+    if {[string match "DE-SoC*" $h]} { set hw $h; break }
 }
-if {$hw eq ""} { foreach h [get_hardware_names] { if {[string match "DE-SoC*" $h]} { set hw $h; break } } }
+if {$hw eq ""} {
+    foreach h [get_hardware_names] {
+        if {![catch {get_device_names -hardware_name $h} devs]} {
+            foreach d $devs { if {[string match "*5CSE*" $d]} { set hw $h; break } }
+        }
+        if {$hw ne ""} break
+    }
+}
 set dev ""
-foreach d [get_device_names -hardware_name $hw] { if {[string match "*5CSE*" $d]} { set dev $d; break } }
+if {$hw ne ""} {
+    foreach d [get_device_names -hardware_name $hw] { if {[string match "*5CSE*" $d]} { set dev $d; break } }
+}
 puts "hw=$hw dev=$dev"
 
 set info [get_insystem_source_probe_instance_info -device_name $dev -hardware_name $hw]
@@ -38,6 +51,9 @@ foreach inst $info {
     if {$nm eq "PSCF"} { set idx(PSCF) $i }
     if {$nm eq "PSCG"} { set idx(PSCG) $i }
     if {$nm eq "PSCH"} { set idx(PSCH) $i }
+    if {$nm eq "PADB"} { set idx(PADB) $i }
+    if {$nm eq "PAD2"} { set idx(PAD2) $i }
+    if {$nm eq "PAD3"} { set idx(PAD3) $i }
     incr i
 }
 
@@ -241,6 +257,42 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$i1 > 0 && $i1 < 6144} { set vnote " <- looks like wrong/small ROM (Toby=4096?)" }
         if {$i1 >= 6144} { set vnote " <- Hi-Res decl ROM loaded OK" }
         puts [format "           ROMLOAD: boot0(sys idx0)=%u writes | boot1(video decl idx1)=%u writes%s" $i0 $i1 $vnote]
+    }
+    if {[info exists idx(PADB)]} {
+        set ad [rd $idx(PADB)]
+        set cmd_byte  [expr {$ad & 0xFF}]
+        set adb_st    [expr {($ad >> 8) & 0x3}]
+        set cmd_valid [expr {($ad >> 10) & 1}]
+        set cmd_proc  [expr {($ad >> 11) & 1}]
+        set listen    [expr {($ad >> 12) & 1}]
+        set din_str   [expr {($ad >> 13) & 1}]
+        set dout_str  [expr {($ad >> 14) & 1}]
+        set adb_int   [expr {($ad >> 15) & 1}]
+        set sr_shadow [expr {($ad >> 16) & 0xFF}]
+        set sr_pend   [expr {($ad >> 24) & 1}]
+        set sr_ack    [expr {($ad >> 25) & 1}]
+        set sr_done   [expr {($ad >> 26) & 1}]
+        set sr_active [expr {($ad >> 27) & 1}]
+        set shift_dir [expr {($ad >> 28) & 1}]
+        set acr_mode  [expr {($ad >> 29) & 0x7}]
+        set stname    [lindex {COMMAND DATA1 DATA2 IDLE} $adb_st]
+        puts [format "           ADB: st=%s cmd_byte=0x%02X cmd_valid=%d cmd_proc=%d listen=%d _int=%d | din_str=%d dout_str=%d" \
+            $stname $cmd_byte $cmd_valid $cmd_proc $listen $adb_int $din_str $dout_str]
+        puts [format "           VIA1-SR: acr_mode=%d shift_dir=%d sr_active=%d sr_out(pending=%d ack=%d done=%d) sr_shadow=0x%02X" \
+            $acr_mode $shift_dir $sr_active $sr_pend $sr_ack $sr_done $sr_shadow]
+    }
+    if {[info exists idx(PAD2)]} {
+        set a2 [rd $idx(PAD2)]
+        set din_cnt  [expr {$a2 & 0xFFF}]
+        set dout_cnt [expr {($a2 >> 12) & 0xFFF}]
+        set pend_cnt [expr {($a2 >> 24) & 0xFF}]
+        puts [format "           ADB counts: din_strobe=%u dout_strobe=%u sr_out_pending=%u" $din_cnt $dout_cnt $pend_cnt]
+    }
+    if {[info exists idx(PAD3)]} {
+        set a3 [rd $idx(PAD3)]
+        set shtimer  [expr {$a3 & 0x1FFFF}]
+        set cplcnt   [expr {($a3 >> 17) & 0x7FFF}]
+        puts [format "           SHIFT-IN: via1_shift_timer=%u  sr_ext_complete_count=%u" $shtimer $cplcnt]
     }
     after 300
 }
