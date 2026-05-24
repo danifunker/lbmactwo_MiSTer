@@ -454,7 +454,7 @@ module ncr5380
 				.atn    ( scsi_atn ),
 
 				.ack    ( scsi_ack ),
-				.host_dma_rd ( i_dma_rd ),
+				.host_csr_rd ( csr_rd ),
 
 				.bsy    ( target_bsy[i]  ),
 				.msg    ( target_msg[i]  ),
