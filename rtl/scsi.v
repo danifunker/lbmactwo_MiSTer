@@ -19,7 +19,7 @@ module scsi
 
 	output 	  req,
 	input 	  ack, // initiator acknowledges a request
-	input     host_csr_rd, // pulse: host read the Current SCSI Bus Status reg (REQ poll)
+	input     host_dma_rd, // pulse: host performed a pseudo-DMA data read (DACK)
 
 	input   [7:0] din, // data from initiator to target
 	output  [7:0] dout, // data from target to initiator
@@ -166,46 +166,44 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// the command phase intermittently stall on hardware (sim's ideal timing
 	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
 	// this only gates the first REQ right after selection.
-	// --- Multi-block boundary REQ pulse ------------------------------------
-	// The Mac SCSI Manager transfers a multi-block read one 512-byte block per
-	// TIB instruction, parking in a wait loop (ROM $C624) between blocks that
-	// polls CSR.REQ and exits when REQ drops.  A single-block read satisfies
-	// this naturally (data_complete drops REQ at byte 512); a multi-block read
-	// must produce the same REQ-drop at every interior 512-byte boundary or the
-	// host wedges (the "Welcome to Macintosh" hang).  Pulse REQ low briefly at
-	// each interior boundary: long enough for the tight $C624 poll to observe
-	// REQ=0 and exit, short enough that REQ is back before the host re-enters
-	// the next block's transfer loop (which would otherwise bail on DRQ=0).
-	// Drop REQ at each interior 512-byte boundary and hold it low until EITHER:
-	//   * the host reads CSR (its $C624 poll) — the careful per-block path, which
-	//     needs to observe REQ=0 to exit its wait loop and fetch the next block; OR
-	//   * a short timeout — the blind pseudo-DMA path never reads CSR, so it must
-	//     resume quickly.  The timeout MUST stay below the host's SCSI-DMA bus-error
-	//     watchdog (~260 sys cycles, sim.v/LBMacTwo.sv berr_counter): if REQ (hence
-	//     DREQ) stayed low longer, the blind path's stalled SDMA read would trip a
-	//     spurious /BERR and abort the transfer at the boundary.
-	// Tying the clear to the host's CSR read (rather than a guessed fixed width)
-	// makes the careful path interrupt-timing-independent; the sub-BERR timeout
-	// makes the boundary harmless to the blind path (a brief stall, never a BERR).
+	// --- Inter-block gap (emulate real-disk latency) -----------------------
+	// A real Mac II SCSI disk has seek/read latency between logical blocks: at
+	// each 512-byte boundary it briefly stops driving REQ/data while fetching
+	// the next sector.  The Mac SCSI Manager's "careful" pseudo-DMA path relies
+	// on this — after each block it parks in a wait loop ($C624) polling CSR.REQ
+	// to exit, then its next-block loop ($C5xx) waits for DRQ to return.  Our
+	// double-buffered target had ZERO inter-block latency (REQ held continuously
+	// across the boundary), so that wait never released and the boot wedged.
+	//
+	// Reproduce the gap: at each interior 512-byte boundary drop REQ (and hence
+	// DRQ) and hold until EITHER:
+	//   * the host performs a pseudo-DMA data read (host_dma_rd) — the BLIND
+	//     path's next SDMA byte; clear immediately so its stalled read resumes
+	//     within ~1 cycle and never trips the host's ~260-cycle SCSI-DMA /BERR
+	//     watchdog; OR
+	//   * a long timeout — the CAREFUL path does NOT read SDMA while it waits
+	//     (it polls CSR/BSR), so REQ may stay low well past 260 cycles with no
+	//     /BERR risk.  The long hold guarantees the host observes REQ=0 in its
+	//     $C624 poll regardless of interrupt timing, then sees DRQ return.
 	reg       blk_breath;
 	reg [31:0] data_cnt_q;
-	reg  [7:0] breath_timeout;
+	reg  [9:0] breath_timeout;
 	always @(posedge clk) begin
 		if (phase != PHASE_DATA_OUT) begin
 			blk_breath     <= 1'b0;
 			data_cnt_q     <= 32'd0;
-			breath_timeout <= 8'd0;
+			breath_timeout <= 10'd0;
 		end else begin
 			data_cnt_q <= data_cnt;
 			if ((data_cnt != data_cnt_q) && (data_cnt[8:0] == 9'd0) &&
 			    (data_cnt != 32'd0) && !data_complete) begin
 				blk_breath     <= 1'b1;
-				breath_timeout <= 8'd180;     // < ~260-cycle SCSI-DMA BERR watchdog
+				breath_timeout <= 10'd600;    // careful-path hold; blind path clears early via host_dma_rd
 			end else if (blk_breath) begin
-				if (host_csr_rd || breath_timeout == 8'd0)
+				if (host_dma_rd || breath_timeout == 10'd0)
 					blk_breath <= 1'b0;
 				else
-					breath_timeout <= breath_timeout - 8'd1;
+					breath_timeout <= breath_timeout - 10'd1;
 			end
 		end
 	end
