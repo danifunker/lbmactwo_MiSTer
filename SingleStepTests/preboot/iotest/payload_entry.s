@@ -30,9 +30,14 @@ _payload_start:
 1:  move.l  #0xFFFFFFFF, (%a0)+
     dbra    %d0, 1b
 
-    | --- Paint "IOTEST" at row 0 col 4 (gets overwritten by paint_string) ---
+    | --- Startup marker: "IOTEFT" placeholder banner at pixel row 56,
+    | col 60. Painted right after the screen wipe so the operator sees
+    | the payload has started executing C even before bench_main
+    | finishes initializing JsonlWriter. Lives at the bottom-right so
+    | it doesn't collide with bench_main's row-4 paint_string banner
+    | ("IOTEST: DISK I/O BENCH") or the row-60 progress counter. ---
     move.l  %a4, %a0
-    add.l   #(0 * ROW_BYTES + 4), %a0
+    add.l   #(56 * ROW_BYTES + 60), %a0
     lea     banner(%pc), %a1
     moveq   #5, %d0
     bsr     draw_string_n_d0

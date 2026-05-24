@@ -52,14 +52,23 @@ void jw_init(JsonlWriter *w, const JwCtx *ctx)
     w->ctx = *ctx;
 }
 
-static void flush_sector(JsonlWriter *w)
+/* Internal: write the current batch (zero-padding any unused tail) to
+ * disk at base_offset + batch_idx*JW_BATCH_BYTES. Caller decides
+ * whether to advance `written` to start a new batch (true flush) or
+ * leave it alone (partial-progress commit). */
+static void write_current_batch(JsonlWriter *w)
 {
-    /* Zero-pad anything not written in this batch. */
     if (w->used < JW_BATCH_BYTES)
         f_memset(w->sector + w->used, 0, JW_BATCH_BYTES - w->used);
     u32 batch_idx = w->written / JW_BATCH_BYTES;
     i16 r = driver_write_sector(&w->ctx, batch_idx, w->sector);
     if (r != 0 && w->last_err == 0) w->last_err = r;
+}
+
+static void flush_sector(JsonlWriter *w)
+{
+    /* Full advance: write the batch then move to the next one. */
+    write_current_batch(w);
     w->written += JW_BATCH_BYTES;
     w->used = 0;
 }
@@ -94,11 +103,23 @@ static void paint_marker(char c)
     paint_string(50, 6, s, 1);
 }
 
+/* Write the current batch to disk without advancing `written`.
+ *
+ * Each call costs one full JW_BATCH_BYTES (16 KB) SCSI write. The cost
+ * buys us per-record persistence: if the bench hangs partway through a
+ * size sweep, every JSONL line emitted before the hang is on disk and
+ * can be extracted post-mortem via `rb-cli get IMG@1 /Results.jsonl`.
+ *
+ * The advance-on-full path (flush_sector) is unchanged; once the
+ * batch fills, it gets written and `written` advances normally. So
+ * this scheme degrades to ~1 commit per record while a batch is
+ * actively being filled, plus the usual one-write-per-full-batch.
+ * For a 24-record iotest run that's 24 writes of 16 KB = 384 KB,
+ * negligible compared to the bench's read/write traffic. */
 void jw_commit_line(JsonlWriter *w)
 {
-    /* No-op now — batched writes via flush_sector handle persistence.
-     * Kept for ABI compatibility (caller still references it). */
-    (void)w;
+    if (w->used == 0) return;  /* nothing new since last commit */
+    write_current_batch(w);
 }
 
 void jw_flush(JsonlWriter *w)
