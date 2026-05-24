@@ -121,22 +121,41 @@ hardware until depth-switch init code is written (see
 
 ## Display modes
 
-Today everything paints in **1 bpp** through the Mac II built-in
-ScrnBase (`$0824`). The default kernel
-(`common/display/display_1bpp.c`) works on every Mac II display path
-the FPGA core supports:
+Everything paints in **1 bpp** through the Mac II built-in ScrnBase
+(`$0824`). The kernel (`common/display/display_1bpp.c`) handles every
+Mac II display path the FPGA core supports — what differs between
+cards is the **row stride**, which each card's declaration ROM
+programs into the TFB / CRTC at boot.
 
-- **Toby** (Mac II Video Card, 342-0008-a) — 1 bpp only, exact match.
-- **Apple Macintosh II High Resolution Card (m2hires)** — supports
-  1/2/4/8 bpp; powers up in 1 bpp.
-- **Apple Macintosh Display Card 8•24 (mdc824)** — supports
-  1/2/4/8/24 bpp; powers up in 1 bpp via its 68008 coprocessor.
+| Card | Row stride (1 bpp) | Notes |
+|---|---:|---|
+| **Toby** (Mac II Video Card, 342-0008-a) | 80 | 1 bpp only, exact 640-px buffer |
+| **Apple Macintosh II High Resolution Card (m2hires)** | **128** | 1024-px-wide buffer, only first 640 visible; supports 1/2/4/8 bpp but powers up in 1 bpp |
+| **Apple Macintosh Display Card 8•24 (mdc824)** | 80 | Powers up in 1 bpp via its 68008 coprocessor; supports up to 24 bpp |
 
-None of those require card-specific code in our paint path because
-we read `ScrnBase` from low-mem rather than poking the card directly.
-Higher color depths require writing the card's control registers
-(m2hires: TFB MISC; mdc824: 68008 mailbox command). The 8 bpp paint
-kernel and matching boot stub are parked under
+The stride is **not derivable at runtime** from low-mem — we have to
+match what the card's declaration ROM picked. Mismatched stride is
+the easiest-to-misdiagnose bug in this tree: text fragments across
+the top of the screen with characters spread horizontally because
+each row of an 8-row glyph lands on a different physical scanline.
+
+**Select the target card at build time via `VIDEO_VARIANT`:**
+
+```bash
+make                              # m2hires (default — matches current FPGA core)
+make VIDEO_VARIANT=mdc824
+make VIDEO_VARIANT=toby
+```
+
+`common/make/common.mk` translates the variant into `-DROW_BYTES=N`
+(for C) and `--defsym ROW_BYTES=N` (for gas). Each `.s` file gates
+its fallback default behind `.ifndef ROW_BYTES / ... / .endif` so
+direct AS invocations without the Makefile still assemble. Adding a
+new card means appending a case to the `ifeq` cascade in `common.mk`.
+
+Higher color depths (2/4/8 bpp) require writing the card's control
+registers first (m2hires: TFB MISC; mdc824: 68008 mailbox command).
+The 8 bpp paint kernel + matching boot stub are parked under
 `common/display/old/` until that init code is written; they assemble
 fine but produce garbage on hardware until paired with depth-switch.
 
@@ -197,6 +216,155 @@ iotest output format, one line per read or write:
 
 supervisor_bench output: see `bench_main.c`'s emitter and
 `SingleStepTests/results/` for the field schema.
+
+## MAME integration
+
+MAME's `macii` machine emulates the exact NuBus video cards our FPGA
+core targets, and can run headlessly to take screenshots of the
+emulated Mac display — so you can diagnose display issues, dump VRAM,
+and trace device-register writes without needing access to physical
+hardware. This is the workflow that found the m2hires `ROW_BYTES=128`
+stride bug above.
+
+### Prerequisites
+
+- **MAME built locally** at `~/repos/mame/mame` (sibling checkout of
+  this repo). Any recent MAME version with the macii driver works;
+  `mame0287` is what was used for the m2hires diagnosis.
+- **Mac II ROMs** at `~/repos/mame/roms/macii.zip`. The `-listroms macii`
+  command lists what's expected.
+- **m2hires declaration ROM** at `~/repos/mame/roms/nb_m2hr/341-0660.bin`.
+  A copy is in this repo:
+  ```bash
+  mkdir -p ~/repos/mame/roms/nb_m2hr
+  cp ~/repos/lbmactwo_MiSTer/releases/341-0660.bin ~/repos/mame/roms/nb_m2hr/
+  ```
+  Without this, the `-nb9 m2hires` invocation fails with
+  `341-0660.bin NOT FOUND`.
+
+### Headless invocation
+
+MAME normally needs an X display. With SDL2 we can use the **offscreen
+video driver** to run without any host display, while still rendering
+the emulated Mac screen and saving snapshots to PNG:
+
+```bash
+cd ~/repos/mame
+SDL_VIDEODRIVER=offscreen ./mame macii \
+    -skip_gameinfo \
+    -nb9 m2hires \
+    -hard1 /tmp/iotest.hda \
+    -snapname iotest_%i \
+    -snapsize 640x480 \
+    -snapshot_directory /tmp/mame_snap \
+    -nothrottle \
+    -seconds_to_run 30 \
+    -window
+```
+
+Flags worth knowing:
+
+| Flag | What it does |
+|---|---|
+| `SDL_VIDEODRIVER=offscreen` | renders to an in-memory framebuffer; no X needed |
+| `-skip_gameinfo` | skip MAME's "press OK" warning screen; otherwise the autosnapshot captures it instead of the emulated display |
+| `-nb9 <card>` | install card in NuBus slot 9 (default is `mdc824`; use `m2hires` to match our FPGA core) |
+| `-hard1 path/to.hda` | SCSI HDD on the first channel |
+| `-flop1 path/to.dsk` | Floppy disk in the internal drive (use for `iotest.dsk` etc.) |
+| `-snapsize 640x480` | match the visible area exactly so the output PNG isn't padded |
+| `-snapshot_directory dir` | where to write the PNG. Default `snap/` is relative to CWD. |
+| `-nothrottle` | run as fast as host CPU allows (~4× real-time on a modern laptop) |
+| `-seconds_to_run N` | exit after N **emulated** seconds; the auto-snapshot fires at exit |
+| `-window` | required even with offscreen driver |
+| `-autoboot_script foo.lua` | inject a Lua script that runs once emulation starts |
+
+### Which card to test against
+
+The MAME `macii` machine **defaults to mdc824 in slot 9** — not what
+the FPGA core has. Always pass `-nb9 m2hires` to match the FPGA's
+actual card (or `-nb9 mdc824` explicitly if you want to test the
+mdc824 path).
+
+`./mame macii -listslots` shows the full list of cards installable
+in any slot if you need to experiment with others.
+
+### Probing device internals via Lua
+
+MAME's Lua API can:
+- Read CPU memory at any address (`prog:read_u8/u16/u32`).
+- Install **write taps** to log every CPU write to a memory range —
+  including writes to memory-mapped device registers like the m2hires
+  TFB at `$F9080000-$F908FFFF`.
+- Schedule actions at specific emulated times (`emu.register_periodic`
+  with an `emu.time()` check).
+
+Example: trace what the m2hires declaration ROM programs into the
+TFB registers during boot. Save as `/tmp/snoop_m2hires.lua`:
+
+```lua
+local prog = manager.machine.devices[":maincpu"].spaces["program"]
+
+prog:install_write_tap(0xF9080000, 0xF9080FFF, "m2hires_reg_w",
+    function(offset, data, mask)
+        local reg_idx = (offset & 0xFF) >> 2
+        print(string.format("[t=%.2f] m2hires reg %d <= 0x%08X (mask 0x%08X)",
+                            emu.time(), reg_idx, data, mask))
+    end)
+print("m2hires register-write tap installed")
+```
+
+Run with `-autoboot_script /tmp/snoop_m2hires.lua` and grep stdout
+for `reg write`. The captured values are the **CPU-side** writes;
+MAME's `m2hires::registers_w` applies `data ^= 0xFFFFFFFF; data =
+swapendian_int32(data)` before storing, so e.g. CPU `0xDFFFFFFF` →
+`m_registers[LENGTH] = 32` → stride = 32 × 4 = **128 bytes**.
+
+Example: dump VRAM at the current `ScrnBase` to verify your paint
+code wrote the bytes you expected. Save as `/tmp/dump_vram.lua`:
+
+```lua
+local prog = manager.machine.devices[":maincpu"].spaces["program"]
+local fired = false
+emu.register_periodic(function()
+    if fired or emu.time() < 25 then return end
+    fired = true
+    local sb = prog:read_u32(0x0824)
+    print(string.format("ScrnBase=0x%08X", sb))
+    for r = 0, 7 do
+        local row = {}
+        for i = 0, 31 do
+            row[i+1] = string.format("%02X", prog:read_u8(sb + r * 80 + i))
+        end
+        print(string.format("row %d:", r), table.concat(row, " "))
+    end
+end)
+```
+
+Reading via the CPU side gets the XOR'd-back view of VRAM, so the
+bytes you see are the bytes your paint code wrote.
+
+### Worked example: the m2hires ROW_BYTES discovery
+
+The whole story is preserved in commit `4a3a75c`. Summary:
+
+1. User reported garbled iotest display on FPGA m2hires hardware.
+2. Reproduced the same garbled output in MAME with `-nb9 m2hires`.
+3. Same `/tmp/iotest.hda` rendered correctly with default MAME (mdc824) —
+   so the payload bytes are fine, the bug is per-card.
+4. VRAM dump at `ScrnBase` showed our paint bytes were exactly where
+   we wrote them (correct content at offsets `row * 80`), so the paint
+   code wasn't writing wrong bytes — the scanout was reading at a
+   different stride.
+5. Tested several plausible strides (80, 128, 144, 160) against the
+   VRAM dump by re-indexing the same memory at different strides;
+   stride 128 produced consistent 8-row glyph patterns.
+6. Confirmed by snooping TFB register writes — declaration ROM
+   wrote `LENGTH=32`, MAME's formula gives 32 × 4 = 128 bytes.
+7. Patched ROW_BYTES → 128 → reran in MAME → text renders cleanly.
+
+The `SDL_VIDEODRIVER=offscreen` headless trick made this iteration
+cycle ~10 seconds per attempt instead of "boot on physical hardware,
+photograph screen, repeat."
 
 ## File reorg history
 
