@@ -31,6 +31,10 @@ module adb(
 	input     [24:0] ps2_mouse,
 	input     [10:0] ps2_key,
 
+	// High while a multi-byte Talk response still has bytes to deliver.
+	// Used by the VIA1 SR shim to re-arm a shift-in only for real data.
+	output           resp_pending,
+
 	// Debug snapshot for JTAG ISSP (read-only): FSM + command state.
 	output    [15:0] dbg_adb
 );
@@ -103,6 +107,7 @@ wire any_srq   = kbd_srq | mouse_srq;
 
 // Response empty check
 wire resp_empty = (resp_idx >= resp_len);
+assign resp_pending = ~resp_empty;
 
 // INT line — state-dependent per Snow's get_int()
 // Active-low output

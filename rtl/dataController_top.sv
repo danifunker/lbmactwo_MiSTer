@@ -536,6 +536,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire ADBST1 = ~via_pb_oe[5] | via_pb_o[5];
 	wire ADBListen;
 	wire via1_sr_active;
+	wire adb_resp_pending;  // ADB transceiver still has response bytes to deliver
 
 	// Snow-style timer-based VIA1 shift register completion.
 	// The real VIA SR depends on CB1 clocking (kbdclk) which in turn depends
@@ -551,7 +552,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	reg [2:0] via1_acr_shift_mode;
 	reg [7:0] via1_sr_shadow;
-	reg [16:0] via1_shift_timer;
+	reg [21:0] via1_shift_timer;
 	reg via1_shift_dir;              // 1 = shift-out, 0 = shift-in
 	reg via1_sr_ext_complete;
 	reg via1_sr_ext_load;
@@ -560,14 +561,19 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg via1_sr_out_pending;
 	reg via1_sr_out_ack;
 
-	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin.
-	localparam SHIFT_DELAY = 17'd100000;
+	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin. Used while a real
+	// response byte is being delivered, so multi-byte responses shift quickly.
+	localparam SHIFT_DELAY = 22'd100000;
+	// ~11ms (~90Hz). Used for the idle autopoll heartbeat re-arm when no
+	// response byte is pending — matches the real Mac II ADB autopoll SR-IRQ
+	// rate instead of the 3ms (~333Hz) rate that starved the ASC audio FIFO.
+	localparam IDLE_DELAY  = 22'd357500;
 
 	always @(posedge clk32) begin
 		if (!_cpuReset) begin
 			via1_acr_shift_mode <= 3'b000;
 			via1_sr_shadow <= 8'h00;
-			via1_shift_timer <= 17'd0;
+			via1_shift_timer <= 22'd0;
 			via1_shift_dir <= 1'b0;
 			via1_sr_ext_complete <= 1'b0;
 			via1_sr_ext_load <= 1'b0;
@@ -597,7 +603,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 				end
 				// ACR changed to disabled: cancel any pending shift
 				else if (cpuDataIn[12:10] == 3'b000) begin
-					via1_shift_timer <= 17'd0;
+					via1_shift_timer <= 22'd0;
 				end
 			end
 
@@ -611,8 +617,18 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			// sr_active stuck high -> the CPU's completion poll spun forever.
 			// (Invisible in Verilator's ideal SR timing.) Arm the shift-in
 			// timer on an SR read while in shift-in mode to match.
+			//
+			// The ADB driver leaves ACR in shift-in mode (011) during autopoll
+			// and uses the SR-read -> completion -> IFR[2] -> read chain as its
+			// polling heartbeat, so we must ALWAYS re-arm here (gating it off
+			// when the response buffer drained killed the heartbeat and froze
+			// the mouse). But re-arming at the 3ms SHIFT_DELAY every time made
+			// that heartbeat run at ~333Hz, far above the real Mac II ADB
+			// autopoll SR-IRQ rate, starving the ASC audio FIFO (corrupt audio).
+			// Use the fast delay only while a real response byte is pending;
+			// otherwise use IDLE_DELAY (~90Hz) to match real-hardware cadence.
 			if (via1_sr_rd && via1_acr_shift_mode == 3'b011) begin
-				via1_shift_timer <= SHIFT_DELAY;
+				via1_shift_timer <= adb_resp_pending ? SHIFT_DELAY : IDLE_DELAY;
 				via1_shift_dir <= 1'b0;
 			end
 
@@ -630,10 +646,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			end
 
 			// Countdown and complete
-			if (via1_shift_timer > 17'd1) begin
-				via1_shift_timer <= via1_shift_timer - 17'd1;
-			end else if (via1_shift_timer == 17'd1) begin
-				via1_shift_timer <= 17'd0;
+			if (via1_shift_timer > 22'd1) begin
+				via1_shift_timer <= via1_shift_timer - 22'd1;
+			end else if (via1_shift_timer == 22'd1) begin
+				via1_shift_timer <= 22'd0;
 				via1_sr_ext_complete <= 1'b1;
 				via1_sr_out_done <= via1_shift_dir;
 				if (via1_shift_dir) begin
@@ -894,6 +910,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		.ps2_mouse(ps2_mouse),
 		.ps2_key(ps2_key),
+		.resp_pending(adb_resp_pending),
 		.dbg_adb(adb_dbg)
 	);
 
@@ -908,7 +925,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// Shift-in completion diagnosis: [17:1]=via1_shift_timer (is it counting
 	// down or stuck?), [0]=via1_sr_ext_complete pulse (does completion ever
 	// fire?). dbg_min counts the completes and snapshots the timer.
-	assign dbg_adb2 = {via1_shift_timer, via1_sr_ext_complete};
+	assign dbg_adb2 = {via1_shift_timer[16:0], via1_sr_ext_complete};
 
 endmodule
 
