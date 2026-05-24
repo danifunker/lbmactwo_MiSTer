@@ -43,8 +43,8 @@ preboot/
 │   └── make/common.mk        toolchain + paths included by every bench Makefile
 ├── supervisor_bench/         CPU / FPU instruction-correctness tests
 │   ├── bench_main.c          test runner + JSONL emitter
-│   ├── tests_cpu.h           → ../../gen/cpu_tests.h
-│   ├── tests_fpu.h           → ../../gen/fpu_tests.h
+│   (test corpora cpu_tests.h / fpu_tests.h are included
+│    via relative path from gen/ — see bench_main.c)
 │   ├── variant_cpu_scsi.s    SCSI-medium glue
 │   ├── payload_entry_cpu.s   bench-specific entry shim
 │   ├── build_cpu_scsi.sh     image build (uses legacy api hfs verbs)

@@ -6,7 +6,12 @@
 #include "bench_types.h"
 #include "freestanding.h"
 #include "jsonl_writer.h"
-#include "tests_cpu.h"
+#include "../../gen/cpu_tests.h"
+/* tests_fpu corpus: #include "../../gen/fpu_tests.h" when an FPU variant
+ * needs it. (Previously these were exposed via tests_cpu.h /
+ * tests_fpu.h symlinks in supervisor_bench/; symlinks were removed
+ * for Windows-checkout compatibility — relative path is the canonical
+ * way to reach the generated headers.) */
 
 /* Provided by payload_entry_cpu.s — handoff slot at $00041000 */
 extern volatile i16 g_handoff_refnum;
