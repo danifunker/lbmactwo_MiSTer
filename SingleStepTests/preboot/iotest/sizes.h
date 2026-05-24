@@ -1,7 +1,7 @@
 #ifndef IOTEST_SIZES_H
 #define IOTEST_SIZES_H
 
-#include "../supervisor_bench/bench_types.h"
+#include "bench_types.h"
 
 /* Test size table.
  *

@@ -1,5 +1,16 @@
-| boot_stub_scsi_toby.s — Toby (8bpp, stride 640) SCSI boot block.
-| Same logic as boot_stub_scsi.s but every paint operation assumes:
+| boot_stub_scsi_m2hires.s — 8 bpp / 640-stride SCSI boot block.
+| DEFERRED — see preboot/common/display/old/font_ascii_m2hires.c
+| for the reasoning. No card depth-switch happens before paint, so
+| this stub paints garbage on hardware until that init is written.
+|
+| Historical names:
+|   - preboot/supervisor_bench/boot_stub_scsi_m2hires.s (build location)
+|   - the file's banner says "boot_stub_scsi_toby.s" — copy-paste
+|     lineage from the first author. Treat the file as the 8 bpp
+|     supervisor_bench SCSI boot block, not Toby-specific.
+|
+| Same logic as preboot/common/boot/boot_stub_scsi_fixed_offset.s but
+| every paint operation assumes:
 |   - 1 byte per pixel
 |   - 640 bytes per row
 |   - $00 = white, $FF = black

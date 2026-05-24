@@ -1,6 +1,10 @@
-| boot_stub_toby_v3.s — paint 4 small 50x50 black squares, each
+| boot_stub_strides.s — paint 4 small 50x50 black squares, each
 | drawn assuming a different row stride. The one that appears as
 | a clean, non-skewed square reveals the actual stride.
+|
+| Historical name: preboot/supervisor_bench/boot_stub_m2hires_v3.s
+| (the "v3" suffix tracks the iteration history that landed on this
+| 4-stride bracket approach). Build via `make strides`.
 |
 | Strides tested (left to right): 640, 832, 1024, 1280.
 | Above each square: a single horizontal reference line that's

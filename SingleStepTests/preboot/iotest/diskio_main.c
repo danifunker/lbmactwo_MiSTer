@@ -24,8 +24,8 @@
  * The screen displays a single progress line per test as it runs so a
  * hang or driver reset is attributable to a specific size+op. */
 
-#include "../supervisor_bench/bench_types.h"
-#include "../supervisor_bench/jsonl_writer.h"
+#include "bench_types.h"
+#include "jsonl_writer.h"
 #include "sizes.h"
 #include "timing.h"
 

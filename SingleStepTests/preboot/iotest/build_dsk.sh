@@ -88,7 +88,7 @@ done
 
 "$RB" fsck --quiet "$IMG" >/dev/null
 
-./patch_offsets.py "$OUT" \
+../common/tools/patch_offsets.py "$OUT" \
     --payload-offset "0x${PAYLOAD_OFF}" \
     --results-offset "0x${RESULTS_OFF}" \
     --reads   "$READS_KV" \

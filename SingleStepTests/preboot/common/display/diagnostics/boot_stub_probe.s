@@ -1,9 +1,17 @@
-| boot_stub_toby_probe.s — Toby (Mac II Video Card) framebuffer probe.
+| boot_stub_probe.s — 8 bpp framebuffer polarity probe.
+|
+| Historical name: preboot/supervisor_bench/boot_stub_m2hires_probe.s.
+| Renamed during the preboot/ reorg to drop the m2hires-specific tag
+| since the probe is generic: it draws 4 stripes at known byte values
+| ($00, $55, $AA, $FF) and the operator reports whether they render
+| dark-to-light or light-to-dark. Works on any 8 bpp 640-stride card.
+| Build via `make probe`. Banner inside still says "Toby" — copy-paste
+| lineage from the first author, not a target indication.
 |
 | Boots as a self-running boot block (bbVersion=$D000, like our other
 | stubs). Paints four 64-pixel-wide vertical stripes near the top of
 | the screen using bytes $00, $55, $AA, $FF so we can identify the
-| 8bpp pixel polarity on a real Toby card.
+| 8bpp pixel polarity on a real card.
 |
 | Each stripe sits at row 32, columns 0..63 / 64..127 / 128..191 /
 | 192..255. Above and below the stripes is the unmodified ROM

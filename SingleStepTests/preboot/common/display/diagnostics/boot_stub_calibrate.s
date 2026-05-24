@@ -1,5 +1,11 @@
-| boot_stub_toby_calibrate.s — paint a solid 200x200 square with
-| assumed stride. If the rendered shape on screen is:
+| boot_stub_calibrate.s — paint a solid 200x200 square with assumed
+| stride to detect off-by-N stride errors on an unfamiliar card.
+|
+| Historical name: preboot/supervisor_bench/boot_stub_m2hires_calibrate.s.
+| Build via `make calibrate`. Same generic-vs-named comment as
+| boot_stub_probe.s — this is a tool, not card-specific.
+|
+| If the rendered shape on screen is:
 |   - a clean square: assumed stride is correct
 |   - a parallelogram: stride is off by N pixels per row
 |     -> real stride = assumed stride + N

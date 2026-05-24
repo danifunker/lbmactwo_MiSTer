@@ -1,7 +1,7 @@
 #ifndef IOTEST_TIMING_H
 #define IOTEST_TIMING_H
 
-#include "../supervisor_bench/bench_types.h"
+#include "bench_types.h"
 
 /* Microsecond-resolution timer built on VIA1 timer T2.
  *

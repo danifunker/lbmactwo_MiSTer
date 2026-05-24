@@ -1,4 +1,21 @@
-/* Minimal 8x8 ASCII font, printable range 0x20-0x7E. Lowercase ASCII
+/* display_1bpp.c — paint kernel for the Mac II built-in 1 bpp / 80-byte-
+ * stride framebuffer (ScrnBase $0824). Works on:
+ *   - Toby (only does 1 bpp)
+ *   - Apple Macintosh II High Resolution Card (m2hires) in its
+ *     power-on 1 bpp default mode
+ *   - Apple Macintosh Display Card 8•24 (mdc824) in its power-on
+ *     1 bpp default mode
+ * To go beyond 1 bpp the card must first be programmed (TFB MISC for
+ * m2hires, 68008 coprocessor command for mdc824); see
+ * preboot/common/display/old/font_ascii_m2hires.c for the 8 bpp paint
+ * scaffolding kept until that init exists.
+ *
+ * Historical name: this file was preboot/supervisor_bench/font_ascii.c,
+ * called by the build script as the "toby" paint variant. Renamed when
+ * the reorg made clear it isn't Toby-specific — it's the generic 1 bpp
+ * 80-stride paint kernel.
+ *
+ * Minimal 8x8 ASCII font, printable range 0x20-0x7E. Lowercase ASCII
  * (0x61-0x7A) reuses uppercase glyphs so we keep the table small.
  * Each glyph is 8 bytes; bit 7 = leftmost pixel. */
 

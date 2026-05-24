@@ -135,7 +135,7 @@ done
 
 # 6. Patch all offsets into the boot stub + payload bytes that now
 #    live in the partition image.
-./patch_offsets.py "$OUT" \
+../common/tools/patch_offsets.py "$OUT" \
     --payload-offset "0x${PAYLOAD_OFF}" \
     --results-offset "0x${RESULTS_OFF}" \
     --reads   "$READS_KV" \

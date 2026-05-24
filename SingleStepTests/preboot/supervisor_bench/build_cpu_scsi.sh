@@ -47,7 +47,7 @@ set -o pipefail
 
 # Patch the measured /Results.jsonl offset into the payload bytes on
 # the partition image (locates the RJSNLTAG marker).
-./patch_results_offset.py "$PART" "0x$RESULTS_OFFSET"
+../common/tools/old/patch_results_offset.py "$PART" "0x$RESULTS_OFFSET"
 
 dd if="$PART" of="$OUT" bs=512 seek=96 count=40960 conv=notrunc status=none
 

@@ -1,5 +1,14 @@
-| payload_entry_cpu_toby.s — Toby (8bpp, stride 640) payload entry.
-| Identical logic to payload_entry_cpu.s but pixel-aware paint.
+| payload_entry_cpu_m2hires.s — 8 bpp / 640-stride payload entry.
+| DEFERRED — see preboot/common/display/old/font_ascii_m2hires.c
+| for status. Kept around as the seed for future 8 bpp work.
+|
+| Historical names:
+|   - preboot/supervisor_bench/payload_entry_cpu_m2hires.s (build location)
+|   - the file's banner says "payload_entry_cpu_toby.s" — copy-paste
+|     lineage from the first author, not a target indication.
+|
+| Identical logic to preboot/supervisor_bench/payload_entry_cpu.s but
+| with pixel-aware paint (1 byte per pixel, 640 bytes per row).
 
 ROW_BYTES = 640
 PX_WHITE  = 0x00

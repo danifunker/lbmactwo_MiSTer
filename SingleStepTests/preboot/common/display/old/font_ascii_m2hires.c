@@ -1,9 +1,33 @@
-/* font_ascii_toby.c — 8bpp paint variant for Toby/MDC and similar
- * NuBus cards running 640x480 at 8 bits per pixel. Same glyph data as
- * font_ascii.c, but each font bit becomes one screen byte (1 pixel)
- * rather than packing 8 pixels into a byte.
+/* font_ascii_m2hires.c — 8 bpp / 640-stride paint variant. DEFERRED.
  *
- * API matches font_ascii.c: paint_string(row, char_col, s, max_chars)
+ * This file is the scaffolding for byte-per-pixel paint on NuBus video
+ * cards running 640x480 at 8 bpp. Currently parked under common/display/
+ * old/ because the supervisor_bench has no depth-switch init code that
+ * actually puts the card into 8 bpp before paint runs — so on hardware
+ * today this paint kernel would write 8 bpp byte values into a
+ * framebuffer the card is interpreting as 1 bpp, producing garbage.
+ *
+ * To revive this:
+ *   1. Add depth-switch sequence to the boot stub for the target card:
+ *        m2hires    — write TFB MISC register, BASE, LENGTH (see
+ *                     docs/hires_nubusplan.md)
+ *        mdc824     — send 'switch depth' command to the 68008 coprocessor
+ *                     via its parameter mailbox
+ *   2. Move this file back to common/display/display_8bpp.c.
+ *   3. Wire the 8 bpp paint kernel through the Makefile variant flag
+ *      (planned: VIDEO_VARIANT or DISPLAY_KERNEL in common.mk).
+ *
+ * Historical names:
+ *   - preboot/supervisor_bench/font_ascii_m2hires.c (build artifact location)
+ *   - the file's own banner says "font_ascii_toby.c" — that's a copy-
+ *     paste lineage tag, NOT an indication the file targets Toby.
+ *
+ * 8 bpp paint variant for Toby/MDC/m2hires NuBus cards running 640x480
+ * at 8 bits per pixel. Same glyph data as the 1 bpp variant, but each
+ * font bit becomes one screen byte rather than packing 8 pixels into
+ * a byte.
+ *
+ * API matches display_1bpp.c: paint_string(row, char_col, s, max_chars)
  * — char_col is in 8-pixel character cells. Internally we multiply
  * by 8 to get the byte column. */
 

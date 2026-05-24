@@ -1,4 +1,13 @@
-| boot_stub_scsi.s — SCSI-bootable HFS boot block.
+| boot_stub_scsi_fixed_offset.s — SCSI-bootable HFS boot block.
+|
+| Historical name: preboot/supervisor_bench/boot_stub_scsi.s. The
+| current canonical SCSI boot block is preboot/common/boot/boot_stub_scsi.s
+| (a copy of this file with a PAYLDOFF marker + .long placeholder so the
+| /Payload byte offset is patched in at image-build time instead of
+| being a compile-time constant). supervisor_bench's older build
+| scripts still expect /Payload at the hardcoded 0x51600 offset that
+| this file uses; iotest uses the patchable variant. Migrate when
+| supervisor_bench's build scripts move to the flat rb-cli verbs.
 |
 | Same boot block header as the floppy version (bbVersion=$D000 to
 | make ROM execute bbEntry directly). At bbEntry time on a SCSI
@@ -59,15 +68,8 @@ PB_OFF_IOPOSOFFSET  = 46
 PB_SIZE             = 80
 
 PAYLOAD_LOAD_ADDR     = 0x00040000
-PAYLOAD_READ_BYTES    = 262144          | 256 KB — comfortable headroom for the bench payload
-
-| /Payload's byte offset within the partition is no longer a compile-
-| time constant. Build scripts probe it at image-build time with
-| `rb-cli locate IMG[@N] /Payload` and patch the 4-byte value sitting
-| immediately after the 8-byte "PAYLDOFF" marker below. Code loads
-| the value PC-relative from `payload_offset_value`. Placeholder is
-| 0xDEADBEEF; if the bench faults early with that as the read offset,
-| the build pipeline didn't patch correctly.
+PAYLOAD_PART_OFFSET   = 0x00051600      | /Payload's byte offset within HFS partition
+PAYLOAD_READ_BYTES    = 262144          | 256 KB — comfortable headroom for the CPU bench payload
 
 | Slot at $00041000 where the boot block stashes (refnum << 16) | drive
 | for the payload to find. Stable above the payload load area.
@@ -165,8 +167,7 @@ startup:
     move.l  #PAYLOAD_LOAD_ADDR, PB_OFF_IOBUFFER(%a0)
     move.l  #PAYLOAD_READ_BYTES, PB_OFF_IOREQCOUNT(%a0)
     move.w  #1, PB_OFF_IOPOSMODE(%a0)     | fsFromStart
-    | Patched at build time — see payload_offset_value below.
-    move.l  payload_offset_value(%pc), PB_OFF_IOPOSOFFSET(%a0)
+    move.l  #PAYLOAD_PART_OFFSET, PB_OFF_IOPOSOFFSET(%a0)
     .word   0xA002                         | _Read
     move.w  PB_OFF_IORESULT(%a0), %d7
 
@@ -223,20 +224,6 @@ fail_noref:
 
 halt:
 1:  bra.s   1b
-
-| --- Patchable /Payload byte offset ---------------------------------
-| `payload_offset_marker` is an 8-byte ASCII sentinel that the image-
-| build script finds via byte search; the 4-byte big-endian longword
-| immediately after it (`payload_offset_value`) is the actual partition-
-| relative byte offset of /Payload. Loaded PC-relative above; absolute
-| address depends on where the boot block sits in the partition (LBA
-| 0 of HFS = byte 0), but PC-relative addressing means we don't need
-| to care. Placeholder 0xDEADBEEF makes it obvious if patching missed.
-    .align 2
-payload_offset_marker:
-    .ascii  "PAYLDOFF"
-payload_offset_value:
-    .long   0xDEADBEEF
 
 | draw_glyph_d0: paint hex_font glyph at %a0. Clobbers d1, d2, a1, a2.
 draw_glyph_d0:

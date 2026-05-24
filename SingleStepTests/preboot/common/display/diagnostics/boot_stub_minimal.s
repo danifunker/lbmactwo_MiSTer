@@ -1,4 +1,10 @@
 | boot_stub_minimal.s — diagnostic boot block, no A-traps.
+|
+| Historical location: preboot/supervisor_bench/boot_stub_minimal.s.
+| Moved into the shared diagnostics tree during the reorg since it's
+| a generic "is the boot path even alive" probe — no bench logic in
+| it. Build via `make minimal` from any bench's Makefile.
+|
 | Identical header to boot_stub.s; bbEntry writes a known pattern
 | to known low-RAM addresses, then infinite-loops.
 |

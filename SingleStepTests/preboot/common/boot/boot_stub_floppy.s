@@ -1,4 +1,10 @@
-| boot_stub.s — HFS boot block (≤1024 bytes, lands at floppy offset 0)
+| boot_stub_floppy.s — HFS boot block for floppy media (≤1024 bytes,
+| lands at floppy offset 0).
+|
+| Historical name: preboot/supervisor_bench/boot_stub.s. Renamed to
+| boot_stub_floppy.s during the preboot/ reorg so the SCSI vs floppy
+| variants are unambiguous at a glance.
+|
 |
 | Layout matches real Mac OS boot blocks. bbVersion=$D000 makes the
 | ROM execute our bbEntry directly (bit 7 + bit 6 set in high byte =
