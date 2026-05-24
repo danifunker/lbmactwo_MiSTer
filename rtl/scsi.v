@@ -165,7 +165,34 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// the command phase intermittently stall on hardware (sim's ideal timing
 	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
 	// this only gates the first REQ right after selection.
-	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
+	// --- Multi-block boundary REQ pulse ------------------------------------
+	// The Mac SCSI Manager transfers a multi-block read one 512-byte block per
+	// TIB instruction, parking in a wait loop (ROM $C624) between blocks that
+	// polls CSR.REQ and exits when REQ drops.  A single-block read satisfies
+	// this naturally (data_complete drops REQ at byte 512); a multi-block read
+	// must produce the same REQ-drop at every interior 512-byte boundary or the
+	// host wedges (the "Welcome to Macintosh" hang).  Pulse REQ low briefly at
+	// each interior boundary: long enough for the tight $C624 poll to observe
+	// REQ=0 and exit, short enough that REQ is back before the host re-enters
+	// the next block's transfer loop (which would otherwise bail on DRQ=0).
+	reg  [5:0] blk_breath;
+	reg [31:0] data_cnt_q;
+	always @(posedge clk) begin
+		if (phase != PHASE_DATA_OUT) begin
+			blk_breath <= 6'd0;
+			data_cnt_q <= 32'd0;
+		end else begin
+			data_cnt_q <= data_cnt;
+			if ((data_cnt != data_cnt_q) && (data_cnt[8:0] == 9'd0) &&
+			    (data_cnt != 32'd0) && !data_complete)
+				blk_breath <= 6'd32;
+			else if (blk_breath != 6'd0)
+				blk_breath <= blk_breath - 6'd1;
+		end
+	end
+	wire blk_breathing = (blk_breath != 6'd0);
+
+	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && !blk_breathing;
 
 assign bsy = (phase != PHASE_IDLE);
 
