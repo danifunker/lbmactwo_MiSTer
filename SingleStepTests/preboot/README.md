@@ -174,10 +174,15 @@ each row of an 8-row glyph lands on a different physical scanline.
 **Select the target card at build time via `VIDEO_VARIANT`:**
 
 ```bash
-make                              # m2hires (default — matches current FPGA core)
-make VIDEO_VARIANT=mdc824
+make                              # mdc824 (default — matches current FPGA core)
+make VIDEO_VARIANT=m2hires
 make VIDEO_VARIANT=toby
 ```
+
+The default changed from `m2hires` to `mdc824` on 2026-05-25 when the
+FPGA core was updated to ship mdc824 as its standard NuBus card. The
+m2hires path still builds and runs (use `VIDEO_VARIANT=m2hires`) — it
+just isn't the default anymore.
 
 `common/make/common.mk` translates the variant into `-DROW_BYTES=N`
 (for C) and `--defsym ROW_BYTES=N` (for gas). Each `.s` file gates
@@ -263,16 +268,23 @@ stride bug above.
 - **MAME built locally** at `~/repos/mame/mame` (sibling checkout of
   this repo). Any recent MAME version with the macii driver works;
   `mame0287` is what was used for the m2hires diagnosis.
-- **Mac II ROMs** at `~/repos/mame/roms/macii.zip`. The `-listroms macii`
+- **Mac II ROMs** at `~/repos/mame/roms/macii.zip`. The `-listroms maciihmu`
   command lists what's expected.
+
+  **Use the Rev B ROM**, not Rev A — the user's physical Mac II is
+  Rev B, and the SCSI / boot paths differ enough between revisions
+  that an iotest run on Rev A under MAME doesn't model what the
+  hardware actually does. Confirm the romset in `macii.zip` includes
+  the Rev B image before trusting results.
 - **m2hires declaration ROM** at `~/repos/mame/roms/nb_m2hr/341-0660.bin`.
   A copy is in this repo:
   ```bash
   mkdir -p ~/repos/mame/roms/nb_m2hr
   cp ~/repos/lbmactwo_MiSTer/releases/341-0660.bin ~/repos/mame/roms/nb_m2hr/
   ```
-  Without this, the `-nb9 m2hires` invocation fails with
-  `341-0660.bin NOT FOUND`.
+  Only needed if you pass `-nb9 m2hires` (the m2hires variant). Default
+  builds target mdc824, and MAME's `macii*` machines already default to
+  mdc824 in slot 9, so the m2hires declaration ROM is optional.
 
 ### Headless invocation
 
@@ -282,9 +294,9 @@ the emulated Mac screen and saving snapshots to PNG:
 
 ```bash
 cd ~/repos/mame
-SDL_VIDEODRIVER=offscreen ./mame macii \
+SDL_VIDEODRIVER=offscreen ./mame maciihmu \
     -skip_gameinfo \
-    -nb9 m2hires \
+    -ramsize 8M \
     -hard1 /tmp/iotest.hda \
     -snapname iotest_%i \
     -snapsize 640x480 \
@@ -294,13 +306,19 @@ SDL_VIDEODRIVER=offscreen ./mame macii \
     -window
 ```
 
+No `-nb9` flag: MAME's `macii*` machines already default to mdc824 in
+slot 9, which matches the FPGA core and the iotest build default. Add
+`-nb9 m2hires` only when testing the m2hires variant (and build the
+image with `VIDEO_VARIANT=m2hires` so its `ROW_BYTES` matches the card).
+
 Flags worth knowing:
 
 | Flag | What it does |
 |---|---|
 | `SDL_VIDEODRIVER=offscreen` | renders to an in-memory framebuffer; no X needed |
 | `-skip_gameinfo` | skip MAME's "press OK" warning screen; otherwise the autosnapshot captures it instead of the emulated display |
-| `-nb9 <card>` | install card in NuBus slot 9 (default is `mdc824`; use `m2hires` to match our FPGA core) |
+| `-nb9 <card>` | install card in NuBus slot 9 (`m2hires` or `mdc824`; default is `mdc824`). |
+| `-ramsize 8M` | `maciihmu` defaults to 2 MB, which makes iotest skip every size (`IOBUF_BASE=0x200000` equals MemTop at 2 MB). 8 MB is the largest the Mac II ROM accepts. |
 | `-hard1 path/to.hda` | SCSI HDD on the first channel |
 | `-flop1 path/to.dsk` | Floppy disk in the internal drive (use for `iotest.dsk` etc.) |
 | `-snapsize 640x480` | match the visible area exactly so the output PNG isn't padded |
@@ -310,14 +328,24 @@ Flags worth knowing:
 | `-window` | required even with offscreen driver |
 | `-autoboot_script foo.lua` | inject a Lua script that runs once emulation starts |
 
-### Which card to test against
+### Which machine and card
 
-The MAME `macii` machine **defaults to mdc824 in slot 9** — not what
-the FPGA core has. Always pass `-nb9 m2hires` to match the FPGA's
-actual card (or `-nb9 mdc824` explicitly if you want to test the
-mdc824 path).
+Use **`maciihmu`**, not `macii`. The FPGA core in this repo emulates
+the Mac II's original HMMU (HMU = M68020 + HMMU paging chip Apple used
+before the 68851 was available); MAME's plain `macii` machine adds the
+68851 MMU and boots a different path. `maciihmu` matches the FPGA.
 
-`./mame macii -listslots` shows the full list of cards installable
+The MAME `macii*` machines **default to mdc824 in slot 9**, which is
+now also the FPGA core's standard card and the iotest build default
+(set 2026-05-25). So no `-nb9` flag is needed for the common case.
+
+Pass `-nb9 m2hires` only when you've also built the image with
+`VIDEO_VARIANT=m2hires` — running an mdc824-built image against an
+m2hires card (or vice versa) is the classic ROW_BYTES mismatch (80 vs
+128) and produces garbled text rather than a crash, so it's easy to
+miss.
+
+`./mame maciihmu -listslots` shows the full list of cards installable
 in any slot if you need to experiment with others.
 
 ### Probing device internals via Lua

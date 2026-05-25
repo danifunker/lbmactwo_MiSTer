@@ -62,7 +62,10 @@ RESULTS_OFF=$(
 mk_blob() {
     local length=$1 out=$2
     local size=$length
-    [[ $size -lt 16 ]] && size=16
+    # Payload rounds every raw block-driver transfer up to a whole
+    # 512-byte sector (sector_round_up in diskio_main.c); reserve at
+    # least one full sector so the rounded transfer stays in-extent.
+    [[ $size -lt 512 ]] && size=512
     dd if=/dev/urandom of="$out" bs=1 count="$size" status=none
 }
 

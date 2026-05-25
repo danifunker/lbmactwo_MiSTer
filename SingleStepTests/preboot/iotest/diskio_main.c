@@ -130,6 +130,12 @@ static ParamBlock g_pb;
 /* The _Read and _Write traps are A002 / A003. Call them by stuffing
  * the trap word inline in assembly. Inputs: A0 = ParamBlock. Outputs:
  * ioResult set in the PB; D0 = ioResult also returned. */
+/* The _Read/_Write Device Manager traps clobber D1/D2/A1 in addition to
+ * D0 (result) and A0 (param block). The earlier clobber list named only
+ * "cc"/"memory", which is a latent miscompile waiting to happen: if the
+ * register allocator ever keeps a live value in D1/D2/A1 across the trap
+ * it gets silently corrupted. jsonl_writer.c's _Write already lists them;
+ * keep these in sync. */
 static i16 trap_read(ParamBlock *pb)
 {
     register i16  r asm("d0");
@@ -137,7 +143,7 @@ static i16 trap_read(ParamBlock *pb)
     asm volatile (".word 0xA002\n"
                   : "=d"(r)
                   : "a"(p)
-                  : "cc", "memory");
+                  : "d1", "d2", "a1", "cc", "memory");
     return r;
 }
 
@@ -148,8 +154,27 @@ static i16 trap_write(ParamBlock *pb)
     asm volatile (".word 0xA003\n"
                   : "=d"(r)
                   : "a"(p)
-                  : "cc", "memory");
+                  : "d1", "d2", "a1", "cc", "memory");
     return r;
+}
+
+/* Raw block-driver transfers must be whole 512-byte sectors: the
+ * Device Manager .Disk/SCSI driver does NO sub-block buffering (that is
+ * the File Manager's job, and these _Read/_Write calls go straight to
+ * the driver via its refnum, below the File Manager). Issuing a
+ * sub-sector ioReqCount like 1 byte drives the NCR5380 + DMA path into
+ * a transfer it can't satisfy — fatal on real hardware (hard reset, no
+ * Sad Mac) and a no-op/loop under MAME's more forgiving SCSI model.
+ *
+ * Round the logical test length up to the next sector, one-sector
+ * minimum, so the tiny sizes ("1B", "512B") still issue a legal count.
+ * The JSONL still reports the logical s->length; only the bytes moved
+ * across the bus are rounded. */
+#define SECTOR_BYTES 512u
+static u32 sector_round_up(u32 n)
+{
+    if (n == 0) return SECTOR_BYTES;
+    return (n + (SECTOR_BYTES - 1u)) & ~(SECTOR_BYTES - 1u);
 }
 
 static void pb_init(ParamBlock *pb, u32 buf, u32 offset, u32 length)
@@ -160,7 +185,7 @@ static void pb_init(ParamBlock *pb, u32 buf, u32 offset, u32 length)
     pb->io_refnum     = g_handoff_refnum;
     pb->io_vrefnum    = g_handoff_drive;
     pb->io_buffer     = buf;
-    pb->io_req_count  = length;
+    pb->io_req_count  = sector_round_up(length);  /* whole sectors only */
     pb->io_pos_mode   = 1;  /* fsFromStart */
     pb->io_pos_offset = offset;
 }

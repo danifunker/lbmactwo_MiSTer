@@ -44,7 +44,7 @@ COMMON ?= ../common
 # all of this; they paint via QuickDraw, which the OS programs to
 # match whatever card is active.
 # ----------------------------------------------------------------------------
-VIDEO_VARIANT ?= m2hires
+VIDEO_VARIANT ?= mdc824
 
 ifeq ($(VIDEO_VARIANT),m2hires)
     ROW_BYTES := 128

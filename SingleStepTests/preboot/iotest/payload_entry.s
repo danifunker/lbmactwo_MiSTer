@@ -71,11 +71,22 @@ g_handoff_drive:    .word 0
 | paint_progress(idx, total) — same calling convention as the CPU bench
 | variant. Paints a 4-hex-digit running counter at row 60 col 32.
 | --------------------------------------------------------------------
+    | paint_progress / draw_glyph_d0 are callable from C, so they must
+    | preserve the M68K SysV callee-save set (D2-D7, A2-A6). The early
+    | version trashed D3/D4 (paint_progress loop counters) and A2/D2
+    | (draw_glyph_d0 scratch). When gcc happened to keep `paint_string`
+    | in A2 across a paint_progress() call from bench_main, A2 came back
+    | holding the framebuffer position the glyph painter advanced to —
+    | which then bus-errored the very next `jsr (%a2)` since VRAM is not
+    | executable code. (MAME-only on the iotest size that exposed it;
+    | hardware double-faulted into a reset.) Save the callee-saves with
+    | movem on entry and restore before rts.
     .global paint_progress
 paint_progress:
+    movem.l %d3-%d4, -(%sp)              | callee-save
     move.l  0x0824.l, %a0
     add.l   #(60 * ROW_BYTES + 32), %a0
-    move.l  4(%sp), %d3
+    move.l  12(%sp), %d3                 | +8 for the pushed regs
     moveq   #3, %d4
 .pp_loop:
     move.l  %d3, %d0
@@ -85,6 +96,7 @@ paint_progress:
     bsr     draw_glyph_d0
     addq.l  #1, %a0
     dbra    %d4, .pp_loop
+    movem.l (%sp)+, %d3-%d4
     rts
 
 | --------------------------------------------------------------------
@@ -105,7 +117,10 @@ draw_string_n_d0:
     dbra    %d0, .dsn_char
     rts
 
+    | Also callable indirectly from C via paint_progress -> bsr here.
+    | Uses A2 + D2 as scratch (both callee-save), so push/pop them.
 draw_glyph_d0:
+    movem.l %d2/%a2, -(%sp)
     lea     hex_font(%pc), %a1
     lsl.l   #3, %d0
     adda.l  %d0, %a1
@@ -116,6 +131,7 @@ draw_glyph_d0:
     move.b  %d2, (%a2)
     lea     ROW_BYTES(%a2), %a2
     dbra    %d1, 1b
+    movem.l (%sp)+, %d2/%a2
     rts
 
 banner:
