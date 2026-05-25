@@ -3016,7 +3016,13 @@ for _, s in ipairs({
 end
 for _, s in ipairs({
     {dn=0xFFFFFFFF, dm=0x00000002, name="big_unsigned"},  -- overflows 16b quot
-    {dn=0x80000000, dm=0x00010000, name="exact_div"},
+    -- NB: DIVU.W reads only the LOW 16 BITS of dm as the divisor. The
+    -- earlier preload {dn=0x80000000, dm=0x00010000} truncated to a
+    -- zero divisor and trapped vector 5 on real Mac II hardware. Use
+    -- dm=0x00008000 instead: 0x0FFE0000 / 0x8000 = 0x1FFC exactly,
+    -- and 0x8000 fits in 16 bits unsigned. The cpu_tests.h regen
+    -- needs to re-emit this; the C header was hot-patched in lockstep.
+    {dn=0x0FFE0000, dm=0x00008000, name="exact_div"},
 }) do
     tests[#tests + 1] = {
         name = string.format("DIVU.W D1,D0 (%s)", s.name),
