@@ -54,8 +54,14 @@ foreach inst $info {
     if {$nm eq "PADB"} { set idx(PADB) $i }
     if {$nm eq "PAD2"} { set idx(PAD2) $i }
     if {$nm eq "PAD3"} { set idx(PAD3) $i }
+    if {$nm eq "PVBL"} { set idx(PVBL) $i }
+    if {$nm eq "PASC"} { set idx(PASC) $i }
+    if {$nm eq "PAUD"} { set idx(PAUD) $i }
     incr i
 }
+
+# signed 16-bit interpretation helper
+proc s16 {v} { set v [expr {$v & 0xFFFF}]; if {$v >= 32768} { return [expr {$v - 65536}] }; return $v }
 
 proc decode_cmd {v} {
     set s {}
@@ -141,6 +147,25 @@ for {set s 1} {$s <= 6} {incr s} {
         set wrc  [expr {$vid & 0xFFFF}]
         set ftc  [expr {$vfc & 0xFFFF}]
         puts [format "           VIDEO: video_en=%d  vram_writes=%u  vram_fetches=%u" $ven $wrc $ftc]
+    }
+    if {[info exists idx(PVBL)]} {
+        set vb [rd $idx(PVBL)]
+        set ackc [expr {$vb & 0xFFFF}]
+        set irqc [expr {($vb >> 16) & 0x7FFF}]
+        set vblen [expr {($vb >> 31) & 1}]
+        puts [format "           CARD: vbl_irq_enabled=%d  vbl_irq_count=%u  bus_acks=%u" $vblen $irqc $ackc]
+    }
+    if {[info exists idx(PASC)]} {
+        set pa [rd $idx(PASC)]
+        set ascwr  [expr {$pa & 0xFFFF}]
+        set ascirq [expr {($pa >> 16) & 0xFFFF}]
+        puts [format "           ASC: refill_irqs=%u  cpu_writes=%u  (irqs>>writes => FIFO underrun)" $ascirq $ascwr]
+    }
+    if {[info exists idx(PAUD)]} {
+        set au [rd $idx(PAUD)]
+        set amin [s16 [expr {$au & 0xFFFF}]]
+        set amax [s16 [expr {($au >> 16) & 0xFFFF}]]
+        puts [format "           AUDIO: left_sample_min=%d  left_sample_max=%d  (range over run)" $amin $amax]
     }
     if {[info exists idx(PSCS)]} {
         set sc [rd $idx(PSCS)]

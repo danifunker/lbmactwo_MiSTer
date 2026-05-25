@@ -757,7 +757,7 @@ addrController_top ac0
 wire [1:0] diskEject;
 wire [1:0] diskMotor, diskAct;
 
-nubus_video_highres nubus_card (
+nubus_video_mdc824 nubus_card (
 	.clk(clk_sys),
 	.reset(!_cpuReset),
 	.addr(cpuAddr),
@@ -807,11 +807,18 @@ nubus_video_highres nubus_card (
 	// JTAG debug exposures
 	.dbg_video_en(dbg_video_en),
 	.dbg_vram_wr_cnt(dbg_vram_wr_cnt),
-	.dbg_vram_fetch_cnt(dbg_vram_fetch_cnt)
+	.dbg_vram_fetch_cnt(dbg_vram_fetch_cnt),
+	.dbg_irq_cnt(dbg_card_irq_cnt),
+	.dbg_ack_cnt(dbg_card_ack_cnt),
+	.dbg_vblank_enable(dbg_card_vbl_en)
 );
 wire        dbg_video_en;
 wire [15:0] dbg_vram_wr_cnt;
 wire [15:0] dbg_vram_fetch_cnt;
+wire [15:0] dbg_card_irq_cnt;
+wire [15:0] dbg_card_ack_cnt;
+wire        dbg_card_vbl_en;
+wire        dbg_asc_irq_n;
 
 dataController_top #(SCSI_DEVS) dc0
 (
@@ -881,6 +888,7 @@ dataController_top #(SCSI_DEVS) dc0
 
 	.ascAudioLeft(asc_audio_l),
 	.ascAudioRight(asc_audio_r),
+	.dbg_asc_irq_n(dbg_asc_irq_n),
 
 	// floppy disk interface
 	.insertDisk({dsk_ext_ins, dsk_int_ins}),
@@ -1201,7 +1209,14 @@ dbg_min dbg_min_inst (
 	.ioctl_wr       (ioctl_write),
 	.ioctl_idx      (dio_index[7:0]),
 	.dbg_adb        (dbg_adb),
-	.dbg_adb2       (dbg_adb2)
+	.dbg_adb2       (dbg_adb2),
+	// Audio-regression diagnosis
+	.selectASC      (selectASC),
+	.asc_irq_n      (dbg_asc_irq_n),
+	.asc_audio_l    (asc_audio_l),
+	.card_irq_cnt   (dbg_card_irq_cnt),
+	.card_ack_cnt   (dbg_card_ack_cnt),
+	.card_vbl_en    (dbg_card_vbl_en)
 );
 
 endmodule

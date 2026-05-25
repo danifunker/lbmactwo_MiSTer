@@ -88,7 +88,7 @@ V_SRC = \
 	$(RTL)/videoShifter.v \
 	$(RTL)/nubus/vram_ram.sv \
 	$(RTL)/nubus/nubus_arbiter.sv \
-	$(RTL)/nubus/nubus_video_highres.sv \
+	$(RTL)/nubus/nubus_video_mdc824.sv \
 	$(RTL)/via6522.sv \
 	$(RTL)/adb.sv \
 	$(RTL)/rtc.v \
