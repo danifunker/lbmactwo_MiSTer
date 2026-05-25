@@ -47,7 +47,7 @@ module nubus_video_mdc824 #(
     output vga_blank,
     output vga_clk,
 
-    // VRAM Port A — CPU read/write (via FSM)
+    // VRAM Port (CPU NuBus Access)
     output reg [24:0] vram_addr,
     output reg [15:0] vram_dout,
     input [15:0] vram_din,
@@ -55,10 +55,11 @@ module nubus_video_mdc824 #(
     output reg vram_wr,
     input vram_ready,
 
-    // VRAM Port B — dedicated scanout read (no cache, never misses)
-    output     [24:0] vram_scan_addr,
-    output            vram_scan_rd,
-    input      [15:0] vram_scan_data,
+    // VRAM Scanout Port (DMA)
+    output reg [24:0] scan_addr,
+    input [15:0] scan_dout,
+    output reg scan_rd,
+    input scan_ready,
 
     // IOCTL Interface for ROM Download
     input        ioctl_wr,
@@ -252,9 +253,19 @@ module nubus_video_mdc824 #(
         end
     end
 
-    assign vga_hs = vga_hs_reg;
-    assign vga_vs = vga_vs_reg;
-    assign vga_blank = ~blanking;  // active-high DE
+    // Delay pipeline for VGA sync/blanking signals to match pixel data latency (3 cycles)
+    reg [2:0] hs_pipe, vs_pipe, blank_pipe;
+    always @(posedge clk) begin
+        if (clk_video_en) begin
+            hs_pipe    <= {hs_pipe[1:0], vga_hs_reg};
+            vs_pipe    <= {vs_pipe[1:0], vga_vs_reg};
+            blank_pipe <= {blank_pipe[1:0], blanking};
+        end
+    end
+
+    assign vga_hs = hs_pipe[2];
+    assign vga_vs = vs_pipe[2];
+    assign vga_blank = ~blank_pipe[2];  // active-high DE
 
     // ========================================================================
     // VBL interrupt — Snow fires a 60 Hz vblank IRQ when enabled.
@@ -277,26 +288,113 @@ module nubus_video_mdc824 #(
     end
 
     // ========================================================================
-    // Scanout VRAM address calculation
-    //   fb_byte = base_reg*32 + v*stride_bytes + h_byte
-    //   stride_bytes = stride_reg << 2  (<<3 for 24bpp, deferred)
+    // Scanout DMA Engine & Line FIFO
     // ========================================================================
-    wire [24:0] base_bytes   = {base_reg[19:0], 5'b00000};   // * 32
-    wire [13:0] stride_bytes = {stride_reg[11:0], 2'b00};    // * 4
+    reg [24:0] dma_addr;
+    reg [24:0] dma_line_start;
+    reg [10:0] dma_v_cnt;
+    reg [10:0] dma_h_word_cnt;
 
-    wire [9:0] h_byte =
-        (mode == 2'd0) ? {3'd0, h_cnt[9:3]} :     // 1bpp: h/8
-        (mode == 2'd1) ? {2'd0, h_cnt[9:2]} :     // 2bpp: h/4
-        (mode == 2'd2) ? {1'd0, h_cnt[9:1]} :     // 4bpp: h/2
-                         h_cnt[9:0];              // 8bpp: h
+    wire [10:0] words_per_line =
+        (mode == 2'd0) ? 11'd40 :  // 1bpp: 640/16
+        (mode == 2'd1) ? 11'd80 :  // 2bpp: 640/8
+        (mode == 2'd2) ? 11'd160 : // 4bpp: 640/4
+        (rmode == 4'hC || rmode == 4'hD) ? 11'd960 : // 24bpp: 640*3/2
+                         11'd320;  // 8bpp: 640/2
 
-    wire [24:0] v_byte_offset  = v_cnt[9:0] * stride_bytes;
-    wire [24:0] fetch_byte_addr = base_bytes + v_byte_offset + {15'd0, h_byte};
-    wire [23:0] fetch_word_addr = fetch_byte_addr[24:1];
-    wire fetch_byte_sel = fetch_byte_addr[0];
+    wire [15:0] fifo_q;
+    wire fifo_empty;
+    wire [10:0] fifo_wrusedw;
+    wire fifo_full = (fifo_wrusedw > 11'd1800);
 
-    assign vram_scan_addr = VRAM_BASE + {1'b0, fetch_word_addr};
-    assign vram_scan_rd   = clk_video_en;
+    // Pixel word enable: pulse when we need the next 16 bits from the FIFO
+    reg [3:0] pixel_in_word_cnt;
+    reg [1:0] bpp24_word_phase;
+    wire [4:0] pixels_per_word = (mode == 2'd0) ? 5'd16 :
+                                 (mode == 2'd1) ? 5'd8 :
+                                 (mode == 2'd2) ? 5'd4 :
+                                 (mode == 2'd3) ? 5'd2 : 5'd1;
+
+    wire pixel_word_en_pal = clk_video_en && !blanking && !is_24bpp && (pixel_in_word_cnt == 0);
+
+    // 24bpp word request logic (3 bytes = 1.5 words per pixel)
+    // Phase 0: Req Word0 (Pixel0: R, G)
+    // Phase 1: Req Word1 (Pixel0: B, Pixel1: R)
+    // Phase 2: Req Word2 (Pixel1: G, B)
+    wire pixel_word_en_24 = clk_video_en && !blanking && is_24bpp && (bpp24_word_phase != 2'd2);
+
+    wire pixel_word_en = pixel_word_en_pal | pixel_word_en_24;
+
+    dcfifo_2k_16 scan_fifo (
+        .data(scan_dout),
+        .rdclk(clk),
+        .rdreq(pixel_word_en),
+        .wrclk(clk),
+        .wrreq(scan_ready),
+        .q(fifo_q),
+        .rdempty(fifo_empty),
+        .rdusedw(),
+        .wrfull(),
+        .wrusedw(fifo_wrusedw)
+    );
+
+    always @(posedge clk) begin
+        if (reset || blanking) begin
+            pixel_in_word_cnt <= 0;
+            bpp24_word_phase  <= 0;
+        end else if (clk_video_en) begin
+            if (!is_24bpp) begin
+                if (pixel_in_word_cnt == 0)
+                    pixel_in_word_cnt <= pixels_per_word[3:0] - 4'd1;
+                else
+                    pixel_in_word_cnt <= pixel_in_word_cnt - 4'd1;
+            end else begin
+                // 24bpp phase: 0 -> 1 -> 0 ... (one pixel per 2 clocks)
+                bpp24_word_phase <= (bpp24_word_phase == 2'd1) ? 2'd0 : bpp24_word_phase + 2'd1;
+            end
+        end
+    end
+
+    always @(posedge clk) begin
+        if (reset) begin
+            dma_addr <= 25'd0;
+            dma_line_start <= 25'd0;
+            dma_v_cnt <= 11'd0;
+            dma_h_word_cnt <= 11'd0;
+            scan_rd <= 1'b0;
+            scan_addr <= 25'd0;
+        end else begin
+            if (vbl_pulse) begin
+                dma_line_start <= {base_reg[19:0], 5'b00000};
+                dma_addr <= {base_reg[19:0], 5'b00000};
+                dma_v_cnt <= 11'd0;
+                dma_h_word_cnt <= 11'd0;
+            end else if (clk_video_en && h_cnt == H_TOTAL-1) begin
+                if (dma_v_cnt < V_RES-1) begin
+                    dma_v_cnt <= dma_v_cnt + 11'd1;
+                    dma_line_start <= dma_line_start + {11'd0, stride_reg[13:0]};
+                    dma_addr <= dma_line_start + {11'd0, stride_reg[13:0]};
+                    dma_h_word_cnt <= 11'd0;
+                end
+            end
+
+            // FIFO Fill Logic:
+            // In a multi-port arbiter, we generally fill whenever there is space.
+            // To prioritize during blanking (as per classic UMA/X68000 patterns),
+            // one could add '|| blanking' to the request condition to burst
+            // ahead and minimize contention during the active line.
+            if (!fifo_full && !scan_rd && dma_v_cnt < V_RES && dma_h_word_cnt < words_per_line) begin
+                scan_rd <= 1'b1;
+                scan_addr <= VRAM_BASE + dma_addr[24:1];
+            end
+
+            if (scan_ready && scan_rd) begin
+                scan_rd <= 1'b0;
+                dma_addr <= dma_addr + 25'd2; // word address increments by 2 bytes
+                dma_h_word_cnt <= dma_h_word_cnt + 11'd1;
+            end
+        end
+    end
 
     // ========================================================================
     // SDRAM/BRAM state machine — CPU access only (scanout uses port B)
@@ -577,62 +675,85 @@ module nubus_video_mdc824 #(
     // ========================================================================
     // Pixel output pipeline (raw VRAM -> index -> palette / mono)
     // ========================================================================
-    reg [2:0] h_cnt_d;
-    reg byte_sel_d;
-    reg blanking_d;
+    reg [23:0] pixel_rgb;
+    reg [2:0]  pixel_rgb_cnt;
+    reg [15:0] pixel_word;
+    reg [7:0]  pixel_idx;
+
+    wire is_24bpp = (rmode == 4'hC || rmode == 4'hD);
 
     always @(posedge clk) begin
         if (clk_video_en) begin
-            h_cnt_d <= h_cnt[2:0];
-            byte_sel_d <= fetch_byte_sel;
-            blanking_d <= blanking;
+            if (pixel_word_en)
+                pixel_word <= fifo_q;
+
+            if (is_24bpp) begin
+                // 24-bit pixel extraction (3 bytes per pixel, 1.5 words/pixel)
+                // We consume a pixel every 2 clk_video cycles to match 24bpp bandwidth
+                // Word Phase 0: FIFO outputs Word0 (R0, G0). We need B0 from next word.
+                // Word Phase 1: FIFO outputs Word1 (B0, R1). We need G1, B1 from next word.
+                // Word Phase 2: FIFO outputs Word2 (G1, B1).
+                case (bpp24_word_phase)
+                    2'd0: begin
+                        pixel_rgb[23:16] <= fifo_q[15:8]; // R0
+                        pixel_rgb[15:8]  <= fifo_q[7:0];  // G0
+                    end
+                    2'd1: begin
+                        pixel_rgb[7:0]   <= fifo_q[15:8]; // B0 (Pixel 0 Complete)
+                        // Prepare Pixel 1
+                        pixel_word[15:8] <= fifo_q[7:0];  // R1 (stored)
+                    end
+                    2'd2: begin
+                        pixel_rgb[23:16] <= pixel_word[15:8]; // R1
+                        pixel_rgb[15:8]  <= fifo_q[15:8];     // G1
+                        pixel_rgb[7:0]   <= fifo_q[7:0];      // B1 (Pixel 1 Complete)
+                    end
+                endcase
+            end else begin
+                // Palettized / Mono modes
+                case (mode)
+                    2'd0: begin // 1bpp
+                        pixel_idx <= {7'd0, pixel_word[15-pixel_in_word_cnt]};
+                    end
+                    2'd1: begin // 2bpp
+                        case (pixel_in_word_cnt[2:0])
+                            3'd7: pixel_idx <= {6'd0, pixel_word[15:14]};
+                            3'd6: pixel_idx <= {6'd0, pixel_word[13:12]};
+                            3'd5: pixel_idx <= {6'd0, pixel_word[11:10]};
+                            3'd4: pixel_idx <= {6'd0, pixel_word[9:8]};
+                            3'd3: pixel_idx <= {6'd0, pixel_word[7:6]};
+                            3'd2: pixel_idx <= {6'd0, pixel_word[5:4]};
+                            3'd1: pixel_idx <= {6'd0, pixel_word[3:2]};
+                            3'd0: pixel_idx <= {6'd0, pixel_word[1:0]};
+                        endcase
+                    end
+                    2'd2: begin // 4bpp
+                        case (pixel_in_word_cnt[1:0])
+                            2'd3: pixel_idx <= {4'd0, pixel_word[15:12]};
+                            2'd2: pixel_idx <= {4'd0, pixel_word[11:8]};
+                            2'd1: pixel_idx <= {4'd0, pixel_word[7:4]};
+                            2'd0: pixel_idx <= {4'd0, pixel_word[3:0]};
+                        endcase
+                    end
+                    2'd3: begin // 8bpp
+                        pixel_idx <= pixel_in_word_cnt[0] ? pixel_word[15:8] : pixel_word[7:0];
+                    end
+                endcase
+                pixel_rgb <= clut[pixel_idx];
+                pixel_rgb_cnt <= 3'd0;
+            end
         end
+        if (blanking) pixel_rgb_cnt <= 3'd0;
     end
 
-    // Big-endian: byte_sel=0 -> [15:8], byte_sel=1 -> [7:0]
-    wire [7:0] vram_byte = byte_sel_d ? vram_scan_data[7:0] : vram_scan_data[15:8];
-
-    reg [7:0] pixel_idx;
-    always @(*) begin
-        pixel_idx = 8'd0;
-        case (mode)
-            2'd0: begin  // 1bpp
-                case (h_cnt_d)
-                    3'd0: pixel_idx = {7'd0, vram_byte[7]};
-                    3'd1: pixel_idx = {7'd0, vram_byte[6]};
-                    3'd2: pixel_idx = {7'd0, vram_byte[5]};
-                    3'd3: pixel_idx = {7'd0, vram_byte[4]};
-                    3'd4: pixel_idx = {7'd0, vram_byte[3]};
-                    3'd5: pixel_idx = {7'd0, vram_byte[2]};
-                    3'd6: pixel_idx = {7'd0, vram_byte[1]};
-                    3'd7: pixel_idx = {7'd0, vram_byte[0]};
-                endcase
-            end
-            2'd1: begin  // 2bpp
-                case (h_cnt_d[1:0])
-                    2'd0: pixel_idx = {6'd0, vram_byte[7:6]};
-                    2'd1: pixel_idx = {6'd0, vram_byte[5:4]};
-                    2'd2: pixel_idx = {6'd0, vram_byte[3:2]};
-                    2'd3: pixel_idx = {6'd0, vram_byte[1:0]};
-                endcase
-            end
-            2'd2: begin  // 4bpp
-                pixel_idx = h_cnt_d[0] ? {4'd0, vram_byte[3:0]}
-                                       : {4'd0, vram_byte[7:4]};
-            end
-            2'd3: begin  // 8bpp
-                pixel_idx = vram_byte;
-            end
-        endcase
-    end
-
-    wire pixel_valid = !blanking_d;
+    wire pixel_valid = !blanking;
     wire mono_mode = DEFAULT_MONOCHROME || monochrome || (mode == 2'd0);
     // 1bpp (and forced mono): bit clear -> light (0xEE), set -> dark (0x22).
     wire [7:0] mono_pixel = pixel_idx[0] ? 8'h22 : 8'hEE;
-    assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])   : 8'd0;
-    assign vga_g = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])  : 8'd0;
-    assign vga_b = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16]) : 8'd0;
+
+    assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : pixel_rgb[7:0])   : 8'd0;
+    assign vga_g = pixel_valid ? (mono_mode ? mono_pixel : pixel_rgb[15:8])  : 8'd0;
+    assign vga_b = pixel_valid ? (mono_mode ? mono_pixel : pixel_rgb[23:16]) : 8'd0;
 
     // ========================================================================
     // JTAG debug exposures

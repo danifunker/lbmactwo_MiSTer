@@ -263,7 +263,7 @@ reg [23:0] osd_reset_timer = 0;
 always @(posedge clk_sys) begin
 	reg old_status0;
 	old_status0 <= status[0];
-	
+
 	// Detect rising edge of reset button
 	if (status[0] && !old_status0) begin
 		osd_reset_req <= 1'b1;
@@ -545,10 +545,10 @@ wire video_active = !nubus_blank;
 always @(posedge clk_sys) begin
 	if (nubus_access) nubus_act_ctr <= 28'hFFFFFFF;  // ~8 seconds at 32.5MHz
 	else if (nubus_act_ctr != 0) nubus_act_ctr <= nubus_act_ctr - 1'd1;
-	
+
 	if (mem_access) mem_act_ctr <= 28'hFFFFFFF;
 	else if (mem_act_ctr != 0) mem_act_ctr <= mem_act_ctr - 1'd1;
-	
+
 	if (video_active) video_act_ctr <= 28'hFFFFFFF;
 	else if (video_act_ctr != 0) video_act_ctr <= video_act_ctr - 1'd1;
 end
@@ -779,21 +779,19 @@ nubus_video_mdc824 nubus_card (
 	.ce_pixel(nubus_ce_pixel),
 	.nmrq_n(nubus_irq_n),
 
-	// Dedicated on-chip VRAM (vram_ram).  The framebuffer no longer lives in
-	// shared SDRAM, so the scanout never competes with the Mac for SDRAM and
-	// always reads coherent data (Mac keeps SDRAM to itself).  Card outputs
-	// (addr/dout/rd/wr) drive the BRAM; read data/ready come back from it.
+	// VRAM Port (CPU NuBus Access)
 	.vram_addr(arb_vram_addr),
 	.vram_dout(arb_vram_dout),
-	.vram_din(vram_bram_din),
+	.vram_din(arb_vram_din),
 	.vram_rd(arb_vram_rd),
 	.vram_wr(arb_vram_wr),
-	.vram_ready(vram_bram_ready),
+	.vram_ready(arb_vram_ready),
 
-	// VRAM port B — dedicated scanout read (no cache, never misses)
-	.vram_scan_addr(vram_scan_addr),
-	.vram_scan_rd(vram_scan_rd),
-	.vram_scan_data(vram_scan_data),
+	// VRAM Scanout Port (DMA)
+	.scan_addr(arb_scan_addr),
+	.scan_dout(arb_scan_dout),
+	.scan_rd(arb_scan_rd),
+	.scan_ready(arb_scan_ready),
 
 	.overlay_en(status_overlay_en),
 	.monochrome(status_video_mono),
@@ -1071,28 +1069,10 @@ wire        arb_vram_rd;
 wire        arb_vram_wr;
 wire        arb_vram_ready;  // (legacy; now unused)
 
-// Dedicated on-chip VRAM for the NuBus video card (replaces shared-SDRAM
-// framebuffer).  The card's VRAM port drives this BRAM directly; the SDRAM
-// arbiter's video port is tied off below so the Mac owns SDRAM exclusively.
-wire [15:0] vram_bram_din;
-wire        vram_bram_ready;
-wire [24:0] vram_scan_addr;
-wire        vram_scan_rd;
-wire [15:0] vram_scan_data;
-vram_ram #(.AW(16)) vram_inst (   // 2^16 words = 128 KB (1/2 bpp @ 640x480; dual-port)
-	.clk    (clk_sys),
-	// Port A — CPU read/write (card FSM)
-	.addr   (arb_vram_addr),
-	.din    (arb_vram_dout),
-	.dout   (vram_bram_din),
-	.rd     (arb_vram_rd),
-	.wr     (arb_vram_wr),
-	.ready  (vram_bram_ready),
-	// Port B — dedicated scanout read
-	.addr_b (vram_scan_addr),
-	.rd_b   (vram_scan_rd),
-	.dout_b (vram_scan_data)
-);
+wire [24:0] arb_scan_addr;
+wire [15:0] arb_scan_dout;
+wire        arb_scan_rd;
+wire        arb_scan_ready;
 
 wire [24:0] sdram_addr;
 wire [15:0] sdram_din;
@@ -1127,28 +1107,33 @@ sdram sdram
 	.dout           ( sdram_out                )
 );
 
-// SDRAM Arbiter - share SDRAM between Mac and NuBus video
+// SDRAM Arbiter - share SDRAM between Mac, Video Scanout DMA, and NuBus CPU access
 sdram_arbiter arbiter (
 	.clk(clk_sys),
-	.clk8_en_p(clk8_en_p),  // SDRAM cycle T0 marker for the coherency handshake
-	.reset(!pll_locked),  // Reset with SDRAM, not CPU
+	.clk8_en_p(clk8_en_p),
+	.reset(!pll_locked),
 
-	// Mac system port
+	// Port 0: Mac system port
 	.mac_addr(arb_mac_addr),
 	.mac_din(arb_mac_din),
 	.mac_dout(arb_mac_dout),
 	.mac_ds(arb_mac_ds),
 	.mac_we(arb_mac_we),
 	.mac_oe(arb_mac_oe),
+	.mac_dout_valid(arb_mac_dout_valid),
 
-	// Video card port — TIED OFF.  VRAM now lives in dedicated on-chip BRAM
-	// (vram_ram), not shared SDRAM, so the arbiter never grants video and the
-	// Mac owns SDRAM exclusively (no contention, no coherency races).
-	.vram_addr(25'd0),
-	.vram_dout(16'd0),
+	// Port 1: Video Scanout DMA Port
+	.scan_addr(arb_scan_addr),
+	.scan_dout(arb_scan_dout),
+	.scan_rd(arb_scan_rd),
+	.scan_ready(arb_scan_ready),
+
+	// Port 2: NuBus CPU-VRAM Port
+	.vram_addr(arb_vram_addr),
+	.vram_dout(arb_vram_dout),
 	.vram_din(arb_vram_din),
-	.vram_rd(1'b0),
-	.vram_wr(1'b0),
+	.vram_rd(arb_vram_rd),
+	.vram_wr(arb_vram_wr),
 	.vram_ready(arb_vram_ready),
 
 	// SDRAM controller
@@ -1159,15 +1144,12 @@ sdram_arbiter arbiter (
 	.sdram_we(sdram_we),
 	.sdram_oe(sdram_oe),
 
-	// Debug exposures (unused on this branch)
+	// Debug exposures
 	.dbg_grant_video(),
 	.dbg_video_clean(),
 	.dbg_mac_idle_cnt(),
 	.dbg_vram_state(),
-	.mac_stall(),
-
-	// Mac READ data-valid handshake (coherency fix)
-	.mac_dout_valid(arb_mac_dout_valid)
+	.mac_stall()
 );
 
 // Minimal JTAG CPU-state probes to diagnose the early-boot hang.
