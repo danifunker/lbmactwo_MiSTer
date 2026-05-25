@@ -1150,7 +1150,7 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->debug_cpuIPL,
 	       VERTOPINTERN->emu__DOT__nubus_irq_n,
 	       VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
-	       VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+	       (uint8_t)(!VERTOPINTERN->emu__DOT__nubus_card__DOT__vblank_enable),
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
@@ -2216,7 +2216,7 @@ int verilate() {
 								VERTOPINTERN->debug_cpuIPL,
 								VERTOPINTERN->emu__DOT__nubus_irq_n,
 								VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
-								VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+								(uint8_t)(!VERTOPINTERN->emu__DOT__nubus_card__DOT__vblank_enable),
 								VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
 								VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
 								cat,
@@ -2243,7 +2243,7 @@ int verilate() {
 						VERTOPINTERN->debug_cpuIPL,
 						VERTOPINTERN->emu__DOT__nubus_irq_n,
 						VERTOPINTERN->emu__DOT__nubus_card__DOT__irq_active,
-						VERTOPINTERN->emu__DOT__nubus_card__DOT__vbl_disable,
+						(uint8_t)(!VERTOPINTERN->emu__DOT__nubus_card__DOT__vblank_enable),
 						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_flags,
 						VERTOPINTERN->emu__DOT__dc0__DOT__via2__DOT__irq_mask,
 						nubus_video_debug_cat,
@@ -3682,8 +3682,8 @@ int main(int argc, char** argv, char** env) {
 		bus.QueueDownload(rom_file, 0, 1);  // index 0 for ROM
 		fprintf(stderr, "Machine type: Mac II, loading ROM: %s\n", rom_file);
 
-		// Auto-load NuBus High-Res video card declaration ROM
-		const char* nubus_rom_file = "../releases/boot1.rom";  // Hi-Res 341-0660
+		// Auto-load NuBus video card declaration ROM (MDC 8*24, 341-0868)
+		const char* nubus_rom_file = "../releases/boot2.rom";  // MDC 8*24 341-0868
 		bus.QueueDownload(nubus_rom_file, 1, 1);  // index 1 for NuBus ROM
 		fprintf(stderr, "Loading NuBus video ROM: %s\n", nubus_rom_file);
 		for (int disk_index = 0; disk_index < 2; disk_index++) {

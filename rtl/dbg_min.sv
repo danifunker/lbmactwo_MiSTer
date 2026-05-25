@@ -70,7 +70,15 @@ module dbg_min (
     input wire [31:0] dbg_adb,
 
     // Shift-in completion diagnosis: [17:1]=via1_shift_timer [0]=sr_ext_complete
-    input wire [17:0] dbg_adb2
+    input wire [17:0] dbg_adb2,
+
+    // ---- Audio-regression diagnosis (MDC 8*24 video swap) -----------------
+    input wire        selectASC,        // CPU accessing the Apple Sound Chip
+    input wire        asc_irq_n,        // ASC FIFO refill-request IRQ (active-low)
+    input wire signed [15:0] asc_audio_l, // ASC left output sample
+    input wire [15:0] card_irq_cnt,     // video card VBL IRQ assertion count
+    input wire [15:0] card_ack_cnt,     // video card bus-ACK count
+    input wire        card_vbl_en       // video card VBL IRQ enabled?
 );
 
     // Coherent snapshots on clk.
@@ -238,24 +246,26 @@ module dbg_min (
     always @(posedge clk)
         scsi4_r <= {16'd0, scsi_dbg3};
 
-    altsource_probe #(
-        .instance_id ("PSC4"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc4 (.probe(scsi4_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC4 disabled to free fit budget for audio probes (PVBL/PASC/PAUD).
+    // altsource_probe #(
+    //     .instance_id ("PSC4"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc4 (.probe(scsi4_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Bus-reset count + completion flags (survive scsi_rst).
     reg [31:0] scsi5_r;
     always @(posedge clk)
         scsi5_r <= {16'd0, scsi_dbg4};
 
-    altsource_probe #(
-        .instance_id ("PSC5"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc5 (.probe(scsi5_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC5 disabled to free fit budget for audio probes (PVBL/PASC/PAUD).
+    // altsource_probe #(
+    //     .instance_id ("PSC5"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc5 (.probe(scsi5_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // LIVE snapshot of the NCR5380 selection state (what the Mac is doing in
     // the stuck loop right now): {out_en,SEL,BSY,target_bsy,mounted,ADB,data}.
@@ -275,12 +285,13 @@ module dbg_min (
     always @(posedge clk)
         scsi6_r <= {16'd0, scsi_dbg5};
 
-    altsource_probe #(
-        .instance_id ("PSC6"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC6 disabled to free fit budget for audio probes (PVBL/PASC/PAUD).
+    // altsource_probe #(
+    //     .instance_id ("PSC6"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Disk-flow: first word of the most recent sector + write-strobe count, to
     // tell whether disk reads are STILL happening during the stuck scan or
@@ -362,12 +373,80 @@ module dbg_min (
     always @(posedge clk)
         rstsnap_r <= {dmin_rst_seen, 8'd0, dbg2_at_rst};
 
+    // PSCF disabled to free fit budget for audio probes (PVBL/PASC/PAUD).
+    // altsource_probe #(
+    //     .instance_id ("PSCF"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pscf (.probe(rstsnap_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== Audio-regression probes (PVBL / PASC / PAUD) ====================
+    // Diagnose the distorted startup chime after the MDC 8*24 video swap.
+    //
+    // PVBL: is the video card touching the CPU during the chime window?
+    //   {card_vbl_en, card_irq_cnt[14:0], card_ack_cnt[15:0]}
+    //   - card_irq_cnt climbing  => card raising VBL IRQs (cycle theft)
+    //   - card_vbl_en=1 early     => driver enabled VBL during/near the chime
+    //   - card_ack_cnt            => bus cycles the card answered
+    reg [31:0] pvbl_r;
+    always @(posedge clk)
+        pvbl_r <= {card_vbl_en, card_irq_cnt[14:0], card_ack_cnt};
+
     altsource_probe #(
-        .instance_id ("PSCF"),
+        .instance_id ("PVBL"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pscf (.probe(rstsnap_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PASC: ASC FIFO refill cadence — refill REQUESTS vs CPU REFILLS.
+    //   {asc_irq_cnt[15:0], asc_wr_cnt[15:0]}
+    //   asc_irq_cnt : # times ASC asserted its refill IRQ (asc_irq_n falling)
+    //   asc_wr_cnt  : # CPU writes to the ASC ($50F14xxx)
+    //   If asc_irq_cnt outruns asc_wr_cnt the FIFO is underrunning -> distortion.
+    reg asc_irq_d;
+    reg [15:0] asc_irq_cnt;
+    reg [15:0] asc_wr_cnt;
+    always @(posedge clk) begin
+        asc_irq_d <= asc_irq_n;
+        if (asc_irq_d && !asc_irq_n)                 // ASC refill request
+            asc_irq_cnt <= asc_irq_cnt + 16'd1;
+        if (cpuAS_n_d && !cpuAS_n && selectASC && !cpuRW)  // CPU write to ASC
+            asc_wr_cnt <= asc_wr_cnt + 16'd1;
+    end
+    reg [31:0] pasc_r;
+    always @(posedge clk)
+        pasc_r <= {asc_irq_cnt, asc_wr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PASC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pasc (.probe(pasc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PAUD: ASC output sample range (distortion signature).  Track sticky
+    // signed min/max of the left channel.  Clean audio sweeps a bounded range;
+    // a stuck/garbled stream shows full-scale clipping (min=-32768,max=32767)
+    // or a collapsed (near-zero) range.  {audio_max[15:0], audio_min[15:0]}.
+    reg signed [15:0] audio_min;
+    reg signed [15:0] audio_max;
+    initial begin audio_min = 16'sh7FFF; audio_max = 16'sh8000; end
+    always @(posedge clk) begin
+        if (asc_audio_l < audio_min) audio_min <= asc_audio_l;
+        if (asc_audio_l > audio_max) audio_max <= asc_audio_l;
+    end
+    reg [31:0] paud_r;
+    always @(posedge clk)
+        paud_r <= {audio_max, audio_min};
+
+    altsource_probe #(
+        .instance_id ("PAUD"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_paud (.probe(paud_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== ADB / VIA1-SR diagnostic probes (PADB / PAD2 / PAD3) ============
     // DISABLED to free fit budget now that the ADB shift-in hang is fixed.

@@ -624,7 +624,7 @@ module emu
 		.dout_b (sim_vram_scan_data)
 	);
 
-	nubus_video_highres nubus_card (
+	nubus_video_mdc824 nubus_card (
 		.clk(clk_sys),
 		.reset(!_cpuReset),
 		.addr(cpuAddr),

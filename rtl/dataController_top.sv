@@ -76,6 +76,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// audio
 	output [15:0] ascAudioLeft,
 	output [15:0] ascAudioRight,
+	output        dbg_asc_irq_n,   // ASC sound IRQ (active-low) for JTAG probe
 
 	// misc
 	output memoryOverlayOn,
@@ -147,6 +148,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire [15:0] scsiDataOut;
 	wire [7:0] ascDataOut;
 	wire asc_irq_n;
+	assign dbg_asc_irq_n = asc_irq_n;
 	wire mouseX1, mouseX2, mouseY1, mouseY2, mouseButton;
 
 	// interrupt control - Mac II priority: SCC(4) > VIA2(2) > VIA1(1)
