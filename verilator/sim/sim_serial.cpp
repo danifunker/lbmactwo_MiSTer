@@ -221,7 +221,7 @@ void SimSerialTerminal::UpdateConfigDirect(uint32_t clocks_per_baud, int data_bi
     uint32_t old_cpb = m_uart.GetClocksPerBaud();
     m_uart.Configure(clocks_per_baud, data_bits, stop_bits, parity_en, parity_even);
     if (clocks_per_baud != old_cpb) {
-        uint32_t approx_baud = clocks_per_baud > 0 ? 32500000 / clocks_per_baud : 0;
+        uint32_t approx_baud = clocks_per_baud > 0 ? 31334400 / clocks_per_baud : 0;
         fprintf(stderr, "Serial: baud config changed, clocks_per_baud=%u (~%u baud) %d%c%d\n",
                 clocks_per_baud, approx_baud, data_bits, parity_en ? (parity_even ? 'E' : 'O') : 'N', stop_bits);
     }
@@ -322,7 +322,7 @@ void SimSerialTerminal::Draw(const char* title, bool* p_open) {
 
     // Status bar
     uint32_t cpb = m_uart.GetClocksPerBaud();
-    uint32_t approx_baud = cpb > 0 ? 32500000 / cpb : 0;
+    uint32_t approx_baud = cpb > 0 ? 31334400 / cpb : 0;
     ImGui::Text("~%u baud (%u cpb) %dN%d | RX: %llu  TX: %llu  Err: %u",
                 approx_baud, cpb, m_uart.GetDataBits(), 1,
                 (unsigned long long)m_rx_byte_count,

@@ -110,12 +110,12 @@ module emu
 	// Configuration - directly from inputs (Mac II)
 	wire [1:0] status_mem = cfg_memSize;     // RAM size (matches FPGA status[5:4])
 	wire [1:0] status_cpu = cfg_cpuType;     // CPU type (must use TG68K 68030 mode)
-	// Mac II: 32.5 MHz system clock, CPU at 16 MHz via clock enables.
+	// Mac II: 31.3344 MHz system clock (2 × C15M), CPU at 15.6672 MHz via clk16_en.
 	// Sim plusarg +cpu8 lets us test whether boot divergence is CPU/bus pacing.
 	wire      status_turbo = !$test$plusargs("cpu8");
 	////////////////////   CLOCKS   ///////////////////
 
-	// Clock generation (clk_sys is 32.5 MHz from testbench, matching FPGA PLL)
+	// Clock generation (clk_sys is 31.3344 MHz from testbench, matching FPGA PLL)
 	wire clk_mem = clk_sys;  // Use same clock for memory
 	wire pll_locked = !reset;
 
@@ -124,7 +124,7 @@ module emu
 	wire clk16_en_p, clk16_en_n;
 	wire clk8;
 	
-	// Generate 32MHz clock enable (every cycle at 32MHz base clock)
+	// Generate clk_sys enable (one tick per cycle at 31.3344 MHz)
 	reg clk32_en_p, clk32_en_n;
 	always @(posedge clk_sys) clk32_en_p <= 1'b1;
 	always @(negedge clk_sys) clk32_en_n <= 1'b1;
@@ -318,13 +318,13 @@ module emu
 				// Hold BERR until AS deasserts (CPU ends bus cycle)
 			end else if (is_cpu_space || any_select)
 				berr_counter <= 0;
-			else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz sys clock
+			else if (berr_counter == 9'd251)  // ~8us at 31.3344 MHz sys clock
 				begin berr_out <= 1; berr_counter <= 0; end
 			else
 				berr_counter <= berr_counter + 1'd1;
 		end
 	end
-	// Mac II: 16 MHz CPU (status_turbo=1 selects clk16 enables from 32.5 MHz sys clock)
+	// Mac II: C15M = 15.6672 MHz CPU (status_turbo=1 selects clk16_en from 31.3344 MHz sys clock)
 	wire        cpu_en_p      = status_turbo ? clk16_en_p : clk8_en_p;
 	wire        cpu_en_n      = status_turbo ? clk16_en_n : clk8_en_n;
 	assign      _cpuReset_o   = tg68_reset_n;

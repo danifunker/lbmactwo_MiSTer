@@ -6,7 +6,7 @@
 // Reference: Snow core/src/mac/asc.rs, MAME apple/asc.cpp
 
 module asc(
-	input         clk,        // 32.5 MHz system clock
+	input         clk,        // 31.3344 MHz system clock (Step 3 will gate at clk16_en for true C15M)
 	input         reset,      // active high
 	input  [12:0] addr,       // 8KB address window
 	input  [15:0] data_in,    // CPU data bus
