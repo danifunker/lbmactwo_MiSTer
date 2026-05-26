@@ -143,9 +143,8 @@ module iwm
 		.sense(senseExt),
 		.advanceDriveHead(advanceDriveHead),
 		.newByteReady(newByteReadyExt),
-		// Match MAME's add_35_nc external connector: no external drive is
-		// installed unless one is explicitly configured.
-		.drivePresent(1'b0),
+		// Mac II can have two internal drives.
+		.drivePresent(1'b1),
 		.insertDisk(insertDisk[1]),
 		.diskSides(diskSides[1]),
 		.diskEject(diskEject[1]),
