@@ -287,7 +287,7 @@ module iwm
 
 	// Manage incoming bytes from the disk drive
 	wire iwmRead = (_cpuRW == 1'b1 && selectIWM == 1'b1 && iwmAccess);
-	reg [3:0] readLatchClearTimer;
+	reg [4:0] readLatchClearTimer;
 	reg diskEnableReadD;
 	always @(posedge clk or negedge _reset) begin
 		if (_reset == 1'b0) begin
@@ -313,12 +313,12 @@ module iwm
 			if ((!anyDiskEnable && anyDiskEnableNext) || (!diskEnableReadD && anyDiskEnable)) begin
 				readDataLatch <= 0;
 				readLatchClearTimer <= 0;
-				readDataArmDelay <= 12'h400;
+				readDataArmDelay <= 12'h800;
 			end
 
 			// the conclusion of a valid CPU read from the IWM will start the timer to clear the latch
 			else if (iwmRead && readDataLatch[7]) begin
-				readLatchClearTimer <= 4'hD; // clear latch 14 clocks after the conclusion of a valid read
+				readLatchClearTimer <= 5'd28; // clear latch 28 clocks after the conclusion of a valid read
 			end
 
 			// when the drive indicates that a new byte is ready, latch it

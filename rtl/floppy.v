@@ -177,9 +177,9 @@ module floppy
 		driveRegs[`DRIVE_REG_DIRTN] // Direction
 	};
 
-	// a byte is read or written every 128 clocks (2 us per bit * 8 bits = 16 us, @ 8 MHz = 128 clocks)
+	// a byte is read or written every 256 clocks (2 us per bit * 8 bits = 16 us, @ 16 MHz = 256 clocks)
 	// The CPU must poll for data at least this often, or else an overrun will occur.
-	reg [6:0] diskDataByteTimer; 
+	reg [7:0] diskDataByteTimer;
 	reg [7:0] diskImageData;	
 	reg readyToAdvanceHead;
 	always @(posedge clk or negedge _reset) begin
@@ -266,19 +266,19 @@ module floppy
 	// DRIVE_REG_CSTIN		1  /* R: disk in place (1 = no disk) */
 										/* W: ?? reset disk switch flag ? */
 	// disk in drive indicators
-	reg [23:0] ejectIndicatorTimer;
+	reg [24:0] ejectIndicatorTimer;
 	assign diskEject = (ejectIndicatorTimer != 0);
 	
 	always @(posedge clk or negedge _reset) begin
 		if (_reset == 1'b0) begin		
 			driveRegs[`DRIVE_REG_CSTIN] <= 1'b1;
-			ejectIndicatorTimer <= 24'd0;
+			ejectIndicatorTimer <= 25'd0;
 		end 
 		else if(cep) begin
 			if (_enable == 1'b0 && lstrbEdge == 1'b1 && driveWriteAddr == `DRIVE_REG_EJECT && ca2 == 1'b1) begin
 				// eject the disk
 				driveRegs[`DRIVE_REG_CSTIN] <= 1'b1;
-				ejectIndicatorTimer <= 24'hFFFFFF;
+				ejectIndicatorTimer <= 25'h1FFFFFF;
 			end
 			else if (insertDisk) begin
 				// insert a disk
@@ -335,21 +335,21 @@ module floppy
 					6634					$1A56 (6742)
 	*/
 	
-	reg [13:0] driveTachTimer; 
-	reg [13:0] driveTachPeriod;
+	reg [14:0] driveTachTimer;
+	reg [14:0] driveTachPeriod;
 	
 	always @(*) begin
 		case (driveTrack[6:4])
 			0: // tracks 0-15
-				driveTachPeriod <= 9996;
+				driveTachPeriod <= 19992;
 			1: // tracks 16-31
-				driveTachPeriod <= 9122;
+				driveTachPeriod <= 18244;
 			2: // tracks 32-47
-				driveTachPeriod <= 8292;
+				driveTachPeriod <= 16584;
 			3: // tracks 48-63
-				driveTachPeriod <= 7463;
+				driveTachPeriod <= 14926;
 			default: // tracks 64-79
-				driveTachPeriod <= 6634;	
+				driveTachPeriod <= 13268;
 		endcase
 	end
 	

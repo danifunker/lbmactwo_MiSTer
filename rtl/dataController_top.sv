@@ -3,6 +3,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input clk32,					// 32.5 MHz pixel clock
 	input clk8_en_p,
 	input clk8_en_n,
+	input clk16_en_p,
+	input clk16_en_n,
 	input E_rising,
 	input E_falling,
 
@@ -808,8 +810,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// IWM
 	iwm i(
 		.clk(clk32),
-		.cep(clk8_en_p),
-		.cen(clk8_en_n),
+		.cep(clk16_en_p),
+		.cen(clk16_en_n),
 		._reset(_cpuReset),
 		.selectIWM(selectIWM),
 		._cpuRW(_cpuRW),
