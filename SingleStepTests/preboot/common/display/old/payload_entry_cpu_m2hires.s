@@ -35,9 +35,9 @@ _payload_start:
     dbra    %d0, 1b
 
     | --- Load handoff slot (refnum word, drive word) ---
-    move.w  0x00041000.l, %d0
+    move.w  0x00050000.l, %d0
     move.w  %d0, g_handoff_refnum
-    move.w  0x00041002.l, %d0
+    move.w  0x00050002.l, %d0
     move.w  %d0, g_handoff_drive
 
     | --- "got handoff" marker: solid black bar at row 0 col 16..31 ---

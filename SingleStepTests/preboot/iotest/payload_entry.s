@@ -1,7 +1,8 @@
 | payload_entry.s — IOTest payload entry shim.
 |
-| Loads the boot handoff (driver refnum + drive number) from $00041000,
-| clears the screen, then calls bench_main() in C.
+| Loads the boot handoff (driver refnum + drive number) from $00050000
+| (see boot_stub_scsi.s for why $50000 and not $41000), clears the
+| screen, then calls bench_main() in C.
 |
 | Historically this file also painted "IOTEFT" + "DONE" placeholder
 | banners via its own micro-font (vertical bars for 'I'/'N', 'F'-shape
@@ -22,10 +23,10 @@ _payload_start:
     move.w  #0x2700, %sr
     move.l  #0x00100000, %sp              | 1 MB high — generous stack
 
-    | --- Load handoff slot ($00041000: refnum word, drive word) ---
-    move.w  0x00041000.l, %d0
+    | --- Load handoff slot ($00050000: refnum word, drive word) ---
+    move.w  0x00050000.l, %d0
     move.w  %d0, g_handoff_refnum
-    move.w  0x00041002.l, %d0
+    move.w  0x00050002.l, %d0
     move.w  %d0, g_handoff_drive
 
     | --- Wipe screen ---

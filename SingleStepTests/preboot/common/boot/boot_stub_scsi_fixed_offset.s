@@ -75,7 +75,7 @@ PAYLOAD_READ_BYTES    = 262144          | 256 KB — comfortable headroom for th
 
 | Slot at $00041000 where the boot block stashes (refnum << 16) | drive
 | for the payload to find. Stable above the payload load area.
-HANDOFF_ADDR          = 0x00041000
+HANDOFF_ADDR          = 0x00050000
 
 | DrvQHdr / DrvQEl
 DRVQHDR_QHEAD         = 0x0000030A
@@ -195,8 +195,8 @@ startup:
     bne     halt
 
     | --- Hand off refnum+drive in low-mem to the payload ---
-    move.w  %d6, HANDOFF_ADDR.l           | refnum at $41000
-    move.w  %d4, (HANDOFF_ADDR+2).l       | drive   at $41002
+    move.w  %d6, HANDOFF_ADDR.l           | refnum at $50000
+    move.w  %d4, (HANDOFF_ADDR+2).l       | drive   at $50002
 
     | --- Paint '3' at (row 20 col 4) = about to jump ---
     move.l  %a3, %a0

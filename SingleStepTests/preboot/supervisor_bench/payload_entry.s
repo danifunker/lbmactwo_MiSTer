@@ -23,7 +23,7 @@ SONY_CSCODE_EJECT   = 7
 | Refnum / drive supplied by the boot block at $00041000 (set by
 | boot_stub_scsi.s before jumping here). For the legacy floppy path,
 | if no handoff is present, fall back to .Sony (-5, drive 1).
-HANDOFF_ADDR          = 0x00041000
+HANDOFF_ADDR          = 0x00050000
 SONY_DRIVER_REFNUM    = -5
 RESULTS_DISK_OFFSET   = 0x1E00       | byte offset of /Results.jsonl (FLOPPY layout)
 RESULTS_WRITE_BYTES   = 512          | one sector — sector-aligned IO

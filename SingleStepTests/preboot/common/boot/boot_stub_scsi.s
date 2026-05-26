@@ -80,9 +80,24 @@ PAYLOAD_READ_BYTES    = 262144          | 256 KB — comfortable headroom for th
 | 0xDEADBEEF; if the bench faults early with that as the read offset,
 | the build pipeline didn't patch correctly.
 
-| Slot at $00041000 where the boot block stashes (refnum << 16) | drive
-| for the payload to find. Stable above the payload load area.
-HANDOFF_ADDR          = 0x00041000
+| Slot at $00050000 where the boot block stashes (refnum << 16) | drive
+| for the payload to find.
+|
+| Was at $00041000 prior to 2026-05-25, but that address turned out to
+| collide with payload .rodata strings — once the iotest payload's
+| rodata grew past offset $0FF4, the string ",\"readback_us\":" landed
+| at $40FF4..$41003 (15 bytes + NUL). The boot stub's handoff write
+| then clobbered the string's last 4 bytes ('s', '"', ':', '\0') with
+| (refnum_hi, refnum_lo, drive_hi, drive_lo), which made jw_puts emit
+| ",\"readback_u<refnum>" before stopping at the now-NUL drive high
+| byte. Symptom: every WRITE record in /Results.jsonl was missing
+| `s":` and showed `\xFF\xD9` (the bytes of MAME's SCSI refnum -39)
+| in its place. Moving the slot to $50000 puts it well past any
+| reasonable payload's text + data + bss (iotest's BSS ends ~$45200,
+| supervisor_bench's payloads stay under $48000) but still inside the
+| 256 KB region the boot stub already _Reads from disk into RAM,
+| which means the boot stub's write doesn't go anywhere fault-prone.
+HANDOFF_ADDR          = 0x00050000
 
 | DrvQHdr / DrvQEl
 DRVQHDR_QHEAD         = 0x0000030A
@@ -203,8 +218,8 @@ startup:
     bne     halt
 
     | --- Hand off refnum+drive in low-mem to the payload ---
-    move.w  %d6, HANDOFF_ADDR.l           | refnum at $41000
-    move.w  %d4, (HANDOFF_ADDR+2).l       | drive   at $41002
+    move.w  %d6, HANDOFF_ADDR.l           | refnum at $50000
+    move.w  %d4, (HANDOFF_ADDR+2).l       | drive   at $50002
 
     | --- Paint '3' at (row 20 col 4) = about to jump ---
     move.l  %a3, %a0
