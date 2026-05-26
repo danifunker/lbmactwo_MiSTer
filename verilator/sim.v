@@ -137,9 +137,9 @@ module emu
 	reg n_reset_prev = 0;
 	reg dio_download_prev = 0;
 	always @(posedge clk_sys) begin
-		reg [15:0] rst_cnt;
+		reg [16:0] rst_cnt;
 
-		if (clk8_en_p) begin
+		if (clk16_en_p) begin
 			n_reset_prev <= n_reset;
 			dio_download_prev <= dio_download;
 
@@ -670,8 +670,6 @@ module emu
 	dataController_top #(SCSI_DEVS) dc0
 	(
 		.clk32(clk_sys),
-		.clk8_en_p(clk8_en_p),
-		.clk8_en_n(clk8_en_n),
 		.clk16_en_p(clk16_en_p),
 		.clk16_en_n(clk16_en_n),
 		.E_rising(E_rising),

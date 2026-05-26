@@ -1,8 +1,6 @@
 module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// clocks:
 	input clk32,					// 32.5 MHz pixel clock
-	input clk8_en_p,
-	input clk8_en_n,
 	input clk16_en_p,
 	input clk16_en_n,
 	input E_rising,

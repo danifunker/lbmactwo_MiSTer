@@ -276,9 +276,9 @@ always @(posedge clk_sys) begin
 end
 
 always @(posedge clk_sys) begin
-	reg [15:0] rst_cnt;
+	reg [16:0] rst_cnt;
 
-	if (clk8_en_p) begin
+	if (clk16_en_p) begin
 		// various sources can reset the mac
 		// Note: ~_cpuReset_o must NOT be here - that's the CPU's RESET instruction
 		// output which resets peripherals only, not the CPU itself
@@ -823,8 +823,6 @@ wire        dbg_asc_irq_n;
 dataController_top #(SCSI_DEVS) dc0
 (
 	.clk32(clk_sys),
-	.clk8_en_p(clk8_en_p),
-	.clk8_en_n(clk8_en_n),
 	.clk16_en_p(clk16_en_p),
 	.clk16_en_n(clk16_en_n),
 	.E_rising(E_rising),
