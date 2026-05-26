@@ -25,6 +25,7 @@
  * hang or driver reset is attributable to a specific size+op. */
 
 #include "bench_types.h"
+#include "drive_enum.h"
 #include "jsonl_writer.h"
 #include "scsi_sense.h"
 #include "sizes.h"
@@ -353,24 +354,25 @@ static JsonlWriter g_jw;
  * pixels tall. LINE(n) places each visible text line on a 12-pixel grid
  * (8-pixel glyph + 4-pixel gap) so adjacent lines are clear of each other.
  *
- * Layout: one banner row + one column-header row + one result row per
- * test size, all visible at the same time so the operator can scan the
- * full pass/fail matrix without needing to remember the order.
+ * Layout from top to bottom:
  *
- *     LINE(0)   "IOTEST: DISK I/O BENCH"
- *     LINE(1)   "SIZE     READ     WRITE"      (column header)
- *     LINE(2)   "1B       pass     pass"        i=0
- *     LINE(3)   "512B     pass     pass"        i=1
- *     ...
- *     LINE(2+N) per-size row N
+ *     LINE(0)        "IOTEST: DISK I/O BENCH"
+ *     LINE(1)        "DRIVES" header
+ *     LINE(2..5)     up to MAX_DRIVES_SHOWN drive enumeration rows
+ *                       "<num> <type> <refnum> <blocks> <name> [BOOT]"
+ *     LINE(7)        "SIZE     READ     WRITE" (test column header)
+ *     LINE(8..19)    one row per test size
  *
- * 12 HDA sizes -> last result row at LINE(13) = pixel row 156. Well
- * within the 480-px screen (mdc824 default mode). Floppy variant runs
- * 8 sizes so it stops at LINE(9) = 108. */
-#define LINE(n)         ((n) * 12u)
-#define LINE_BANNER     LINE(0)
-#define LINE_HEADER     LINE(1)
-#define LINE_RESULT(i)  LINE(2u + (i))
+ * Worst case (4 drives + 12 sizes): row 19 at pixel 228 of a 480-px
+ * screen. Comfortable margin. Floppy variant with 8 sizes ends at
+ * row 15 = pixel 180. */
+#define LINE(n)            ((n) * 12u)
+#define LINE_BANNER        LINE(0)
+#define LINE_DRIVES_HDR    LINE(1)
+#define LINE_DRIVE_ROW(i)  LINE(2u + (i))
+#define MAX_DRIVES_SHOWN   4u
+#define LINE_HEADER        LINE(7)
+#define LINE_RESULT(i)     LINE(8u + (i))
 
 /* Per-line byte-column layout (1 byte = 8 pixels on the 1bpp screen).
  * STATUS_W = 8 chars (64 px) wide; fits Mac OS error mnemonics like
@@ -510,6 +512,69 @@ void bench_main(void)
     jw_init(&g_jw, &ctx);
 
     paint_string(LINE_BANNER, COL_SIZE, "IOTEST: DISK I/O BENCH", 22);
+
+    /* DRIVES table -- one row per online drive the ROM knows about.
+     * The operator can see at a glance whether expected drives appeared
+     * (boot disk + secondary SCSI, both floppies, etc) and tell which
+     * drive the bench is exercising (the BOOT-flagged row is the same
+     * one the bench reads/writes against today). */
+    {
+        DriveInfo drives[MAX_DRIVES_SHOWN];
+        int n = enum_drives(drives, (int)MAX_DRIVES_SHOWN);
+        paint_string(LINE_DRIVES_HDR, COL_SIZE,
+                     "DRIVES (drv type refn  blocks name)", 35);
+        int j;
+        for (j = 0; j < n; j++) {
+            const DriveInfo *d = &drives[j];
+            char line[80];
+            u32 k;
+            for (k = 0; k < sizeof(line); k++) line[k] = ' ';
+            /* "<2d> <type> <4d> <8u> <name> [BOOT]"  --
+             * column layout: byte cols
+             *    1-2   drive_num (1-2 chars right-aligned)
+             *    4-7   type      ("FLP "/"SCSI"/"CD  "/"?   ")
+             *    9-12  refnum    (signed decimal -NNN, 4 chars)
+             *   14-21  blocks    (8 chars right-aligned)
+             *   23-50  volume name (up to 27 chars)
+             *   52-55  "BOOT" (only if is_boot)                                 */
+            /* drive_num right-aligned in 2 chars */
+            i16 dn = d->drive_num;
+            if (dn >= 10) { line[0] = '0' + (dn / 10) % 10; line[1] = '0' + dn % 10; }
+            else          { line[0] = ' ';                  line[1] = '0' + dn; }
+            const char *t = drive_type_name(d->type);
+            for (k = 0; k < 4; k++) line[3 + k] = t[k];
+            /* refnum: always 4 chars "-NNN" or " NNN" */
+            i16 rn = d->refnum;
+            int rneg = (rn < 0); u16 ra = (u16)(rneg ? -rn : rn);
+            line[8] = rneg ? '-' : ' ';
+            line[9]  = (ra >= 100) ? ('0' + (ra / 100) % 10) : ' ';
+            line[10] = (ra >= 10)  ? ('0' + (ra / 10)  % 10) : ' ';
+            line[11] = '0' + (ra % 10);
+            /* blocks right-aligned in 8 cols */
+            {
+                u32 bs = d->blocks;
+                char tmp[10]; int ti = 0;
+                if (bs == 0) tmp[ti++] = '0';
+                while (bs) { tmp[ti++] = '0' + (bs % 10); bs /= 10; }
+                int pos = 13 + (8 - ti);  /* right-align inside 8-wide field */
+                for (k = 0; (int)k < ti; k++) line[pos + k] = tmp[ti - 1 - k];
+            }
+            /* volume name */
+            for (k = 0; k < 27 && d->name[k]; k++) line[22 + k] = d->name[k];
+            /* BOOT marker */
+            if (d->is_boot) {
+                line[51] = 'B'; line[52] = 'O'; line[53] = 'O'; line[54] = 'T';
+            }
+            paint_string(LINE_DRIVE_ROW(j), COL_SIZE, line, 56);
+        }
+        /* If fewer drives than the slots, blank the unused rows so a
+         * second run after a hot-swap doesn't show stale text. */
+        for (; j < (int)MAX_DRIVES_SHOWN; j++) {
+            paint_string(LINE_DRIVE_ROW(j), COL_SIZE,
+                         "                                                        ", 56);
+        }
+    }
+
 #ifndef IOTEST_READ_ONLY
     paint_string(LINE_HEADER, COL_SIZE,  "SIZE",  4);
     paint_string(LINE_HEADER, COL_READ,  "READ",  4);
