@@ -403,25 +403,51 @@ end
 //
 // Fix: proper 2-FF synchronizer on [24], plus a one-cycle delay register so
 // edge detection compares two synchronous samples (not sync vs. raw async).
-// [23:0] are sampled in the same clk_en window — by the time the strobe edge
-// propagates through s1→s2→d, the data bits have had ≥2 clk cycles to settle.
-reg mstb_s1, mstb_s2, mstb_d;
+// AND register the data bits in lock-step so the consumer reads from clean
+// clk_sys-synchronous flops, never combinational fanout of async HPS pins.
+//
+// The (* preserve *) + DONT_MERGE_REGISTER attributes are mandatory — Quartus
+// optimized the earlier sync chain out of silicon (0 hits in fit.rpt for any
+// of the sync FFs) because without them the fitter sees the back-to-back
+// flops as logically equivalent and merges them with downstream logic.
+// SYNCHRONIZER_IDENTIFICATION FORCED also relaxes TimeQuest on the async
+// input and gives an MTBF computation in the metastability report.
+(* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
+reg mstb_s1;
+(* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
+reg mstb_s2;
+(* preserve *) reg mstb_d;
+// 2-stage register chain for data bits, matched in latency to the strobe sync
+// so the consumer reads X/Y/Btn that correspond to the just-arrived strobe.
+(* preserve *) reg [8:0] mouseXraw_s1, mouseXraw_s2;
+(* preserve *) reg [8:0] mouseYraw_s1, mouseYraw_s2;
+(* preserve *) reg       mouseBtn_s1,  mouseBtn_s2;
+
 always @(posedge clk) begin
 	if (reset) begin
 		mstb_s1 <= ps2_mouse[24];
 		mstb_s2 <= ps2_mouse[24];
 		mstb_d  <= ps2_mouse[24];
+		mouseXraw_s1 <= 9'd0; mouseXraw_s2 <= 9'd0;
+		mouseYraw_s1 <= 9'd0; mouseYraw_s2 <= 9'd0;
+		mouseBtn_s1  <= 1'b0; mouseBtn_s2  <= 1'b0;
 	end else begin
 		mstb_s1 <= ps2_mouse[24];  // free-running synchronizer (no clk_en)
 		mstb_s2 <= mstb_s1;
+		mouseXraw_s1 <= {ps2_mouse[4], ps2_mouse[15:8]};
+		mouseYraw_s1 <= {ps2_mouse[5], ps2_mouse[23:16]};
+		mouseBtn_s1  <= ps2_mouse[0];
+		mouseXraw_s2 <= mouseXraw_s1;
+		mouseYraw_s2 <= mouseYraw_s1;
+		mouseBtn_s2  <= mouseBtn_s1;
 		if (clk_en) mstb_d <= mstb_s2;
 	end
 end
 
 wire       mouseStrobe = mstb_d ^ mstb_s2;
-wire [8:0] mouseXraw = {ps2_mouse[4], ps2_mouse[15:8]};
-wire [8:0] mouseYraw = {ps2_mouse[5], ps2_mouse[23:16]};
-wire       mouseBtn = ps2_mouse[0];
+wire [8:0] mouseXraw = mouseXraw_s2;
+wire [8:0] mouseYraw = mouseYraw_s2;
+wire       mouseBtn  = mouseBtn_s2;
 
 // PS2 keyboard input handling
 //
@@ -429,30 +455,41 @@ wire       mouseBtn = ps2_mouse[0];
 // toggle indicating "new key event", ps2_key[8:0] carries the scan code, [9]
 // carries press/release. Sync [10] with a 2-FF synchronizer and edge-detect
 // the synchronized copy so scan code & press bits have settled by the time
-// the consumer fires.
+// the consumer fires. Also register [9:0] in lock-step so the case() and
+// `press` wire read clean clk_sys-synchronous bits.
+//
+// preserve/DONT_MERGE_REGISTER mandatory — see equivalent comment on the
+// mouse synchronizer above; without them Quartus eliminates the chain.
 reg       keyStrobe;
 reg       kstb;       // delayed (consumer-side) copy of synchronized strobe
+(* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
 reg       kstb_s1;
+(* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
 reg       kstb_s2;    // synchronized strobe, compared against kstb for edge
+(* preserve *) reg [9:0] keyRaw_s1, keyRaw_s2; // scan code [8:0] + press [9]
 reg [7:0] keyData;
-wire      press = ps2_key[9];
-wire      capslock_key = (ps2_key[8:0] == 'h58);
+wire      press = keyRaw_s2[9];
+wire      capslock_key = (keyRaw_s2[8:0] == 'h58);
 
 always @(posedge clk) begin
 	if (reset) begin
 		kstb_s1 <= ps2_key[10];
 		kstb_s2 <= ps2_key[10];
 		kstb    <= ps2_key[10];
+		keyRaw_s1 <= 10'h000;
+		keyRaw_s2 <= 10'h000;
 		keyStrobe <= 1'b0;
 		keyData <= 8'h7f;
 		capslock <= 1'b0;
 	end else begin
 		kstb_s1 <= ps2_key[10];
 		kstb_s2 <= kstb_s1;
+		keyRaw_s1 <= ps2_key[9:0];
+		keyRaw_s2 <= keyRaw_s1;
 		if (clk_en) begin
 		kstb <= kstb_s2;
 		if (kstb ^ kstb_s2) begin
-			case(ps2_key[8:0]) // Scan Code Set 2 → ADB scan codes
+			case(keyRaw_s2[8:0]) // Scan Code Set 2 → ADB scan codes
 			  9'h000: keyData[6:0] <= 7'h7F;
 			  9'h001: keyData[6:0] <= 7'h65;	//F9
 			  9'h002: keyData[6:0] <= 7'h7F;
