@@ -132,6 +132,66 @@ build is **single-binary** — there's no separate read-only/full
 output filename; rebuild whichever variant you want and run the
 build script again.
 
+#### Exception-handler smoke test
+
+`iotest/exc_handlers.s` installs handlers at 68k vectors 2..9 (bus
+error, address error, illegal instr., zero divide, CHK, TRAPV,
+privilege, trace) so a fault inside a `_Read`/`_Write` trap is caught
+and reported as a synthetic `err = 30000 + vector` instead of
+crashing the bench into a Sad Mac. The recovery is plumbed via a
+custom `iotest_setjmp` / `iotest_longjmp` pair tuned for the
+exception-frame stack layout (the CPU's pushed frame would otherwise
+clobber `setjmp`'s saved return-PC slot — `iotest_longjmp` pushes a
+clean copy from `JmpBuf[0]` to compensate).
+
+To verify the catch path actually works under MAME, drop a synthetic
+zero-divide right inside the setjmp window (i.e. after `iotest_setjmp`
+returns 0, before the trap actually fires). One-shot so the bench
+keeps running through the rest of the size table:
+
+```c
+// diskio_main.c, inside trap_with_recovery, right before `return trap(pb);`:
+static int g_inject_once = 1;    // file-scope, TEST-ONLY
+...
+    g_last_exc_vector = 0;
+    if (g_inject_once) {
+        g_inject_once = 0;
+        asm volatile(".short 0x81FC, 0x0000" : : : "d0", "cc");  // DIVS.W #0, D0
+    }
+    return trap(pb);
+```
+
+Then build full mode, run, extract `/Results.jsonl`, and confirm the
+first read record carries the synthetic code while subsequent records
+are clean:
+
+```bash
+make clean && make hda IOTEST_MODE=full
+./build_hda.sh ~/testdisk.hda /tmp/iotest_exc.hda
+SDL_VIDEODRIVER=offscreen mame maciihmu -rompath ~/repos/mame/roms \
+    -skip_gameinfo -ramsize 8M -hard1 /tmp/iotest_exc.hda \
+    -nothrottle -seconds_to_run 60 -window
+~/repos/rusty-backup/target/release/rb-cli get --quiet \
+    /tmp/iotest_exc.hda@1 /Results.jsonl /tmp/r.jsonl
+tr -d '\000' < /tmp/r.jsonl | head -4
+# Expected:
+#   {"size":"1B","len":1,"op":"read","us":18,"err":30005}   <- caught vector 5
+#   {"size":"512B","len":512,"op":"read","us":414,"err":0}  <- recovered, runs normally
+#   {"size":"1KB", ...,"err":0}
+#   {"size":"2KB", ...,"err":0}
+```
+
+The `us:18` on the failed record (vs ~414 µs for a real read) is the
+signature that the trap was aborted before it actually talked to the
+SCSI bus. `err:30005 = 30000 + vector 5`. Other catchable vectors:
+30002 (bus), 30003 (addr), 30004 (illegal), 30006 (CHK), 30007
+(TRAPV), 30008 (privilege), 30009 (trace).
+
+Remember to remove the injection before committing — it's
+deliberately not gated behind a build flag because it should only
+ever be enabled as a one-off in-source patch when debugging the
+recovery path itself.
+
 ### supervisor_bench (CPU / FPU correctness)
 
 ```bash

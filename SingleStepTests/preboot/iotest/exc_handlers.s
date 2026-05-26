@@ -105,6 +105,18 @@ iotest_setjmp:
 |   Restores d2-d7, a2-a5, a6, sp, then RTSes to the saved return PC
 |   with %d0 = val. Caller "returns from" the matching iotest_setjmp
 |   with val instead of 0.
+|
+| Subtle: when longjmp is called from an exception handler, the CPU's
+| exception frame is sitting on the supervisor stack at addresses
+| BELOW setjmp's saved sp. We "discard" the frame by overwriting sp
+| with the saved value -- but that puts sp at the exact bytes the
+| frame's SR/PC fields occupy, NOT at clean memory. The retPC slot
+| setjmp saved at *sp was clobbered by the frame's SR + half of its
+| saved PC, so a naive rts would pop SR (0x2700) as PC and jump into
+| garbage. Instead: restore sp to "setjmp's saved sp + 4" (the post-
+| original-rts position), then push the saved retPC from buf[0] and
+| rts. That regenerates exactly the stack effect setjmp's own rts had
+| -- caller can't tell the difference.
 | --------------------------------------------------------------------
     .global iotest_longjmp
 iotest_longjmp:
@@ -112,8 +124,11 @@ iotest_longjmp:
     move.l  8(%sp), %d0                      | val (-> setjmp's return)
     movem.l 12(%a0), %d2-%d7/%a2-%a5
     move.l  4(%a0), %a6
-    move.l  8(%a0), %sp                      | sp now back at setjmp's
-                                             | original return-PC slot
+    move.l  8(%a0), %sp                      | sp = setjmp's saved sp
+                                             | (BUT possibly inside a
+                                             |  stale exception frame)
+    addq.l  #4, %sp                          | sp = post-rts position
+    move.l  0(%a0), -(%sp)                   | push saved retPC fresh
     rts                                      | jumps to setjmp's caller
 
 | --------------------------------------------------------------------
