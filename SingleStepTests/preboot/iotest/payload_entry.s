@@ -40,6 +40,14 @@ _payload_start:
 1:  move.l  #0xFFFFFFFF, (%a0)+
     dbra    %d0, 1b
 
+    | --- Install our 68k exception handlers (see exc_handlers.s) so
+    | bus error / address error / illegal instruction / zero divide /
+    | etc. during a trap call get caught and longjmp'd back to the
+    | bench instead of crashing into a Sad Mac. Must happen AFTER the
+    | screen wipe so a fault during install would at least leave a
+    | clean white screen for any subsequent Sad Mac to draw over. ---
+    jsr     install_exc_vectors
+
     jsr     bench_main
 
 .hang:

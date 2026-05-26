@@ -41,11 +41,12 @@ HDA_C_OBJS  := $(BUILD)/diskio_main.hda.o $(BUILD)/sizes.hda.o $(BUILD)/timing.h
 DSK_C_OBJS  := $(BUILD)/diskio_main.dsk.o $(BUILD)/sizes.dsk.o $(BUILD)/timing.dsk.o
 
 ENTRY_OBJ   := $(BUILD)/payload_entry.o
+EXC_OBJ     := $(BUILD)/exc_handlers.o
 BOOT_OBJ    := $(BUILD)/boot_stub.o
 BOOT_BIN    := $(BUILD)/boot_stub.bin
 
-HDA_OBJS    := $(ENTRY_OBJ) $(HDA_C_OBJS) $(COMMON_OBJS)
-DSK_OBJS    := $(ENTRY_OBJ) $(DSK_C_OBJS) $(COMMON_OBJS)
+HDA_OBJS    := $(ENTRY_OBJ) $(EXC_OBJ) $(HDA_C_OBJS) $(COMMON_OBJS)
+DSK_OBJS    := $(ENTRY_OBJ) $(EXC_OBJ) $(DSK_C_OBJS) $(COMMON_OBJS)
 
 .PHONY: all hda dsk clean
 all: hda dsk
@@ -63,8 +64,10 @@ $(BUILD)/boot_stub.elf: $(BOOT_OBJ) $(BOOT_STUB_LD)
 $(BOOT_BIN): $(BUILD)/boot_stub.elf
 	$(OBJCOPY) -O binary $< $@
 
-# ---- Payload entry --------------------------------------------------
+# ---- Payload entry + exception handlers -----------------------------
 $(ENTRY_OBJ): payload_entry.s | $(BUILD)
+	$(AS) $(ASFLAGS) -o $@ $<
+$(EXC_OBJ): exc_handlers.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
 # ---- IOTest C sources (per variant) ---------------------------------

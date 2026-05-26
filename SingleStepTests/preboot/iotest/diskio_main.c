@@ -33,6 +33,28 @@
 extern i16 g_handoff_refnum;
 extern i16 g_handoff_drive;
 
+/* Provided by exc_handlers.s. iotest_setjmp populates the JmpBuf and
+ * returns 0 the first time around. If a 68k exception fires while the
+ * same JmpBuf is the active recovery target, common_exc_handler
+ * iotest_longjmp's back to that setjmp with the vector number (2..9)
+ * as the return value. We then synthesize an EXC_ERR_BASE+vector code
+ * so the bench can treat it like any other failed trap. */
+typedef u32 JmpBuf[12];
+extern u32  iotest_setjmp(JmpBuf *buf);
+extern void iotest_longjmp(JmpBuf *buf, u32 val) __attribute__((noreturn));
+extern JmpBuf g_exc_jmpbuf;
+extern u16    g_last_exc_vector;
+
+#define EXC_ERR_BASE 30000
+static i16 vector_to_err(u16 vec)
+{
+    return (i16)(EXC_ERR_BASE + vec);
+}
+
+struct param_block_s;
+static i16 trap_with_recovery(i16 (*trap)(struct param_block_s *),
+                              struct param_block_s *pb);
+
 /* /Results.jsonl byte offset within the partition. Patched in at
  * image-build time by patch_offsets.py.
  *
@@ -106,7 +128,7 @@ static u8 * const g_io_buf = (u8 *)IOBUF_BASE;
  *
  * Total 50 bytes through ioPosOffset. Padded to PB_SIZE (80) so the
  * struct length matches what `jsonl_writer.c` already uses. */
-typedef struct {
+typedef struct param_block_s {
     u8  pad_qlink[12];     /* offsets 0..11 (qlink + qtype + ioTrap + ioCmdAddr) */
     u32 io_completion;     /* offset 12 */
     u16 io_result;         /* offset 16 */
@@ -174,6 +196,22 @@ static u32 sector_round_up(u32 n)
 {
     if (n == 0) return SECTOR_BYTES;
     return (n + (SECTOR_BYTES - 1u)) & ~(SECTOR_BYTES - 1u);
+}
+
+/* Wrap a trap call with the exception-recovery setjmp barrier. Normal
+ * path: returns the trap's ioResult. Faulting path: if a 68k exception
+ * (vectors 2..9; see exc_handlers.s) fires inside the trap, the handler
+ * longjmps back here and we return an EXC_ERR_BASE+vector synthetic
+ * code. Call site is identical to a direct trap call. */
+static i16 trap_with_recovery(i16 (*trap)(struct param_block_s *),
+                              struct param_block_s *pb)
+{
+    u32 longjmp_val = iotest_setjmp(&g_exc_jmpbuf);
+    if (longjmp_val != 0) {
+        return vector_to_err((u16)longjmp_val);
+    }
+    g_last_exc_vector = 0;
+    return trap(pb);
 }
 
 static void pb_init(ParamBlock *pb, u32 buf, u32 offset, u32 length)
@@ -483,7 +521,7 @@ void bench_main(void)
         /* ----- READ ----- */
         pb_init(&g_pb, (u32)g_io_buf, s->read_offset, s->length);
         timer_start();
-        err = trap_read(&g_pb);
+        err = trap_with_recovery(trap_read, &g_pb);
         t_us = timer_elapsed_us();
         emit_read_line(&g_jw, s, t_us, err);
         fmt_status(status, err); paint_cell(i, COL_READ, status);
@@ -493,7 +531,7 @@ void bench_main(void)
         fill_pattern(g_io_buf, s->length, (u8)i);
         pb_init(&g_pb, (u32)g_io_buf, s->write_offset, s->length);
         timer_start();
-        err = trap_write(&g_pb);
+        err = trap_with_recovery(trap_write, &g_pb);
         t_us = timer_elapsed_us();
 
         u32 wr_us = t_us; i16 wr_err = err;
@@ -506,7 +544,7 @@ void bench_main(void)
         }
         pb_init(&g_pb, (u32)g_io_buf, s->write_offset, s->length);
         timer_start();
-        err = trap_read(&g_pb);
+        err = trap_with_recovery(trap_read, &g_pb);
         t_us = timer_elapsed_us();
 
         VerifyResult vr = verify_pattern(g_io_buf, s->length, (u8)i);
