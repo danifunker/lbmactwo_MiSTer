@@ -234,9 +234,52 @@ Two viable approaches:
 **Option B — derive `clk_asc` as a true gated clock.** Not recommended — adds
 a derived clock domain and complicates timing closure.
 
-Files:
-- `rtl/asc.sv` (add `clk_en` port, gate all FSM/edge logic).
-- `rtl/dataController_top.sv:214–227` (add `.clk_en(clk16_en_p)`).
+**Option C (chosen for this step) — leave `clk` ungated at 31.3344 MHz; just
+retune the SAMPLE_DIV constants.** See deviation note immediately below.
+
+Files (Option C — what we actually did):
+- `rtl/asc.sv`: SAMPLE_DIV_22K 1460 → 1408, SAMPLE_DIV_11K 2921 → 2817,
+  comment block updated; `clk` port comment updated.
+
+#### Deviation note — chose Option C over Option A
+
+When implementation began, a closer read of `rtl/asc.sv` exposed two hazards
+in Option A that the plan above had not accounted for:
+
+1. **M10K block-RAM inference at risk.** The four `always @(posedge clk)`
+   blocks at lines 37/43/53/57 are simple-read-write patterns that Quartus
+   recognises as M10K inference templates. Wrapping them in
+   `if (clk_en) begin ... end` typically pushes synthesis to LE/flop-array
+   storage instead — silent breakage that only shows up on hardware.
+
+2. **CPU read pipeline latency.** Lines 161–165 implement a 2-cycle read
+   pipeline (`cpu_read_d → cpu_read_d2 → addr_d`) sized against `clk_sys`.
+   Halving the effective rate via `clk_en` doubles that latency to 4
+   sys-clocks, which is roughly the length of a single CPU bus cycle on
+   this core — CPU register reads risk landing just after data goes invalid.
+
+Option C avoids both risks. External behavior is observationally identical:
+
+| | Option A (spec) | Option C (chosen) |
+|---|---|---|
+| ASC internal clock | C15M = 15.6672 MHz | 2 × C15M = 31.3344 MHz |
+| Audio sample rate (22 kHz mode) | 22,257 Hz exact | 22,254 Hz (0.01 % low) |
+| Audio sample rate (11 kHz mode) | 11,127 Hz exact | 11,123 Hz (0.03 % low) |
+| M10K block-RAM inference | At risk | Preserved |
+| CPU read pipeline timing | At risk | Preserved |
+| Lines changed | ~10–15 | 2 + comment |
+
+**Revisit later if any of these become true:**
+- We add cycle-accurate ASC FIFO IRQ timing tests that demand strict C15M
+  internal pacing.
+- We see audio pitch drift complaints traceable to the 0.01 % residual.
+- We need ASC behavior identical to a MAME trace at sub-sample granularity
+  for regression diffing.
+
+Files (Option A — kept here for future reference if we revisit):
+- `rtl/asc.sv` (add `clk_en` port, gate all FSM/edge logic, resize the
+  CPU read pipeline, verify M10K inference after the change).
+- `rtl/dataController_top.sv` ASC instantiation (add `.clk_en(clk16_en_p)`).
 - `verilator/sim.v` mirror.
 
 **Verification after Step 3 — verilator boot regression (mandatory):**

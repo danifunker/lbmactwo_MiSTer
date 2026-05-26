@@ -6,7 +6,7 @@
 // Reference: Snow core/src/mac/asc.rs, MAME apple/asc.cpp
 
 module asc(
-	input         clk,        // 31.3344 MHz system clock (Step 3 will gate at clk16_en for true C15M)
+	input         clk,        // 31.3344 MHz system clock (2 × C15M); SAMPLE_DIV scaled accordingly
 	input         reset,      // active high
 	input  [12:0] addr,       // 8KB address window
 	input  [15:0] data_in,    // CPU data bus
@@ -88,11 +88,16 @@ module asc(
 
 	// =====================================================================
 	// Sample rate divider
-	// CLOCK_RATE=0: 22,257 Hz → 32,500,000/22,257 ≈ 1460 cycles
-	// CLOCK_RATE≠0: 11,127 Hz → 32,500,000/11,127 ≈ 2921 cycles
+	// Step 3 of clocking-confirmation work: clk_sys is now 31.3344 MHz
+	// (= 2 × C15M). MAME models the Mac II ASC at C15M = 15.6672 MHz; using
+	// the system clock here means we just double the spec divisor.
+	//   CLOCK_RATE=0: 22,257 Hz → 31,334,400/22,257 ≈ 1408 cycles
+	//   CLOCK_RATE≠0: 11,127 Hz → 31,334,400/11,127 ≈ 2817 cycles
+	// Previous constants (1460/2921) were tuned for 32.5 MHz clk_sys and
+	// played back ~3.6 % slow (the same drift as the rest of the core).
 	// =====================================================================
-	localparam SAMPLE_DIV_22K = 16'd1460;
-	localparam SAMPLE_DIV_11K = 16'd2921;
+	localparam SAMPLE_DIV_22K = 16'd1408;
+	localparam SAMPLE_DIV_11K = 16'd2817;
 	wire [15:0] sample_div = (asc_clock_rate == 8'h00) ? SAMPLE_DIV_22K : SAMPLE_DIV_11K;
 	reg [15:0] sample_counter;
 	wire sample_tick = (sample_counter >= sample_div - 1);
