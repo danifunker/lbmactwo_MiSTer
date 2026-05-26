@@ -177,7 +177,8 @@ module floppy
 		driveRegs[`DRIVE_REG_DIRTN] // Direction
 	};
 
-	// a byte is read or written every 128 clocks (2 us per bit * 8 bits = 16 us, @ 8 MHz = 128 clocks)
+	// a byte is read or written every 128 fclk pulses (2 µs per bit × 8 = 16 µs).
+	// Mac II fclk = C15M / 2 = 7.8336 MHz → 128 fclk ≈ 16.34 µs/byte (in-spec).
 	// The CPU must poll for data at least this often, or else an overrun will occur.
 	reg [6:0] diskDataByteTimer; 
 	reg [7:0] diskImageData;	

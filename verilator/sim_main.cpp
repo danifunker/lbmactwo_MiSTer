@@ -2563,7 +2563,7 @@ int verilate() {
 				}
 			}
 			if (verbose_debug_enable) {
-			// Print progress every 10 million cycles (~308ms of simulated time at 32.5MHz)
+			// Print progress every 10 million cycles (~319ms of simulated time at 31.3344MHz)
 			if ((main_time % 10000000) == 0) {
 				fprintf(stderr, "Cycle %llu: PC=%08X Op=%04X RW=%d overlay=%d selROM=%d selRAM=%d VBR=%08X\n",
 					(unsigned long long)main_time,

@@ -1345,7 +1345,9 @@ wr_3_a[7:6]  -- bits per char
 230400 -- 62.668800 / 230400 = 272
 
 
-32.5 / 115200 = 
+// Note: the 62.6688 MHz table above is clk_mem-relative; the SCC actually
+// runs on clk_sys = 31.3344 MHz, so its clocks-per-baud = half the above
+// values (e.g. 9600 baud → 3264, 230400 LocalTalk → 136).
 
 */
 // Baud rate generator (BRG) and multiplier pipeline (simplified Clemens model)
@@ -1396,21 +1398,22 @@ wr_3_a[7:6]  -- bits per char
                             mult_n = ( ( {16'd0, n} << 1 ) * mult );
                             // BRG runs from XTAL (3.6864 MHz), UART clock is system clock.
                             // Map BRG timing to UART divider: clocks_per_baud = base * (SysClk/XTAL)
-                            // Mac LC: SysClk=32.5 MHz, ratio=32.5/3.6864 ≈ 8.82, fixed-point 1129/128
-                            cpb = (mult_n * 32'd1129) >> 7;
+                            // Mac II: SysClk = 31.3344 MHz = 2 × C15M, exact ratio
+                            // 31.3344 / 3.6864 = 8.500000 = 1088/128 (clean integer).
+                            cpb = (mult_n * 32'd1088) >> 7;
                             if (cpb[23:0] == 24'd0)
                                 baud_divid_speed_a <= 24'd1;
                             else
                                 baud_divid_speed_a <= cpb[23:0];
                         end
                 end else begin
-                        // BRG disabled: default to a safe divider (9600 baud at 32.5 MHz)
-                        baud_divid_speed_a <= 24'd3385;
+                        // BRG disabled: default to 9600 baud at 31.3344 MHz (= 3264 exact)
+                        baud_divid_speed_a <= 24'd3264;
                 end
         end
 
-// Default to 9600 baud (32.5 MHz / 9600 ≈ 3385)
-reg [23:0] baud_divid_speed_a = 24'd3385;
+// Default to 9600 baud (31.3344 MHz / 9600 = 3264 exact)
+reg [23:0] baud_divid_speed_a = 24'd3264;
 wire tx_busy_a;
 wire rx_wr_a;
 wire [30:0] uart_setup_rx_a = { 1'b0, bit_per_char_a, 1'b0, parity_ena_a, 1'b0, parity_even_a, baud_divid_speed_a  } ;
@@ -1451,7 +1454,7 @@ always @(posedge clk) begin
 end
 
 // Channel B UART setup (duplicate of channel A for serial loopback)
-reg [23:0] baud_divid_speed_b = 24'd3385;
+reg [23:0] baud_divid_speed_b = 24'd3264;  // 9600 baud @ 31.3344 MHz
 wire tx_busy_b;
 wire rx_wr_b;
 wire [30:0] uart_setup_rx_b = { 1'b0, bit_per_char_b, 1'b0, parity_ena_b, 1'b0, parity_even_b, baud_divid_speed_b  } ;
@@ -1556,12 +1559,12 @@ always @(posedge clk) begin
             baud_divid_speed_b <= 24'd4;
         end else begin
             mult_n_b = (({16'd0, n_b} << 1) * mult_b);
-            cpb_b = (mult_n_b * 32'd1129) >> 7;
+            cpb_b = (mult_n_b * 32'd1088) >> 7;  // 31.3344/3.6864 = 8.5 exact → 1088/128
             baud_divid_speed_b <= (cpb_b[23:0] == 24'd0) ? 24'd1 : cpb_b[23:0];
         end
     end else begin
-        // BRG disabled: default to 9600 baud at 32.5 MHz
-        baud_divid_speed_b <= 24'd3385;
+        // BRG disabled: default to 9600 baud at 31.3344 MHz (= 3264 exact)
+        baud_divid_speed_b <= 24'd3264;
     end
 end
 

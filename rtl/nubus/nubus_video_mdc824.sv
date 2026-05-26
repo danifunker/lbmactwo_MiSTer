@@ -191,7 +191,7 @@ module nubus_video_mdc824 #(
                       (rmode == 4'h8) ? 2'd2 : 2'd3;  // 0xC/0xD -> 8bpp (24bpp later)
 
     // ========================================================================
-    // Pixel clock: 30.24 MHz from 32.5 MHz system clock (same as hi-res)
+    // Pixel clock: 30.24 MHz from clk_sys = 31.3344 MHz (same divider as hi-res)
     // ========================================================================
     reg [15:0] clk_video_acc;
     reg clk_video_en;
@@ -200,8 +200,8 @@ module nubus_video_mdc824 #(
             clk_video_acc <= 16'd0;
             clk_video_en <= 1'b0;
         end else begin
-            if (clk_video_acc + 16'd30240 >= 16'd32500) begin
-                clk_video_acc <= clk_video_acc + 16'd30240 - 16'd32500;
+            if (clk_video_acc + 16'd30240 >= 16'd31334) begin
+                clk_video_acc <= clk_video_acc + 16'd30240 - 16'd31334;
                 clk_video_en <= 1'b1;
             end else begin
                 clk_video_acc <= clk_video_acc + 16'd30240;

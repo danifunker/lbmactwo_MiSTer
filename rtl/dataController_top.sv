@@ -121,7 +121,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 );
 
 	// CPU reset generation
-	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 800,000 clocks of clk8
+	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms.
+	// At clk8_en_p = 7.8336 MHz that's ~783,360 ticks; the 20-bit counter
+	// (1,048,575 ticks ≈ 134 ms) leaves ample margin.
 	reg [19:0] resetDelay; // 20 bits = 1 million
 	wire isResetting = resetDelay != 0;
 
@@ -304,8 +306,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire via2_pb7_to_via1_ca1;
 	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
 
-	// Mac II VIAs run at C7M/10 ~= 783.36 kHz in MAME and hardware, not at
-	// the 32.5 MHz system clock. Keep register access on the CPU/E strobes,
+	// Mac II VIAs run at C7M/10 ≈ 783.36 kHz in MAME and hardware, not at
+	// the 31.3344 MHz system clock. Keep register access on the CPU/E strobes,
 	// but gate VIA timer countdowns with this average-rate enable.
 	localparam [31:0] VIA_TIMER_HZ = 32'd783360;
 	localparam [31:0] SYS_CLK_HZ = 32'd31334400;  // 2 × C15M (15.6672 MHz)
@@ -401,9 +403,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		ca1_c_d    <= via.ca1_c;
 		ca2_c_d    <= via.ca2_c;
 
-		// Edge counters — Mac II expectations at 32.5 MHz:
-		//   RTC CKO:       1 Hz square wave edges every ~16.25M cycles
-		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~540K cycles
+		// Edge counters — Mac II expectations at clk_sys = 31.3344 MHz:
+		//   RTC CKO:       1 Hz square wave edges every ~15.67M cycles
+		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~522K cycles
 		//   ca1_c (=PB7):  same as PB7
 		//   ca2_c (=RTC CKO): same as RTC CKO
 		if (rtc_cko && !onesec_d)        onesec_edges <= onesec_edges + 1;
@@ -565,8 +567,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg via1_sr_out_pending;
 	reg via1_sr_out_ack;
 
-	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin. Used while a real
-	// response byte is being delivered, so multi-byte responses shift quickly.
+	// ~3ms at 31.3344 MHz ≈ 94,000 clocks. Use 100K for margin. Used while a
+	// real response byte is being delivered, so multi-byte responses shift
+	// quickly.
 	localparam SHIFT_DELAY = 22'd100000;
 	// ~11ms (~90Hz). Used for the idle autopoll heartbeat re-arm when no
 	// response byte is pending — matches the real Mac II ADB autopoll SR-IRQ

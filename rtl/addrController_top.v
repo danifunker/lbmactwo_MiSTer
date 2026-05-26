@@ -1,7 +1,7 @@
 module addrController_top(
 	// clocks:
 	input clk,
-	output clk8,						// 8.125 MHz CPU clock
+	output clk8,						// 7.8336 MHz (C7M = C15M / 2) — peripheral fclk
 	output clk8_en_p,
 	output clk8_en_n,
 	output clk16_en_p,

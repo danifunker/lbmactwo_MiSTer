@@ -9,7 +9,7 @@
 //
 // This module generates BERR for empty NuBus slots after a configurable
 // timeout, matching real hardware behavior. The timeout is set to match
-// the system BERR counter (~260 system clocks ≈ 8us at 32.5 MHz).
+// the system BERR counter (~251 system clocks ≈ 8 µs at 31.3344 MHz).
 
 module nubus_arbiter (
     input         clk,
