@@ -26,6 +26,7 @@
 
 #include "bench_types.h"
 #include "jsonl_writer.h"
+#include "scsi_sense.h"
 #include "sizes.h"
 #include "timing.h"
 
@@ -283,14 +284,34 @@ static void emit_skip_line(JsonlWriter *jw, const IoTestSize *s,
     jw_commit_line(jw);
 }
 
-/* Emit one JSONL line for a read result. */
+/* Emit one JSONL line for a read result. If `sense` is non-NULL the
+ * 18-byte SCSI sense buffer is digested into sense_key / asc / ascq /
+ * sense_raw fields (the operator usually only needs key/asc/ascq, but
+ * the full 18 bytes go out as a hex string for forensic depth). */
+static void emit_sense_fields(JsonlWriter *jw, const u8 *sense)
+{
+    static const char hex[16] = "0123456789ABCDEF";
+    jw_puts(jw, ",\"sense_key\":"); jw_putul(jw, (u32)(sense[2] & 0x0F));
+    jw_puts(jw, ",\"asc\":");       jw_putul(jw, (u32)sense[12]);
+    jw_puts(jw, ",\"ascq\":");      jw_putul(jw, (u32)sense[13]);
+    jw_puts(jw, ",\"sense_raw\":\"");
+    u32 i;
+    for (i = 0; i < 18; i++) {
+        char b[2]; b[0] = hex[(sense[i] >> 4) & 0xF];
+                   b[1] = hex[ sense[i]       & 0xF];
+        jw_putc(jw, b[0]); jw_putc(jw, b[1]);
+    }
+    jw_puts(jw, "\"");
+}
+
 static void emit_read_line(JsonlWriter *jw, const IoTestSize *s,
-                           u32 elapsed_us, i16 err)
+                           u32 elapsed_us, i16 err, const u8 *sense_or_null)
 {
     jw_puts(jw, "{\"size\":\""); jw_puts(jw, s->label);
     jw_puts(jw, "\",\"len\":");  jw_putul(jw, s->length);
     jw_puts(jw, ",\"op\":\"read\",\"us\":"); jw_putul(jw, elapsed_us);
     jw_puts(jw, ",\"err\":");    jw_putul(jw, (u32)(i32)err);
+    if (sense_or_null) emit_sense_fields(jw, sense_or_null);
     jw_puts(jw, "}\n");
     jw_commit_line(jw);
 }
@@ -304,7 +325,8 @@ static void emit_read_line(JsonlWriter *jw, const IoTestSize *s,
 static void emit_write_line(JsonlWriter *jw, const IoTestSize *s,
                             u32 write_us, i16 write_err,
                             u32 read_us,  i16 read_err,
-                            const VerifyResult *vr)
+                            const VerifyResult *vr,
+                            const u8 *sense_or_null)
 {
     int verified = (read_err == 0) && (vr->count == 0);
     jw_puts(jw, "{\"size\":\""); jw_puts(jw, s->label);
@@ -320,6 +342,7 @@ static void emit_write_line(JsonlWriter *jw, const IoTestSize *s,
         jw_puts(jw, ",\"actual\":");          jw_putul(jw, (u32)vr->actual);
         jw_puts(jw, ",\"mismatch_count\":");  jw_putul(jw, vr->count);
     }
+    if (sense_or_null) emit_sense_fields(jw, sense_or_null);
     jw_puts(jw, "}\n");
     jw_commit_line(jw);
 }
@@ -518,12 +541,26 @@ void bench_main(void)
             continue;
         }
 
+        /* Static sense buffer reused across iterations -- each
+         * scsi_request_sense_safe call zeros it first. 18 bytes is the
+         * standard SCSI-2 fixed-format sense response length. */
+        static u8 sense_buf[18];
+
         /* ----- READ ----- */
         pb_init(&g_pb, (u32)g_io_buf, s->read_offset, s->length);
         timer_start();
         err = trap_with_recovery(trap_read, &g_pb);
         t_us = timer_elapsed_us();
-        emit_read_line(&g_jw, s, t_us, err);
+        /* Only ask the device for sense data when the failure is a real
+         * Mac OS / driver error code (negative i16). Our synthetic
+         * exception codes (30002..30009) mean the trap didn't actually
+         * reach the SCSI bus, so there's no fresh sense to retrieve. */
+        const u8 *sense_ptr = 0;
+        if (err < 0) {
+            (void)scsi_request_sense_safe(g_scsi_id_for_sense, sense_buf);
+            sense_ptr = sense_buf;
+        }
+        emit_read_line(&g_jw, s, t_us, err, sense_ptr);
         fmt_status(status, err); paint_cell(i, COL_READ, status);
 
 #ifndef IOTEST_READ_ONLY
@@ -548,7 +585,19 @@ void bench_main(void)
         t_us = timer_elapsed_us();
 
         VerifyResult vr = verify_pattern(g_io_buf, s->length, (u8)i);
-        emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, &vr);
+
+        /* Ask for sense if either the write trap OR the readback trap
+         * returned a real Mac OS error. Skip on caught-exception codes
+         * (>= 30000) for the same reason as the READ leg. We grab sense
+         * once (either error can populate it); SCSI keeps sense per
+         * target until the next command, so the most recent error wins
+         * regardless of which trap leg surfaced it. */
+        const u8 *wr_sense_ptr = 0;
+        if (wr_err < 0 || err < 0) {
+            (void)scsi_request_sense_safe(g_scsi_id_for_sense, sense_buf);
+            wr_sense_ptr = sense_buf;
+        }
+        emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, &vr, wr_sense_ptr);
 
         /* WRITE cell precedence (most-actionable-first):
          *   wr_err != 0          -> show the trap error mnemonic (driver

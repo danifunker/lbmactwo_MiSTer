@@ -37,8 +37,8 @@ COMMON_OBJS := $(BUILD)/jsonl_writer.o \
                $(BUILD)/freestanding.o \
                $(BUILD)/display.o
 
-HDA_C_OBJS  := $(BUILD)/diskio_main.hda.o $(BUILD)/sizes.hda.o $(BUILD)/timing.hda.o
-DSK_C_OBJS  := $(BUILD)/diskio_main.dsk.o $(BUILD)/sizes.dsk.o $(BUILD)/timing.dsk.o
+HDA_C_OBJS  := $(BUILD)/diskio_main.hda.o $(BUILD)/sizes.hda.o $(BUILD)/timing.hda.o $(BUILD)/scsi_sense.o
+DSK_C_OBJS  := $(BUILD)/diskio_main.dsk.o $(BUILD)/sizes.dsk.o $(BUILD)/timing.dsk.o $(BUILD)/scsi_sense.o
 
 ENTRY_OBJ   := $(BUILD)/payload_entry.o
 EXC_OBJ     := $(BUILD)/exc_handlers.o
@@ -71,15 +71,18 @@ $(EXC_OBJ): exc_handlers.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
 # ---- IOTest C sources (per variant) ---------------------------------
-$(BUILD)/diskio_main.hda.o: diskio_main.c sizes.h timing.h | $(BUILD)
+$(BUILD)/diskio_main.hda.o: diskio_main.c sizes.h timing.h scsi_sense.h | $(BUILD)
 	$(CC) $(CFLAGS) -DIOTEST_VARIANT_HDA -c -o $@ $<
 $(BUILD)/sizes.hda.o: sizes.c sizes.h | $(BUILD)
 	$(CC) $(CFLAGS) -DIOTEST_VARIANT_HDA -c -o $@ $<
 $(BUILD)/timing.hda.o: timing.c timing.h | $(BUILD)
 	$(CC) $(CFLAGS) -DIOTEST_VARIANT_HDA -c -o $@ $<
 
-$(BUILD)/diskio_main.dsk.o: diskio_main.c sizes.h timing.h | $(BUILD)
+$(BUILD)/diskio_main.dsk.o: diskio_main.c sizes.h timing.h scsi_sense.h | $(BUILD)
 	$(CC) $(CFLAGS) -DIOTEST_VARIANT_DSK -c -o $@ $<
+
+$(BUILD)/scsi_sense.o: scsi_sense.c scsi_sense.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/sizes.dsk.o: sizes.c sizes.h | $(BUILD)
 	$(CC) $(CFLAGS) -DIOTEST_VARIANT_DSK -c -o $@ $<
 $(BUILD)/timing.dsk.o: timing.c timing.h | $(BUILD)

@@ -192,6 +192,60 @@ deliberately not gated behind a build flag because it should only
 ever be enabled as a one-off in-source patch when debugging the
 recovery path itself.
 
+#### SCSI sense capture
+
+`iotest/scsi_sense.c` augments any non-zero `_Read`/`_Write` ioResult
+with the SCSI device's actual sense data — the `sense_key` / `asc` /
+`ascq` triple that tells "medium error" apart from "hardware error"
+apart from "write protected" apart from "unit attention", and the
+full 18-byte raw sense buffer in hex. Mechanism:
+
+1. After every trap call whose return is in the standard Mac OS error
+   range (negative i16), bench_main calls `scsi_request_sense_safe()`.
+2. That function issues the SCSI Manager sequence
+   `_SCSIGet` → `_SCSISelect(id)` → `_SCSICmd(REQUEST SENSE)` →
+   `_SCSIRBlind(18 bytes)` → `_SCSIComplete` against SCSI ID 0 (the
+   conventional boot-drive ID; hardcoded TODO).
+3. If any step faults, the exception handler (see above) catches it
+   and `scsi_request_sense_safe` returns `30000 + vector`, leaving
+   `sense_raw` zeroed. Callers can distinguish "SCSI Manager said
+   no sense" (key=0x00) from "we couldn't reach the SCSI Manager"
+   (return code 30002..30009).
+4. The JSONL writer adds these fields only when sense was requested:
+
+   ```json
+   {"size":"4MB","len":4194304,"op":"read","us":83562,"err":-36,
+    "sense_key":3,"asc":17,"ascq":0,
+    "sense_raw":"70000300000000000A000000110000000000"}
+   ```
+
+   sense_key 3 = medium error; ASC 0x11 = read error; ASCQ 0 = generic.
+
+**Known limitation:** the SCSI Manager calls hang or Sad-Mac the
+bench under MAME's `maciihmu` driver (vector 10 / Line-A trap) — most
+likely because `maciihmu`'s ROM doesn't fully wire up the
+`_SCSIGet`/`_SCSISelect` family, or our supervisor-mode hijack
+disrupted SCSI Manager state in a way that only matters when those
+specific traps fire. The baseline (no errors → sense never fires)
+runs cleanly, and the path is strictly opt-in (only invoked on a
+failing trap). Real hardware should exercise this naturally on any
+SCSI failure — when you see a `30002..30009` synthetic code in
+`sense_raw`'s place, that's the recovery firing.
+
+To exercise on hardware: simulate a failing trap by injecting a
+fake `-36` after `trap_with_recovery`, same recipe as the exception
+test above:
+
+```c
+// diskio_main.c, after the trap_with_recovery returns:
+err = trap_with_recovery(trap_read, &g_pb);
+t_us = timer_elapsed_us();
+if (i == 0) err = -36;  // TEST-ONLY -- forces sense capture
+```
+
+If hardware crashes the bench, the SCSI Manager path is the issue
+and we'll want to fall back to a simpler probe (e.g. `_SCSIStat`).
+
 ### supervisor_bench (CPU / FPU correctness)
 
 ```bash
