@@ -29,11 +29,18 @@
 	   being defined as both /DEV being low and D7 (the MSB) outputting a one from the read data register for at least one fclk period.
 */		
 
+// Clocking (Step 2 of clocking-confirmation work):
+//   The Mac II clocks the IWM at C15M = 15.6672 MHz (MAME: IWM(config, m_fdc, C15M)).
+//   Internally the IWM divides by 2 to produce the ~7.8336 MHz fclk that times
+//   the GCR bit cells (~2 µs per bit, 128 fclk per byte) and the read-latch
+//   clear delay (14 fclk ≈ 1.8 µs). The parent wires cep/cen here at the
+//   C15M rate; we derive ce_p_div2 / ce_n_div2 below and pass those to the
+//   floppy module and to every internal register that needs fclk timing.
 module iwm
 (
 	input clk,
-	input cep,
-	input cen,
+	input cep,       // C15M-rate enable (15.6672 MHz)
+	input cen,       // C15M-rate enable (15.6672 MHz)
 
 	input _reset,
 	input selectIWM,
@@ -59,6 +66,18 @@ module iwm
 	input dskReadAckExt,
 	input [7:0] dskReadData
 );
+
+	// Internal /2 phase divider — produces the ~7.8336 MHz fclk timing
+	// expected by the floppy bit-cell engine, IWM read-latch clear timer, and
+	// read-arm delay. Toggles once per cep pulse so ce_p_div2 / ce_n_div2 fire
+	// every other cep / cen tick.
+	reg ce_phase;
+	always @(posedge clk or negedge _reset) begin
+		if (!_reset)      ce_phase <= 1'b0;
+		else if (cep)     ce_phase <= ~ce_phase;
+	end
+	wire ce_p_div2 = cep & ce_phase;
+	wire ce_n_div2 = cen & ce_phase;
 
 	// Mac II uses even addresses (UDS), Mac Plus/SE uses odd (LDS)
 	wire iwmAccess = !_cpuLDS | !_cpuUDS;
@@ -97,8 +116,8 @@ module iwm
 	floppy floppyInt
 	(
 		.clk(clk),
-		.cep(cep),
-		.cen(cen),
+		.cep(ce_p_div2),
+		.cen(ce_n_div2),
 
 		._reset(_reset),
 		.ca0(ca0),
@@ -128,8 +147,8 @@ module iwm
 	floppy floppyExt
 	(
 		.clk(clk),
-		.cep(cep),
-		.cen(cen),
+		.cep(ce_p_div2),
+		.cen(ce_n_div2),
 
 		._reset(_reset),
 		.ca0(ca0),
@@ -270,7 +289,7 @@ module iwm
 			iwmMode <= 0;
 			writeData <= 0;
 		end
-		else if(cen) begin
+		else if(ce_n_div2) begin
 			if (_cpuRW == 0 && selectIWM == 1'b1 && iwmAccess) begin
 				// writing to any IWM address modifies state as selected by Q7 and Q6
 				case ({q7Next,q6Next})
@@ -296,7 +315,7 @@ module iwm
 			readDataArmDelay <= 0;
 			diskEnableReadD <= 0;
 		end
-		else if(cen) begin
+		else if(ce_n_div2) begin
 			diskEnableReadD <= anyDiskEnable;
 
 			if (readDataArmDelay != 0) begin
