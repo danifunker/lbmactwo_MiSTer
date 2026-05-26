@@ -1,6 +1,6 @@
 module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// clocks:
-	input clk32,					// 32.5 MHz pixel clock
+	input clk32,					// 31.3344 MHz system clock (2 × C15M)
 	input clk8_en_p,
 	input clk8_en_n,
 	input E_rising,
@@ -306,7 +306,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// the 32.5 MHz system clock. Keep register access on the CPU/E strobes,
 	// but gate VIA timer countdowns with this average-rate enable.
 	localparam [31:0] VIA_TIMER_HZ = 32'd783360;
-	localparam [31:0] SYS_CLK_HZ = 32'd32500000;
+	localparam [31:0] SYS_CLK_HZ = 32'd31334400;  // 2 × C15M (15.6672 MHz)
 `ifdef SIMULATION
 	reg [31:0] via_timer_hz = VIA_TIMER_HZ;
 	initial begin

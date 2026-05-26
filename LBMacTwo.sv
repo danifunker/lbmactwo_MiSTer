@@ -236,7 +236,7 @@ localparam CONF_STR = {
 	"V,v",`BUILD_DATE
 };
 
-wire status_turbo = 1'b1; // Mac II always runs at 16MHz
+wire status_turbo = 1'b1; // Mac II always runs at C15M = 15.6672 MHz (CPU rides clk16_en)
 wire status_overlay_en = status[6];
 wire status_video_mono = status[13];
 
@@ -248,8 +248,8 @@ wire pll_locked;
 pll pll
 (
 	.refclk(CLK_50M),
-	.outclk_0(clk_mem),      // 65MHz, 0° - SDRAM controller
-	.outclk_1(clk_sys),      // 32.5MHz, 180° - System
+	.outclk_0(clk_mem),      // 62.6688 MHz, 0° - SDRAM controller
+	.outclk_1(clk_sys),      // 31.3344 MHz, 180° - System (2 × C15M, divides to 15.6672/7.8336 MHz)
 	.locked(pll_locked)
 );
 
@@ -543,7 +543,7 @@ wire mem_access = (selectRAM || selectROM) && !_cpuAS;
 wire video_active = !nubus_blank;
 
 always @(posedge clk_sys) begin
-	if (nubus_access) nubus_act_ctr <= 28'hFFFFFFF;  // ~8 seconds at 32.5MHz
+	if (nubus_access) nubus_act_ctr <= 28'hFFFFFFF;  // ~8.6 seconds at 31.3344 MHz
 	else if (nubus_act_ctr != 0) nubus_act_ctr <= nubus_act_ctr - 1'd1;
 	
 	if (mem_access) mem_act_ctr <= 28'hFFFFFFF;
@@ -613,7 +613,7 @@ always @(posedge clk_sys) begin
 			// Hold BERR until AS deasserts (CPU ends bus cycle)
 		end else if (is_cpu_space || any_select)
 			berr_counter <= 0;
-		else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz
+		else if (berr_counter == 9'd251)  // ~8us at 31.3344 MHz
 			begin berr_out <= 1; berr_counter <= 0; end
 		else
 			berr_counter <= berr_counter + 1'd1;

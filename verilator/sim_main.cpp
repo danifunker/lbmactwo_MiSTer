@@ -1174,8 +1174,9 @@ static void print_scsi_stop_state() {
 	       (unsigned long long)profile_lowmem_fetches);
 }
 
-// 32.5 MHz system clock (matches FPGA PLL; CPU runs at 16 MHz via clock enables)
-int clk_sys_freq = 32500000;
+// 31.3344 MHz system clock (= 2 × C15M; matches FPGA PLL).
+// CPU runs at C15M = 15.6672 MHz via clk16_en; SCC/IWM at C7M = 7.8336 MHz via clk8_en.
+int clk_sys_freq = 31334400;
 SimClock clk_sys(1);
 
 // Audio
