@@ -1397,7 +1397,7 @@ wr_3_a[7:6]  -- bits per char
                             // BRG runs from XTAL (3.6864 MHz), UART clock is system clock.
                             // Map BRG timing to UART divider: clocks_per_baud = base * (SysClk/XTAL)
                             // Mac LC: SysClk=32.5 MHz, ratio=32.5/3.6864 ≈ 8.82, fixed-point 1129/128
-                            cpb = (mult_n * 32'd1129) >> 7;
+                            cpb = (mult_n * 32'd565) >> 7;
                             if (cpb[23:0] == 24'd0)
                                 baud_divid_speed_a <= 24'd1;
                             else
@@ -1556,7 +1556,7 @@ always @(posedge clk) begin
             baud_divid_speed_b <= 24'd4;
         end else begin
             mult_n_b = (({16'd0, n_b} << 1) * mult_b);
-            cpb_b = (mult_n_b * 32'd1129) >> 7;
+            cpb_b = (mult_n_b * 32'd565) >> 7;
             baud_divid_speed_b <= (cpb_b[23:0] == 24'd0) ? 24'd1 : cpb_b[23:0];
         end
     end else begin

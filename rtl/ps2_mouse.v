@@ -29,7 +29,7 @@ module ps2_mouse
 
 reg  [9:0] xacc;
 reg  [9:0] yacc;
-reg [11:0] clkdiv;
+reg [12:0] clkdiv;
 
 wire strobe = (old_stb != ps2_mouse[24]);
 reg  old_stb = 0;

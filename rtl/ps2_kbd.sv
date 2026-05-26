@@ -22,7 +22,7 @@ module ps2_kbd
 
 reg   [9:0] keymac;
 reg			key_pending;
-reg  [19:0] pacetimer;
+reg  [20:0] pacetimer;
 reg			inquiry_active;
 reg 			cmd_inquiry;
 reg 			cmd_instant;
@@ -68,8 +68,8 @@ always@(posedge clk or posedge reset) begin
 	end
 end
 
-wire tick_long  = pacetimer == 20'hfffff;
-wire tick_short = pacetimer == 20'h00fff;
+wire tick_long  = pacetimer == 21'h1fffff;
+wire tick_short = pacetimer == 21'h01fff;
 
 /* Delay inquiry responses to after tick_short */
 always@(posedge clk or posedge reset) begin

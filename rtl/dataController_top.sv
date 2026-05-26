@@ -121,20 +121,20 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 );
 
 	// CPU reset generation
-	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 800,000 clocks of clk8
-	reg [19:0] resetDelay; // 20 bits = 1 million
+	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 1,600,000 clocks of clk16
+	reg [20:0] resetDelay; // 21 bits = 2 million
 	wire isResetting = resetDelay != 0;
 
 	initial begin
 		// force a reset when the FPGA configuration is completed
-		resetDelay <= 20'hFFFFF;
+		resetDelay <= 21'h1FFFFF;
 	end
 
 	always @(posedge clk32 or negedge _systemReset) begin
 		if (_systemReset == 1'b0) begin
-			resetDelay <= 20'hFFFFF;
+			resetDelay <= 21'h1FFFFF;
 		end
-		else if (clk8_en_p && isResetting) begin
+		else if (clk16_en_p && isResetting) begin
 			resetDelay <= resetDelay - 1'b1;
 		end
 	end
@@ -232,7 +232,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg [5:0] vblankCount;
 	reg _lastVblank;
 	always @(posedge clk32) begin
-		if (clk8_en_n) begin
+		if (clk16_en_n) begin
 			_lastVblank <= _vblank;
 			if (_vblank == 1'b0 && _lastVblank == 1'b1) begin
 				if (vblankCount != 59) begin
@@ -694,10 +694,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire kbd_clk_active = !machineType &&
 	                      ((kbd_transmitting && !kbd_wait_receiving) || kbd_receiving);
 	always @(posedge clk32) begin
-		if (clk8_en_p) begin
+		if (clk16_en_p) begin
 			if (kbd_clk_active) begin
 				kbdclk_count <= kbdclk_count + 1'd1;
-				if (kbdclk_count == (machineType ? 8'd80 : 12'd1300)) begin // ~165usec - Mac Plus / faster - ADB
+				if (kbdclk_count == (machineType ? 12'd160 : 12'd2600)) begin // ~165usec - Mac Plus / faster - ADB
 					kbdclk <= ~kbdclk;
 					kbdclk_count <= 0;
 					if (kbdclk) begin
@@ -727,7 +727,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			ADBListenD <= 0;
 			via1_sr_active_d <= 0;
 			via1_sr_out_ack <= 1'b0;
-		end else if (clk8_en_p) begin
+		end else if (clk16_en_p) begin
 			if (kbd_in_strobe && !machineType) begin
 				kbd_to_mac <= kbd_in_data;
 				kbd_data_valid <= 1;
@@ -838,8 +838,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// SCC
 	scc s(
 		.clk(clk32),
-		.cep(clk8_en_p),
-		.cen(clk8_en_n),
+		.cep(clk16_en_p),
+		.cen(clk16_en_n),
 		.reset_hw(~_cpuReset),
 		.cs(selectSCC && (_cpuLDS == 1'b0 || _cpuUDS == 1'b0)),
 		.we(!_cpuRW),  // Mac II: CPU R/W signal (Mac Plus used !_cpuLDS for odd-address writes)
@@ -867,7 +867,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// Mouse
 	ps2_mouse mouse(
 		.clk(clk32),
-		.ce(clk8_en_p),
+		.ce(clk16_en_p),
 		.reset(~_cpuReset),
 		.ps2_mouse(ps2_mouse),
 		.x1(mouseX1),
@@ -884,7 +884,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// Keyboard
 	ps2_kbd kbd(
 		.clk(clk32),
-		.ce(clk8_en_p),
+		.ce(clk16_en_p),
 		.reset(~_cpuReset),
 		.ps2_key(ps2_key),
 		.data_out(kbd_out_data),              // data from mac
@@ -901,7 +901,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	adb adb(
 		.clk(clk32),
-		.clk_en(clk8_en_p),
+		.clk_en(clk16_en_p),
 		.reset(~_cpuReset),
 		.st({ADBST1, ADBST0}),
 		._int(_ADBint),
