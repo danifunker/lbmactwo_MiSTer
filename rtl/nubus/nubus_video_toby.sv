@@ -81,7 +81,11 @@ module nubus_video_toby (
         video_en = 1'b1;  // Always enabled for simple card
     end
 
-    // Clock enable generation: 25.175MHz from 32.5MHz
+    // Clock enable generation: 25.175 MHz pixel clock from clk_sys = 31.3344 MHz.
+    // Fractional accumulator: add 25175 each cycle; when ≥ 31334 (≈ clk_sys
+    // in kHz), fire ce_pixel and subtract 31334. Effective rate within 0.001%
+    // of 25.175 MHz (the 0.4 kHz residual from rounding 31334.4 → 31334 is
+    // well under any VGA timing budget).
     reg [15:0] clk_video_acc;
     reg clk_video_en;
 
@@ -90,8 +94,8 @@ module nubus_video_toby (
             clk_video_acc <= 16'd0;
             clk_video_en <= 1'b0;
         end else begin
-            if (clk_video_acc + 16'd25175 >= 16'd32500) begin
-                clk_video_acc <= clk_video_acc + 16'd25175 - 16'd32500;
+            if (clk_video_acc + 16'd25175 >= 16'd31334) begin
+                clk_video_acc <= clk_video_acc + 16'd25175 - 16'd31334;
                 clk_video_en <= 1'b1;
             end else begin
                 clk_video_acc <= clk_video_acc + 16'd25175;
