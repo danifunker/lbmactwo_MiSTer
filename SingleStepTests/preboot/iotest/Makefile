@@ -37,8 +37,8 @@ COMMON_OBJS := $(BUILD)/jsonl_writer.o \
                $(BUILD)/freestanding.o \
                $(BUILD)/display.o
 
-HDA_C_OBJS  := $(BUILD)/diskio_main.hda.o $(BUILD)/sizes.hda.o $(BUILD)/timing.hda.o $(BUILD)/scsi_sense.o $(BUILD)/drive_enum.o
-DSK_C_OBJS  := $(BUILD)/diskio_main.dsk.o $(BUILD)/sizes.dsk.o $(BUILD)/timing.dsk.o $(BUILD)/scsi_sense.o $(BUILD)/drive_enum.o
+HDA_C_OBJS  := $(BUILD)/diskio_main.hda.o $(BUILD)/sizes.hda.o $(BUILD)/timing.hda.o $(BUILD)/scsi_sense.o $(BUILD)/drive_enum.o $(BUILD)/scsi_probe.o
+DSK_C_OBJS  := $(BUILD)/diskio_main.dsk.o $(BUILD)/sizes.dsk.o $(BUILD)/timing.dsk.o $(BUILD)/scsi_sense.o $(BUILD)/drive_enum.o $(BUILD)/scsi_probe.o
 
 ENTRY_OBJ   := $(BUILD)/payload_entry.o
 EXC_OBJ     := $(BUILD)/exc_handlers.o
@@ -84,6 +84,8 @@ $(BUILD)/diskio_main.dsk.o: diskio_main.c sizes.h timing.h scsi_sense.h | $(BUIL
 $(BUILD)/scsi_sense.o: scsi_sense.c scsi_sense.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/drive_enum.o: drive_enum.c drive_enum.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/scsi_probe.o: scsi_probe.c scsi_probe.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/sizes.dsk.o: sizes.c sizes.h | $(BUILD)
 	$(CC) $(CFLAGS) -DIOTEST_VARIANT_DSK -c -o $@ $<

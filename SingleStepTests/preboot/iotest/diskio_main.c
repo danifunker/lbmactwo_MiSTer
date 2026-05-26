@@ -27,6 +27,7 @@
 #include "bench_types.h"
 #include "drive_enum.h"
 #include "jsonl_writer.h"
+#include "scsi_probe.h"
 #include "scsi_sense.h"
 #include "sizes.h"
 #include "timing.h"
@@ -371,8 +372,11 @@ static JsonlWriter g_jw;
 #define LINE_DRIVES_HDR    LINE(1)
 #define LINE_DRIVE_ROW(i)  LINE(2u + (i))
 #define MAX_DRIVES_SHOWN   4u
-#define LINE_HEADER        LINE(7)
-#define LINE_RESULT(i)     LINE(8u + (i))
+#define LINE_NCR_LABEL     LINE(6)   /* "NCR5380 (CDR ICR MR TCR CSR BSR IDR RST):" */
+#define LINE_NCR_PRE       LINE(7)   /* hex dump captured right before each trap */
+#define LINE_NCR_POST      LINE(8)   /* hex dump after trap returned (if at all) */
+#define LINE_HEADER        LINE(10)
+#define LINE_RESULT(i)     LINE(11u + (i))
 
 /* Per-line byte-column layout (1 byte = 8 pixels on the 1bpp screen).
  * STATUS_W = 8 chars (64 px) wide; fits Mac OS error mnemonics like
@@ -575,6 +579,16 @@ void bench_main(void)
         }
     }
 
+    /* NCR5380 register-dump panel. The pre/post rows get repainted by
+     * the per-test loop right before and right after each _Read trap.
+     * Idea: if the trap Sad-Mac's, the pre row is the last thing
+     * captured -- you read it off the screen before the System wipes
+     * for the Sad Mac, or compare against MAME for divergence. */
+    paint_string(LINE_NCR_LABEL, COL_SIZE,
+                 "NCR5380     CDR ICR MR  TCR CSR BSR IDR RST", 44);
+    paint_string(LINE_NCR_PRE,  COL_SIZE, "  pre:    -- -- -- -- -- -- -- --", 36);
+    paint_string(LINE_NCR_POST, COL_SIZE, " post:    -- -- -- -- -- -- -- --", 36);
+
 #ifndef IOTEST_READ_ONLY
     paint_string(LINE_HEADER, COL_SIZE,  "SIZE",  4);
     paint_string(LINE_HEADER, COL_READ,  "READ",  4);
@@ -613,9 +627,25 @@ void bench_main(void)
 
         /* ----- READ ----- */
         pb_init(&g_pb, (u32)g_io_buf, s->read_offset, s->length);
+        /* Snapshot NCR5380 state RIGHT BEFORE the trap fires. On
+         * hardware where the trap then crashes to Sad Mac (vector 10),
+         * this row is the last thing painted and survives long enough
+         * for the operator to read it (or photograph the screen). */
+        {
+            char nbuf[24];
+            scsi_probe_format(nbuf);
+            paint_string(LINE_NCR_PRE, COL_SIZE + 9, nbuf, 24);
+        }
         timer_start();
         err = trap_with_recovery(trap_read, &g_pb);
         t_us = timer_elapsed_us();
+        /* If the trap returned, snapshot again so we can see how the
+         * bus state changed. */
+        {
+            char nbuf[24];
+            scsi_probe_format(nbuf);
+            paint_string(LINE_NCR_POST, COL_SIZE + 9, nbuf, 24);
+        }
         /* Only ask the device for sense data when the failure is a real
          * Mac OS / driver error code (negative i16). Our synthetic
          * exception codes (30002..30009) mean the trap didn't actually
