@@ -16,23 +16,17 @@ static u8 g_pb[PB_SIZE];
 
 /* Single-sector _Write at byte offset (ctx.base_offset + sector_idx * 512).
  * Returns ioResult (0 = noErr). Inline asm calls $A003 _Write. */
-extern void paint_string(u32 row, u32 col_byte, const char *s, u32 max_chars);
-static void pmk(char c) { char s[2]; s[0]=c; s[1]=0; paint_string(50, 7, s, 1); }
-
 static i16 driver_write_sector(const JwCtx *ctx, u32 sector_idx, const u8 *buf)
 {
     u8 *pb = g_pb;
     u32 i;
-    pmk('a');
     for (i = 0; i < PB_SIZE; i++) pb[i] = 0;
-    pmk('b');
     *(i16 *)(pb + PB_OFF_IOREFNUM)   = ctx->refnum;
     *(i16 *)(pb + PB_OFF_IOVREFNUM)  = ctx->drive;
     *(u32 *)(pb + PB_OFF_IOBUFFER)   = (u32)buf;
     *(u32 *)(pb + PB_OFF_IOREQCOUNT) = JW_BATCH_BYTES;
     *(i16 *)(pb + PB_OFF_IOPOSMODE)  = 1;     /* fsFromStart */
     *(u32 *)(pb + PB_OFF_IOPOSOFFSET) = ctx->base_offset + (u32)sector_idx * JW_BATCH_BYTES;
-    pmk('c');
 
     asm volatile (
         "movel %0, %%a0   \n"
@@ -42,7 +36,6 @@ static i16 driver_write_sector(const JwCtx *ctx, u32 sector_idx, const u8 *buf)
         : "a0", "a1", "d0", "d1", "d2", "cc", "memory"
     );
 
-    pmk('d');
     return *(i16 *)(pb + PB_OFF_IORESULT);
 }
 
@@ -91,16 +84,6 @@ void jw_putul(JsonlWriter *w, u32 v)
     char *t = f_putul(tmp, v);
     char *p;
     for (p = tmp; p < t; p++) jw_putc(w, *p);
-}
-
-/* Same as flush_sector but does not advance the sector pointer. */
-extern void paint_string(u32 row, u32 col_byte, const char *s, u32 max_chars);
-
-static void paint_marker(char c)
-{
-    char s[2];
-    s[0] = c; s[1] = '\0';
-    paint_string(50, 6, s, 1);
 }
 
 /* Write the current batch to disk without advancing `written`.

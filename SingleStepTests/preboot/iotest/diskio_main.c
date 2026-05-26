@@ -56,9 +56,8 @@ struct iotest_results_slot g_results_slot = {
 
 #define g_results_offset (g_results_slot.offset)
 
-/* Paint helpers — same signatures as supervisor_bench/font_ascii.c. */
+/* Paint helpers — same signature as supervisor_bench/font_ascii.c. */
 extern void paint_string(u32 row, u32 col_byte, const char *s, u32 max_chars);
-extern void paint_progress(u32 idx, u32 total);
 
 /* I/O buffer pinned to a fixed high address — NOT in .bss.
  *
@@ -254,10 +253,85 @@ static void emit_write_line(JsonlWriter *jw, const IoTestSize *s,
 
 static JsonlWriter g_jw;
 
+/* paint_string takes a PIXEL row (not a character row), and glyphs are 8
+ * pixels tall. LINE(n) places each visible text line on a 12-pixel grid
+ * (8-pixel glyph + 4-pixel gap) so adjacent lines are clear of each other.
+ *
+ * Layout: one banner row + one column-header row + one result row per
+ * test size, all visible at the same time so the operator can scan the
+ * full pass/fail matrix without needing to remember the order.
+ *
+ *     LINE(0)   "IOTEST: DISK I/O BENCH"
+ *     LINE(1)   "SIZE     READ     WRITE"      (column header)
+ *     LINE(2)   "1B       pass     pass"        i=0
+ *     LINE(3)   "512B     pass     pass"        i=1
+ *     ...
+ *     LINE(2+N) per-size row N
+ *
+ * 12 HDA sizes -> last result row at LINE(13) = pixel row 156. Well
+ * within the 480-px screen (mdc824 default mode). Floppy variant runs
+ * 8 sizes so it stops at LINE(9) = 108. */
+#define LINE(n)         ((n) * 12u)
+#define LINE_BANNER     LINE(0)
+#define LINE_HEADER     LINE(1)
+#define LINE_RESULT(i)  LINE(2u + (i))
+
+/* Per-line byte-column layout (1 byte = 8 pixels on the 1bpp screen). */
+#define COL_SIZE        1u    /* "1B"..."4MB"  8 cols wide */
+#define COL_READ        10u   /* "pass" or "E-NN" 6 cols wide */
+#define COL_WRITE       20u   /* "pass" or "FAIL" 6 cols wide (full mode) */
+#define STATUS_W        6u    /* fixed width so old chars overprint cleanly */
+
+/* Format a 6-char status cell into `out` (no NUL):
+ *   err == 0  ->  "pass  "
+ *   err != 0  ->  "E-NN  " or "E NNN" (signed decimal, padded to 6 chars).
+ * Caller passes a 6-byte buffer; paint_string is told to render exactly 6
+ * chars so a longer previous string ("....") is wiped from the cell. */
+static void fmt_status(char out[STATUS_W], i16 err)
+{
+    u32 i;
+    for (i = 0; i < STATUS_W; i++) out[i] = ' ';
+    if (err == 0) { out[0]='p'; out[1]='a'; out[2]='s'; out[3]='s'; return; }
+    i32 v = (i32)err;
+    int neg = (v < 0);
+    if (neg) v = -v;
+    /* Format up to 4 digits right-justified, prefix sign before first digit. */
+    u32 div_table[4] = { 1000, 100, 10, 1 };
+    u32 d, started = 0, pos = 2;
+    out[0] = 'E';
+    out[1] = neg ? '-' : ' ';
+    for (d = 0; d < 4; d++) {
+        u32 digit = ((u32)v / div_table[d]) % 10;
+        if (digit || started || d == 3) {
+            if (pos < STATUS_W) out[pos++] = (char)('0' + digit);
+            started = 1;
+        }
+    }
+}
+
+/* Paint one result row's fixed parts (size label + cells set to "....").
+ * Called once per size before its test runs so the operator sees the row
+ * appear in advance and watches the cells fill in. */
+static void paint_row_skeleton(u16 i, const char *label)
+{
+    char dots[STATUS_W] = {'.',' ','.',' ','.',' '};
+    paint_string(LINE_RESULT(i), COL_SIZE,  label, 8);
+    paint_string(LINE_RESULT(i), COL_READ,  dots,  STATUS_W);
+#ifndef IOTEST_READ_ONLY
+    paint_string(LINE_RESULT(i), COL_WRITE, dots,  STATUS_W);
+#endif
+}
+
+static void paint_cell(u16 i, u32 col, const char *six)
+{
+    paint_string(LINE_RESULT(i), col, six, STATUS_W);
+}
+
 void bench_main(void)
 {
     JwCtx ctx;
     u16 i;
+    char status[STATUS_W];
 
     ctx.refnum      = g_handoff_refnum;
     ctx.drive       = g_handoff_drive;
@@ -265,7 +339,15 @@ void bench_main(void)
     ctx.max_bytes   = 32 * 1024;            /* same allocation as build_*.sh */
     jw_init(&g_jw, &ctx);
 
-    paint_string(4, 4, "IOTEST: DISK I/O BENCH", 22);
+    paint_string(LINE_BANNER, COL_SIZE, "IOTEST: DISK I/O BENCH", 22);
+#ifndef IOTEST_READ_ONLY
+    paint_string(LINE_HEADER, COL_SIZE,  "SIZE",  4);
+    paint_string(LINE_HEADER, COL_READ,  "READ",  4);
+    paint_string(LINE_HEADER, COL_WRITE, "WRITE", 5);
+#else
+    paint_string(LINE_HEADER, COL_SIZE, "SIZE", 4);
+    paint_string(LINE_HEADER, COL_READ, "READ", 4);
+#endif
 
     u32 mem_top = MEM_TOP;
 
@@ -274,32 +356,31 @@ void bench_main(void)
         u32 t_us;
         i16 err;
 
-        paint_progress(i + 1, g_iotest_n_sizes);
-        paint_string(8, 4, s->label, 8);
+        paint_row_skeleton(i, s->label);
 
         /* RAM check: the buffer at IOBUF_BASE must hold s->length
          * bytes. If MemTop is below the buffer end, the test can't run
-         * on this Mac — emit a "skip" line and continue. The bound
-         * check uses 64-bit-equivalent math via the cast so a 4 MB
-         * length doesn't overflow when added to IOBUF_BASE.           */
+         * on this Mac — mark the row "SKIP" in both cells and continue. */
         if ((u32)IOBUF_BASE + s->length > mem_top ||
             s->length > mem_top - (u32)IOBUF_BASE) {
-            paint_string(10, 4, "SKIP RAM", 8);
+            paint_cell(i, COL_READ,  "SKIP  ");
+#ifndef IOTEST_READ_ONLY
+            paint_cell(i, COL_WRITE, "SKIP  ");
+#endif
             emit_skip_line(&g_jw, s, "insufficient_ram", mem_top);
             continue;
         }
 
         /* ----- READ ----- */
-        paint_string(10, 4, "READ   ", 7);
         pb_init(&g_pb, (u32)g_io_buf, s->read_offset, s->length);
         timer_start();
         err = trap_read(&g_pb);
         t_us = timer_elapsed_us();
         emit_read_line(&g_jw, s, t_us, err);
+        fmt_status(status, err); paint_cell(i, COL_READ, status);
 
 #ifndef IOTEST_READ_ONLY
         /* ----- WRITE + READBACK ----- */
-        paint_string(10, 4, "WRITE  ", 7);
         fill_pattern(g_io_buf, s->length, (u8)i);
         pb_init(&g_pb, (u32)g_io_buf, s->write_offset, s->length);
         timer_start();
@@ -308,7 +389,6 @@ void bench_main(void)
 
         u32 wr_us = t_us; i16 wr_err = err;
 
-        paint_string(10, 4, "VERIFY ", 7);
         /* Clear the buffer so we know readback isn't a false match. */
         {
             u32 *w = (u32 *)g_io_buf;
@@ -322,9 +402,17 @@ void bench_main(void)
 
         int ok = (err == 0) && verify_pattern(g_io_buf, s->length, (u8)i);
         emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, ok);
+
+        /* WRITE cell shows the write-trap result, not verify -- the
+         * write succeeding but verify failing is a different class of
+         * failure (driver returned noErr but readback didn't match the
+         * pattern) and would normally show up as a FAIL in the readback
+         * leg too. Single-cell summary; full detail is in /Results.jsonl. */
+        if (wr_err == 0 && !ok)      fmt_status(status, -1);  /* verify failed */
+        else                          fmt_status(status, wr_err);
+        paint_cell(i, COL_WRITE, status);
 #endif
     }
 
-    paint_string(10, 4, "DONE       ", 11);
     jw_flush(&g_jw);
 }
