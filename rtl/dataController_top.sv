@@ -119,18 +119,19 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 );
 
 	// CPU reset generation
-	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 1,600,000 clocks of clk16
-	reg [20:0] resetDelay; // 21 bits = 2 million
+	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 1,600,000 clocks of clk16.
+	// Use 23 bits (~500ms) to ensure everything has stabilized.
+	reg [22:0] resetDelay;
 	wire isResetting = resetDelay != 0;
 
 	initial begin
 		// force a reset when the FPGA configuration is completed
-		resetDelay <= 21'h1FFFFF;
+		resetDelay <= 23'h7FFFFF;
 	end
 
 	always @(posedge clk32 or negedge _systemReset) begin
 		if (_systemReset == 1'b0) begin
-			resetDelay <= 21'h1FFFFF;
+			resetDelay <= 23'h7FFFFF;
 		end
 		else if (clk16_en_p && isResetting) begin
 			resetDelay <= resetDelay - 1'b1;
@@ -563,13 +564,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg via1_sr_out_pending;
 	reg via1_sr_out_ack;
 
-	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin. Used while a real
+	// ~3ms at 16.25MHz ≈ 48750 clocks. Use 50K for margin. Used while a real
 	// response byte is being delivered, so multi-byte responses shift quickly.
-	localparam SHIFT_DELAY = 22'd100000;
+	localparam SHIFT_DELAY = 22'd50000;
 	// ~11ms (~90Hz). Used for the idle autopoll heartbeat re-arm when no
 	// response byte is pending — matches the real Mac II ADB autopoll SR-IRQ
 	// rate instead of the 3ms (~333Hz) rate that starved the ASC audio FIFO.
-	localparam IDLE_DELAY  = 22'd357500;
+	localparam IDLE_DELAY  = 22'd178750;
 
 	always @(posedge clk32) begin
 		if (!_cpuReset) begin
@@ -582,7 +583,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			via1_sr_ext_data <= 8'h00;
 			via1_sr_out_done <= 1'b0;
 			via1_sr_out_pending <= 1'b0;
-		end else begin
+		end else if (clk16_en_p) begin
 			via1_sr_ext_complete <= 1'b0;
 			via1_sr_ext_load <= 1'b0;
 			via1_sr_out_done <= 1'b0;

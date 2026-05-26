@@ -137,7 +137,7 @@ module emu
 	reg n_reset_prev = 0;
 	reg dio_download_prev = 0;
 	always @(posedge clk_sys) begin
-		reg [16:0] rst_cnt;
+		reg [18:0] rst_cnt;
 
 		if (clk16_en_p) begin
 			n_reset_prev <= n_reset;

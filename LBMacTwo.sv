@@ -276,7 +276,7 @@ always @(posedge clk_sys) begin
 end
 
 always @(posedge clk_sys) begin
-	reg [16:0] rst_cnt;
+	reg [18:0] rst_cnt;
 
 	if (clk16_en_p) begin
 		// various sources can reset the mac
@@ -930,17 +930,16 @@ wire [31:0] dbg_adb;
 wire [17:0] dbg_adb2;
 
 reg disk_act;
+integer disk_act_timeout = 0;
 always @(posedge clk_sys) begin
-	integer timeout = 0;
-
-	if(timeout) begin
-		timeout <= timeout - 1;
+	if(disk_act_timeout) begin
+		disk_act_timeout <= disk_act_timeout - 1;
 		disk_act <= 1;
 	end else begin
 		disk_act <= 0;
 	end
 
-	if(|diskAct) timeout <= 500000;
+	if(|diskAct) disk_act_timeout <= 1000000;
 end
 
 //////////////////////// DOWNLOADING ///////////////////////////
