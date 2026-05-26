@@ -672,6 +672,8 @@ module emu
 		.clk32(clk_sys),
 		.clk8_en_p(clk8_en_p),
 		.clk8_en_n(clk8_en_n),
+		.clk16_en_p(clk16_en_p),
+		.clk16_en_n(clk16_en_n),
 		.E_rising(E_rising),
 		.E_falling(E_falling),
 		.machineType(1'b1),  // Mac II mode

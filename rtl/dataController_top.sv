@@ -3,6 +3,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input clk32,					// 31.3344 MHz system clock (2 × C15M)
 	input clk8_en_p,
 	input clk8_en_n,
+	input clk16_en_p,				// C15M (15.6672 MHz) — IWM input per MAME spec
+	input clk16_en_n,
 	input E_rising,
 	input E_falling,
 
@@ -805,11 +807,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		end
 	end
 
-	// IWM
+	// IWM — clocked at C15M (15.6672 MHz) per MAME spec; module divides by 2
+	// internally to recover the ~7.8336 MHz fclk that times GCR bit cells.
 	iwm i(
 		.clk(clk32),
-		.cep(clk8_en_p),
-		.cen(clk8_en_n),
+		.cep(clk16_en_p),
+		.cen(clk16_en_n),
 		._reset(_cpuReset),
 		.selectIWM(selectIWM),
 		._cpuRW(_cpuRW),
