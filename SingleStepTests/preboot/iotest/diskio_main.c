@@ -198,13 +198,36 @@ static void fill_pattern(u8 *buf, u32 len, u8 seed)
         buf[i] = (u8)((i ^ (i >> 8) ^ seed) & 0xFFu);
 }
 
-static int verify_pattern(const u8 *buf, u32 len, u8 seed)
+/* Verification result. first_off == VERIFY_MATCH means the buffer matched
+ * the expected pattern; otherwise it's the offset of the first mismatched
+ * byte and (expected, actual) are the two byte values at that offset.
+ * count is the total number of mismatched bytes across the whole buffer
+ * (so the operator can tell single-bit corruption from wholesale junk
+ * from a wraparound or alignment shift). */
+#define VERIFY_MATCH ((u32) -1)
+typedef struct {
+    u32 first_off;
+    u32 count;
+    u8  expected;
+    u8  actual;
+} VerifyResult;
+
+static VerifyResult verify_pattern(const u8 *buf, u32 len, u8 seed)
 {
+    VerifyResult r = { VERIFY_MATCH, 0u, 0u, 0u };
     u32 i;
-    for (i = 0; i < len; i++)
-        if (buf[i] != (u8)((i ^ (i >> 8) ^ seed) & 0xFFu))
-            return 0;
-    return 1;
+    for (i = 0; i < len; i++) {
+        u8 ex = (u8)((i ^ (i >> 8) ^ seed) & 0xFFu);
+        if (buf[i] != ex) {
+            if (r.first_off == VERIFY_MATCH) {
+                r.first_off = i;
+                r.expected  = ex;
+                r.actual    = buf[i];
+            }
+            r.count++;
+        }
+    }
+    return r;
 }
 
 /* Emit a single JSONL line marking a size as skipped because the I/O
@@ -234,12 +257,18 @@ static void emit_read_line(JsonlWriter *jw, const IoTestSize *s,
     jw_commit_line(jw);
 }
 
-/* Emit one JSONL line for a write+readback result. */
+/* Emit one JSONL line for a write+readback result. When verify_pattern
+ * found mismatches, also emit the first-mismatch offset, the expected
+ * and actual byte values there, and the total mismatch count -- this is
+ * what tells single-bit corruption ("@523 e=AB a=AA, cnt=1") apart from
+ * wholesale buffer scramble ("@0 e=00 a=FF, cnt=4194304") or alignment
+ * shifts ("@512 e=00 a=NN, cnt=NN") at a glance. */
 static void emit_write_line(JsonlWriter *jw, const IoTestSize *s,
                             u32 write_us, i16 write_err,
                             u32 read_us,  i16 read_err,
-                            int verified)
+                            const VerifyResult *vr)
 {
+    int verified = (read_err == 0) && (vr->count == 0);
     jw_puts(jw, "{\"size\":\""); jw_puts(jw, s->label);
     jw_puts(jw, "\",\"len\":");  jw_putul(jw, s->length);
     jw_puts(jw, ",\"op\":\"write\",\"us\":"); jw_putul(jw, write_us);
@@ -247,6 +276,12 @@ static void emit_write_line(JsonlWriter *jw, const IoTestSize *s,
     jw_puts(jw, ",\"readback_us\":"); jw_putul(jw, read_us);
     jw_puts(jw, ",\"readback_err\":"); jw_putul(jw, (u32)(i32)read_err);
     jw_puts(jw, ",\"verified\":"); jw_putul(jw, (u32)verified);
+    if (vr->count != 0) {
+        jw_puts(jw, ",\"mismatch_offset\":"); jw_putul(jw, vr->first_off);
+        jw_puts(jw, ",\"expected\":");        jw_putul(jw, (u32)vr->expected);
+        jw_puts(jw, ",\"actual\":");          jw_putul(jw, (u32)vr->actual);
+        jw_puts(jw, ",\"mismatch_count\":");  jw_putul(jw, vr->count);
+    }
     jw_puts(jw, "}\n");
     jw_commit_line(jw);
 }
@@ -276,33 +311,107 @@ static JsonlWriter g_jw;
 #define LINE_HEADER     LINE(1)
 #define LINE_RESULT(i)  LINE(2u + (i))
 
-/* Per-line byte-column layout (1 byte = 8 pixels on the 1bpp screen). */
+/* Per-line byte-column layout (1 byte = 8 pixels on the 1bpp screen).
+ * STATUS_W = 8 chars (64 px) wide; fits Mac OS error mnemonics like
+ * "ioErr   " or "paramErr" and verify-failure markers like "@1234567"
+ * without truncation. */
 #define COL_SIZE        1u    /* "1B"..."4MB"  8 cols wide */
-#define COL_READ        10u   /* "pass" or "E-NN" 6 cols wide */
-#define COL_WRITE       20u   /* "pass" or "FAIL" 6 cols wide (full mode) */
-#define STATUS_W        6u    /* fixed width so old chars overprint cleanly */
+#define COL_READ        10u   /* status cell, 8 cols wide */
+#define COL_WRITE       20u   /* status cell, 8 cols wide (full mode) */
+#define STATUS_W        8u    /* fixed width so old chars overprint cleanly */
 
-/* Format a 6-char status cell into `out` (no NUL):
- *   err == 0  ->  "pass  "
- *   err != 0  ->  "E-NN  " or "E NNN" (signed decimal, padded to 6 chars).
- * Caller passes a 6-byte buffer; paint_string is told to render exactly 6
- * chars so a longer previous string ("....") is wiped from the cell. */
-static void fmt_status(char out[STATUS_W], i16 err)
+/* Mac OS / SCSI driver error mnemonics for the codes that actually show
+ * up in disk I/O. Anything not in this table falls back to "E -NNN  "
+ * formatting (signed decimal, 4 digits max). Keep entries to <= 7 chars
+ * + trailing space so they paint cleanly in an 8-wide cell. */
+static const struct { i16 code; const char *name; } g_ioerr_names[] = {
+    { -33, "dirFull"  },   /* directory full */
+    { -34, "dskFull"  },   /* disk full */
+    { -35, "nsvErr"   },   /* no such volume */
+    { -36, "ioErr"    },   /* generic I/O error -- most common SCSI fail */
+    { -37, "bdNamErr" },   /* bad filename */
+    { -38, "fnOpnErr" },   /* file not open */
+    { -39, "eofErr"   },   /* end-of-file */
+    { -40, "posErr"   },   /* bad positioning */
+    { -42, "tmfoErr"  },   /* too many files open */
+    { -43, "fnfErr"   },   /* file not found */
+    { -49, "opWrErr"  },   /* file already open for writing */
+    { -50, "paramErr" },   /* parameter list error */
+    { -51, "rfNumErr" },   /* bad reference number */
+    { -53, "volOffLn" },   /* volume offline */
+    { -54, "permErr"  },   /* permissions error */
+    { -55, "volOnLn"  },   /* volume already online */
+    { -56, "nsDrvErr" },   /* no such drive */
+    { -57, "noMacDsk" },   /* not a Mac disk */
+    { -58, "extFSErr" },   /* external FS error */
+    { -59, "fsRnErr"  },   /* file system rename error */
+    { -60, "badMDB"   },   /* bad master directory block */
+    { -61, "wrPermErr"},   /* write permissions error */
+    { -64, "lastDsk"  },   /* drive timeout (old SCSI) */
+    { -65, "offLine"  },   /* drive offline */
+    { -66, "noNibble" },   /* no nibble (disk read failure) */
+    { -67, "noAdrMrk" },   /* no address mark (sector header missing) */
+    { -68, "dataVerf" },   /* data verify error */
+};
+#define IOERR_NAMES_N (sizeof(g_ioerr_names) / sizeof(g_ioerr_names[0]))
+
+/* Append n chars of `src` (no NUL) into out, padding with spaces if src
+ * is shorter than n. Used to land a variable-length mnemonic in a fixed
+ * cell width so paint_string wipes any leftover chars from a prior
+ * iteration's longer status. */
+static void copy_padded(char *out, u32 n, const char *src)
 {
     u32 i;
-    for (i = 0; i < STATUS_W; i++) out[i] = ' ';
-    if (err == 0) { out[0]='p'; out[1]='a'; out[2]='s'; out[3]='s'; return; }
+    for (i = 0; i < n && src[i]; i++) out[i] = src[i];
+    for (; i < n; i++)                out[i] = ' ';
+}
+
+/* Format an 8-char status cell into `out` (no NUL):
+ *   err == 0  -> "pass    "
+ *   known err -> "ioErr   " etc. via g_ioerr_names lookup
+ *   other err -> "E -NNNN " (signed decimal, padded to 8 chars). */
+static void fmt_status(char out[STATUS_W], i16 err)
+{
+    u32 k;
+    for (k = 0; k < STATUS_W; k++) out[k] = ' ';
+    if (err == 0) { copy_padded(out, STATUS_W, "pass"); return; }
+    for (k = 0; k < IOERR_NAMES_N; k++) {
+        if (g_ioerr_names[k].code == err) {
+            copy_padded(out, STATUS_W, g_ioerr_names[k].name);
+            return;
+        }
+    }
+    /* Unknown -- decimal fallback. */
     i32 v = (i32)err;
     int neg = (v < 0);
     if (neg) v = -v;
-    /* Format up to 4 digits right-justified, prefix sign before first digit. */
-    u32 div_table[4] = { 1000, 100, 10, 1 };
+    u32 div_table[5] = { 10000, 1000, 100, 10, 1 };
     u32 d, started = 0, pos = 2;
     out[0] = 'E';
     out[1] = neg ? '-' : ' ';
-    for (d = 0; d < 4; d++) {
+    for (d = 0; d < 5; d++) {
         u32 digit = ((u32)v / div_table[d]) % 10;
-        if (digit || started || d == 3) {
+        if (digit || started || d == 4) {
+            if (pos < STATUS_W) out[pos++] = (char)('0' + digit);
+            started = 1;
+        }
+    }
+}
+
+/* Format an 8-char cell showing where verify failed. "@NNNNNNN" gives
+ * the offset of the first mismatched byte (up to 7 decimal digits =
+ * 9.9 MB, easily covering our 4 MB max test size). The byte values
+ * themselves go to JSONL only -- one cell can't carry them all. */
+static void fmt_verify_fail(char out[STATUS_W], u32 first_off)
+{
+    u32 k;
+    for (k = 0; k < STATUS_W; k++) out[k] = ' ';
+    out[0] = '@';
+    u32 div_table[7] = { 1000000, 100000, 10000, 1000, 100, 10, 1 };
+    u32 d, started = 0, pos = 1;
+    for (d = 0; d < 7; d++) {
+        u32 digit = (first_off / div_table[d]) % 10;
+        if (digit || started || d == 6) {
             if (pos < STATUS_W) out[pos++] = (char)('0' + digit);
             started = 1;
         }
@@ -314,7 +423,7 @@ static void fmt_status(char out[STATUS_W], i16 err)
  * appear in advance and watches the cells fill in. */
 static void paint_row_skeleton(u16 i, const char *label)
 {
-    char dots[STATUS_W] = {'.',' ','.',' ','.',' '};
+    char dots[STATUS_W] = {'.',' ','.',' ','.',' ','.',' '};
     paint_string(LINE_RESULT(i), COL_SIZE,  label, 8);
     paint_string(LINE_RESULT(i), COL_READ,  dots,  STATUS_W);
 #ifndef IOTEST_READ_ONLY
@@ -363,9 +472,9 @@ void bench_main(void)
          * on this Mac — mark the row "SKIP" in both cells and continue. */
         if ((u32)IOBUF_BASE + s->length > mem_top ||
             s->length > mem_top - (u32)IOBUF_BASE) {
-            paint_cell(i, COL_READ,  "SKIP  ");
+            paint_cell(i, COL_READ,  "SKIP    ");
 #ifndef IOTEST_READ_ONLY
-            paint_cell(i, COL_WRITE, "SKIP  ");
+            paint_cell(i, COL_WRITE, "SKIP    ");
 #endif
             emit_skip_line(&g_jw, s, "insufficient_ram", mem_top);
             continue;
@@ -400,16 +509,21 @@ void bench_main(void)
         err = trap_read(&g_pb);
         t_us = timer_elapsed_us();
 
-        int ok = (err == 0) && verify_pattern(g_io_buf, s->length, (u8)i);
-        emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, ok);
+        VerifyResult vr = verify_pattern(g_io_buf, s->length, (u8)i);
+        emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, &vr);
 
-        /* WRITE cell shows the write-trap result, not verify -- the
-         * write succeeding but verify failing is a different class of
-         * failure (driver returned noErr but readback didn't match the
-         * pattern) and would normally show up as a FAIL in the readback
-         * leg too. Single-cell summary; full detail is in /Results.jsonl. */
-        if (wr_err == 0 && !ok)      fmt_status(status, -1);  /* verify failed */
-        else                          fmt_status(status, wr_err);
+        /* WRITE cell precedence (most-actionable-first):
+         *   wr_err != 0          -> show the trap error mnemonic (driver
+         *                           rejected the write; verify is moot)
+         *   readback err != 0    -> show the readback trap error
+         *   verify mismatch      -> show "@NNNNNNN" with first bad byte
+         *                           offset (full byte details in JSONL)
+         *   else                 -> "pass"
+         */
+        if (wr_err != 0)              fmt_status(status, wr_err);
+        else if (err != 0)            fmt_status(status, err);
+        else if (vr.count != 0)       fmt_verify_fail(status, vr.first_off);
+        else                          fmt_status(status, 0);
         paint_cell(i, COL_WRITE, status);
 #endif
     }
