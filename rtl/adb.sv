@@ -390,36 +390,68 @@ always @(posedge clk) begin
 end
 
 // PS2 mouse input handling
-reg mstb;
+//
+// ps2_mouse[24:0] is driven by the HPS asynchronously to clk. Bit [24] is the
+// "new packet" strobe (toggles on each update); [23:0] carry the deltas and
+// buttons. The original code edge-detected [24] against a single-FF capture
+// while XOR'ing with the still-async raw input — placement-sensitive: at one
+// PLL/floorplan the strobe arrived a few ns after the data and sim-style ideal
+// sampling worked, but after a placement reshuffle the strobe can arrive
+// before [23:0] has settled, so the XOR fires while X/Y/Btn are still
+// transitioning, the (X|Y|Btn-change) guard reads zero, the strobe is
+// consumed and the real motion event is lost — invisible in verilator.
+//
+// Fix: proper 2-FF synchronizer on [24], plus a one-cycle delay register so
+// edge detection compares two synchronous samples (not sync vs. raw async).
+// [23:0] are sampled in the same clk_en window — by the time the strobe edge
+// propagates through s1→s2→d, the data bits have had ≥2 clk cycles to settle.
+reg mstb_s1, mstb_s2, mstb_d;
 always @(posedge clk) begin
 	if (reset) begin
-		mstb <= ps2_mouse[24];
-	end else if (clk_en) begin
-		mstb <= ps2_mouse[24];
+		mstb_s1 <= ps2_mouse[24];
+		mstb_s2 <= ps2_mouse[24];
+		mstb_d  <= ps2_mouse[24];
+	end else begin
+		mstb_s1 <= ps2_mouse[24];  // free-running synchronizer (no clk_en)
+		mstb_s2 <= mstb_s1;
+		if (clk_en) mstb_d <= mstb_s2;
 	end
 end
 
-wire       mouseStrobe = mstb ^ ps2_mouse[24];
+wire       mouseStrobe = mstb_d ^ mstb_s2;
 wire [8:0] mouseXraw = {ps2_mouse[4], ps2_mouse[15:8]};
 wire [8:0] mouseYraw = {ps2_mouse[5], ps2_mouse[23:16]};
 wire       mouseBtn = ps2_mouse[0];
 
 // PS2 keyboard input handling
+//
+// Same async-strobe hazard as the mouse above: ps2_key[10] is a HPS-driven
+// toggle indicating "new key event", ps2_key[8:0] carries the scan code, [9]
+// carries press/release. Sync [10] with a 2-FF synchronizer and edge-detect
+// the synchronized copy so scan code & press bits have settled by the time
+// the consumer fires.
 reg       keyStrobe;
-reg       kstb;
+reg       kstb;       // delayed (consumer-side) copy of synchronized strobe
+reg       kstb_s1;
+reg       kstb_s2;    // synchronized strobe, compared against kstb for edge
 reg [7:0] keyData;
 wire      press = ps2_key[9];
 wire      capslock_key = (ps2_key[8:0] == 'h58);
 
 always @(posedge clk) begin
 	if (reset) begin
-		kstb <= ps2_key[10];
+		kstb_s1 <= ps2_key[10];
+		kstb_s2 <= ps2_key[10];
+		kstb    <= ps2_key[10];
 		keyStrobe <= 1'b0;
 		keyData <= 8'h7f;
 		capslock <= 1'b0;
-	end else if (clk_en) begin
-		kstb <= ps2_key[10];
-		if (kstb ^ ps2_key[10]) begin
+	end else begin
+		kstb_s1 <= ps2_key[10];
+		kstb_s2 <= kstb_s1;
+		if (clk_en) begin
+		kstb <= kstb_s2;
+		if (kstb ^ kstb_s2) begin
 			case(ps2_key[8:0]) // Scan Code Set 2 → ADB scan codes
 			  9'h000: keyData[6:0] <= 7'h7F;
 			  9'h001: keyData[6:0] <= 7'h65;	//F9
@@ -943,7 +975,8 @@ always @(posedge clk) begin
 		else begin
 			keyStrobe <= 0;
 		end
-	end
+		end  // close `if (clk_en) begin` (kstb sync gated update)
+	end  // close `else begin` (synchronizer free-runs even when clk_en is low)
 
 	if (reset) capslock <= 0;
 end
