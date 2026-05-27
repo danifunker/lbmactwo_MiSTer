@@ -167,64 +167,78 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// the command phase intermittently stall on hardware (sim's ideal timing
 	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
 	// this only gates the first REQ right after selection.
-	// --- Multi-block boundary REQ pulse ------------------------------------
-	// The Mac SCSI Manager transfers a multi-block read one 512-byte block per
-	// TIB instruction, parking in a wait loop (ROM $C624) between blocks that
-	// polls CSR.REQ and exits when REQ drops.  A single-block read satisfies
-	// this naturally (data_complete drops REQ at byte 512); a multi-block read
-	// must produce the same REQ-drop at every interior 512-byte boundary or the
-	// host wedges (the "Welcome to Macintosh" hang).  Pulse REQ low briefly at
-	// each interior boundary: long enough for the tight $C624 poll to observe
-	// REQ=0 and exit, short enough that REQ is back before the host re-enters
-	// the next block's transfer loop (which would otherwise bail on DRQ=0).
-	// Drop REQ at each interior 512-byte boundary and hold it low until EITHER:
-	//   * the host reads CSR (its $C624 poll) — the careful per-block path, which
-	//     needs to observe REQ=0 to exit its wait loop and fetch the next block; OR
-	//   * a short timeout — the blind pseudo-DMA path never reads CSR, so it must
-	//     resume quickly.  The timeout MUST stay below the host's SCSI-DMA bus-error
-	//     watchdog (~260 sys cycles, sim.v/LBMacTwo.sv berr_counter): if REQ (hence
-	//     DREQ) stayed low longer, the blind path's stalled SDMA read would trip a
-	//     spurious /BERR and abort the transfer at the boundary.
-	// Drop REQ for a FIXED window at each interior 512-byte boundary, cleared
-	// only by the timer — never by a host CSR read or data read.  The careful
-	// per-block driver loop (RAM $11066: `while (CSR.REQ && BSR.pmatch)`) must
-	// sample REQ=0 at least once to advance to the next block.  Earlier designs
-	// cleared the breath on the host's first CSR read (consumed by an unrelated
-	// early poll, btmo=78) or first /DACK data-register read (consumed by a
-	// speculative non-byte read, btmo=240) — in both cases REQ rose again before
-	// the wait loop sampled it, and the loop spun forever (the "Welcome to
-	// Macintosh" hang).  A fixed window is independent of the host's per-transfer
-	// access pattern: the wait loop polls CSR every ~20-40 sys cycles, so a
-	// 200-cycle low window guarantees several samples of REQ=0.
+	// --- Inter-block REQ release (multi-block read) ------------------------
+	// The disk driver reads a multi-block transfer one block at a time via the
+	// ROM blind pseudo-DMA primitive ($40826B54: back-to-back `move.l (a0),(a2)+`
+	// /DACK reads), then parks in a wait loop (RAM $11066: `while CSR.REQ &&
+	// BSR.pmatch`) until REQ dips before fetching the next block.  A real drive
+	// momentarily deasserts REQ between blocks; the ideal target holds it asserted
+	// (the next byte is always ready), so the wait loop spins forever — the
+	// "Welcome to Macintosh" hang.
 	//
-	// BERR safety: the SCSI-DMA bus-error watchdog (LBMacTwo.sv berr_counter)
-	// fires at 251 sys cycles of a stalled DMA cycle (selectSCSIDMA && !DREQ).
-	// The careful path's CSR reads are selectSCSI (not DMA) and reset that
-	// counter, so they never BERR regardless of window length; only a blind DMA
-	// read stalled by this low window counts, so the window MUST stay < 251.
-	reg       blk_breath;
-	reg [31:0] data_cnt_q;
-	reg  [7:0] breath_timeout;
+	// Byte-count-independent inter-block REQ release.  Rather than pulse REQ at a
+	// guessed 512-byte boundary (fragile: the longword pseudo-DMA's byte/longword
+	// accounting made the exact data_cnt at the host's pause unpredictable, which
+	// stranded the wait loop at data_cnt 512/513), detect the pause directly:
+	// while in DATA_OUT, count sys cycles since the host's last /DACK data read
+	// (host_data_rd).  A blind transfer burst has only a few idle cycles between
+	// move.l reads, so the count never reaches the threshold and REQ stays
+	// asserted (the burst streams).  The inter-block wait loop ($11066) does only
+	// CSR/BSR reads, so the count climbs and REQ is deasserted, letting the loop
+	// observe REQ=0 and fetch the next block; the host's next data read zeroes the
+	// count and REQ returns within a cycle.  BERR-safe: CSR/BSR polls are
+	// selectSCSI (not selectSCSIDMA) and reset the 251-cycle bus-error watchdog,
+	// and the next data read restores REQ immediately, so no blind DMA cycle is
+	// ever held near the limit.
+	// The driver's inter-block handshake is a THREE-step sequence per block:
+	//   1. wait for REQ to drop  (loop $11066: while CSR.REQ && BSR.pmatch)
+	//   2. wait for REQ to rise   (loop $10FB2)
+	//   3. blind-DMA the next block
+	// A real drive momentarily drops REQ between blocks, producing the
+	// low-then-high edge steps 1 and 2 need.  The ideal target holds REQ
+	// asserted, so step 1 hangs; merely holding REQ low instead hangs step 2.
+	// So emit a proper one-shot REQ pulse (low, then high) when the driver is
+	// detected waiting, then leave REQ high until it reads the next block.
+	//
+	// Detection is byte-count independent (the longword pseudo-DMA's alignment
+	// makes the data_cnt at the pause unpredictable):
+	//   * tlen > 1 — only multi-block reads have inter-block waits; single-block
+	//     reads drop REQ naturally at data_complete and need none of this.
+	//   * polled_since_data — the wait loops read CSR/BSR with NO data reads,
+	//     whereas a blind burst (and its byte-align prologue) reads data and
+	//     never polls CSR.  So arm only after the host polls CSR since its last
+	//     data read, with a small idle debounce.
+	// One pulse per inter-block gap (the `pulsed` refractory latch); host_data_rd
+	// (the next block's first read) clears all of it.  BERR-safe: the pulse only
+	// fires while the host is polling CSR (selectSCSI, which resets the bus-error
+	// watchdog), and REQ is back high before the host resumes its DMA read.
+	reg [7:0] data_idle;
+	reg       polled_since_data;
+	reg       breath_act;
+	reg [7:0] breath_cnt;
+	reg       pulsed;
 	always @(posedge clk) begin
 		if (phase != PHASE_DATA_OUT) begin
-			blk_breath     <= 1'b0;
-			data_cnt_q     <= 32'd0;
-			breath_timeout <= 8'd0;
+			data_idle <= 8'd0; polled_since_data <= 1'b0;
+			breath_act <= 1'b0; breath_cnt <= 8'd0; pulsed <= 1'b0;
+		end else if (host_data_rd) begin
+			// next block's transfer resumed: reset everything, REQ free again
+			data_idle <= 8'd0; polled_since_data <= 1'b0;
+			breath_act <= 1'b0; breath_cnt <= 8'd0; pulsed <= 1'b0;
 		end else begin
-			data_cnt_q <= data_cnt;
-			if ((data_cnt != data_cnt_q) && (data_cnt[8:0] == 9'd0) &&
-			    (data_cnt != 32'd0) && !data_complete) begin
-				blk_breath     <= 1'b1;
-				breath_timeout <= 8'd200;     // fixed low window, < 251-cycle BERR watchdog
-			end else if (blk_breath) begin
-				if (breath_timeout == 8'd0)
-					blk_breath <= 1'b0;
-				else
-					breath_timeout <= breath_timeout - 8'd1;
+			if (data_idle != 8'hFF) data_idle <= data_idle + 8'd1;
+			if (host_csr_rd)        polled_since_data <= 1'b1;
+			if (breath_act) begin
+				if (breath_cnt == 8'd0) begin breath_act <= 1'b0; pulsed <= 1'b1; end
+				else breath_cnt <= breath_cnt - 8'd1;
+			end else if (!pulsed && polled_since_data && (data_idle >= 8'd16) &&
+			             (tlen > 16'd1) && (data_cnt != 32'd0) && !data_complete) begin
+				breath_act <= 1'b1;
+				breath_cnt <= 8'd64;   // REQ-low pulse width for the wait-low loop
 			end
 		end
 	end
-	wire blk_breathing = blk_breath;
+	wire blk_breathing = breath_act;
 
 	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && !blk_breathing;
 
@@ -553,9 +567,9 @@ always @(posedge clk) begin
 		end else begin
 			stall_cnt <= stall_cnt + 1'd1;
 			if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
-				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b breath=%b btmo=%0d dpc=%b cmd=%02h tlen=%0d lba=%0d",
+				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b breathing=%b idle=%0d dpc=%b cmd=%02h tlen=%0d lba=%0d",
 				         ID, phase, data_cnt, data_len, data_complete, req, ack, io_busy, io_rd, io_ack,
-				         sel, data_cnt[9], sd_buff_sel, blk_breath, breath_timeout, data_phase_complete, cmd[0], tlen, lba);
+				         sel, data_cnt[9], sd_buff_sel, blk_breathing, data_idle, data_phase_complete, cmd[0], tlen, lba);
 		end
 	end else begin
 		stall_cnt <= 0;
