@@ -128,6 +128,9 @@ bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
 bool scsi_debug_enable = false;
 bool scsi_timeout_loop_debug_enable = false;
+bool scsi_stall_history_enable = false;
+uint32_t scsi_stall_dreq_run = 0;
+bool scsi_stall_dumped = false;
 bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
@@ -1236,6 +1239,30 @@ int verilate() {
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (scsi_stall_history_enable && !scsi_stall_dumped) {
+					record_bootmask_history(pc);
+					// DREQ asserted but CPU not draining it -> count consecutive
+					// fetches; once it's clearly wedged, dump the PC ring buffer
+					// (the outer loop that abandoned the data transfer) and stop.
+					if (VERTOPINTERN->emu__DOT__scsiDREQ) {
+						if (++scsi_stall_dreq_run >= 400000) {
+							fprintf(stderr, "SCSI_STALL_HISTORY trigger frame=%d pc=%08X dreq stuck\n",
+							        video.count_frame, pc);
+							int first = bootmask_history_pos - bootmask_history_count;
+							if (first < 0) first += BOOTMASK_HISTORY_SIZE;
+							for (int i = 0; i < bootmask_history_count; i++) {
+								int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
+								const BootmaskHistoryEntry& e = bootmask_history[idx];
+								fprintf(stderr, "STALLHIST %03d frame=%d pc=%08X op=%04X "
+								        "D0=%08X D1=%08X D5=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+								        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
+							}
+							scsi_stall_dumped = true;
+						}
+					} else {
+						scsi_stall_dreq_run = 0;
+					}
+				}
 				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
 					record_bootmask_history(pc);
 					if (bootmask_once_pc(pc)) {
@@ -3409,6 +3436,8 @@ int main(int argc, char** argv, char** env) {
 			periph_debug_enable = true;
 		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
 			verbose_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-stall-history") == 0) {
+			scsi_stall_history_enable = true;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-timeout-loop-debug") == 0) {
