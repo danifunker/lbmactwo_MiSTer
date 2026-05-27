@@ -455,6 +455,7 @@ module ncr5380
 
 				.ack    ( scsi_ack ),
 				.host_csr_rd ( csr_rd ),
+				.host_data_rd ( i_dma_rd ),
 
 				.bsy    ( target_bsy[i]  ),
 				.msg    ( target_msg[i]  ),
@@ -509,5 +510,24 @@ module ncr5380
 	assign dbg_scsi4 = { dbg_rst_count, target_hs2[1], target_hs2[0] };
 
 	assign dbg_scsi5 = { target_cmd[1], target_cmd[0] };
+
+`ifdef SIMULATION
+	// Host-side stall watchdog: when a target holds REQ but the host stops
+	// ACKing for a long time, dump the pseudo-DMA state so we can see whether
+	// the host is starved of DREQ (dma_en cleared, holdoff stuck, pmatch lost).
+	reg [31:0] hstall;
+	reg        old_scsi_ack_w;
+	always @(posedge clk) begin
+		old_scsi_ack_w <= scsi_ack;
+		if (scsi_req && !scsi_ack) begin
+			hstall <= hstall + 1'd1;
+			if (hstall == 32'd320000 && $test$plusargs("scsi_stall_debug"))
+				$display("NCR_STALL req=%b ack=%b dreq=%b dma_en=%b dma_ack=%b ack_busy=%b holdoff=%0d mr_dma=%b icr=%02h tcr=%01h pmatch=%b io=%b cd=%b msg=%b",
+				         scsi_req, scsi_ack, dreq, dma_en, dma_ack, dma_ack_busy, dma_ack_holdoff,
+				         mr[`MR_DMA_MODE], icr, tcr, bsr_pmatch, scsi_io, scsi_cd, scsi_msg);
+		end else
+			hstall <= 0;
+	end
+`endif
 
 endmodule

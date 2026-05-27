@@ -20,6 +20,7 @@ module scsi
 	output 	  req,
 	input 	  ack, // initiator acknowledges a request
 	input     host_csr_rd, // pulse: host read the Current SCSI Bus Status reg (REQ poll)
+	input     host_data_rd, // pulse: host read the SCSI data register via /DACK (next byte)
 
 	input   [7:0] din, // data from initiator to target
 	output  [7:0] dout, // data from target to initiator
@@ -184,9 +185,23 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	//     watchdog (~260 sys cycles, sim.v/LBMacTwo.sv berr_counter): if REQ (hence
 	//     DREQ) stayed low longer, the blind path's stalled SDMA read would trip a
 	//     spurious /BERR and abort the transfer at the boundary.
-	// Tying the clear to the host's CSR read (rather than a guessed fixed width)
-	// makes the careful path interrupt-timing-independent; the sub-BERR timeout
-	// makes the boundary harmless to the blind path (a brief stall, never a BERR).
+	// Drop REQ for a FIXED window at each interior 512-byte boundary, cleared
+	// only by the timer — never by a host CSR read or data read.  The careful
+	// per-block driver loop (RAM $11066: `while (CSR.REQ && BSR.pmatch)`) must
+	// sample REQ=0 at least once to advance to the next block.  Earlier designs
+	// cleared the breath on the host's first CSR read (consumed by an unrelated
+	// early poll, btmo=78) or first /DACK data-register read (consumed by a
+	// speculative non-byte read, btmo=240) — in both cases REQ rose again before
+	// the wait loop sampled it, and the loop spun forever (the "Welcome to
+	// Macintosh" hang).  A fixed window is independent of the host's per-transfer
+	// access pattern: the wait loop polls CSR every ~20-40 sys cycles, so a
+	// 200-cycle low window guarantees several samples of REQ=0.
+	//
+	// BERR safety: the SCSI-DMA bus-error watchdog (LBMacTwo.sv berr_counter)
+	// fires at 251 sys cycles of a stalled DMA cycle (selectSCSIDMA && !DREQ).
+	// The careful path's CSR reads are selectSCSI (not DMA) and reset that
+	// counter, so they never BERR regardless of window length; only a blind DMA
+	// read stalled by this low window counts, so the window MUST stay < 251.
 	reg       blk_breath;
 	reg [31:0] data_cnt_q;
 	reg  [7:0] breath_timeout;
@@ -200,9 +215,9 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 			if ((data_cnt != data_cnt_q) && (data_cnt[8:0] == 9'd0) &&
 			    (data_cnt != 32'd0) && !data_complete) begin
 				blk_breath     <= 1'b1;
-				breath_timeout <= 8'd180;     // < ~260-cycle SCSI-DMA BERR watchdog
+				breath_timeout <= 8'd200;     // fixed low window, < 251-cycle BERR watchdog
 			end else if (blk_breath) begin
-				if (host_csr_rd || breath_timeout == 8'd0)
+				if (breath_timeout == 8'd0)
 					blk_breath <= 1'b0;
 				else
 					breath_timeout <= breath_timeout - 8'd1;
@@ -519,23 +534,33 @@ always @(posedge clk) begin
 end
 
 `ifdef SIMULATION
-// Stall probe: when REQ is held in a data phase but the byte counter is not
-// advancing (host has stopped reading), dump the target vs. transfer counts
-// so the exact host/target byte mismatch behind the $C624 hang is visible.
+// No-progress watchdog: in a data phase, if data_cnt has not advanced for a
+// long time, dump the FULL handshake state — independent of REQ level — so a
+// deadlock where REQ is held LOW (io_busy / blk_breath / data_phase_complete)
+// is visible, not just a REQ-high host stall.  Also logs every phase change.
 reg [31:0] stall_cnt;
+reg [31:0] data_cnt_seen;
 reg  [2:0] phase_d;
 always @(posedge clk) begin
 	phase_d <= phase;
 	if (phase != phase_d && $test$plusargs("scsi_stall_debug"))
-		$display("SCSI_PHASE ID=%0d %0d->%0d data_cnt=%0d data_len=%0d complete=%0d cmd=%02h tlen=%0d",
-		         ID, phase_d, phase, data_cnt, data_len, data_complete, cmd[0], tlen);
-	if ((phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) && req && !stb_adv && !io_busy) begin
-		stall_cnt <= stall_cnt + 1'd1;
-		if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
-			$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d data_len=%0d complete=%0d req=%b ack=%b cmd=%02h tlen=%0d",
-			         ID, phase, data_cnt, data_len, data_complete, req, ack, cmd[0], tlen);
-	end else
+		$display("SCSI_PHASE ID=%0d %0d->%0d data_cnt=%0d data_len=%0d complete=%0d cmd=%02h tlen=%0d lba=%0d",
+		         ID, phase_d, phase, data_cnt, data_len, data_complete, cmd[0], tlen, lba);
+	if (phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) begin
+		if (data_cnt != data_cnt_seen) begin
+			data_cnt_seen <= data_cnt;
+			stall_cnt <= 0;
+		end else begin
+			stall_cnt <= stall_cnt + 1'd1;
+			if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
+				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b breath=%b btmo=%0d dpc=%b cmd=%02h tlen=%0d lba=%0d",
+				         ID, phase, data_cnt, data_len, data_complete, req, ack, io_busy, io_rd, io_ack,
+				         sel, data_cnt[9], sd_buff_sel, blk_breath, breath_timeout, data_phase_complete, cmd[0], tlen, lba);
+		end
+	end else begin
 		stall_cnt <= 0;
+		data_cnt_seen <= 0;
+	end
 end
 `endif
 
