@@ -180,6 +180,42 @@ static i16 trap_write(ParamBlock *pb)
     return r;
 }
 
+/* Device Manager _Control trap (A004). Same PB layout — caller stuffs
+ * ioCRefNum (offset 24) and csCode (offset 26 in the post-name pad) plus
+ * any csParam bytes. We reuse ParamBlock by writing through pad bytes;
+ * the relevant offsets land in pad_rest[]. */
+static i16 trap_control(ParamBlock *pb)
+{
+    register i16  r asm("d0");
+    register ParamBlock *p asm("a0") = pb;
+    asm volatile (".word 0xA004\n"
+                  : "=d"(r)
+                  : "a"(p)
+                  : "d1", "d2", "a1", "cc", "memory");
+    return r;
+}
+
+/* Eject the floppy in drive `drive` via the .Sony driver (refnum -5).
+ * csCode 7 = eject; csParam[0..1] = drive number (word). Returns
+ * ioResult; we don't act on it (best-effort cleanup). */
+static i16 eject_floppy(i16 drive)
+{
+    static ParamBlock pb;
+    u32 *w = (u32 *)&pb; u32 n = sizeof(pb) / 4;
+    while (n--) *w++ = 0;
+    pb.io_refnum = -5;                /* .Sony refnum */
+    /* csCode at PB offset 26 lives in pad_rest (pad_rest starts at 50).
+     * We need offsets 26 (csCode) and 28 (csParam). Those are inside
+     * the named fields (io_versnum/io_permssn/io_misc), so write via
+     * a byte pointer instead. */
+    u8 *b = (u8 *)&pb;
+    b[26] = 0; b[27] = 7;             /* csCode = 7 (eject) */
+    /* csParam[0..1] = drive number (word, big-endian) */
+    b[28] = (u8)((drive >> 8) & 0xFF);
+    b[29] = (u8)( drive       & 0xFF);
+    return trap_control(&pb);
+}
+
 /* Raw block-driver transfers must be whole 512-byte sectors: the
  * Device Manager .Disk/SCSI driver does NO sub-block buffering (that is
  * the File Manager's job, and these _Read/_Write calls go straight to
@@ -720,4 +756,9 @@ void bench_main(void)
 
     jw_flush(&g_jw);
     paint_string(LINE_DETAIL + 12u, COL_SIZE, "Done!", 5);
+#ifdef IOTEST_VARIANT_DSK
+    /* Eject the floppy so the operator doesn't have to manually
+     * unmount the test disk before the next boot. */
+    (void)eject_floppy(g_handoff_drive);
+#endif
 }
