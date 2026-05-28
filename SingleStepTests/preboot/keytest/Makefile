@@ -1,7 +1,10 @@
-# keytest -- floppy-only ADB keyboard diagnostic.
+# keytest -- ADB keyboard diagnostic, floppy + SCSI hard disk.
+#
+# Payload is variant-agnostic (no I/O differences between floppy and
+# hard disk runs), so one binary serves both image types.
 #
 # Produces:
-#   payload_keytest_dsk.bin  -- continuous KeyMap poller
+#   payload_keytest.bin  -- continuous KeyMap poller
 
 include ../common/make/common.mk
 
@@ -12,18 +15,19 @@ COMMON_DISPLAY := $(COMMON)/display
 
 COMMON_OBJS := $(BUILD)/freestanding.o $(BUILD)/display.o
 
-DSK_C_OBJS  := $(BUILD)/keytest_main.o
+C_OBJS  := $(BUILD)/keytest_main.o
 
 ENTRY_OBJ   := $(BUILD)/payload_entry.o
 EXC_OBJ     := $(BUILD)/exc_handlers.o
 BOOT_OBJ    := $(BUILD)/boot_stub.o
 BOOT_BIN    := $(BUILD)/boot_stub.bin
 
-DSK_OBJS    := $(ENTRY_OBJ) $(EXC_OBJ) $(DSK_C_OBJS) $(COMMON_OBJS)
+PAYLOAD_OBJS := $(ENTRY_OBJ) $(EXC_OBJ) $(C_OBJS) $(COMMON_OBJS)
 
-.PHONY: all dsk clean
-all: dsk
-dsk: $(BUILD)/payload_keytest_dsk.bin $(BOOT_BIN)
+.PHONY: all dsk hda clean
+all: $(BUILD)/payload_keytest.bin $(BOOT_BIN)
+dsk: all
+hda: all
 
 $(BUILD):
 	mkdir -p $@
@@ -48,9 +52,9 @@ $(BUILD)/freestanding.o: $(COMMON_RUNTIME)/freestanding.c | $(BUILD)
 $(BUILD)/display.o: $(DISPLAY_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/payload_keytest_dsk.elf: $(DSK_OBJS) $(PAYLOAD_LD)
-	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(DSK_OBJS)
-$(BUILD)/payload_keytest_dsk.bin: $(BUILD)/payload_keytest_dsk.elf
+$(BUILD)/payload_keytest.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
+	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(PAYLOAD_OBJS)
+$(BUILD)/payload_keytest.bin: $(BUILD)/payload_keytest.elf
 	$(OBJCOPY) -O binary $< $@
 
 clean:
