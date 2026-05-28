@@ -604,4 +604,64 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pslt (.probe(slt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // PADP: ADB Poll-distribution monitor.
+    //   Edge-detects cmd_valid 0->1 in adb.sv (= a fresh command byte has
+    //   just been latched) and counts which command byte we got. We
+    //   especially care whether ROM sends cmd_byte 0x3C (= addr 3 Talk
+    //   reg 0 = Apple Mouse data poll) at all. If kbd_poll_cnt grows but
+    //   mouse_poll_cnt stays at 0, ROM enumerated the mouse but is not
+    //   polling it. If both grow but cursor still doesn't move, the bug
+    //   is in the Talk reg 0 response delivery.
+    //
+    //   Source bits in dbg_adb (set in dataController_top.sv):
+    //     [10] = cmd_valid     (edge 0->1 = new cmd byte captured)
+    //     [9:8] = adb_st       (00 = ST_COMMAND)
+    //     [7:0] = cmd_byte     (the just-latched command)
+    //
+    //   Layout (32 bits):
+    //     [31:24] last_cmd        — most recent cmd_byte
+    //     [23:16] last_cmd_prev   — second-most-recent distinct cmd_byte
+    //     [15:8]  mouse_poll_cnt  — count of cmd_byte == 0x3C (saturating)
+    //     [7:0]   kbd_poll_cnt    — count of cmd_byte == 0x2C (saturating)
+    reg        cv_prev;
+    reg [7:0]  last_cmd;
+    reg [7:0]  last_cmd_prev;
+    reg [7:0]  mouse_poll_cnt;
+    reg [7:0]  kbd_poll_cnt;
+    initial begin
+        cv_prev        = 1'b0;
+        last_cmd       = 8'h00;
+        last_cmd_prev  = 8'h00;
+        mouse_poll_cnt = 8'd0;
+        kbd_poll_cnt   = 8'd0;
+    end
+    always @(posedge clk) begin
+        cv_prev <= dbg_adb[10];
+        if (!cv_prev && dbg_adb[10]) begin
+            // cmd_valid 0->1 — adb.sv just latched a new cmd byte.
+            // dbg_adb[7:0] now reflects the new cmd_byte (assigned same edge,
+            // visible NEXT cycle in NBA semantics — but cv_prev edge detection
+            // also fires NEXT cycle, so timing lines up).
+            if (dbg_adb[7:0] != last_cmd) begin
+                last_cmd_prev <= last_cmd;
+            end
+            last_cmd <= dbg_adb[7:0];
+            case (dbg_adb[7:0])
+                8'h3C: if (mouse_poll_cnt != 8'hFF) mouse_poll_cnt <= mouse_poll_cnt + 8'd1;
+                8'h2C: if (kbd_poll_cnt   != 8'hFF) kbd_poll_cnt   <= kbd_poll_cnt   + 8'd1;
+                default: ; // ignore
+            endcase
+        end
+    end
+    reg [31:0] padp_r;
+    always @(posedge clk)
+        padp_r <= {last_cmd, last_cmd_prev, mouse_poll_cnt, kbd_poll_cnt};
+
+    altsource_probe #(
+        .instance_id ("PADP"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
 endmodule

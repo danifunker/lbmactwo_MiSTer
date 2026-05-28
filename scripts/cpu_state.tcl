@@ -59,6 +59,7 @@ foreach inst $info {
     if {$nm eq "PAUD"} { set idx(PAUD) $i }
     if {$nm eq "PMSE"} { set idx(PMSE) $i }
     if {$nm eq "PSLT"} { set idx(PSLT) $i }
+    if {$nm eq "PADP"} { set idx(PADP) $i }
     incr i
 }
 
@@ -335,6 +336,15 @@ for {set s 1} {$s <= 6} {incr s} {
         set sticky    [expr {($sl >> 31) & 0x1}]
         puts [format "           SLOT-E REG: last_reg=0x%04X wr_0x0148=%u(sat255) wr_0x013C=%u(sat127) sticky_148=%d" \
             $last_reg $cnt_148 $cnt_13c $sticky]
+    }
+    if {[info exists idx(PADP)]} {
+        set pp [rd $idx(PADP)]
+        set kbd_poll   [expr {$pp & 0xFF}]
+        set mouse_poll [expr {($pp >> 8) & 0xFF}]
+        set lastp      [expr {($pp >> 16) & 0xFF}]
+        set lastc      [expr {($pp >> 24) & 0xFF}]
+        puts [format "           ADB POLL: last_cmd=0x%02X prev_distinct=0x%02X mouse_polls(0x3C)=%u(sat255) kbd_polls(0x2C)=%u(sat255)" \
+            $lastc $lastp $mouse_poll $kbd_poll]
     }
     after 300
 }
