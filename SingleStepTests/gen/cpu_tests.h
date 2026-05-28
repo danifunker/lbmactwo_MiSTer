@@ -2903,7 +2903,7 @@ static CpuTestSpec g_cpu_tests[] = {
     {"EXC: Line A trap ($A000, vec 10 / $28)",
       {0}, 0,
       {0xA0,0x00}, 2,
-      {0}, 0, 0, 1, 0, 0xFF},
+      {0}, 0, 0, 1, 1, 0xFF},
     {"DBG: NOP (baseline)",
       {0}, 0,
       {0x4E,0x71}, 2,

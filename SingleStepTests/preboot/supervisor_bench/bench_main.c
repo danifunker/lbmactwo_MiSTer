@@ -227,15 +227,17 @@ static void format_hex32(char *out, u32 v) {
  * and we read the registers from there. Sidesteps every SCSI write
  * issue we've been chasing.
  */
-/* Range of tests to run, 0-based, INCLUSIVE both ends. The loop also
- * applies a flag-based skip so e.g. you can scan a wide range and
- * only run raises_exception tests. */
-#define FIRST_TEST_INDEX 455    /* 1-based 456 = first EXC test */
-#define LAST_TEST_INDEX  716    /* 1-based 717 = last EXC test (Line A trap) */
+/* Range of tests to run, 0-based, INCLUSIVE both ends. The full
+ * corpus is [0 .. CPU_N_TESTS-1]: a single consolidated run covering
+ * the normal supervisor tests AND the exception tests, all through the
+ * same recovery handler. Narrow the range only for targeted debugging. */
+#define FIRST_TEST_INDEX 0
+#define LAST_TEST_INDEX  (CPU_N_TESTS - 1)
 
 /* Skip filter applied inside the loop. Set to 1 to run ONLY tests
- * flagged raises_exception; 0 to run every test in [FIRST, LAST]. */
-#define ONLY_RAISES_EXCEPTION 1
+ * flagged raises_exception; 0 to run every test in [FIRST, LAST].
+ * Consolidated run = 0 (run everything). */
+#define ONLY_RAISES_EXCEPTION 0
 
 /* Fill the framebuffer with PX_BLACK (1bpp: 0xFFFFFFFF). Compact
  * "blackout between tests" between displays. */
@@ -254,6 +256,7 @@ void bench_main(void)
     u8 *entry;
     char buf[16];
     int idx;
+    u32 n_run = 0, n_ok = 0, n_trap = 0;
     JsonlWriter *w = &g_jw;
     JwCtx wctx;
 
@@ -265,30 +268,35 @@ void bench_main(void)
     wctx.max_bytes   = g_results_max_bytes;
     jw_init(w, &wctx);
 
+    /* Static header painted once; the loop updates fields in place. */
+    wipe_screen();
+    paint_string(4, 4, "SUPERVISOR CPU BENCH - full corpus", 40);
+    paint_string(16, 4, "Test ", 5);
+    paint_string(16, 14, ": ", 2);
+
     for (idx = FIRST_TEST_INDEX; idx <= LAST_TEST_INDEX; idx++) {
         const CpuTestSpec *t = &g_cpu_tests[idx];
         u32 crashed_vec = 0;
+
+        /* hw_unsafe tests can't be run on the Mac bench safely even in
+         * supervisor mode (e.g. the raw $A000 Line A trap, which our
+         * recovery can't catch because vector 10 is reserved for the
+         * _Write disk-output path). Always skip them. */
+        if (t->hw_unsafe) continue;
 
 #if ONLY_RAISES_EXCEPTION
         if (!t->raises_exception) continue;
 #endif
 
-        /* Blackout between tests so each new test gets a clean slate. */
-        wipe_screen();
-        busy_delay(1);
-
-        /* Header + "kicking off" message — visible for 1 second
-         * before the test actually runs so the operator can confirm
-         * which test is about to be invoked. */
-        paint_string(4, 4, "SUPERVISOR MULTI-TEST RUNNER", 30);
+        /* Live progress only — no per-test wipe / delay. A full-corpus
+         * run is 700+ tests; the per-test 1s photo pauses (35+ min) and
+         * full register dump are gone. Results all go to JSONL; the
+         * screen just shows liveness + a running tally so a hang is
+         * attributable to the test index on screen. */
+        n_run++;
         format_decimal(buf, idx + 1, 4);
-        paint_string(16, 4, "Test ", 5);
         paint_string(16, 9, buf, 4);
-        paint_string(16, 14, ": ", 2);
         paint_string(16, 16, t->name, 60);
-        paint_string(28, 4, "Kicking off test in 1s...", 30);
-        busy_delay(1);
-        paint_string(28, 4, "Running...                ", 30);
 
         f_memset(&init_snap,  0, sizeof(init_snap));
         f_memset(&final_snap, 0, sizeof(final_snap));
@@ -301,52 +309,20 @@ void bench_main(void)
         crashed_vec = (u32)invoke_test_with_recovery(entry);
         asm volatile ("move.w #0x2700, %%sr" : : : "memory");
 
-        /* When a test traps, the final state dump didn't run — but
-         * the init state dump (right BEFORE the test instruction)
-         * DID run, so init_snap captures the state that produced
-         * the trap. Pick which snapshot to show based on outcome. */
+        /* When a test traps, the final state dump didn't run — but the
+         * init state dump (right BEFORE the test instruction) DID run,
+         * so init_snap captures the state that produced the trap. */
         Snapshot *display_snap = crashed_vec ? &init_snap : &final_snap;
         u32       display_pc   = crashed_vec ? init_pc    : final_pc;
 
-        if (crashed_vec) {
-            format_hex32(buf, crashed_vec);
-            paint_string(40, 4, "*** TRAP vec=", 14);
-            paint_string(40, 18, buf, 8);
-            paint_string(40, 28, " (pre-trap state) ", 20);
-        } else {
-            paint_string(40, 4, "OK (post-test state)", 30);
-        }
+        if (crashed_vec) n_trap++; else n_ok++;
 
-        /* Paint registers and scratch_ram. */
-        paint_string(64, 4, "D0..D3:", 8);
-        for (int i = 0; i < 4; i++) {
-            format_hex32(buf, display_snap->d[i]);
-            paint_string(64, 14 + i*10, buf, 8);
-        }
-        paint_string(76, 4, "D4..D7:", 8);
-        for (int i = 0; i < 4; i++) {
-            format_hex32(buf, display_snap->d[4+i]);
-            paint_string(76, 14 + i*10, buf, 8);
-        }
-        paint_string(88, 4, "A0..A3:", 8);
-        for (int i = 0; i < 4; i++) {
-            format_hex32(buf, display_snap->a[i]);
-            paint_string(88, 14 + i*10, buf, 8);
-        }
-        paint_string(100, 4, "A4..A7:", 8);
-        for (int i = 0; i < 4; i++) {
-            format_hex32(buf, display_snap->a[4+i]);
-            paint_string(100, 14 + i*10, buf, 8);
-        }
-        format_hex32(buf, display_snap->ccr);
-        paint_string(112, 4, "CCR=", 4);
-        paint_string(112, 8, buf + 6, 2);
-
-        paint_string(132, 4, "scratch_ram[0..15]:", 20);
-        for (int j = 0; j < 16; j++) {
-            format_hex32(buf, scratch_ram[j]);
-            paint_string(144, 4 + j*3, buf + 6, 2);
-        }
+        /* Compact running tally (in place, no wipe). */
+        paint_string(28, 4, "run=", 4);   format_decimal(buf, n_run, 4);  paint_string(28, 8,  buf, 4);
+        paint_string(28, 14, "ok=", 3);   format_decimal(buf, n_ok, 4);   paint_string(28, 17, buf, 4);
+        paint_string(28, 24, "trap=", 5); format_decimal(buf, n_trap, 4); paint_string(28, 29, buf, 4);
+        format_hex32(buf, crashed_vec);
+        paint_string(28, 36, "lastvec=", 8); paint_string(28, 44, buf + 6, 2);
 
         /* Append JSON line. For crashed tests we emit "trap_state"
          * (pre-trap snapshot) instead of "final" so the diff tool
@@ -357,9 +333,6 @@ void bench_main(void)
         jw_puts(w, crashed_vec ? ",\"trap_state\":" : ",\"final\":");
         write_snap(w, display_snap, display_pc);
         jw_puts(w, "}\n");
-
-        /* Visible pause so the operator can read / photograph. */
-        busy_delay(1);
     }
 
     /* All tests done — one final flush writes everything. */
@@ -375,9 +348,16 @@ void bench_main(void)
     /* If we booted from a floppy (drive 1 = internal, 2 = external),
      * eject it so the operator doesn't have to manually unmount. On a
      * SCSI boot the drive number isn't a .Sony drive, so the eject call
-     * is a harmless no-op (the driver rejects the unknown drive). */
+     * is a harmless no-op (the driver rejects the unknown drive).
+     * Show drive number + .Sony ioResult (0 = ejected). */
     if (g_handoff_drive == 1 || g_handoff_drive == 2) {
-        (void)eject_floppy(g_handoff_drive);
+        i16 ej = eject_floppy(g_handoff_drive);
+        paint_string(76, 4, "EJECT drv=", 10);
+        format_decimal(buf, (u32)g_handoff_drive, 1);
+        paint_string(76, 14, buf, 1);
+        paint_string(76, 16, "res=", 4);
+        format_hex32(buf, (u32)(u16)ej);
+        paint_string(76, 20, buf + 4, 4);
     }
 
     for (;;) { asm volatile (""); }

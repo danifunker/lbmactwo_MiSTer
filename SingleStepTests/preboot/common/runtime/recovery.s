@@ -4,8 +4,10 @@
 |   1. Read the current VBR (set by ROM at boot).
 |   2. Copy all 256 entries to our own vbr_table.
 |   3. Overwrite CPU exception vectors (2..15), interrupt autovectors
-|      (24..31), and TRAP vectors (32..47) with recovery_stub.
+|      (25..31), and TRAP vectors (32..47) with recovery_stub.
 |   4. Leave Line A (vector 10) alone — _Write trap goes through it.
+|      (Note: vector 10 being ROM-owned means a test that issues a raw
+|      $A000 Line A trap can't be caught here — flag those hw_unsafe.)
 |   5. MOVEC our table to VBR.
 |
 | invoke_test_with_recovery(entry):
@@ -71,6 +73,27 @@ install_vbr:
     move.l  #recovery_stub_v30, (30*4)(%a1)
     move.l  #recovery_stub_v31, (31*4)(%a1)
 
+    | TRAP #0..#15 (vectors 32..47). Exception tests issue TRAP #N to
+    | verify the trap vector; without these overrides they fall through
+    | to the ROM (TRAP #15 = debugger -> Sad Mac). Safe to override: our
+    | bench never calls TRAP #N itself — _Write goes through Line A.
+    move.l  #recovery_stub_v32, (32*4)(%a1)
+    move.l  #recovery_stub_v33, (33*4)(%a1)
+    move.l  #recovery_stub_v34, (34*4)(%a1)
+    move.l  #recovery_stub_v35, (35*4)(%a1)
+    move.l  #recovery_stub_v36, (36*4)(%a1)
+    move.l  #recovery_stub_v37, (37*4)(%a1)
+    move.l  #recovery_stub_v38, (38*4)(%a1)
+    move.l  #recovery_stub_v39, (39*4)(%a1)
+    move.l  #recovery_stub_v40, (40*4)(%a1)
+    move.l  #recovery_stub_v41, (41*4)(%a1)
+    move.l  #recovery_stub_v42, (42*4)(%a1)
+    move.l  #recovery_stub_v43, (43*4)(%a1)
+    move.l  #recovery_stub_v44, (44*4)(%a1)
+    move.l  #recovery_stub_v45, (45*4)(%a1)
+    move.l  #recovery_stub_v46, (46*4)(%a1)
+    move.l  #recovery_stub_v47, (47*4)(%a1)
+
     | Now switch VBR to our table.
     lea     vbr_table, %a0
     | 0x4E7B 8801: movec A0, VBR
@@ -110,6 +133,22 @@ recovery_stub_v\n:
     RSTUB 29
     RSTUB 30
     RSTUB 31
+    RSTUB 32
+    RSTUB 33
+    RSTUB 34
+    RSTUB 35
+    RSTUB 36
+    RSTUB 37
+    RSTUB 38
+    RSTUB 39
+    RSTUB 40
+    RSTUB 41
+    RSTUB 42
+    RSTUB 43
+    RSTUB 44
+    RSTUB 45
+    RSTUB 46
+    RSTUB 47
 
 | Common recovery: restore SP to where the bench was waiting, mask
 | interrupts, set D0 to the vector that fired (non-zero), and jump

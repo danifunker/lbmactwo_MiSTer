@@ -29,10 +29,15 @@ COMMON_BOOT    := $(COMMON)/boot
 
 SIZE := $(PREFIX)size
 
-.PHONY: all clean scsi cpu_scsi minimal probe calibrate strides cpu_scsi_8bpp sizes
+.PHONY: all clean scsi cpu_scsi cpu minimal probe calibrate strides cpu_scsi_8bpp sizes
 all: $(BUILD)/boot_stub_floppy.bin $(BUILD)/payload.bin sizes
 scsi:        $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_scsi.bin
 cpu_scsi:    $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_cpu_scsi.bin
+# Consolidated CPU bench (full corpus) on the PAYLDOFF-patchable boot
+# stub so the same payload boots from either a floppy (.dsk) or a SCSI
+# disk (.hda) — build_dsk.sh / build_hda.sh place /Payload anywhere and
+# patch the offset, rather than relying on the fixed 0x51600 layout.
+cpu:         $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_cpu_scsi.bin
 minimal:     $(BUILD)/boot_stub_minimal.bin
 probe:       $(BUILD)/boot_stub_probe.bin
 calibrate:   $(BUILD)/boot_stub_calibrate.bin
@@ -81,6 +86,11 @@ $(BUILD)/boot_stub_floppy.o:  $(COMMON_BOOT)/boot_stub_floppy.s | $(BUILD)
 # keep the older fixed-offset version available.
 $(BUILD)/boot_stub_scsi.o:    $(COMMON_BOOT)/boot_stub_scsi_fixed_offset.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
+# PAYLDOFF-patchable SCSI boot stub (same one iotest uses): /Payload
+# offset is a patched marker, not hardcoded, so the build script can
+# place the payload wherever the HFS allocator puts it.
+$(BUILD)/boot_stub_patch.o:   $(COMMON_BOOT)/boot_stub_scsi.s | $(BUILD)
+	$(AS) $(ASFLAGS) -o $@ $<
 # Diagnostic stubs (was: boot_stub_m2hires_{probe,calibrate,v3}.s)
 $(BUILD)/boot_stub_minimal.o:    $(COMMON_DIAGS)/boot_stub_minimal.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
@@ -108,6 +118,7 @@ $(BUILD)/font_ascii_8bpp.o:            $(COMMON_OLD)/font_ascii_m2hires.c | $(BU
 # Boot-stub ELFs (one rule per stub since stems differ).
 $(BUILD)/boot_stub_floppy.elf:    $(BUILD)/boot_stub_floppy.o    $(BOOT_STUB_LD) ; $(LD) $(LDFLAGS) -T $(BOOT_STUB_LD) -o $@ $<
 $(BUILD)/boot_stub_scsi.elf:      $(BUILD)/boot_stub_scsi.o      $(BOOT_STUB_LD) ; $(LD) $(LDFLAGS) -T $(BOOT_STUB_LD) -o $@ $<
+$(BUILD)/boot_stub_patch.elf:     $(BUILD)/boot_stub_patch.o     $(BOOT_STUB_LD) ; $(LD) $(LDFLAGS) -T $(BOOT_STUB_LD) -o $@ $<
 $(BUILD)/boot_stub_minimal.elf:   $(BUILD)/boot_stub_minimal.o   $(BOOT_STUB_LD) ; $(LD) $(LDFLAGS) -T $(BOOT_STUB_LD) -o $@ $<
 $(BUILD)/boot_stub_probe.elf:     $(BUILD)/boot_stub_probe.o     $(BOOT_STUB_LD) ; $(LD) $(LDFLAGS) -T $(BOOT_STUB_LD) -o $@ $<
 $(BUILD)/boot_stub_calibrate.elf: $(BUILD)/boot_stub_calibrate.o $(BOOT_STUB_LD) ; $(LD) $(LDFLAGS) -T $(BOOT_STUB_LD) -o $@ $<

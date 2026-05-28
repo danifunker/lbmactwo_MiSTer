@@ -4728,6 +4728,13 @@ tests[#tests + 1] = {
     preload = {},
     test    = bw(0xA000),
     raises_exception = true,
+    -- hw_unsafe: the supervisor bench routes _Write disk output through
+    -- the Line A (vector 10) trap dispatcher, so it deliberately leaves
+    -- vector 10 pointing at ROM and cannot catch a raw $A000 Line A trap
+    -- with its recovery handler. Running it on the Mac bench falls into
+    -- the ROM dispatcher and crashes. MAME / TG68K still run it as the
+    -- oracle; only the on-Mac bench skips it.
+    hw_unsafe = true,
 }
 
 -- Line F trap: deferred. On MAME's maciihmu, the FPU is present and
