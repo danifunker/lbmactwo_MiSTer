@@ -167,40 +167,18 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// the command phase intermittently stall on hardware (sim's ideal timing
 	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
 	// this only gates the first REQ right after selection.
-	// --- REQ/ACK interlock timing (NCR 5380 datasheet, §11.5/11.6) ---------
-	// A real 5380 does not re-assert REQ the instant ACK releases; it has a
-	// propagation delay ("ACK false to REQ true", T8/T10/T11 ≈ 140-160 ns).  That
-	// delay is the REQ-low window the SCSI Manager's polled handshake loops rely
-	// on between bytes/blocks of a transfer (e.g. the disk driver's wait loops at
-	// RAM $11066 `while CSR.REQ` and $10FB2 `until CSR.REQ`).  The previous model
-	// re-asserted REQ combinationally (0 ns) the moment ACK fell, so in the
-	// ideal-timing sim the host's loops never observed REQ low and a multi-block
-	// read wedged ("Welcome to Macintosh" hang).  Modeling the delay restores the
-	// natural handshake — no heuristics, just the chip's real timing.
 	//
-	// REASSERT_DLY is in clk_sys cycles (31.3344 MHz, ~32 ns each).  It models the
-	// time the target holds REQ deasserted between bytes — on a real drive this is
-	// dominated not by the chip's T11 (~140 ns) but by the drive's data-rate
-	// pacing: a period-correct Mac SCSI disk delivers bytes at roughly 0.5-1 MB/s,
-	// i.e. ~1-2 µs (≈30-60 cycles) per byte, so REQ sits low ~that long between
-	// bytes.  THAT is the window the host's polled handshake loops sample.  Our
-	// ideal target has every byte buffered, so without this pacing it would
-	// re-assert REQ in 0 ns and the host could never observe the gap.  64 cycles
-	// ≈ 2 µs/byte ≈ 0.5 MB/s — authentic for the era and wide enough for the
-	// host's wait loops to catch.
-	localparam [7:0] REASSERT_DLY = 8'd64;
-	reg [7:0] reassert_cnt;
-	always @(posedge clk) begin
-		if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN)
-			reassert_cnt <= REASSERT_DLY;   // first REQ of a data phase asserts at once
-		else if (ack)
-			reassert_cnt <= 8'd0;           // ACK asserted -> REQ deasserts, restart delay
-		else if (reassert_cnt != REASSERT_DLY)
-			reassert_cnt <= reassert_cnt + 8'd1;
-	end
-	wire req_settled = (reassert_cnt == REASSERT_DLY);
+	// REQ/ACK interlock: assert REQ whenever the target has the next byte ready
+	// (data phase active, not currently ACKed, sector buffer half not still being
+	// filled, transfer not complete).  This is the plain hardware handshake; the
+	// inter-byte/inter-block REQ-low window the SCSI Manager's polled loops sample
+	// comes from io_busy — the target holding REQ low while the backing store
+	// (SD/HPS on the FPGA, the block-device model in sim) fills the next sector.
+	// That latency is real on hardware; it must be modeled realistically in the
+	// sim's block device (see verilator/sim_blkdevice.cpp) for sim to match the
+	// FPGA.  No per-byte delay or heuristics live here — same RTL on both targets.
 
-	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && req_settled;
+	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -510,7 +488,7 @@ end
 `ifdef SIMULATION
 // No-progress watchdog: in a data phase, if data_cnt has not advanced for a
 // long time, dump the FULL handshake state — independent of REQ level — so a
-// deadlock where REQ is held LOW (io_busy / reassert delay / data_phase_complete)
+// deadlock where REQ is held LOW (io_busy / data_phase_complete)
 // is visible, not just a REQ-high host stall.  Also logs every phase change.
 reg [31:0] stall_cnt;
 reg [31:0] data_cnt_seen;
@@ -527,9 +505,9 @@ always @(posedge clk) begin
 		end else begin
 			stall_cnt <= stall_cnt + 1'd1;
 			if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
-				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b reassert=%0d dpc=%b cmd=%02h tlen=%0d lba=%0d",
+				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b dpc=%b cmd=%02h tlen=%0d lba=%0d",
 				         ID, phase, data_cnt, data_len, data_complete, req, ack, io_busy, io_rd, io_ack,
-				         sel, data_cnt[9], sd_buff_sel, reassert_cnt, data_phase_complete, cmd[0], tlen, lba);
+				         sel, data_cnt[9], sd_buff_sel, data_phase_complete, cmd[0], tlen, lba);
 		end
 	end else begin
 		stall_cnt <= 0;
