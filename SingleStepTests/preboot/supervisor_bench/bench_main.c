@@ -4,6 +4,7 @@
  * hw_unsafe tests still skipped (they'd hang the machine). */
 
 #include "bench_types.h"
+#include "eject.h"
 #include "freestanding.h"
 #include "jsonl_writer.h"
 #include "../../gen/cpu_tests.h"
@@ -370,6 +371,15 @@ void bench_main(void)
     paint_string(28, 4, "ioResult=", 9);
     paint_string(28, 13, buf + 4, 4);
     paint_string(52, 4, "Power off and extract /Results.jsonl", 40);
+
+    /* If we booted from a floppy (drive 1 = internal, 2 = external),
+     * eject it so the operator doesn't have to manually unmount. On a
+     * SCSI boot the drive number isn't a .Sony drive, so the eject call
+     * is a harmless no-op (the driver rejects the unknown drive). */
+    if (g_handoff_drive == 1 || g_handoff_drive == 2) {
+        (void)eject_floppy(g_handoff_drive);
+    }
+
     for (;;) { asm volatile (""); }
 
 #if 0

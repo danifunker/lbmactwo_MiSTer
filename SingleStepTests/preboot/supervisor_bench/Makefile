@@ -47,6 +47,8 @@ $(BUILD)/jsonl_writer.o: $(COMMON_RUNTIME)/jsonl_writer.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/freestanding.o: $(COMMON_RUNTIME)/freestanding.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/eject.o: $(COMMON_RUNTIME)/eject.c $(COMMON_RUNTIME)/eject.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/recovery.o: $(COMMON_RUNTIME)/recovery.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 $(BUILD)/exception_handlers.o: $(COMMON_RUNTIME)/exception_handlers.s | $(BUILD)
@@ -114,7 +116,8 @@ $(BUILD)/boot_stub_scsi_8bpp.elf: $(BUILD)/boot_stub_scsi_8bpp.o $(BOOT_STUB_LD)
 
 # ---------- Payload variants ----------
 PAYLOAD_OBJS := $(BUILD)/payload_entry.o $(BUILD)/exception_handlers.o \
-                $(BUILD)/bench_main.o    $(BUILD)/jsonl_writer.o
+                $(BUILD)/bench_main.o    $(BUILD)/jsonl_writer.o \
+                $(BUILD)/eject.o
 $(BUILD)/payload.elf: $(PAYLOAD_OBJS) $(PAYLOAD_LD)
 	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(PAYLOAD_OBJS)
 
@@ -127,6 +130,7 @@ CPU_SCSI_OBJS := $(BUILD)/payload_entry_cpu.o \
                  $(BUILD)/bench_main.o \
                  $(BUILD)/jsonl_writer.o \
                  $(BUILD)/freestanding.o \
+                 $(BUILD)/eject.o \
                  $(BUILD)/font_ascii.o \
                  $(BUILD)/recovery.o
 $(BUILD)/payload_cpu_scsi.elf: $(CPU_SCSI_OBJS) $(PAYLOAD_LD)
@@ -137,6 +141,7 @@ CPU_SCSI_8BPP_OBJS := $(BUILD)/payload_entry_cpu_8bpp.o \
                       $(BUILD)/bench_main.o \
                       $(BUILD)/jsonl_writer.o \
                       $(BUILD)/freestanding.o \
+                      $(BUILD)/eject.o \
                       $(BUILD)/font_ascii_8bpp.o \
                       $(BUILD)/recovery.o
 $(BUILD)/payload_cpu_scsi_8bpp.elf: $(CPU_SCSI_8BPP_OBJS) $(PAYLOAD_LD)

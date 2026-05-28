@@ -35,6 +35,7 @@ COMMON_DISPLAY := $(COMMON)/display
 # ---- Object lists ---------------------------------------------------
 COMMON_OBJS := $(BUILD)/jsonl_writer.o \
                $(BUILD)/freestanding.o \
+               $(BUILD)/eject.o \
                $(BUILD)/display.o
 
 HDA_C_OBJS  := $(BUILD)/diskio_main.hda.o $(BUILD)/sizes.hda.o $(BUILD)/timing.hda.o $(BUILD)/drive_enum.o
@@ -92,6 +93,8 @@ $(BUILD)/timing.dsk.o: timing.c timing.h | $(BUILD)
 $(BUILD)/jsonl_writer.o: $(COMMON_RUNTIME)/jsonl_writer.c $(COMMON_RUNTIME)/jsonl_writer.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/freestanding.o: $(COMMON_RUNTIME)/freestanding.c | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/eject.o: $(COMMON_RUNTIME)/eject.c $(COMMON_RUNTIME)/eject.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/display.o: $(DISPLAY_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

@@ -13,8 +13,17 @@
  * No exit condition — runs forever. Power-cycle to leave. */
 
 #include "bench_types.h"
+#include "eject.h"
 
 extern void paint_string(u32 row, u32 col_byte, const char *s, u32 max_chars);
+
+/* Boot handoff drive number, loaded by payload_entry.s. Used to eject
+ * the floppy when the operator presses Return. */
+extern i16 g_handoff_drive;
+
+/* KeyMap bit test for a given Mac virtual keycode. */
+#define KEY_DOWN(map, kc) ((map)[(kc) >> 3] & (u8)(1u << ((kc) & 7)))
+#define KC_RETURN 0x24
 
 #define LINE(n) ((n) * 12u)
 
@@ -109,7 +118,7 @@ void bench_main(void)
     paint_string(LINE(7),  1, "Last PRESS:   kc=    ch=", 24);
     paint_string(LINE(8),  1, "Last RELEASE: kc=    ch=", 24);
     paint_string(LINE(10), 1, "If KeyMap never changes, ROM isn't updating it pre-System.", 58);
-    paint_string(LINE(11), 1, "Power-cycle when done.", 22);
+    paint_string(LINE(11), 1, "Press RETURN to eject the floppy + halt.", 40);
 
     for (;;) {
         read_keymap(curr);
@@ -197,6 +206,15 @@ void bench_main(void)
         {
             u32 i;
             for (i = 0; i < 16; i++) prev[i] = curr[i];
+        }
+
+        /* RETURN ejects the floppy and halts — lets us verify eject
+         * works via the keyboard we just validated. */
+        if (KEY_DOWN(curr, KC_RETURN)) {
+            paint_string(LINE(11), 1, "Ejecting...                             ", 40);
+            (void)eject_floppy(g_handoff_drive);
+            paint_string(LINE(11), 1, "Ejected. Power-cycle when done.         ", 40);
+            for (;;) { asm volatile (""); }
         }
     }
 }

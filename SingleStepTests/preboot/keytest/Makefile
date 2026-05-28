@@ -13,7 +13,7 @@ BUILD := build
 COMMON_RUNTIME := $(COMMON)/runtime
 COMMON_DISPLAY := $(COMMON)/display
 
-COMMON_OBJS := $(BUILD)/freestanding.o $(BUILD)/display.o
+COMMON_OBJS := $(BUILD)/freestanding.o $(BUILD)/eject.o $(BUILD)/display.o
 
 C_OBJS  := $(BUILD)/keytest_main.o
 
@@ -48,6 +48,8 @@ $(BUILD)/keytest_main.o: keytest_main.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD)/freestanding.o: $(COMMON_RUNTIME)/freestanding.c | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/eject.o: $(COMMON_RUNTIME)/eject.c $(COMMON_RUNTIME)/eject.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/display.o: $(DISPLAY_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
