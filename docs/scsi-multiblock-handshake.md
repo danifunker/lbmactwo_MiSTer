@@ -2,6 +2,46 @@
 
 *Branch: `clocks-clean`. Last updated 2026-05-27.*
 
+> ## RESOLUTION UPDATE (supersedes the REASSERT_DLY discussion below)
+>
+> The hang was ultimately fixed **without any RTL change** — it was a Verilator
+> testbench artifact. `rtl/scsi.v`'s `io_busy` already holds REQ low while the
+> backing store loads the next sector; that *is* the inter-block REQ-low window
+> the driver's wait loops sample. The sim's block-device model returned a sector
+> in only **1200 ticks (~25× too fast)**, so the double-buffer prefetch hid it
+> and the window never appeared.
+>
+> **Fix (commit `66da374`):** `verilator/sim/sim_blkdevice.cpp` sector-read
+> latency 1200 → 16000 ticks (override `+blkdev_latency=<n>`); `rtl/scsi.v`
+> reverted to the plain hardware interlock (`REASSERT_DLY` and all heuristics
+> removed). With realistic latency, every multi-block read completes in sim —
+> including the **tlen=160 / 80 KB** read that hung in every prior attempt
+> (`data_cnt` reaches 81920 → STATUS), no SCSI stall.
+>
+> **MAME reference (ground truth):** the repo's bundled MAME (`mame/mame`) boots
+> the same `os7.vhd` (as `os7.hdv` at `scsi:6`) to the **full Finder desktop** —
+> see `docs/mame-os7-desktop.png`. This confirms the disk is valid and the boot
+> completes. Our sim now reads a coherent matching boot pattern (boot blocks
+> 1–4, partition map / driver near block 96, System-file blocks) with no stall.
+> Reproduce the MAME reference:
+> ```sh
+> cd mame
+> SDL_VIDEODRIVER=dummy ./mame macii -rompath roms -video none -sound none \
+>   -nothrottle -skip_gameinfo -nb9 "" -nbe m2hires -hard os7.hdv \
+>   -autoboot_script ../tools/mame/macii_snap.lua   # MAME_SNAP_FRAME=3000
+> ```
+>
+> **Caveat:** the realistic latency makes large reads slow in sim, so a full
+> in-sim boot-to-Finder is slow to reach; `+blkdev_latency=` can be tuned down to
+> the minimum that still creates the `io_busy` window (must exceed the ~492-byte
+> read-ahead time) for faster sim boots. The MAME run above is the fast way to
+> confirm boot behavior.
+>
+> The REQ/ACK propagation discussion below is retained for context but the
+> `io_busy`/latency model is the actual mechanism and fix.
+
+---
+
 This document captures the state of the SCSI multi-block read work, the root
 cause of the long-standing "Welcome to Macintosh" hang, the faithful fix that
 replaced the earlier heuristics, and **why the remaining residual is expected to
