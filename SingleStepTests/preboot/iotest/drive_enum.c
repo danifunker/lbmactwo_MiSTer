@@ -115,14 +115,27 @@ static void find_volume_name(i16 drive, char *out_name, u32 out_max)
     }
 }
 
-/* Refnum -> drive type. Currently uses the Mac OS convention that
- * .Sony floppies have refnum -5; anything else is treated as a SCSI
- * drive. A proper implementation walks the Unit Table to read the
- * driver name (".Sony" / ".SCSI" / ".AppleCD") -- TODO. */
+/* Refnum -> drive type. Mac II standard Unit Table assignments:
+ *   -5  = .Sony (floppy)
+ *   -33 = .SCSI (Apple HD SC / SCSI disk driver)
+ *   -41 = .AppleCD (CD-ROM driver)
+ * Everything else is unknown; label it "SCSI" as a safe default
+ * since most non-floppy drives on a Mac II are SCSI. */
 static DriveType classify_refnum(i16 refnum)
 {
-    if (refnum == -5) return DRIVE_TYPE_FLOPPY;
+    if (refnum == -5)  return DRIVE_TYPE_FLOPPY;
+    if (refnum == -41) return DRIVE_TYPE_CDROM;
     return DRIVE_TYPE_SCSI;
+}
+
+const char *refnum_name(i16 refnum)
+{
+    switch (refnum) {
+        case  -5: return ".Sony";
+        case -33: return ".SCSI";
+        case -41: return ".AppleCD";
+        default:  return 0;
+    }
 }
 
 int enum_drives(DriveInfo *out, int max_drives)
@@ -144,7 +157,7 @@ int enum_drives(DriveInfo *out, int max_drives)
         }
         d->type      = classify_refnum(d->refnum);
         d->is_boot   = (d->drive_num == boot_drive);
-        find_volume_name(d->drive_num, d->name, sizeof(d->name));
+        d->name[0]   = '\0';
         n++;
         dqe = rd_l(dqe + DQE_QLINK);
         hops++;

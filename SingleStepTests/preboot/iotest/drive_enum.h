@@ -33,4 +33,8 @@ int enum_drives(DriveInfo *out, int max_drives);
 /* Short type label suitable for the 4-char status cell on screen. */
 const char *drive_type_name(DriveType t);
 
+/* Human-readable driver name from refnum, or NULL if unknown.
+ * Known: -5 ".Sony", -33 ".SCSI", -41 ".AppleCD". */
+const char *refnum_name(i16 refnum);
+
 #endif

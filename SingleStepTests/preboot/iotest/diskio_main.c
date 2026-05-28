@@ -27,8 +27,6 @@
 #include "bench_types.h"
 #include "drive_enum.h"
 #include "jsonl_writer.h"
-#include "scsi_probe.h"
-#include "scsi_sense.h"
 #include "sizes.h"
 #include "timing.h"
 
@@ -363,20 +361,18 @@ static JsonlWriter g_jw;
  *                       "<num> <type> <refnum> <blocks> <name> [BOOT]"
  *     LINE(7)        "SIZE     READ     WRITE" (test column header)
  *     LINE(8..19)    one row per test size
+ *     LINE(21)       mismatch detail (last verify failure)
  *
- * Worst case (4 drives + 12 sizes): row 19 at pixel 228 of a 480-px
- * screen. Comfortable margin. Floppy variant with 8 sizes ends at
- * row 15 = pixel 180. */
+ * Worst case (4 drives + 12 sizes + detail): row 21 at pixel 252 of a
+ * 480-px screen. Comfortable margin. */
 #define LINE(n)            ((n) * 12u)
 #define LINE_BANNER        LINE(0)
 #define LINE_DRIVES_HDR    LINE(1)
 #define LINE_DRIVE_ROW(i)  LINE(2u + (i))
 #define MAX_DRIVES_SHOWN   4u
-#define LINE_NCR_LABEL     LINE(6)   /* "NCR5380 (CDR ICR MR TCR CSR BSR IDR RST):" */
-#define LINE_NCR_PRE       LINE(7)   /* hex dump captured right before each trap */
-#define LINE_NCR_POST      LINE(8)   /* hex dump after trap returned (if at all) */
-#define LINE_HEADER        LINE(10)
-#define LINE_RESULT(i)     LINE(11u + (i))
+#define LINE_HEADER        LINE(7)
+#define LINE_RESULT(i)     LINE(8u + (i))
+#define LINE_DETAIL        LINE(21u)
 
 /* Per-line byte-column layout (1 byte = 8 pixels on the 1bpp screen).
  * STATUS_W = 8 chars (64 px) wide; fits Mac OS error mnemonics like
@@ -465,24 +461,69 @@ static void fmt_status(char out[STATUS_W], i16 err)
     }
 }
 
-/* Format an 8-char cell showing where verify failed. "@NNNNNNN" gives
- * the offset of the first mismatched byte (up to 7 decimal digits =
- * 9.9 MB, easily covering our 4 MB max test size). The byte values
- * themselves go to JSONL only -- one cell can't carry them all. */
-static void fmt_verify_fail(char out[STATUS_W], u32 first_off)
+/* Format a verify-fail cell: "Mismatched byte @N ex:XX ac:YY" painted
+ * across two screen lines.  The first line (out_line1, STATUS_W chars)
+ * gets "Mism @NN" and the second (out_line2) gets "ex:XX/YY" so the
+ * operator sees the offset AND the byte values without pulling JSONL. */
+static void fmt_verify_fail(char out[STATUS_W], const VerifyResult *vr)
 {
+    static const char hex[16] = "0123456789ABCDEF";
     u32 k;
     for (k = 0; k < STATUS_W; k++) out[k] = ' ';
+    /* "@N XX/YY" — offset (up to 2 digits), then expected/actual hex.
+     * Fits in 8 chars for offsets 0..99; larger offsets truncate the
+     * hex pair but those are less common on the FPGA (byte-order bugs
+     * show up at offset 0 or 1). */
     out[0] = '@';
+    u32 off = vr->first_off;
+    u32 pos = 1;
+    if (off >= 10 && pos < STATUS_W) out[pos++] = (char)('0' + (off / 10) % 10);
+    if (pos < STATUS_W) out[pos++] = (char)('0' + off % 10);
+    if (pos < STATUS_W) out[pos++] = ' ';
+    if (pos < STATUS_W) out[pos++] = hex[(vr->expected >> 4) & 0xF];
+    if (pos < STATUS_W) out[pos++] = hex[ vr->expected       & 0xF];
+    if (pos < STATUS_W) out[pos++] = '/';
+    if (pos < STATUS_W) out[pos++] = hex[(vr->actual >> 4) & 0xF];
+    if (pos < STATUS_W) out[pos++] = hex[ vr->actual       & 0xF];
+}
+
+/* Paint a full-width detail line below the results table showing the
+ * most recent verify mismatch: "Mismatched byte @N ex:XX ac:YY cnt:NNNNN"
+ * so the operator can see the byte values without extracting JSONL. */
+static void paint_mismatch_detail(const VerifyResult *vr)
+{
+    static const char hex[16] = "0123456789ABCDEF";
+    char line[48];
+    u32 k;
+    for (k = 0; k < sizeof(line); k++) line[k] = ' ';
+    /* "Mismatched byte @" */
+    const char *prefix = "Mismatched byte @";
+    for (k = 0; prefix[k]; k++) line[k] = prefix[k];
+    /* offset (decimal, up to 7 digits) */
+    u32 off = vr->first_off;
     u32 div_table[7] = { 1000000, 100000, 10000, 1000, 100, 10, 1 };
-    u32 d, started = 0, pos = 1;
+    u32 d, started = 0, pos = k;
     for (d = 0; d < 7; d++) {
-        u32 digit = (first_off / div_table[d]) % 10;
+        u32 digit = (off / div_table[d]) % 10;
         if (digit || started || d == 6) {
-            if (pos < STATUS_W) out[pos++] = (char)('0' + digit);
+            if (pos < sizeof(line)) line[pos++] = (char)('0' + digit);
             started = 1;
         }
     }
+    /* " ex:XX ac:YY" */
+    if (pos < sizeof(line)) line[pos++] = ' ';
+    if (pos < sizeof(line)) line[pos++] = 'e';
+    if (pos < sizeof(line)) line[pos++] = 'x';
+    if (pos < sizeof(line)) line[pos++] = ':';
+    if (pos < sizeof(line)) line[pos++] = hex[(vr->expected >> 4) & 0xF];
+    if (pos < sizeof(line)) line[pos++] = hex[ vr->expected       & 0xF];
+    if (pos < sizeof(line)) line[pos++] = ' ';
+    if (pos < sizeof(line)) line[pos++] = 'a';
+    if (pos < sizeof(line)) line[pos++] = 'c';
+    if (pos < sizeof(line)) line[pos++] = ':';
+    if (pos < sizeof(line)) line[pos++] = hex[(vr->actual >> 4) & 0xF];
+    if (pos < sizeof(line)) line[pos++] = hex[ vr->actual       & 0xF];
+    paint_string(LINE_DETAIL, COL_SIZE, line, pos);
 }
 
 /* Paint one result row's fixed parts (size label + cells set to "....").
@@ -515,79 +556,87 @@ void bench_main(void)
     ctx.max_bytes   = 32 * 1024;            /* same allocation as build_*.sh */
     jw_init(&g_jw, &ctx);
 
-    paint_string(LINE_BANNER, COL_SIZE, "IOTEST: DISK I/O BENCH", 22);
+#ifdef IOTEST_VARIANT_HDA
+    paint_string(LINE_BANNER, COL_SIZE, "IOTEST: HARD DISK I/O BENCH", 28);
+#else
+    paint_string(LINE_BANNER, COL_SIZE, "IOTEST: FLOPPY DISK I/O BENCH", 30);
+#endif
 
     /* DRIVES table -- one row per online drive the ROM knows about.
-     * The operator can see at a glance whether expected drives appeared
-     * (boot disk + secondary SCSI, both floppies, etc) and tell which
-     * drive the bench is exercising (the BOOT-flagged row is the same
-     * one the bench reads/writes against today). */
+     * Wrapped in exception recovery: on real hardware the Drive Queue
+     * or VCB Queue walk can fault if the ROM hasn't fully populated
+     * the low-mem globals by boot-block time. If that happens we
+     * paint an error and continue to the actual I/O tests. */
     {
-        DriveInfo drives[MAX_DRIVES_SHOWN];
-        int n = enum_drives(drives, (int)MAX_DRIVES_SHOWN);
-        paint_string(LINE_DRIVES_HDR, COL_SIZE,
-                     "DRIVES (drv type refn  blocks name)", 35);
-        int j;
-        for (j = 0; j < n; j++) {
-            const DriveInfo *d = &drives[j];
-            char line[80];
-            u32 k;
-            for (k = 0; k < sizeof(line); k++) line[k] = ' ';
-            /* "<2d> <type> <4d> <8u> <name> [BOOT]"  --
-             * column layout: byte cols
-             *    1-2   drive_num (1-2 chars right-aligned)
-             *    4-7   type      ("FLP "/"SCSI"/"CD  "/"?   ")
-             *    9-12  refnum    (signed decimal -NNN, 4 chars)
-             *   14-21  blocks    (8 chars right-aligned)
-             *   23-50  volume name (up to 27 chars)
-             *   52-55  "BOOT" (only if is_boot)                                 */
-            /* drive_num right-aligned in 2 chars */
-            i16 dn = d->drive_num;
-            if (dn >= 10) { line[0] = '0' + (dn / 10) % 10; line[1] = '0' + dn % 10; }
-            else          { line[0] = ' ';                  line[1] = '0' + dn; }
-            const char *t = drive_type_name(d->type);
-            for (k = 0; k < 4; k++) line[3 + k] = t[k];
-            /* refnum: always 4 chars "-NNN" or " NNN" */
-            i16 rn = d->refnum;
-            int rneg = (rn < 0); u16 ra = (u16)(rneg ? -rn : rn);
-            line[8] = rneg ? '-' : ' ';
-            line[9]  = (ra >= 100) ? ('0' + (ra / 100) % 10) : ' ';
-            line[10] = (ra >= 10)  ? ('0' + (ra / 10)  % 10) : ' ';
-            line[11] = '0' + (ra % 10);
-            /* blocks right-aligned in 8 cols */
-            {
-                u32 bs = d->blocks;
-                char tmp[10]; int ti = 0;
-                if (bs == 0) tmp[ti++] = '0';
-                while (bs) { tmp[ti++] = '0' + (bs % 10); bs /= 10; }
-                int pos = 13 + (8 - ti);  /* right-align inside 8-wide field */
-                for (k = 0; (int)k < ti; k++) line[pos + k] = tmp[ti - 1 - k];
+        u32 exc = iotest_setjmp(&g_exc_jmpbuf);
+        if (exc != 0) {
+            char msg[40] = "DRIVES: exception vec ";
+            u32 p = 22;
+            if (exc >= 10) msg[p++] = (char)('0' + (exc / 10) % 10);
+            msg[p++] = (char)('0' + exc % 10);
+            paint_string(LINE_DRIVES_HDR, COL_SIZE, msg, p);
+        } else {
+            DriveInfo drives[MAX_DRIVES_SHOWN];
+            int n = enum_drives(drives, (int)MAX_DRIVES_SHOWN);
+            paint_string(LINE_DRIVES_HDR, COL_SIZE,
+                         "DRIVES", 6);
+            int j;
+            for (j = 0; j < n; j++) {
+                const DriveInfo *d = &drives[j];
+                char line[48];
+                u32 k, pos;
+                for (k = 0; k < sizeof(line); k++) line[k] = ' ';
+                pos = 0;
+                /* drive_num */
+                i16 dn = d->drive_num;
+                if (dn >= 10) line[pos++] = '0' + (dn / 10) % 10;
+                line[pos++] = '0' + dn % 10;
+                line[pos++] = ' ';
+                /* human type: "Floppy", "SCSI Disk", "CD-ROM", or "Drive" */
+                const char *type_str;
+                switch (d->type) {
+                    case DRIVE_TYPE_FLOPPY: type_str = "Floppy";    break;
+                    case DRIVE_TYPE_CDROM:  type_str = "CD-ROM";    break;
+                    case DRIVE_TYPE_SCSI:   type_str = "SCSI Disk"; break;
+                    default:               type_str = "Drive";      break;
+                }
+                for (k = 0; type_str[k]; k++) line[pos++] = type_str[k];
+                line[pos++] = ' ';
+                /* human size from blocks: KB, MB, or GB */
+                {
+                    u32 bytes = d->blocks * 512u;
+                    u32 val; char suffix;
+                    if (bytes >= 1048576u) {
+                        val = (bytes + 524288u) / 1048576u;
+                        suffix = 'M';
+                    } else {
+                        val = (bytes + 512u) / 1024u;
+                        suffix = 'K';
+                    }
+                    char tmp[6]; int ti = 0;
+                    if (val == 0) tmp[ti++] = '0';
+                    while (val) { tmp[ti++] = '0' + (val % 10); val /= 10; }
+                    for (k = 0; (int)k < ti; k++) line[pos++] = tmp[ti - 1 - k];
+                    line[pos++] = suffix;
+                    line[pos++] = 'B';
+                }
+                /* BOOT marker */
+                if (d->is_boot) {
+                    line[pos++] = ' ';
+                    line[pos++] = '*';
+                    line[pos++] = 'B';
+                    line[pos++] = 'O';
+                    line[pos++] = 'O';
+                    line[pos++] = 'T';
+                }
+                paint_string(LINE_DRIVE_ROW(j), COL_SIZE, line, pos);
             }
-            /* volume name */
-            for (k = 0; k < 27 && d->name[k]; k++) line[22 + k] = d->name[k];
-            /* BOOT marker */
-            if (d->is_boot) {
-                line[51] = 'B'; line[52] = 'O'; line[53] = 'O'; line[54] = 'T';
+            for (; j < (int)MAX_DRIVES_SHOWN; j++) {
+                paint_string(LINE_DRIVE_ROW(j), COL_SIZE,
+                             "                                        ", 40);
             }
-            paint_string(LINE_DRIVE_ROW(j), COL_SIZE, line, 56);
-        }
-        /* If fewer drives than the slots, blank the unused rows so a
-         * second run after a hot-swap doesn't show stale text. */
-        for (; j < (int)MAX_DRIVES_SHOWN; j++) {
-            paint_string(LINE_DRIVE_ROW(j), COL_SIZE,
-                         "                                                        ", 56);
         }
     }
-
-    /* NCR5380 register-dump panel. The pre/post rows get repainted by
-     * the per-test loop right before and right after each _Read trap.
-     * Idea: if the trap Sad-Mac's, the pre row is the last thing
-     * captured -- you read it off the screen before the System wipes
-     * for the Sad Mac, or compare against MAME for divergence. */
-    paint_string(LINE_NCR_LABEL, COL_SIZE,
-                 "NCR5380     CDR ICR MR  TCR CSR BSR IDR RST", 44);
-    paint_string(LINE_NCR_PRE,  COL_SIZE, "  pre:    -- -- -- -- -- -- -- --", 36);
-    paint_string(LINE_NCR_POST, COL_SIZE, " post:    -- -- -- -- -- -- -- --", 36);
 
 #ifndef IOTEST_READ_ONLY
     paint_string(LINE_HEADER, COL_SIZE,  "SIZE",  4);
@@ -620,42 +669,12 @@ void bench_main(void)
             continue;
         }
 
-        /* Static sense buffer reused across iterations -- each
-         * scsi_request_sense_safe call zeros it first. 18 bytes is the
-         * standard SCSI-2 fixed-format sense response length. */
-        static u8 sense_buf[18];
-
         /* ----- READ ----- */
         pb_init(&g_pb, (u32)g_io_buf, s->read_offset, s->length);
-        /* Snapshot NCR5380 state RIGHT BEFORE the trap fires. On
-         * hardware where the trap then crashes to Sad Mac (vector 10),
-         * this row is the last thing painted and survives long enough
-         * for the operator to read it (or photograph the screen). */
-        {
-            char nbuf[24];
-            scsi_probe_format(nbuf);
-            paint_string(LINE_NCR_PRE, COL_SIZE + 9, nbuf, 24);
-        }
         timer_start();
         err = trap_with_recovery(trap_read, &g_pb);
         t_us = timer_elapsed_us();
-        /* If the trap returned, snapshot again so we can see how the
-         * bus state changed. */
-        {
-            char nbuf[24];
-            scsi_probe_format(nbuf);
-            paint_string(LINE_NCR_POST, COL_SIZE + 9, nbuf, 24);
-        }
-        /* Only ask the device for sense data when the failure is a real
-         * Mac OS / driver error code (negative i16). Our synthetic
-         * exception codes (30002..30009) mean the trap didn't actually
-         * reach the SCSI bus, so there's no fresh sense to retrieve. */
-        const u8 *sense_ptr = 0;
-        if (err < 0) {
-            (void)scsi_request_sense_safe(g_scsi_id_for_sense, sense_buf);
-            sense_ptr = sense_buf;
-        }
-        emit_read_line(&g_jw, s, t_us, err, sense_ptr);
+        emit_read_line(&g_jw, s, t_us, err, (const u8 *)0);
         fmt_status(status, err); paint_cell(i, COL_READ, status);
 
 #ifndef IOTEST_READ_ONLY
@@ -681,18 +700,7 @@ void bench_main(void)
 
         VerifyResult vr = verify_pattern(g_io_buf, s->length, (u8)i);
 
-        /* Ask for sense if either the write trap OR the readback trap
-         * returned a real Mac OS error. Skip on caught-exception codes
-         * (>= 30000) for the same reason as the READ leg. We grab sense
-         * once (either error can populate it); SCSI keeps sense per
-         * target until the next command, so the most recent error wins
-         * regardless of which trap leg surfaced it. */
-        const u8 *wr_sense_ptr = 0;
-        if (wr_err < 0 || err < 0) {
-            (void)scsi_request_sense_safe(g_scsi_id_for_sense, sense_buf);
-            wr_sense_ptr = sense_buf;
-        }
-        emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, &vr, wr_sense_ptr);
+        emit_write_line(&g_jw, s, wr_us, wr_err, t_us, err, &vr, (const u8 *)0);
 
         /* WRITE cell precedence (most-actionable-first):
          *   wr_err != 0          -> show the trap error mnemonic (driver
@@ -704,11 +712,12 @@ void bench_main(void)
          */
         if (wr_err != 0)              fmt_status(status, wr_err);
         else if (err != 0)            fmt_status(status, err);
-        else if (vr.count != 0)       fmt_verify_fail(status, vr.first_off);
+        else if (vr.count != 0)       { fmt_verify_fail(status, &vr); paint_mismatch_detail(&vr); }
         else                          fmt_status(status, 0);
         paint_cell(i, COL_WRITE, status);
 #endif
     }
 
     jw_flush(&g_jw);
+    paint_string(LINE_DETAIL + 12u, COL_SIZE, "Done!", 5);
 }
