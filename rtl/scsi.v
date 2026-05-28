@@ -167,80 +167,40 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// the command phase intermittently stall on hardware (sim's ideal timing
 	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
 	// this only gates the first REQ right after selection.
-	// --- Inter-block REQ release (multi-block read) ------------------------
-	// The disk driver reads a multi-block transfer one block at a time via the
-	// ROM blind pseudo-DMA primitive ($40826B54: back-to-back `move.l (a0),(a2)+`
-	// /DACK reads), then parks in a wait loop (RAM $11066: `while CSR.REQ &&
-	// BSR.pmatch`) until REQ dips before fetching the next block.  A real drive
-	// momentarily deasserts REQ between blocks; the ideal target holds it asserted
-	// (the next byte is always ready), so the wait loop spins forever — the
-	// "Welcome to Macintosh" hang.
+	// --- REQ/ACK interlock timing (NCR 5380 datasheet, §11.5/11.6) ---------
+	// A real 5380 does not re-assert REQ the instant ACK releases; it has a
+	// propagation delay ("ACK false to REQ true", T8/T10/T11 ≈ 140-160 ns).  That
+	// delay is the REQ-low window the SCSI Manager's polled handshake loops rely
+	// on between bytes/blocks of a transfer (e.g. the disk driver's wait loops at
+	// RAM $11066 `while CSR.REQ` and $10FB2 `until CSR.REQ`).  The previous model
+	// re-asserted REQ combinationally (0 ns) the moment ACK fell, so in the
+	// ideal-timing sim the host's loops never observed REQ low and a multi-block
+	// read wedged ("Welcome to Macintosh" hang).  Modeling the delay restores the
+	// natural handshake — no heuristics, just the chip's real timing.
 	//
-	// Byte-count-independent inter-block REQ release.  Rather than pulse REQ at a
-	// guessed 512-byte boundary (fragile: the longword pseudo-DMA's byte/longword
-	// accounting made the exact data_cnt at the host's pause unpredictable, which
-	// stranded the wait loop at data_cnt 512/513), detect the pause directly:
-	// while in DATA_OUT, count sys cycles since the host's last /DACK data read
-	// (host_data_rd).  A blind transfer burst has only a few idle cycles between
-	// move.l reads, so the count never reaches the threshold and REQ stays
-	// asserted (the burst streams).  The inter-block wait loop ($11066) does only
-	// CSR/BSR reads, so the count climbs and REQ is deasserted, letting the loop
-	// observe REQ=0 and fetch the next block; the host's next data read zeroes the
-	// count and REQ returns within a cycle.  BERR-safe: CSR/BSR polls are
-	// selectSCSI (not selectSCSIDMA) and reset the 251-cycle bus-error watchdog,
-	// and the next data read restores REQ immediately, so no blind DMA cycle is
-	// ever held near the limit.
-	// The driver's inter-block handshake is a THREE-step sequence per block:
-	//   1. wait for REQ to drop  (loop $11066: while CSR.REQ && BSR.pmatch)
-	//   2. wait for REQ to rise   (loop $10FB2)
-	//   3. blind-DMA the next block
-	// A real drive momentarily drops REQ between blocks, producing the
-	// low-then-high edge steps 1 and 2 need.  The ideal target holds REQ
-	// asserted, so step 1 hangs; merely holding REQ low instead hangs step 2.
-	// So emit a proper one-shot REQ pulse (low, then high) when the driver is
-	// detected waiting, then leave REQ high until it reads the next block.
-	//
-	// Detection is byte-count independent (the longword pseudo-DMA's alignment
-	// makes the data_cnt at the pause unpredictable):
-	//   * tlen > 1 — only multi-block reads have inter-block waits; single-block
-	//     reads drop REQ naturally at data_complete and need none of this.
-	//   * polled_since_data — the wait loops read CSR/BSR with NO data reads,
-	//     whereas a blind burst (and its byte-align prologue) reads data and
-	//     never polls CSR.  So arm only after the host polls CSR since its last
-	//     data read, with a small idle debounce.
-	// One pulse per inter-block gap (the `pulsed` refractory latch); host_data_rd
-	// (the next block's first read) clears all of it.  BERR-safe: the pulse only
-	// fires while the host is polling CSR (selectSCSI, which resets the bus-error
-	// watchdog), and REQ is back high before the host resumes its DMA read.
-	reg [7:0] data_idle;
-	reg       polled_since_data;
-	reg       breath_act;
-	reg [7:0] breath_cnt;
-	reg       pulsed;
+	// REASSERT_DLY is in clk_sys cycles (31.3344 MHz, ~32 ns each).  It models the
+	// time the target holds REQ deasserted between bytes — on a real drive this is
+	// dominated not by the chip's T11 (~140 ns) but by the drive's data-rate
+	// pacing: a period-correct Mac SCSI disk delivers bytes at roughly 0.5-1 MB/s,
+	// i.e. ~1-2 µs (≈30-60 cycles) per byte, so REQ sits low ~that long between
+	// bytes.  THAT is the window the host's polled handshake loops sample.  Our
+	// ideal target has every byte buffered, so without this pacing it would
+	// re-assert REQ in 0 ns and the host could never observe the gap.  64 cycles
+	// ≈ 2 µs/byte ≈ 0.5 MB/s — authentic for the era and wide enough for the
+	// host's wait loops to catch.
+	localparam [7:0] REASSERT_DLY = 8'd64;
+	reg [7:0] reassert_cnt;
 	always @(posedge clk) begin
-		if (phase != PHASE_DATA_OUT) begin
-			data_idle <= 8'd0; polled_since_data <= 1'b0;
-			breath_act <= 1'b0; breath_cnt <= 8'd0; pulsed <= 1'b0;
-		end else if (host_data_rd) begin
-			// next block's transfer resumed: reset everything, REQ free again
-			data_idle <= 8'd0; polled_since_data <= 1'b0;
-			breath_act <= 1'b0; breath_cnt <= 8'd0; pulsed <= 1'b0;
-		end else begin
-			if (data_idle != 8'hFF) data_idle <= data_idle + 8'd1;
-			if (host_csr_rd)        polled_since_data <= 1'b1;
-			if (breath_act) begin
-				if (breath_cnt == 8'd0) begin breath_act <= 1'b0; pulsed <= 1'b1; end
-				else breath_cnt <= breath_cnt - 8'd1;
-			end else if (!pulsed && polled_since_data && (data_idle >= 8'd16) &&
-			             (tlen > 16'd1) && (data_cnt != 32'd0) && !data_complete) begin
-				breath_act <= 1'b1;
-				breath_cnt <= 8'd64;   // REQ-low pulse width for the wait-low loop
-			end
-		end
+		if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN)
+			reassert_cnt <= REASSERT_DLY;   // first REQ of a data phase asserts at once
+		else if (ack)
+			reassert_cnt <= 8'd0;           // ACK asserted -> REQ deasserts, restart delay
+		else if (reassert_cnt != REASSERT_DLY)
+			reassert_cnt <= reassert_cnt + 8'd1;
 	end
-	wire blk_breathing = breath_act;
+	wire req_settled = (reassert_cnt == REASSERT_DLY);
 
-	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && !blk_breathing;
+	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && req_settled;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -550,7 +510,7 @@ end
 `ifdef SIMULATION
 // No-progress watchdog: in a data phase, if data_cnt has not advanced for a
 // long time, dump the FULL handshake state — independent of REQ level — so a
-// deadlock where REQ is held LOW (io_busy / blk_breath / data_phase_complete)
+// deadlock where REQ is held LOW (io_busy / reassert delay / data_phase_complete)
 // is visible, not just a REQ-high host stall.  Also logs every phase change.
 reg [31:0] stall_cnt;
 reg [31:0] data_cnt_seen;
@@ -567,9 +527,9 @@ always @(posedge clk) begin
 		end else begin
 			stall_cnt <= stall_cnt + 1'd1;
 			if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
-				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b breathing=%b idle=%0d dpc=%b cmd=%02h tlen=%0d lba=%0d",
+				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b reassert=%0d dpc=%b cmd=%02h tlen=%0d lba=%0d",
 				         ID, phase, data_cnt, data_len, data_complete, req, ack, io_busy, io_rd, io_ack,
-				         sel, data_cnt[9], sd_buff_sel, blk_breathing, data_idle, data_phase_complete, cmd[0], tlen, lba);
+				         sel, data_cnt[9], sd_buff_sel, reassert_cnt, data_phase_complete, cmd[0], tlen, lba);
 		end
 	end else begin
 		stall_cnt <= 0;
