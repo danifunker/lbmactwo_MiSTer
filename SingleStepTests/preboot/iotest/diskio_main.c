@@ -723,7 +723,14 @@ void bench_main(void)
     paint_string(LINE_DETAIL + 12u, COL_SIZE, "Done!", 5);
 #ifdef IOTEST_VARIANT_DSK
     /* Eject the floppy so the operator doesn't have to manually
-     * unmount the test disk before the next boot. */
-    (void)eject_floppy(g_handoff_drive);
+     * unmount the test disk before the next boot. Show the .Sony
+     * Control ioResult (0 = ejected) as a status cell. */
+    {
+        i16 ej = eject_floppy(g_handoff_drive);
+        char ejs[STATUS_W];
+        paint_string(LINE_DETAIL + 24u, COL_SIZE, "EJECT:", 6);
+        fmt_status(ejs, ej);
+        paint_string(LINE_DETAIL + 24u, COL_READ, ejs, STATUS_W);
+    }
 #endif
 }

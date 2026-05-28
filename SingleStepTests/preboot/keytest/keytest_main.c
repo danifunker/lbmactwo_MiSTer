@@ -209,11 +209,34 @@ void bench_main(void)
         }
 
         /* RETURN ejects the floppy and halts — lets us verify eject
-         * works via the keyboard we just validated. */
+         * works via the keyboard we just validated. Show the drive
+         * number we pass and the .Sony Control ioResult so we can tell
+         * a real eject from a driver rejection (e.g. wrong drive #). */
         if (KEY_DOWN(curr, KC_RETURN)) {
             paint_string(LINE(11), 1, "Ejecting...                             ", 40);
-            (void)eject_floppy(g_handoff_drive);
-            paint_string(LINE(11), 1, "Ejected. Power-cycle when done.         ", 40);
+            i16 drv = g_handoff_drive;
+            i16 res = eject_floppy(drv);
+
+            char msg[40];
+            u32 m;
+            for (m = 0; m < sizeof(msg); m++) msg[m] = ' ';
+            /* "eject drv=DDD res=±DDDDD" */
+            const char *p = "eject drv=";
+            for (m = 0; p[m]; m++) msg[m] = p[m];
+            put_dec3(&msg[m], (u8)drv); m += 3;
+            msg[m++] = ' '; msg[m++] = 'r'; msg[m++] = 'e'; msg[m++] = 's';
+            msg[m++] = '=';
+            {
+                i32 v = res;
+                if (v < 0) { msg[m++] = '-'; v = -v; }
+                u32 div[5] = { 10000, 1000, 100, 10, 1 };
+                u32 d, started = 0;
+                for (d = 0; d < 5; d++) {
+                    u32 digit = ((u32)v / div[d]) % 10;
+                    if (digit || started || d == 4) { msg[m++] = (char)('0' + digit); started = 1; }
+                }
+            }
+            paint_string(LINE(11), 1, msg, m);
             for (;;) { asm volatile (""); }
         }
     }

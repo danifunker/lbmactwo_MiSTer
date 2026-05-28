@@ -6,9 +6,13 @@
  * doesn't depend on any bench's own ParamBlock typedef.
  *
  * CntrlParam field offsets (Inside Macintosh: Devices):
+ *   22  ioVRefNum (word)  -- DRIVE NUMBER for disk-driver control calls
  *   24  ioCRefNum (word)  -- driver refnum (.Sony = -5)
  *   26  csCode    (word)  -- 7 = eject
- *   28  csParam[] (...)   -- csParam[0] (word) = drive number
+ *
+ * The drive to eject is identified by ioVRefNum (offset 22), NOT by a
+ * csParam word — that was an earlier bug that made .Sony return
+ * nsDrvErr (-56) for the very drive we booted from.
  */
 
 #include "eject.h"
@@ -30,15 +34,15 @@ i16 eject_floppy(i16 drive)
     u32 i;
     for (i = 0; i < sizeof(pb); i++) pb[i] = 0;
 
+    /* ioVRefNum (word, big-endian) = drive number to eject */
+    pb[22] = (u8)((drive >> 8) & 0xFF);
+    pb[23] = (u8)( drive       & 0xFF);
     /* ioCRefNum (word, big-endian) = -5 (.Sony) */
     pb[24] = 0xFF;
     pb[25] = 0xFB;
     /* csCode (word) = 7 (eject) */
     pb[26] = 0x00;
     pb[27] = 0x07;
-    /* csParam[0] (word) = drive number */
-    pb[28] = (u8)((drive >> 8) & 0xFF);
-    pb[29] = (u8)( drive       & 0xFF);
 
     return trap_control(pb);
 }
