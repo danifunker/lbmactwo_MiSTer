@@ -60,6 +60,8 @@ foreach inst $info {
     if {$nm eq "PMSE"} { set idx(PMSE) $i }
     if {$nm eq "PSLT"} { set idx(PSLT) $i }
     if {$nm eq "PADP"} { set idx(PADP) $i }
+    if {$nm eq "PSRR"} { set idx(PSRR) $i }
+    if {$nm eq "PSRL"} { set idx(PSRL) $i }
     incr i
 }
 
@@ -345,6 +347,22 @@ for {set s 1} {$s <= 6} {incr s} {
         set lastc      [expr {($pp >> 24) & 0xFF}]
         puts [format "           ADB POLL: last_cmd=0x%02X prev_distinct=0x%02X mouse_polls(0x3C)=%u(sat255) kbd_polls(0x2C)=%u(sat255)" \
             $lastc $lastp $mouse_poll $kbd_poll]
+    }
+    if {[info exists idx(PSRR)]} {
+        set rr [rd $idx(PSRR)]
+        set r0 [expr {$rr & 0xFF}]
+        set r1 [expr {($rr >> 8) & 0xFF}]
+        set r2 [expr {($rr >> 16) & 0xFF}]
+        set r3 [expr {($rr >> 24) & 0xFF}]
+        puts [format "           SR READ seq (newest->oldest): %02X %02X %02X %02X" $r0 $r1 $r2 $r3]
+    }
+    if {[info exists idx(PSRL)]} {
+        set ll [rd $idx(PSRL)]
+        set l0 [expr {$ll & 0xFF}]
+        set l1 [expr {($ll >> 8) & 0xFF}]
+        set l2 [expr {($ll >> 16) & 0xFF}]
+        set l3 [expr {($ll >> 24) & 0xFF}]
+        puts [format "           SR LOAD seq (newest->oldest): %02X %02X %02X %02X" $l0 $l1 $l2 $l3]
     }
     after 300
 }

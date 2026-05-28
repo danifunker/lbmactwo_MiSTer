@@ -72,6 +72,10 @@ module dbg_min (
     // Shift-in completion diagnosis: [17:1]=via1_shift_timer [0]=sr_ext_complete
     input wire [17:0] dbg_adb2,
 
+    // SR byte-sequence diagnosis (last 4 bytes each, newest in [7:0]):
+    input wire [31:0] dbg_adb3,   // bytes CPU READ from VIA1 SR
+    input wire [31:0] dbg_adb4,   // bytes LOADED into VIA1 SR (shift-in)
+
     // ---- Audio-regression diagnosis (MDC 8*24 video swap) -----------------
     input wire        selectASC,        // CPU accessing the Apple Sound Chip
     input wire        asc_irq_n,        // ASC FIFO refill-request IRQ (active-low)
@@ -663,5 +667,32 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSRR / PSRL: SR byte sequences (newest byte in [7:0]).
+    //   PSRR = what the CPU READ from the SR (what ROM actually receives).
+    //   PSRL = what the shim LOADED into the SR (shift-in path).
+    // With the forced mouse response (0x83,0x85), a healthy path shows
+    // alternating 83/85 in BOTH. If PSRL alternates but PSRR repeats or
+    // shows 0x3C (the cmd byte), the SR is corrupted between load and read.
+    // PSRR/PSRL disabled to free fit budget — the SR byte-sequence diagnosis
+    // is done (confirmed stale 00/3C reads before the real response). Re-enable
+    // by uncommenting if byte-level SR debugging is needed again.
+    // reg [31:0] psrr_r, psrl_r;
+    // always @(posedge clk) begin
+    //     psrr_r <= dbg_adb3;
+    //     psrl_r <= dbg_adb4;
+    // end
+    // altsource_probe #(
+    //     .instance_id ("PSRR"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psrr (.probe(psrr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // altsource_probe #(
+    //     .instance_id ("PSRL"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psrl (.probe(psrl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

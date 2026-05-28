@@ -922,6 +922,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi5(dbg_scsi5),
 	.dbg_adb(dbg_adb),
 	.dbg_adb2(dbg_adb2),
+	.dbg_adb3(dbg_adb3),
+	.dbg_adb4(dbg_adb4),
 	.mouse_has_event_o(adb_mouse_has_event)
 );
 wire [15:0] dbg_scsi;
@@ -931,6 +933,8 @@ wire [15:0] dbg_scsi4;
 wire [15:0] dbg_scsi5;
 wire [31:0] dbg_adb;
 wire [17:0] dbg_adb2;
+wire [31:0] dbg_adb3;
+wire [31:0] dbg_adb4;
 wire        adb_mouse_has_event;
 
 reg disk_act;
@@ -1214,6 +1218,8 @@ dbg_min dbg_min_inst (
 	.ioctl_idx      (dio_index[7:0]),
 	.dbg_adb        (dbg_adb),
 	.dbg_adb2       (dbg_adb2),
+	.dbg_adb3       (dbg_adb3),
+	.dbg_adb4       (dbg_adb4),
 	.ps2_mouse      (ps2_mouse),
 	.mouse_has_event(adb_mouse_has_event),
 	// Audio-regression diagnosis
