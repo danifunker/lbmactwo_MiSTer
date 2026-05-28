@@ -117,7 +117,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi4,
 	output           [15:0] dbg_scsi5,
 	output           [31:0] dbg_adb,
-	output           [17:0] dbg_adb2
+	output           [17:0] dbg_adb2,
+	output                  mouse_has_event_o
 );
 
 	// CPU reset generation
@@ -919,7 +920,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.ps2_mouse(ps2_mouse),
 		.ps2_key(ps2_key),
 		.resp_pending(adb_resp_pending),
-		.dbg_adb(adb_dbg)
+		.dbg_adb(adb_dbg),
+		.mouse_has_event_o(mouse_has_event_o)
 	);
 
 	// Read-only ADB/VIA1-SR debug snapshot for JTAG ISSP:

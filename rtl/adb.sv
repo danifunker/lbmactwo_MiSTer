@@ -36,8 +36,11 @@ module adb(
 	output           resp_pending,
 
 	// Debug snapshot for JTAG ISSP (read-only): FSM + command state.
-	output    [15:0] dbg_adb
+	output    [15:0] dbg_adb,
+	output           mouse_has_event_o
 );
+
+assign mouse_has_event_o = mouse_has_event;
 
 // ADB bus states (matches Snow's AdbBusState enum)
 localparam [1:0] ST_COMMAND = 2'b00;  // ST0=0, ST1=0
@@ -412,13 +415,25 @@ end
 // flops as logically equivalent and merges them with downstream logic.
 // SYNCHRONIZER_IDENTIFICATION FORCED also relaxes TimeQuest on the async
 // input and gives an MTBF computation in the metastability report.
+//
+// Skew note: ps2_mouse[24] (strobe) and ps2_mouse[23:0] (deltas/btn) are a
+// 25-bit HPS bus whose bits arrive at the fabric with arbitrary placement-
+// dependent routing skew. If [24] leads [23:0] by even ~1 clk on a given
+// placement, an "equal-length" 2-stage sync on both lets the strobe-edge
+// XOR fire while the data path still holds the *previous* packet's values
+// (typically all zeros), so the consumer's (X|Y|Btn != prev) guard discards
+// the strobe and the motion event is silently lost. Cure: give the strobe
+// path one MORE stage than the data path, so when the strobe edge finally
+// propagates to the consumer, the data has had an extra clk to settle.
 (* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
 reg mstb_s1;
 (* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
 reg mstb_s2;
+(* preserve *) reg mstb_s3;  // extra delay: data settles before strobe edge fires
 (* preserve *) reg mstb_d;
-// 2-stage register chain for data bits, matched in latency to the strobe sync
-// so the consumer reads X/Y/Btn that correspond to the just-arrived strobe.
+// 2-stage register chain for data bits. Strobe gets 3 stages, so by the time
+// the consumer sees mouseStrobe high, mouseXraw_s2 has been holding the new
+// packet's data for one full clk — independent of HPS-side bit-arrival skew.
 (* preserve *) reg [8:0] mouseXraw_s1, mouseXraw_s2;
 (* preserve *) reg [8:0] mouseYraw_s1, mouseYraw_s2;
 (* preserve *) reg       mouseBtn_s1,  mouseBtn_s2;
@@ -427,6 +442,7 @@ always @(posedge clk) begin
 	if (reset) begin
 		mstb_s1 <= ps2_mouse[24];
 		mstb_s2 <= ps2_mouse[24];
+		mstb_s3 <= ps2_mouse[24];
 		mstb_d  <= ps2_mouse[24];
 		mouseXraw_s1 <= 9'd0; mouseXraw_s2 <= 9'd0;
 		mouseYraw_s1 <= 9'd0; mouseYraw_s2 <= 9'd0;
@@ -434,17 +450,18 @@ always @(posedge clk) begin
 	end else begin
 		mstb_s1 <= ps2_mouse[24];  // free-running synchronizer (no clk_en)
 		mstb_s2 <= mstb_s1;
+		mstb_s3 <= mstb_s2;        // extra stage past the data sync depth
 		mouseXraw_s1 <= {ps2_mouse[4], ps2_mouse[15:8]};
 		mouseYraw_s1 <= {ps2_mouse[5], ps2_mouse[23:16]};
 		mouseBtn_s1  <= ps2_mouse[0];
 		mouseXraw_s2 <= mouseXraw_s1;
 		mouseYraw_s2 <= mouseYraw_s1;
 		mouseBtn_s2  <= mouseBtn_s1;
-		if (clk_en) mstb_d <= mstb_s2;
+		if (clk_en) mstb_d <= mstb_s3;
 	end
 end
 
-wire       mouseStrobe = mstb_d ^ mstb_s2;
+wire       mouseStrobe = mstb_d ^ mstb_s3;
 wire [8:0] mouseXraw = mouseXraw_s2;
 wire [8:0] mouseYraw = mouseYraw_s2;
 wire       mouseBtn  = mouseBtn_s2;
@@ -465,7 +482,8 @@ reg       kstb;       // delayed (consumer-side) copy of synchronized strobe
 (* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
 reg       kstb_s1;
 (* preserve *) (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED; -name DONT_MERGE_REGISTER ON" *)
-reg       kstb_s2;    // synchronized strobe, compared against kstb for edge
+reg       kstb_s2;
+(* preserve *) reg kstb_s3;   // extra delay: data settles before strobe edge fires
 (* preserve *) reg [9:0] keyRaw_s1, keyRaw_s2; // scan code [8:0] + press [9]
 reg [7:0] keyData;
 wire      press = keyRaw_s2[9];
@@ -475,6 +493,7 @@ always @(posedge clk) begin
 	if (reset) begin
 		kstb_s1 <= ps2_key[10];
 		kstb_s2 <= ps2_key[10];
+		kstb_s3 <= ps2_key[10];
 		kstb    <= ps2_key[10];
 		keyRaw_s1 <= 10'h000;
 		keyRaw_s2 <= 10'h000;
@@ -484,11 +503,12 @@ always @(posedge clk) begin
 	end else begin
 		kstb_s1 <= ps2_key[10];
 		kstb_s2 <= kstb_s1;
+		kstb_s3 <= kstb_s2;   // extra stage past the data sync depth
 		keyRaw_s1 <= ps2_key[9:0];
 		keyRaw_s2 <= keyRaw_s1;
 		if (clk_en) begin
-		kstb <= kstb_s2;
-		if (kstb ^ kstb_s2) begin
+		kstb <= kstb_s3;
+		if (kstb ^ kstb_s3) begin
 			case(keyRaw_s2[8:0]) // Scan Code Set 2 → ADB scan codes
 			  9'h000: keyData[6:0] <= 7'h7F;
 			  9'h001: keyData[6:0] <= 7'h65;	//F9

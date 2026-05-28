@@ -78,7 +78,11 @@ module dbg_min (
     input wire signed [15:0] asc_audio_l, // ASC left output sample
     input wire [15:0] card_irq_cnt,     // video card VBL IRQ assertion count
     input wire [15:0] card_ack_cnt,     // video card bus-ACK count
-    input wire        card_vbl_en       // video card VBL IRQ enabled?
+    input wire        card_vbl_en,      // video card VBL IRQ enabled?
+
+    // Mouse event diagnostic (PMSE)
+    input wire [24:0] ps2_mouse,        // raw HPS mouse vector (bit 24 toggles per packet)
+    input wire        mouse_has_event   // from adb.sv: latched mouse event pending
 );
 
     // Coherent snapshots on clk.
@@ -273,12 +277,13 @@ module dbg_min (
     always @(posedge clk)
         scsi7_r <= {16'd0, scsi_dbg};
 
-    altsource_probe #(
-        .instance_id ("PSC7"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc7 (.probe(scsi7_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC7 disabled to free fit budget for slot-E write monitor (PSLT).
+    // altsource_probe #(
+    //     .instance_id ("PSC7"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc7 (.probe(scsi7_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target command-type bitmap.
     reg [31:0] scsi6_r;
@@ -458,7 +463,6 @@ module dbg_min (
     // synthesize away while disabled. NOTE: re-enabling adds 3 probes and the
     // design is at ~19 probes / 82% ALMs — it may then fail to fit; trim an
     // out-of-scope SCSI probe (PSC4/PSC5/PSCF) if so.
-    /*
     // PADB: live coherent snapshot of the ADB FSM + VIA1 shift-register
     // handshake. Sample it several times: if the CPU is spinning while ADB is
     // wedged, the state (adb_st / cmd_valid / sr_out_pending) will be static.
@@ -520,6 +524,84 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pad3 (.probe(adb3_r), .source(), .source_clk(clk), .source_ena(1'b1));
-    */
+
+    // PMSE: mouse event diagnostic — counts ps2_mouse[24] toggles (HPS
+    // delivering events?) and mouse_has_event rising edges (adb.sv latching?).
+    reg ps2m24_d, mhe_d;
+    reg [15:0] ps2m24_cnt;   // HPS mouse packet count
+    reg [15:0] mhe_cnt;      // adb.sv mouse_has_event assertion count
+    initial begin ps2m24_cnt = 0; mhe_cnt = 0; ps2m24_d = 0; mhe_d = 0; end
+    always @(posedge clk) begin
+        ps2m24_d <= ps2_mouse[24];
+        mhe_d    <= mouse_has_event;
+        if (ps2_mouse[24] != ps2m24_d) ps2m24_cnt <= ps2m24_cnt + 16'd1;
+        if (mouse_has_event && !mhe_d) mhe_cnt    <= mhe_cnt    + 16'd1;
+    end
+    reg [31:0] mse_r;
+    always @(posedge clk) mse_r <= {ps2m24_cnt, mhe_cnt};
+
+    altsource_probe #(
+        .instance_id ("PMSE"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pmse (.probe(mse_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
+    //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND
+    //   cpuAddr[23:16]==$20 (register window 0x200000-0x20FFFF).
+    //   Useful registers: 0x013C = vblank_enable, 0x0148 = irq_clear.
+    //
+    //   Layout:
+    //     [31]    = sticky: at least one register write to addr_low16 == 0x0148
+    //     [30:24] = saturating count of writes to 0x013C (vblank_enable)
+    //     [23:16] = saturating count of writes to 0x0148 (irq_clear)
+    //     [15:0]  = low 16 bits of last REGISTER write address
+    //
+    //   If [23:16] stays at 0 while vbl_count is stuck at 1, the Mac is never
+    //   writing the IRQ-clear register and the slot driver isn't installed.
+    //   If [23:16] climbs but vbl_count stays at 1, our irq_clear decode is
+    //   wrong (or vblank_enable was disabled and writes don't help).
+    reg cpuAS_n_d2;
+    reg sticky_148;
+    reg [6:0] cnt_13c;   // saturating
+    reg [7:0] cnt_148;   // saturating
+    reg [15:0] last_reg_addr;
+    wire slot_e_reg_write = !cpuAS_n && cpuAS_n_d2 &&
+                            selectNuBus && !cpuRW &&
+                            (cpuAddr[31:24] == 8'hFE) &&
+                            (cpuAddr[23:16] == 8'h20);
+    initial begin
+        cpuAS_n_d2 = 1'b1;
+        sticky_148 = 1'b0;
+        cnt_13c = 7'd0;
+        cnt_148 = 8'd0;
+        last_reg_addr = 16'd0;
+    end
+    always @(posedge clk) begin
+        cpuAS_n_d2 <= cpuAS_n;
+        if (slot_e_reg_write) begin
+            last_reg_addr <= cpuAddr[15:0];
+            // 0x0148 byte write or 0x0148 word write (both halves)
+            if (cpuAddr[15:1] == 15'h00A4) begin
+                sticky_148 <= 1'b1;
+                if (cnt_148 != 8'hFF) cnt_148 <= cnt_148 + 8'd1;
+            end
+            // 0x013C: vblank_enable
+            if (cpuAddr[15:1] == 15'h009E) begin
+                if (cnt_13c != 7'h7F) cnt_13c <= cnt_13c + 7'd1;
+            end
+        end
+    end
+    reg [31:0] slt_r;
+    always @(posedge clk)
+        slt_r <= {sticky_148, cnt_13c, cnt_148, last_reg_addr};
+
+    altsource_probe #(
+        .instance_id ("PSLT"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pslt (.probe(slt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

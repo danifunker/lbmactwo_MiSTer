@@ -57,6 +57,8 @@ foreach inst $info {
     if {$nm eq "PVBL"} { set idx(PVBL) $i }
     if {$nm eq "PASC"} { set idx(PASC) $i }
     if {$nm eq "PAUD"} { set idx(PAUD) $i }
+    if {$nm eq "PMSE"} { set idx(PMSE) $i }
+    if {$nm eq "PSLT"} { set idx(PSLT) $i }
     incr i
 }
 
@@ -318,6 +320,21 @@ for {set s 1} {$s <= 6} {incr s} {
         set shtimer  [expr {$a3 & 0x1FFFF}]
         set cplcnt   [expr {($a3 >> 17) & 0x7FFF}]
         puts [format "           SHIFT-IN: via1_shift_timer=%u  sr_ext_complete_count=%u" $shtimer $cplcnt]
+    }
+    if {[info exists idx(PMSE)]} {
+        set pm [rd $idx(PMSE)]
+        set mhe   [expr {$pm & 0xFFFF}]
+        set ps2m  [expr {($pm >> 16) & 0xFFFF}]
+        puts [format "           MOUSE: ps2m24_toggles=%u  mouse_has_event_pulses=%u" $ps2m $mhe]
+    }
+    if {[info exists idx(PSLT)]} {
+        set sl [rd $idx(PSLT)]
+        set last_reg  [expr {$sl & 0xFFFF}]
+        set cnt_148   [expr {($sl >> 16) & 0xFF}]
+        set cnt_13c   [expr {($sl >> 24) & 0x7F}]
+        set sticky    [expr {($sl >> 31) & 0x1}]
+        puts [format "           SLOT-E REG: last_reg=0x%04X wr_0x0148=%u(sat255) wr_0x013C=%u(sat127) sticky_148=%d" \
+            $last_reg $cnt_148 $cnt_13c $sticky]
     }
     after 300
 }
