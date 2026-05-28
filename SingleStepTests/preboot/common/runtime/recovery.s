@@ -3,11 +3,14 @@
 | install_vbr():
 |   1. Read the current VBR (set by ROM at boot).
 |   2. Copy all 256 entries to our own vbr_table.
-|   3. Overwrite CPU exception vectors (2..15), interrupt autovectors
-|      (25..31), and TRAP vectors (32..47) with recovery_stub.
+|   3. Overwrite CPU exception vectors (2..15) and TRAP vectors
+|      (32..47) with recovery_stub.
 |   4. Leave Line A (vector 10) alone — _Write trap goes through it.
 |      (Note: vector 10 being ROM-owned means a test that issues a raw
 |      $A000 Line A trap can't be caught here — flag those hw_unsafe.)
+|   5. Leave autovector interrupts (25..31) to the ROM — they are not
+|      crashes, and the disk driver needs its completion IRQ to finish
+|      the _Write that persists results.
 |   5. MOVEC our table to VBR.
 |
 | invoke_test_with_recovery(entry):
@@ -63,15 +66,16 @@ install_vbr:
     move.l  #recovery_stub_v14, 56(%a1)
     move.l  #recovery_stub_v15, 60(%a1)
 
-    | Autovector interrupts 1..7 (vectors 25..31). 60Hz tick is
-    | usually autovector 1. We just recover from any.
-    move.l  #recovery_stub_v25, (25*4)(%a1)
-    move.l  #recovery_stub_v26, (26*4)(%a1)
-    move.l  #recovery_stub_v27, (27*4)(%a1)
-    move.l  #recovery_stub_v28, (28*4)(%a1)
-    move.l  #recovery_stub_v29, (29*4)(%a1)
-    move.l  #recovery_stub_v30, (30*4)(%a1)
-    move.l  #recovery_stub_v31, (31*4)(%a1)
+    | Autovector interrupts (vectors 25..31) are deliberately LEFT to
+    | the ROM. They are not "crashes" — if a test lowers IPL and the
+    | 60Hz tick (or a driver's completion IRQ) fires, the ROM handler
+    | services it and RTEs back to the test, which continues normally.
+    | Overriding them here used to hang the bench: the .Sony / SCSI
+    | driver's synchronous _Write (used to persist /Results.jsonl) lowers
+    | IPL internally to wait for its completion interrupt, and routing
+    | that IRQ into recovery_core jumped to a stale resume PC, so the
+    | write never returned. (iotest never installed these and writes
+    | fine; that was the tell.)
 
     | TRAP #0..#15 (vectors 32..47). Exception tests issue TRAP #N to
     | verify the trap vector; without these overrides they fall through
@@ -126,13 +130,6 @@ recovery_stub_v\n:
     RSTUB 13
     RSTUB 14
     RSTUB 15
-    RSTUB 25
-    RSTUB 26
-    RSTUB 27
-    RSTUB 28
-    RSTUB 29
-    RSTUB 30
-    RSTUB 31
     RSTUB 32
     RSTUB 33
     RSTUB 34
