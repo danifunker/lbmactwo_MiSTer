@@ -1,6 +1,8 @@
 #include <iostream>
 #include <queue>
 #include <string>
+#include <cstring>
+#include <cstdlib>
 
 #include "sim_blkdevice.h"
 #include "sim_console.h"
@@ -32,6 +34,25 @@ QData* img_size=NULL;
 #define bitclear(byte,nbit) ((byte) &= ~(1<<(nbit)))
 #define bitflip(byte,nbit)  ((byte) ^=  (1<<(nbit)))
 #define bitcheck(byte,nbit) ((byte) &   (1<<(nbit)))
+
+// Sector-read latency, in block-device ticks, before sd_ack/data is returned.
+// Models the real HPS/SD round-trip.  The original 1200 is ~25x too fast: the
+// double-buffer prefetch (kicked at byte 20 of each 512-byte block) finishes
+// before the block boundary, so the target's io_busy never holds REQ low there
+// and the disk driver's inter-block wait loop hangs in sim while real hardware
+// (slow SD) shows the REQ-low window and proceeds.  Override with
+// +blkdev_latency=<n> to sweep.  Default chosen large enough that the ~492-byte
+// read-ahead cannot hide it, so io_busy produces the same window as the FPGA.
+static int blkdev_read_latency() {
+    static int v = -1;
+    if (v < 0) {
+        v = 16000;
+        const char* m = Verilated::commandArgsPlusMatch("blkdev_latency=");
+        if (m && m[0]) { const char* eq = strchr(m, '='); if (eq) v = atoi(eq + 1); }
+        fprintf(stderr, "blkdev sector-read latency = %d ticks\n", v);
+    }
+    return v;
+}
 
 
 void SimBlockDevice::MountDisk( std::string file, int index) {
@@ -148,7 +169,7 @@ fprintf(stderr,"mounting flag cleared  %d\n",i);
       //  printf("seek %06X lba: (%x) (%d,%d) drive %d reading %d writing %d ack %x\n", (lba) * kBLKSZ,lba,lba,kBLKSZ,i,reading,writing,*sd_ack);
         bytecnt = 0;
         *sd_buff_addr = 0;
-        ack_delay = 1200;
+        ack_delay = blkdev_read_latency();
       }
     }
 
