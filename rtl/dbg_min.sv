@@ -72,13 +72,21 @@ module dbg_min (
     // Shift-in completion diagnosis: [17:1]=via1_shift_timer [0]=sr_ext_complete
     input wire [17:0] dbg_adb2,
 
+    // SR byte-sequence diagnosis (last 4 bytes each, newest in [7:0]):
+    input wire [31:0] dbg_adb3,   // bytes CPU READ from VIA1 SR
+    input wire [31:0] dbg_adb4,   // bytes LOADED into VIA1 SR (shift-in)
+
     // ---- Audio-regression diagnosis (MDC 8*24 video swap) -----------------
     input wire        selectASC,        // CPU accessing the Apple Sound Chip
     input wire        asc_irq_n,        // ASC FIFO refill-request IRQ (active-low)
     input wire signed [15:0] asc_audio_l, // ASC left output sample
     input wire [15:0] card_irq_cnt,     // video card VBL IRQ assertion count
     input wire [15:0] card_ack_cnt,     // video card bus-ACK count
-    input wire        card_vbl_en       // video card VBL IRQ enabled?
+    input wire        card_vbl_en,      // video card VBL IRQ enabled?
+
+    // Mouse event diagnostic (PMSE)
+    input wire [24:0] ps2_mouse,        // raw HPS mouse vector (bit 24 toggles per packet)
+    input wire        mouse_has_event   // from adb.sv: latched mouse event pending
 );
 
     // Coherent snapshots on clk.
@@ -141,19 +149,21 @@ module dbg_min (
     always @(posedge clk)
         vfetch_r <= {16'd0, vram_fetch_cnt};
 
-    altsource_probe #(
-        .instance_id ("PVID"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvid (.probe(vid_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVID disabled to free JTAG-routing headroom for the cold-boot RAM-clear logic.
+    // altsource_probe #(
+    //     .instance_id ("PVID"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvid (.probe(vid_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    altsource_probe #(
-        .instance_id ("PVFC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvfc (.probe(vfetch_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVFC disabled to free JTAG-routing headroom for the cold-boot RAM-clear logic.
+    // altsource_probe #(
+    //     .instance_id ("PVFC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvfc (.probe(vfetch_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // SCSI diagnosis:
     //   scsi_last_rd  : value the CPU last read from the SCSI controller
@@ -273,12 +283,13 @@ module dbg_min (
     always @(posedge clk)
         scsi7_r <= {16'd0, scsi_dbg};
 
-    altsource_probe #(
-        .instance_id ("PSC7"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc7 (.probe(scsi7_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC7 disabled to free fit budget for slot-E write monitor (PSLT).
+    // altsource_probe #(
+    //     .instance_id ("PSC7"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc7 (.probe(scsi7_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target command-type bitmap.
     reg [31:0] scsi6_r;
@@ -458,7 +469,6 @@ module dbg_min (
     // synthesize away while disabled. NOTE: re-enabling adds 3 probes and the
     // design is at ~19 probes / 82% ALMs — it may then fail to fit; trim an
     // out-of-scope SCSI probe (PSC4/PSC5/PSCF) if so.
-    /*
     // PADB: live coherent snapshot of the ADB FSM + VIA1 shift-register
     // handshake. Sample it several times: if the CPU is spinning while ADB is
     // wedged, the state (adb_st / cmd_valid / sr_out_pending) will be static.
@@ -520,6 +530,172 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pad3 (.probe(adb3_r), .source(), .source_clk(clk), .source_ena(1'b1));
-    */
+
+    // PMSE: mouse event diagnostic — counts ps2_mouse[24] toggles (HPS
+    // delivering events?) and mouse_has_event rising edges (adb.sv latching?).
+    reg ps2m24_d, mhe_d;
+    reg [15:0] ps2m24_cnt;   // HPS mouse packet count
+    reg [15:0] mhe_cnt;      // adb.sv mouse_has_event assertion count
+    initial begin ps2m24_cnt = 0; mhe_cnt = 0; ps2m24_d = 0; mhe_d = 0; end
+    always @(posedge clk) begin
+        ps2m24_d <= ps2_mouse[24];
+        mhe_d    <= mouse_has_event;
+        if (ps2_mouse[24] != ps2m24_d) ps2m24_cnt <= ps2m24_cnt + 16'd1;
+        if (mouse_has_event && !mhe_d) mhe_cnt    <= mhe_cnt    + 16'd1;
+    end
+    reg [31:0] mse_r;
+    always @(posedge clk) mse_r <= {ps2m24_cnt, mhe_cnt};
+
+    altsource_probe #(
+        .instance_id ("PMSE"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pmse (.probe(mse_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
+    //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND
+    //   cpuAddr[23:16]==$20 (register window 0x200000-0x20FFFF).
+    //   Useful registers: 0x013C = vblank_enable, 0x0148 = irq_clear.
+    //
+    //   Layout:
+    //     [31]    = sticky: at least one register write to addr_low16 == 0x0148
+    //     [30:24] = saturating count of writes to 0x013C (vblank_enable)
+    //     [23:16] = saturating count of writes to 0x0148 (irq_clear)
+    //     [15:0]  = low 16 bits of last REGISTER write address
+    //
+    //   If [23:16] stays at 0 while vbl_count is stuck at 1, the Mac is never
+    //   writing the IRQ-clear register and the slot driver isn't installed.
+    //   If [23:16] climbs but vbl_count stays at 1, our irq_clear decode is
+    //   wrong (or vblank_enable was disabled and writes don't help).
+    reg cpuAS_n_d2;
+    reg sticky_148;
+    reg [6:0] cnt_13c;   // saturating
+    reg [7:0] cnt_148;   // saturating
+    reg [15:0] last_reg_addr;
+    wire slot_e_reg_write = !cpuAS_n && cpuAS_n_d2 &&
+                            selectNuBus && !cpuRW &&
+                            (cpuAddr[31:24] == 8'hFE) &&
+                            (cpuAddr[23:16] == 8'h20);
+    initial begin
+        cpuAS_n_d2 = 1'b1;
+        sticky_148 = 1'b0;
+        cnt_13c = 7'd0;
+        cnt_148 = 8'd0;
+        last_reg_addr = 16'd0;
+    end
+    always @(posedge clk) begin
+        cpuAS_n_d2 <= cpuAS_n;
+        if (slot_e_reg_write) begin
+            last_reg_addr <= cpuAddr[15:0];
+            // 0x0148 byte write or 0x0148 word write (both halves)
+            if (cpuAddr[15:1] == 15'h00A4) begin
+                sticky_148 <= 1'b1;
+                if (cnt_148 != 8'hFF) cnt_148 <= cnt_148 + 8'd1;
+            end
+            // 0x013C: vblank_enable
+            if (cpuAddr[15:1] == 15'h009E) begin
+                if (cnt_13c != 7'h7F) cnt_13c <= cnt_13c + 7'd1;
+            end
+        end
+    end
+    reg [31:0] slt_r;
+    always @(posedge clk)
+        slt_r <= {sticky_148, cnt_13c, cnt_148, last_reg_addr};
+
+    // PSLT disabled to free JTAG-routing headroom for the cold-boot RAM-clear logic.
+    // altsource_probe #(
+    //     .instance_id ("PSLT"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pslt (.probe(slt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PADP: ADB Poll-distribution monitor.
+    //   Edge-detects cmd_valid 0->1 in adb.sv (= a fresh command byte has
+    //   just been latched) and counts which command byte we got. We
+    //   especially care whether ROM sends cmd_byte 0x3C (= addr 3 Talk
+    //   reg 0 = Apple Mouse data poll) at all. If kbd_poll_cnt grows but
+    //   mouse_poll_cnt stays at 0, ROM enumerated the mouse but is not
+    //   polling it. If both grow but cursor still doesn't move, the bug
+    //   is in the Talk reg 0 response delivery.
+    //
+    //   Source bits in dbg_adb (set in dataController_top.sv):
+    //     [10] = cmd_valid     (edge 0->1 = new cmd byte captured)
+    //     [9:8] = adb_st       (00 = ST_COMMAND)
+    //     [7:0] = cmd_byte     (the just-latched command)
+    //
+    //   Layout (32 bits):
+    //     [31:24] last_cmd        — most recent cmd_byte
+    //     [23:16] last_cmd_prev   — second-most-recent distinct cmd_byte
+    //     [15:8]  mouse_poll_cnt  — count of cmd_byte == 0x3C (saturating)
+    //     [7:0]   kbd_poll_cnt    — count of cmd_byte == 0x2C (saturating)
+    reg        cv_prev;
+    reg [7:0]  last_cmd;
+    reg [7:0]  last_cmd_prev;
+    reg [7:0]  mouse_poll_cnt;
+    reg [7:0]  kbd_poll_cnt;
+    initial begin
+        cv_prev        = 1'b0;
+        last_cmd       = 8'h00;
+        last_cmd_prev  = 8'h00;
+        mouse_poll_cnt = 8'd0;
+        kbd_poll_cnt   = 8'd0;
+    end
+    always @(posedge clk) begin
+        cv_prev <= dbg_adb[10];
+        if (!cv_prev && dbg_adb[10]) begin
+            // cmd_valid 0->1 — adb.sv just latched a new cmd byte.
+            // dbg_adb[7:0] now reflects the new cmd_byte (assigned same edge,
+            // visible NEXT cycle in NBA semantics — but cv_prev edge detection
+            // also fires NEXT cycle, so timing lines up).
+            if (dbg_adb[7:0] != last_cmd) begin
+                last_cmd_prev <= last_cmd;
+            end
+            last_cmd <= dbg_adb[7:0];
+            case (dbg_adb[7:0])
+                8'h3C: if (mouse_poll_cnt != 8'hFF) mouse_poll_cnt <= mouse_poll_cnt + 8'd1;
+                8'h2C: if (kbd_poll_cnt   != 8'hFF) kbd_poll_cnt   <= kbd_poll_cnt   + 8'd1;
+                default: ; // ignore
+            endcase
+        end
+    end
+    reg [31:0] padp_r;
+    always @(posedge clk)
+        padp_r <= {last_cmd, last_cmd_prev, mouse_poll_cnt, kbd_poll_cnt};
+
+    altsource_probe #(
+        .instance_id ("PADP"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSRR / PSRL: SR byte sequences (newest byte in [7:0]).
+    //   PSRR = what the CPU READ from the SR (what ROM actually receives).
+    //   PSRL = what the shim LOADED into the SR (shift-in path).
+    // With the forced mouse response (0x83,0x85), a healthy path shows
+    // alternating 83/85 in BOTH. If PSRL alternates but PSRR repeats or
+    // shows 0x3C (the cmd byte), the SR is corrupted between load and read.
+    // PSRR/PSRL disabled to free fit budget — the SR byte-sequence diagnosis
+    // is done (confirmed stale 00/3C reads before the real response). Re-enable
+    // by uncommenting if byte-level SR debugging is needed again.
+    // reg [31:0] psrr_r, psrl_r;
+    // always @(posedge clk) begin
+    //     psrr_r <= dbg_adb3;
+    //     psrl_r <= dbg_adb4;
+    // end
+    // altsource_probe #(
+    //     .instance_id ("PSRR"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psrr (.probe(psrr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // altsource_probe #(
+    //     .instance_id ("PSRL"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psrl (.probe(psrl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

@@ -1,8 +1,10 @@
 module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// clocks:
-	input clk32,					// 32.5 MHz pixel clock
+	input clk32,					// 31.3344 MHz system clock (2 × C15M)
 	input clk8_en_p,
 	input clk8_en_n,
+	input clk16_en_p,				// C15M (15.6672 MHz) — IWM input per MAME spec
+	input clk16_en_n,
 	input E_rising,
 	input E_falling,
 
@@ -115,11 +117,16 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi4,
 	output           [15:0] dbg_scsi5,
 	output           [31:0] dbg_adb,
-	output           [17:0] dbg_adb2
+	output           [17:0] dbg_adb2,
+	output           [31:0] dbg_adb3,   // last 4 bytes CPU READ from VIA1 SR
+	output           [31:0] dbg_adb4,   // last 4 bytes LOADED into VIA1 SR (shift-in)
+	output                  mouse_has_event_o
 );
 
 	// CPU reset generation
-	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms = 800,000 clocks of clk8
+	// For initial CPU reset, RESET and HALT must be asserted for at least 100ms.
+	// At clk8_en_p = 7.8336 MHz that's ~783,360 ticks; the 20-bit counter
+	// (1,048,575 ticks ≈ 134 ms) leaves ample margin.
 	reg [19:0] resetDelay; // 20 bits = 1 million
 	wire isResetting = resetDelay != 0;
 
@@ -302,11 +309,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire via2_pb7_to_via1_ca1;
 	wire via1_ca1 = machineType ? via2_pb7_to_via1_ca1 : _vblank;
 
-	// Mac II VIAs run at C7M/10 ~= 783.36 kHz in MAME and hardware, not at
-	// the 32.5 MHz system clock. Keep register access on the CPU/E strobes,
+	// Mac II VIAs run at C7M/10 ≈ 783.36 kHz in MAME and hardware, not at
+	// the 31.3344 MHz system clock. Keep register access on the CPU/E strobes,
 	// but gate VIA timer countdowns with this average-rate enable.
 	localparam [31:0] VIA_TIMER_HZ = 32'd783360;
-	localparam [31:0] SYS_CLK_HZ = 32'd32500000;
+	localparam [31:0] SYS_CLK_HZ = 32'd31334400;  // 2 × C15M (15.6672 MHz)
 `ifdef SIMULATION
 	reg [31:0] via_timer_hz = VIA_TIMER_HZ;
 	initial begin
@@ -399,9 +406,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		ca1_c_d    <= via.ca1_c;
 		ca2_c_d    <= via.ca2_c;
 
-		// Edge counters — Mac II expectations at 32.5 MHz:
-		//   RTC CKO:       1 Hz square wave edges every ~16.25M cycles
-		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~540K cycles
+		// Edge counters — Mac II expectations at clk_sys = 31.3344 MHz:
+		//   RTC CKO:       1 Hz square wave edges every ~15.67M cycles
+		//   via2 PB7:     ~60 Hz (VBL chain) → edge every ~522K cycles
 		//   ca1_c (=PB7):  same as PB7
 		//   ca2_c (=RTC CKO): same as RTC CKO
 		if (rtc_cko && !onesec_d)        onesec_edges <= onesec_edges + 1;
@@ -562,9 +569,15 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg via1_sr_out_done;            // pulses when shift-out timer expires
 	reg via1_sr_out_pending;
 	reg via1_sr_out_ack;
+	// High once the ADB chip has produced a response byte (adb_dout_strobe)
+	// that the shift-in completion hasn't yet delivered to the SR. Lets the
+	// shim deliver bytes the instant they're produced instead of on a blind
+	// timer, eliminating the stale-byte reads that corrupted mouse packets.
+	reg via1_kbd_to_mac_fresh;
 
-	// ~3ms at 32.5MHz ≈ 97500 clocks. Use 100K for margin. Used while a real
-	// response byte is being delivered, so multi-byte responses shift quickly.
+	// ~3ms at 31.3344 MHz ≈ 94,000 clocks. Use 100K for margin. Used while a
+	// real response byte is being delivered, so multi-byte responses shift
+	// quickly.
 	localparam SHIFT_DELAY = 22'd100000;
 	// ~11ms (~90Hz). Used for the idle autopoll heartbeat re-arm when no
 	// response byte is pending — matches the real Mac II ADB autopoll SR-IRQ
@@ -582,12 +595,21 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 			via1_sr_ext_data <= 8'h00;
 			via1_sr_out_done <= 1'b0;
 			via1_sr_out_pending <= 1'b0;
+			via1_kbd_to_mac_fresh <= 1'b0;
 		end else begin
 			via1_sr_ext_complete <= 1'b0;
 			via1_sr_ext_load <= 1'b0;
 			via1_sr_out_done <= 1'b0;
 			if (via1_sr_out_ack) begin
 				via1_sr_out_pending <= 1'b0;
+			end
+
+			// Latch "fresh response byte available" the cycle the ADB chip
+			// strobes a new byte out. kbd_to_mac (other always block) captures
+			// the byte on the same clk8_en_p window, so by the time the
+			// shift-in completion below consumes it the value is valid.
+			if (clk8_en_p && adb_dout_strobe && machineType) begin
+				via1_kbd_to_mac_fresh <= 1'b1;
 			end
 
 			// Track ACR writes — shadow the shift mode bits
@@ -647,24 +669,90 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 				end
 			end
 
-			// Countdown and complete
+			// Countdown.
 			if (via1_shift_timer > 22'd1) begin
 				via1_shift_timer <= via1_shift_timer - 22'd1;
-			end else if (via1_shift_timer == 22'd1) begin
-				via1_shift_timer <= 22'd0;
-				via1_sr_ext_complete <= 1'b1;
-				via1_sr_out_done <= via1_shift_dir;
-				if (via1_shift_dir) begin
-					via1_sr_out_pending <= 1'b1;
+			end
+
+			// Completion.
+			//
+			// SHIFT-OUT (cmd byte to chip): unchanged — fire on timer expiry,
+			// delivering the byte to the ADB transceiver.
+			if (via1_shift_dir) begin
+				if (via1_shift_timer == 22'd1) begin
+					via1_shift_timer    <= 22'd0;
+					via1_sr_ext_complete <= 1'b1;
+					via1_sr_out_done     <= 1'b1;
+					via1_sr_out_pending  <= 1'b1;
 				end
-				if (!via1_shift_dir) begin
-					// Shift-in complete: load response into SR
-					via1_sr_ext_load <= 1'b1;
-					via1_sr_ext_data <= kbd_to_mac;
+			end else begin
+				// SHIFT-IN (response byte to CPU). The old code completed on
+				// the free-running 3ms timer, decoupled from when the ADB
+				// chip actually produced the byte — so it fired 1-2 times
+				// with STALE kbd_to_mac (00) before the real response, and
+				// ROM's first read even grabbed the leftover cmd byte from
+				// shift_reg. ROM framed that garbage as the mouse packet and
+				// rejected it. Fix:
+				//   (a) the instant the chip produces a fresh byte
+				//       (adb_dout_strobe -> via1_kbd_to_mac_fresh), complete
+				//       immediately with that byte — no stale window;
+				//   (b) otherwise fall back to the timer ONLY when it is safe
+				//       (no response pending, or the bus is IDLE because ROM
+				//       aborted) so the idle-autopoll heartbeat keeps firing
+				//       and we never deadlock waiting for a byte that won't come.
+				if (via1_kbd_to_mac_fresh) begin
+					via1_shift_timer      <= 22'd0;
+					via1_sr_ext_complete  <= 1'b1;
+					via1_sr_ext_load      <= 1'b1;
+					via1_sr_ext_data      <= kbd_to_mac;
+					via1_kbd_to_mac_fresh <= 1'b0;
+				end else if (via1_shift_timer == 22'd1) begin
+					if (!adb_resp_pending || adb_bus_idle) begin
+						via1_shift_timer     <= 22'd0;
+						via1_sr_ext_complete <= 1'b1;
+						via1_sr_ext_load     <= 1'b1;
+						via1_sr_ext_data     <= kbd_to_mac;
+					end
+					// else: response pending but chip hasn't produced the
+					// next byte yet — hold timer at 1, re-check next cycle.
 				end
 			end
 		end
 	end
+
+	// ADB bus idle = {ST1,ST0} == 2'b11 (see adb.sv ST_IDLE). Used to release
+	// the shift-in fresh-byte gate if ROM abandons a transaction.
+	wire adb_bus_idle = ADBST0 & ADBST1;
+
+	// === DIAGNOSTIC: SR byte-sequence capture ===
+	// dbg_adb3: last 4 bytes the CPU READ from VIA1 SR (high byte, where the
+	//   Mac 6522 presents SR). This is ground truth of what ROM receives.
+	// dbg_adb4: last 4 bytes LOADED into the SR by the shim (shift-in path).
+	// Compare the two: if loads look right (e.g. 83,85,83,85 from the forced
+	// mouse response) but reads differ, the SR is being corrupted between
+	// load and read (e.g. the cmd-byte shift-out echoing into shift_reg).
+	reg        via1_sr_rd_d;
+	reg [31:0] dbg_sr_read_seq;
+	reg [31:0] dbg_sr_load_seq;
+	always @(posedge clk32) begin
+		if (!_cpuReset) begin
+			via1_sr_rd_d    <= 1'b0;
+			dbg_sr_read_seq <= 32'd0;
+			dbg_sr_load_seq <= 32'd0;
+		end else begin
+			via1_sr_rd_d <= via1_sr_rd;
+			// Capture ONLY shift-in-mode reads (ACR=011) so the sequence
+			// reflects what ROM frames as DATA, excluding the harmless
+			// transmit-flag-clear read that returns the cmd-byte echo while
+			// ACR is still in shift-out mode (111).
+			if (via1_sr_rd && !via1_sr_rd_d && via1_acr_shift_mode == 3'b011)
+				dbg_sr_read_seq <= {dbg_sr_read_seq[23:0], viaDataOut[15:8]};
+			if (via1_sr_ext_load && !via1_shift_dir)
+				dbg_sr_load_seq <= {dbg_sr_load_seq[23:0], via1_sr_ext_data};
+		end
+	end
+	assign dbg_adb3 = dbg_sr_read_seq;
+	assign dbg_adb4 = dbg_sr_load_seq;
 
 	reg kbdclk;
 	reg [10:0] kbdclk_count;
@@ -805,11 +893,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		end
 	end
 
-	// IWM
+	// IWM — clocked at C15M (15.6672 MHz) per MAME spec; module divides by 2
+	// internally to recover the ~7.8336 MHz fclk that times GCR bit cells.
 	iwm i(
 		.clk(clk32),
-		.cep(clk8_en_p),
-		.cen(clk8_en_n),
+		.cep(clk16_en_p),
+		.cen(clk16_en_n),
 		._reset(_cpuReset),
 		.selectIWM(selectIWM),
 		._cpuRW(_cpuRW),
@@ -913,7 +1002,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.ps2_mouse(ps2_mouse),
 		.ps2_key(ps2_key),
 		.resp_pending(adb_resp_pending),
-		.dbg_adb(adb_dbg)
+		.dbg_adb(adb_dbg),
+		.mouse_has_event_o(mouse_has_event_o)
 	);
 
 	// Read-only ADB/VIA1-SR debug snapshot for JTAG ISSP:

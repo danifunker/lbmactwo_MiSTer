@@ -217,8 +217,8 @@ localparam CONF_STR = {
 	"F1,DSK,Mount Pri Floppy;",
 	"F2,DSK,Mount Sec Floppy;",
 	"-;",
-	"SC0,IMGVHD,Mount SCSI-6;",
-	"SC1,IMGVHD,Mount SCSI-5;",
+	"SC0,IMGVHDHDA,Mount SCSI-6;",
+	"SC1,IMGVHDHDA,Mount SCSI-5;",
 	"-;",
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
@@ -236,7 +236,7 @@ localparam CONF_STR = {
 	"V,v",`BUILD_DATE
 };
 
-wire status_turbo = 1'b1; // Mac II always runs at 16MHz
+wire status_turbo = 1'b1; // Mac II always runs at C15M = 15.6672 MHz (CPU rides clk16_en)
 wire status_overlay_en = status[6];
 wire status_video_mono = status[13];
 
@@ -248,8 +248,8 @@ wire pll_locked;
 pll pll
 (
 	.refclk(CLK_50M),
-	.outclk_0(clk_mem),      // 65MHz, 0° - SDRAM controller
-	.outclk_1(clk_sys),      // 32.5MHz, 180° - System
+	.outclk_0(clk_mem),      // 62.6688 MHz, 0° - SDRAM controller
+	.outclk_1(clk_sys),      // 31.3344 MHz, 180° - System (2 × C15M, divides to 15.6672/7.8336 MHz)
 	.locked(pll_locked)
 );
 
@@ -282,7 +282,7 @@ always @(posedge clk_sys) begin
 		// various sources can reset the mac
 		// Note: ~_cpuReset_o must NOT be here - that's the CPU's RESET instruction
 		// output which resets peripherals only, not the CPU itself
-		if(~pll_locked || osd_reset_req || buttons[1] || RESET) begin
+		if(~pll_locked || osd_reset_req || buttons[1] || RESET || !clear_done) begin
 			rst_cnt <= '1;
 			n_reset <= 0;
 		end
@@ -543,7 +543,7 @@ wire mem_access = (selectRAM || selectROM) && !_cpuAS;
 wire video_active = !nubus_blank;
 
 always @(posedge clk_sys) begin
-	if (nubus_access) nubus_act_ctr <= 28'hFFFFFFF;  // ~8 seconds at 32.5MHz
+	if (nubus_access) nubus_act_ctr <= 28'hFFFFFFF;  // ~8.6 seconds at 31.3344 MHz
 	else if (nubus_act_ctr != 0) nubus_act_ctr <= nubus_act_ctr - 1'd1;
 	
 	if (mem_access) mem_act_ctr <= 28'hFFFFFFF;
@@ -613,7 +613,7 @@ always @(posedge clk_sys) begin
 			// Hold BERR until AS deasserts (CPU ends bus cycle)
 		end else if (is_cpu_space || any_select)
 			berr_counter <= 0;
-		else if (berr_counter == 9'd260)  // ~8us at 32.5 MHz
+		else if (berr_counter == 9'd251)  // ~8us at 31.3344 MHz
 			begin berr_out <= 1; berr_counter <= 0; end
 		else
 			berr_counter <= berr_counter + 1'd1;
@@ -825,6 +825,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.clk32(clk_sys),
 	.clk8_en_p(clk8_en_p),
 	.clk8_en_n(clk8_en_n),
+	.clk16_en_p(clk16_en_p),
+	.clk16_en_n(clk16_en_n),
 	.E_rising(E_rising),
 	.E_falling(E_falling),
 	.machineType(1'b1), // Mac II mode
@@ -919,7 +921,10 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi4(dbg_scsi4),
 	.dbg_scsi5(dbg_scsi5),
 	.dbg_adb(dbg_adb),
-	.dbg_adb2(dbg_adb2)
+	.dbg_adb2(dbg_adb2),
+	.dbg_adb3(dbg_adb3),
+	.dbg_adb4(dbg_adb4),
+	.mouse_has_event_o(adb_mouse_has_event)
 );
 wire [15:0] dbg_scsi;
 wire [15:0] dbg_scsi2;
@@ -928,6 +933,9 @@ wire [15:0] dbg_scsi4;
 wire [15:0] dbg_scsi5;
 wire [31:0] dbg_adb;
 wire [17:0] dbg_adb2;
+wire [31:0] dbg_adb3;
+wire [31:0] dbg_adb4;
+wire        adb_mouse_has_event;
 
 reg disk_act;
 always @(posedge clk_sys) begin
@@ -990,6 +998,70 @@ always @(posedge clk_sys) begin
 	end
 end
 
+// Boot-ROM load gate. On a cold/menu load the HPS streams boot0.rom (idx 0)
+// into memory AFTER the FPGA configures, concurrently with the CPU coming out
+// of its blind ~134ms reset timer. If the CPU starts executing before the ROM
+// download finishes it runs early POST against a partially-loaded ROM -> the
+// startup chime plays garbled AND ROM low-memory state is clobbered, which
+// later leaves the ADB mouse cursor frozen (ADB enumeration itself reads back
+// clean because the download has finished by then). A soft restart re-runs POST
+// with the ROM already resident, so it works -> the classic "mouse only works
+// after a reboot" symptom. Hold CPU reset until boot0.rom has fully loaded.
+// Latches once and stays set, so runtime disk mounts (idx 2/3) never reset.
+reg rom_loaded = 0;
+always @(posedge clk_sys) begin
+	reg old_down;
+	reg saw_rom0;
+	old_down <= dio_download;
+	if(dio_download && dio_index == 0) saw_rom0 <= 1'b1;   // boot0.rom streaming
+	if(old_down && ~dio_download && saw_rom0) rom_loaded <= 1'b1; // finished
+end
+
+// === Cold-boot RAM pre-clear =============================================
+// After boot0.rom finishes loading and before the CPU is released, zero all
+// configured RAM. On a warm soft-restart the prior boot already left clean
+// low-memory state in SDRAM, so the mouse/ADB globals are valid; a cold/menu
+// boot starts with garbage RAM. Pre-clearing here gives every cold boot the
+// same clean low memory a warm restart has — which (paired with a no-memtest
+// ROM) fixes the cold-boot garbled chime + frozen mouse without relying on the
+// ROM's own RAM test. Paced exactly like the ROM download (one SDRAM write per
+// extra bus slot via dioBusControl), reusing the proven download write timing.
+// Word-address limit by configured RAM size (RAM lives in the A22=0 region):
+wire [21:0] clear_limit = (configRAMSize == 2'b00) ? 22'h07FFFF :  // 1MB
+                          (configRAMSize == 2'b01) ? 22'h0FFFFF :  // 2MB
+                          (configRAMSize == 2'b10) ? 22'h1FFFFF :  // 4MB
+                                                     22'h3FFFFF;   // 8MB
+reg [21:0] clear_addr   = 0;
+reg        clear_active = 0;
+reg        clear_done   = 0;
+reg        clear_write  = 0;
+reg        clear_old_cyc = 0;
+always @(posedge clk_sys) begin
+	if(!rom_loaded) begin
+		clear_active  <= 1'b0;
+		clear_done    <= 1'b0;
+		clear_addr    <= 22'd0;
+		clear_write   <= 1'b0;
+		clear_old_cyc <= 1'b0;
+	end else begin
+		if(!clear_done && !clear_active) clear_active <= 1'b1;   // start once ROM is loaded
+		clear_old_cyc <= dioBusControl;
+		if(clear_active) begin
+			if(~dioBusControl) clear_write <= 1'b1;                  // arm write before the slot
+			if(clear_old_cyc & ~dioBusControl & clear_write) begin   // extra slot just completed
+				clear_write <= 1'b0;
+				if(clear_addr == clear_limit) begin
+					clear_active <= 1'b0;
+					clear_done   <= 1'b1;
+				end else begin
+					clear_addr <= clear_addr + 22'd1;
+				end
+			end
+		end
+	end
+end
+wire clear_cycle = clear_active && dioBusControl;
+
 // disk images are being stored right after os rom at word offset 0x80000 and 0x100000
 reg [20:0] dio_a;
 reg [15:0] dio_data;
@@ -1001,13 +1073,13 @@ always @(posedge clk_sys) begin
 	if(ioctl_write) begin
 		dio_data <= {ioctl_data[7:0], ioctl_data[15:8]};
 
-		// ROM file mapping:
-		// Index 0: boot0.rom (Mac II system ROM - 256K)
-		// Index 1: boot1.rom (NuBus video card ROM - 32K)
+		// ROM/disk download address mapping:
+		// Index 0: boot0.rom (Mac II system ROM - 256K). The NuBus video card
+		// declaration ROM is baked into the bitstream via $readmemh (boot1.hex /
+		// boot2.hex), so no index-1 download exists on hardware (the Verilator
+		// sim has its own separate top in verilator/sim.v).
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
 			dio_a <= {3'b000, dio_addr[17:0]}; // Map to 0 (Slot 0 offset 0)
-		else if (dio_index == 1) // boot1.rom - NuBus video ROM (passed directly to nubus_video)
-			dio_a <= {2'b11, dio_addr[18:0]}; // Park unused SDRAM copy away from ROM/floppies
 		else if (dio_index[1:0] == 2 || dio_index[1:0] == 3) // Floppy disk images at indices 2,3
 			dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
 		else
@@ -1035,15 +1107,16 @@ wire download_cycle = dio_download && dioBusControl;
 //                                               collides with the 8MB RAM window
 //                                               (it used to sit at A21=0x200000,
 //                                               inside the 8MB RAM span).
-assign arb_mac_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
+assign arb_mac_addr = clear_cycle    ? {3'b000, clear_addr} :                       // RAM pre-clear @ 0x000000+
+                      download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
                       ~_romOE        ? {2'b00, 1'b1, 4'b0000, memoryAddr[18:1]} :    // Mac II ROM @ 0x400000+
                       (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
                                        {3'b000, memoryAddr[22:1]};                   // RAM 0x000000-0x3FFFFF (8MB)
 
-assign arb_mac_din  = download_cycle ? dio_data              : memoryDataOut;
-assign arb_mac_ds   = download_cycle ? 2'b11                 : { !_memoryUDS, !_memoryLDS };
-assign arb_mac_we   = download_cycle ? dio_write             : !_ramWE;
-assign arb_mac_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
+assign arb_mac_din  = clear_cycle ? 16'h0000 : download_cycle ? dio_data  : memoryDataOut;
+assign arb_mac_ds   = clear_cycle ? 2'b11    : download_cycle ? 2'b11     : { !_memoryUDS, !_memoryLDS };
+assign arb_mac_we   = clear_cycle ? clear_write : download_cycle ? dio_write : !_ramWE;
+assign arb_mac_oe   = clear_cycle ? 1'b0     : download_cycle ? 1'b0      : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 
 wire [15:0] sdram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux : arb_mac_dout;
 
@@ -1210,6 +1283,10 @@ dbg_min dbg_min_inst (
 	.ioctl_idx      (dio_index[7:0]),
 	.dbg_adb        (dbg_adb),
 	.dbg_adb2       (dbg_adb2),
+	.dbg_adb3       (dbg_adb3),
+	.dbg_adb4       (dbg_adb4),
+	.ps2_mouse      (ps2_mouse),
+	.mouse_has_event(adb_mouse_has_event),
 	// Audio-regression diagnosis
 	.selectASC      (selectASC),
 	.asc_irq_n      (dbg_asc_irq_n),
