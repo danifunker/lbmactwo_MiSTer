@@ -545,7 +545,7 @@ module ncr5380
 	//   [25] dma_longword_latched          [26] b0_seen [27] b1_seen
 	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
 	altsource_probe #(
-		.instance_id ("PWR"),
+		.instance_id ("PWR2"),
 		.probe_width (32),
 		.source_width(1),
 		.sld_auto_instance_index ("YES")
