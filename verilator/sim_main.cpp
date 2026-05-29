@@ -1244,10 +1244,18 @@ int verilate() {
 					// DREQ asserted but CPU not draining it -> count consecutive
 					// fetches; once it's clearly wedged, dump the PC ring buffer
 					// (the outer loop that abandoned the data transfer) and stop.
-					if (VERTOPINTERN->emu__DOT__scsiDREQ) {
-						if (++scsi_stall_dreq_run >= 400000) {
+					if (video.count_frame >= 3500) {
+						if (++scsi_stall_dreq_run >= 50) {
 							fprintf(stderr, "SCSI_STALL_HISTORY trigger frame=%d pc=%08X dreq stuck\n",
 							        video.count_frame, pc);
+							// Low-mem state for the boot-wait loop at $40802432:
+							// `tst.b $172.w; bne` — $172 is MBState (mouse button).
+							// Dump the bytes the loop and its companions touch.
+							fprintf(stderr, "LOWMEM_BOOTWAIT B0172=%02X(MBState) B0160=%02X B08CF=%02X "
+							        "W0172=%04X W017A=%04X W08CE=%04X L08EE=%08X\n",
+							        ram_byte(0x0172), ram_byte(0x0160), ram_byte(0x08CF),
+							        ram_word(0x0172), ram_word(0x017A), ram_word(0x08CE),
+							        ram_long(0x08EE));
 							int first = bootmask_history_pos - bootmask_history_count;
 							if (first < 0) first += BOOTMASK_HISTORY_SIZE;
 							for (int i = 0; i < bootmask_history_count; i++) {

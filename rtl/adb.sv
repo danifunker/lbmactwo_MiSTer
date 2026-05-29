@@ -129,6 +129,11 @@ task process_command;
 	begin
 		resp_len <= 0;
 		resp_idx <= 0;
+`ifdef SIMULATION
+		if ($test$plusargs("adb_debug"))
+			$display("ADB_CMD addr=%0d type=%b reg=%0d kbd_addr=%0d mouse_addr=%0d finish=%b",
+			         cmd_addr, cmd_type, cmd_reg, kbd_addr, mouse_addr, do_finish);
+`endif
 
 		if (cmd_type == 2'b00) begin
 			// Reset (broadcast to all devices)
@@ -233,18 +238,29 @@ task process_command;
 						cmd_processed <= 1;
 					end
 				end
-				2'b11: begin // Talk
+				2'b11: begin // Talk to mouse
+`ifdef SIMULATION
+					if ($test$plusargs("adb_debug"))
+						$display("ADB_MOUSE_TALK reg=%0d mouse_has_event=%b mouseBtn=%b mouse_addr=%0d cmd_addr=%0d",
+						         cmd_reg, mouse_has_event, mouseBtn, mouse_addr, cmd_addr);
+`endif
 					case (cmd_reg)
 						2'd0: begin
+							// A real ADB mouse ALWAYS responds to Talk Reg 0 with its
+							// current state, deltas zero if nothing happened.  The Mac
+							// ROM initialises MBState ($172) to 0x80 (mouse-button-down)
+							// at boot and relies on the first autopoll response to clear
+							// it; gating the response on mouse_has_event meant we never
+							// answered the autopoll, MBState stayed 0x80, and the boot-
+							// wait loop at $40802432 (`tst.b $172; bne`) spun forever.
+							response[0] <= {~mouseButton, mouse_has_event ? mouseY : 7'h00};
+							response[1] <= {1'b1,         mouse_has_event ? mouseX : 7'h00};
+							resp_len <= 2;
 							if (mouse_has_event) begin
-								response[0] <= {~mouseButton, mouseY};
-								response[1] <= {1'b1, mouseX};
-								resp_len <= 2;
 								mouseX <= 0;
 								mouseY <= 0;
 								mouse_has_event <= 0;
 							end
-							// else: empty response
 							cmd_processed <= 1;
 						end
 						2'd3: begin
