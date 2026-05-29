@@ -732,15 +732,20 @@ reg [7:0] dbg_b0, dbg_b1;
 reg       dbg_b0_seen, dbg_b1_seen;
 reg [7:0] dbg_low_l;
 reg       dbg_word_l, dbg_long_l;
+// Trigger on the first MULTI-BLOCK write (tlen >= 2) so the captured bytes
+// carry the bench's full non-zero pattern (e.g. 1KB test: byte0=2, byte1=3).
+// The 1B/512B tests (tlen==1) and the tiny JSONL result writes are skipped —
+// their first word is all-zero/stale and can't distinguish the bug.
+wire dbg_capture_ok = (phase == PHASE_DATA_IN) && (|tlen[15:1]);
 always @(posedge clk) begin
-	if (buffer0_wr && (data_cnt[9:1] == 9'd0) && !dbg_b0_seen) begin
+	if (buffer0_wr && dbg_capture_ok && (data_cnt[9:1] == 9'd0) && !dbg_b0_seen) begin
 		dbg_b0      <= din;
 		dbg_low_l   <= dbg_dma_lowbyte;
 		dbg_word_l  <= dbg_dma_word;
 		dbg_long_l  <= dbg_dma_long;
 		dbg_b0_seen <= 1'b1;
 	end
-	if (buffer1_wr && (data_cnt[9:1] == 9'd0) && !dbg_b1_seen) begin
+	if (buffer1_wr && dbg_capture_ok && (data_cnt[9:1] == 9'd0) && !dbg_b1_seen) begin
 		dbg_b1      <= din;
 		dbg_b1_seen <= 1'b1;
 	end
