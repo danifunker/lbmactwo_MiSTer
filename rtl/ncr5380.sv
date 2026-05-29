@@ -411,6 +411,7 @@ module ncr5380
 	wire [7:0]      target_hs[DEVS];
 	wire [3:0]      target_hs2[DEVS];
 	wire [7:0]      target_cmd[DEVS];
+	wire [31:0]     target_wrsnap[DEVS];   // JTAG debug: first-word-write capture
 	wire [DEVS-1:0] target_bsy;
 
 	// Count SCSI bus resets (Mac asserting ICR.RST) -- the abort/retry signal.
@@ -507,7 +508,11 @@ module ncr5380
 				.dbg_phase( target_phase[i] ),
 				.dbg_hs( target_hs[i] ),
 				.dbg_hs2( target_hs2[i] ),
-				.dbg_cmd( target_cmd[i] )
+				.dbg_cmd( target_cmd[i] ),
+				.dbg_dma_word( dma_word_latched ),
+				.dbg_dma_long( dma_longword_latched ),
+				.dbg_dma_lowbyte( dma_write_low_byte ),
+				.dbg_wrsnap( target_wrsnap[i] )
 			);
 		end
 	endgenerate
@@ -532,6 +537,19 @@ module ncr5380
 	assign dbg_scsi4 = { dbg_rst_count, target_hs2[1], target_hs2[0] };
 
 	assign dbg_scsi5 = { target_cmd[1], target_cmd[0] };
+
+	// JTAG ISSP: first-word-write capture for target 0 (ID 6, the boot disk).
+	// Read with quartus_stp via instance_id "PWR".
+	//   [7:0]   byte0 the target latched   [15:8]  byte1 the target latched
+	//   [23:16] ncr5380 intended odd byte  [24] dma_word_latched
+	//   [25] dma_longword_latched          [26] b0_seen [27] b1_seen
+	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
+	altsource_probe #(
+		.instance_id ("PWR"),
+		.probe_width (32),
+		.source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwr (.probe(target_wrsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
 
 `ifdef SIMULATION
 	// Host-side stall watchdog: when a target holds REQ but the host stops

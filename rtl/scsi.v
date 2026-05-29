@@ -44,7 +44,16 @@ module scsi
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
-	output [7:0]  dbg_cmd       // JTAG debug: command-type bitmap (survive reset)
+	output [7:0]  dbg_cmd,      // JTAG debug: command-type bitmap (survive reset)
+
+	// JTAG debug: word-write byte-serialization investigation. The ncr5380
+	// feeds these in so we can capture, at the REAL target sample point, what
+	// byte0/byte1 of the first word write actually latched vs the intended low
+	// byte — pinning whether the low byte ever reaches the target.
+	input         dbg_dma_word,    // ncr5380 dma_word_latched
+	input         dbg_dma_long,    // ncr5380 dma_longword_latched
+	input  [7:0]  dbg_dma_lowbyte, // ncr5380 dma_write_low_byte (intended odd byte)
+	output [31:0] dbg_wrsnap       // captured first-word-write snapshot
 );
 
 // SCSI device id
@@ -712,6 +721,32 @@ always @(posedge clk) begin
 		dbg_unsup_op <= op_code;
 end
 assign dbg_cmd = dbg_unsup_op;
+
+// JTAG debug: capture byte0 and byte1 of the FIRST word write exactly as the
+// target latches them (din at buffer0[0] / buffer1[0]), plus the ncr5380's
+// intended odd byte and word/longword flags at that moment. Sticky.
+//   If dbg_b1 == dbg_b0 (and != dbg_low_l) the low byte never reached the
+//   target (the serialization drops it); dbg_word_l shows whether the
+//   word-write path was even engaged.
+reg [7:0] dbg_b0, dbg_b1;
+reg       dbg_b0_seen, dbg_b1_seen;
+reg [7:0] dbg_low_l;
+reg       dbg_word_l, dbg_long_l;
+always @(posedge clk) begin
+	if (buffer0_wr && (data_cnt[9:1] == 9'd0) && !dbg_b0_seen) begin
+		dbg_b0      <= din;
+		dbg_low_l   <= dbg_dma_lowbyte;
+		dbg_word_l  <= dbg_dma_word;
+		dbg_long_l  <= dbg_dma_long;
+		dbg_b0_seen <= 1'b1;
+	end
+	if (buffer1_wr && (data_cnt[9:1] == 9'd0) && !dbg_b1_seen) begin
+		dbg_b1      <= din;
+		dbg_b1_seen <= 1'b1;
+	end
+end
+assign dbg_wrsnap = { 4'd0, dbg_b1_seen, dbg_b0_seen, dbg_long_l, dbg_word_l,
+                      dbg_low_l, dbg_b1, dbg_b0 };
 
 endmodule
 
