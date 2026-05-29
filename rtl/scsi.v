@@ -121,6 +121,38 @@ scsi_dpram buffer0
 wire [7:0] buffer1_dout;
 wire [7:0] buffer1_dout_next;
 wire [7:0] buffer1_dout_next2;
+
+// WORD-WRITE FIX (refinement, supersedes the direct-feed of dbg_dma_lowbyte):
+//   buffer1 holds the ODD byte of each 16-bit unit. In word-mode pseudo-DMA the
+//   target samples `din` a few cycles AFTER the ACK pulse, by which time din has
+//   reverted to the EVEN byte (dout) — so without this fix the even byte was being
+//   duplicated into the odd slot (iotest WRITE verify failed @offset1, actual==byte[0]).
+//
+//   First attempt (one-liner) fed `dbg_dma_lowbyte` (= ncr5380 dma_write_low_byte)
+//   directly into data_b. That was functionally right when timing held, but had two
+//   weaknesses:
+//     (1) RACE: dma_write_low_byte re-latches on the NEXT CPU `i_dma_wr` rise. If the
+//         next word's CPU access lands before the current word's buffer1 dpram-write
+//         edge, buffer1 captures the NEXT word's odd byte → corrupt write.
+//     (2) PATH: ncr5380 reg → cross-module → mux → BlockRAM data_b is a long combo
+//         path on a fit-marginal design; intermittent setup violations corrupt the
+//         write and cascade into a SCSI driver fault → Sad Mac on the first WRITE.
+//
+//   Refinement: latch the current word's odd byte LOCALLY at beat-1's stb_ack (when
+//   data_cnt is even and we're in PHASE_DATA_IN). At that moment dma_write_low_byte
+//   is stable with the current word's wdata[7:0]. Hold it across beat 2's storage.
+//   This is both race-free (locked to the current word, immune to the next CPU
+//   access) and timing-friendly (BlockRAM data_b is now a short local-reg-to-RAM
+//   path). Byte-mode (dbg_dma_word=0) still uses din directly, unchanged.
+//   buffer0 (even byte) is untouched — it was already storing correctly.
+reg [7:0] odd_byte_r;
+always @(posedge clk) begin
+	if (rst)
+		odd_byte_r <= 8'h00;
+	else if (stb_ack && (phase == PHASE_DATA_IN) && ~data_cnt[0] && dbg_dma_word)
+		odd_byte_r <= dbg_dma_lowbyte;
+end
+
 scsi_dpram buffer1
 (
 	.clock(clk),
@@ -131,15 +163,7 @@ scsi_dpram buffer1
 	.q_a(buf1_q_a),
 
 	.address_b(data_cnt[9:1]),
-	// WORD-WRITE FIX: buffer1 holds the ODD byte of each 16-bit unit. In word-mode
-	// pseudo-DMA the target samples `din` a few cycles AFTER the ACK pulse, by which
-	// point din has reverted to the EVEN byte (dout) — so the even byte was being
-	// duplicated into the odd slot (iotest WRITE verify failed @offset1, actual==
-	// byte[0]). The intended odd byte is already plumbed in as dbg_dma_lowbyte
-	// (= ncr5380 dma_write_low_byte) and stays stable for the whole transfer, so
-	// store it directly for word-mode writes. Byte-mode (dbg_dma_word=0) keeps using
-	// din. buffer0 (even byte) is unchanged — it already verifies correct.
-	.data_b(dbg_dma_word ? dbg_dma_lowbyte : din),
+	.data_b(dbg_dma_word ? odd_byte_r : din),
 	.wren_b(buffer1_wr),
 	.q_b(buffer1_dout),
 
