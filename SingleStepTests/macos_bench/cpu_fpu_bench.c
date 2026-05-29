@@ -68,9 +68,49 @@ static u8 *build_program(const CpuFpuTestSpec *t)
     p = emit_movea_l_imm_to_an(p, 6, (u32) &scratch_ram[0]);
     p = emit_move_l_imm_to_dn(p, 0, (u32) t->op_a);
 
-    /* embed the program */
-    memcpy(p, t->program, t->program_len);
-    p += t->program_len;
+    /* Embed the program, but neutralize STOP #$2700 (4E 72 27 00).
+     * The baseline corpus uses STOP as an "end of test" marker assuming
+     * supervisor mode; in user mode it's privileged and traps.
+     *
+     *   Case A (1248/1328 tests): STOP is the LAST 4 bytes. Strip it; the
+     *   harness's state-dump + RTS already terminate cleanly. Behavior
+     *   identical to the original strip-tail logic (kept byte-for-byte so
+     *   we don't perturb tests that already pass).
+     *
+     *   Case B (~80 tests): STOP appears mid-program, with PC-relative
+     *   inline data after it (e.g. FMOVE.X (d16,PC),FP0 reads 12 bytes
+     *   sitting past the STOP). Stripping would shift offsets and break
+     *   the d16 reference, so we instead REPLACE the 4-byte STOP with
+     *   BRA.W disp16, branching over the inline data into the dump.
+     *   Position of the 4 bytes is preserved, so any PC-relative d16 in
+     *   the test remains valid. Tail STOPs go through case A only. */
+    {
+        unsigned short n = t->program_len;
+        memcpy(p, t->program, n);
+        if (n >= 4 &&
+            p[n-4] == 0x4E && p[n-3] == 0x72 &&
+            p[n-2] == 0x27 && p[n-1] == 0x00) {
+            n -= 4;
+        } else {
+            /* Look for an embedded STOP and swap it for BRA.W over the
+             * remaining bytes. disp16 = (bytes_after_stop + 2): the
+             * BRA's PC counts from the displacement word, which sits 2
+             * bytes after the BRA opword, so adding the remainder lands
+             * us exactly at the end of the embedded program. */
+            unsigned short i;
+            for (i = 0; i + 4 <= n; i++) {
+                if (p[i] == 0x4E && p[i+1] == 0x72 &&
+                    p[i+2] == 0x27 && p[i+3] == 0x00) {
+                    unsigned short disp = (unsigned short)(n - i - 2);
+                    p[i]   = 0x60; p[i+1] = 0x00;
+                    p[i+2] = (u8)(disp >> 8);
+                    p[i+3] = (u8) disp;
+                    break;
+                }
+            }
+        }
+        p += n;
+    }
 
     /* state dump (D0..D7, A0..A7) */
     {
@@ -155,8 +195,10 @@ static void test_output_path(char *buf, int i)
     if (test_num <= 99) lo = 1;
     else lo = (test_num / 100) * 100;
 
-    if (lo == 1) sprintf(dir, "%s:1-99", CPU_FPU_OUTPUT_DIR);
-    else         sprintf(dir, "%s:%d-%d", CPU_FPU_OUTPUT_DIR, lo, lo + 99);
+    /* Leading ':' makes the partial pathname relative to the working
+     * directory; see cpu_bench.c for the rationale. */
+    if (lo == 1) sprintf(dir, ":%s:1-99", CPU_FPU_OUTPUT_DIR);
+    else         sprintf(dir, ":%s:%d-%d", CPU_FPU_OUTPUT_DIR, lo, lo + 99);
     sprintf(buf, "%s:%04d.jsonl", dir, test_num);
 
     if (lo != last_bucket_lo) {
@@ -188,6 +230,12 @@ int main(void)
 
         entry = build_program(t);
         flush_icache();
+        /* Per-test line — needed to diagnose freezes. Clear the screen
+         * every 50 tests to keep the buffer bounded (unbounded growth
+         * historically crashed the Toolbox). Clear runs BEFORE the new
+         * line so the screen is never left blank. */
+        if (i > 0 && (i % 50) == 0)
+            printf("\033[H\033[2J");
         printf("[%d/%d] %s\n", i + 1, CPU_FPU_N_TESTS, t->name);
         invoke_program(entry);
 

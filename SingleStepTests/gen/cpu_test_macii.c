@@ -58,6 +58,28 @@ static Snapshot final_snap;
 static u32 init_pc;
 static u32 final_pc;
 
+/* Fixed RAM slot used by the test program to preserve A7 across the
+ * test instruction. The bench dispatches every test via `jsr (a0) /
+ * rts`, so the C return address still has to be poppable off the C
+ * stack when the test is done -- which means A7 must point at the
+ * C-side stack frame again before the RTS at the end of build_program.
+ *
+ * Tests that overwrite A7 (EXG A0,A7 and the like -- #639 in this
+ * corpus) used to crash the system: A7 became whatever the test left
+ * there (typically 0 after the reset-preamble's `SUBA.L A0,A0`), then
+ * the dump's MOVE.L Dn,abs.l ran fine (no stack use) but the final
+ * RTS popped PC from address 0 -> bus error -> hard crash.
+ *
+ * The bracket is a 6-byte `MOVE.L A7, saved_a7` planted right before
+ * the test instruction and a 6-byte `MOVEA.L saved_a7, A7` planted
+ * right after, inside the init_pc / final_pc window so those PC
+ * markers still point at the test bytes themselves. The final snap's
+ * A7 will reflect the restored value, not whatever the test left in
+ * A7 -- but the diff already excludes A7 from comparison anyway
+ * (cpu_diff_corpus.py: COMPARE_AREGS = A0..A5), so this is invisible
+ * to the diff tool. */
+static u32 saved_a7;
+
 /* Scratch RAM region used as the target of all memory-touching tests.
  * Address provided to the test program via A6 (set in the harness preamble). */
 static u8 scratch_ram[CPU_SCRATCH_LEN];
@@ -157,6 +179,12 @@ static u8 *build_program(const CpuTestSpec *t)
 
     p = emit_state_dump(p, &init_snap, 1);
 
+    /* Bracket the test instruction with A7 save/restore so a test that
+     * overwrites A7 (e.g. EXG A0,A7) doesn't crash the final RTS. See
+     * the saved_a7 comment above for the why. */
+    p = put_w(p, 0x23CF);                  /* MOVE.L A7, abs.l */
+    p = put_l(p, (u32) &saved_a7);
+
     /* Architectural PC values: address of first byte of the test
      * (init_pc, what PC reads as the test instruction begins to
      * execute) and address of first byte of the final dump (final_pc,
@@ -168,6 +196,9 @@ static u8 *build_program(const CpuTestSpec *t)
     p += t->test_len;
 
     final_pc = (u32) p;
+
+    p = put_w(p, 0x2E79);                  /* MOVEA.L abs.l, A7 */
+    p = put_l(p, (u32) &saved_a7);
 
     p = emit_state_dump(p, &final_snap, 0);
 
