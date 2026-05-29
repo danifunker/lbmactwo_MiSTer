@@ -1,2 +1,29 @@
-# Preserve CRLF line endings for VHDL files
+# Normalize text files to LF in the repository; let attributes below
+# decide the working-tree line ending per type. Prevents mixed-ending commits.
+* text=auto
+
+# Shell scripts MUST stay LF: they are scp'd to and run on the MiSTer (Linux).
+*.sh text eol=lf
+
+# VHDL keeps CRLF in the working tree (existing project convention).
 *.vhd text eol=crlf
+
+# Binaries / generated artifacts: never touch line endings.
+*.rbf binary
+*.rom binary
+*.sof binary
+*.sov binary
+*.qar binary
+*.bin binary
+*.BIN binary
+*.hex binary
+*.mif binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
+# Archives and disk images (added: present in releases/ and SingleStepTests/ fixtures)
+*.gz binary
+*.zip binary
+*.sit binary
+*.dsk binary
