@@ -125,6 +125,19 @@ module ncr5380
 	reg dma_longword_second_pending;
 	reg [15:0] dma_second_word_data;
 	reg [7:0] dma_write_low_byte;
+	// Word-write byte serialization: a 16-bit pseudo-DMA write delivers two
+	// bytes to the target across two ACK beats (high byte first, then low).
+	// The target latches its data bus two clocks AFTER each ACK rises (its
+	// stb_ack and buffer-write are both registered), and the two ACK beats are
+	// two clocks apart, so byte0 is sampled the cycle holdoff first reaches 0
+	// and byte1 two cycles later.  Selecting the low byte on the transient
+	// holdoff==1 cycle (when ACK is LOW, between beats) means the target never
+	// sees it and latches the high byte twice — corrupting every odd byte of a
+	// multi-byte write while 1-byte writes (holdoff==0, single beat) are fine.
+	// dma_wr_low_phase holds the low byte from one cycle after holdoff==1 (i.e.
+	// from between the two sample points) until the next DMA write begins.
+	reg dma_holdoff_was1;
+	reg dma_wr_low_phase;
 	reg old_dma_rd;
 	reg old_dma_wr;
 	reg old_reg_wr;
@@ -155,6 +168,8 @@ module ncr5380
 			dma_longword_second_pending <= 0;
 			dma_second_word_data <= 16'h0000;
 			dma_write_low_byte <= 8'h00;
+			dma_holdoff_was1 <= 0;
+			dma_wr_low_phase <= 0;
 		end else begin
 			old_dma_rd <= i_dma_rd;
 			old_dma_wr <= i_dma_wr;
@@ -163,6 +178,13 @@ module ncr5380
 			dma_wr <= 0;
 			dma_ack <= 0;
 			reg_wr <= 0;
+
+			// Track the second-byte beat of a word write (see decl above).
+			dma_holdoff_was1 <= (dma_ack_holdoff == 3'd1);
+			if (~old_dma_wr & i_dma_wr)
+				dma_wr_low_phase <= 1'b0;   // new DMA write: first beat = high byte
+			else if (dma_holdoff_was1)
+				dma_wr_low_phase <= 1'b1;   // past the inter-beat gap: low byte, held
 
 			if(~old_dma_rd & i_dma_rd) begin
 				dma_word_latched <= dma_word;
@@ -225,7 +247,7 @@ module ncr5380
 	 * wired-OR of active initiator and target data drivers.
 	 */
 	wire       out_en = icr[`ICR_A_DATA] | mr[`MR_ARB];
-	wire [7:0] dma_write_data = (dma_ack_holdoff == 3'd1 && dma_word_latched) ? dma_write_low_byte : dout;
+	wire [7:0] dma_write_data = (dma_wr_low_phase && dma_word_latched) ? dma_write_low_byte : dout;
 	wire [7:0] scsi_bus_data = (out_en ? dma_write_data : 8'h00) | din;
 	wire [7:0] cur_data = scsi_bus_data;
 	wire [15:0] cur_data_pair = out_en ? { dout, dout } : (dma_suppress_ack_latched ? dma_second_word_data : din_pair);
