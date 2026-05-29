@@ -53,7 +53,8 @@ module scsi
 	input         dbg_dma_word,    // ncr5380 dma_word_latched
 	input         dbg_dma_long,    // ncr5380 dma_longword_latched
 	input  [7:0]  dbg_dma_lowbyte, // ncr5380 dma_write_low_byte (intended odd byte)
-	output [31:0] dbg_wrsnap       // captured first-word-write snapshot
+	output [31:0] dbg_wrsnap,      // captured first-word-write snapshot
+	output [31:0] dbg_selsnap      // selection/command handshake observability
 );
 
 // SCSI device id
@@ -169,25 +170,18 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	// Do not drive REQ while SEL is still asserted.  After we assert BSY the
-	// initiator must release SEL to complete selection; only then may the
-	// target begin the information-transfer (REQ/ACK) handshake.  Asserting
-	// REQ during selection races with the initiator's SEL release and made
-	// the command phase intermittently stall on hardware (sim's ideal timing
-	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
-	// this only gates the first REQ right after selection.
-	//
-	// REQ/ACK interlock: assert REQ whenever the target has the next byte ready
-	// (data phase active, not currently ACKed, sector buffer half not still being
-	// filled, transfer not complete).  This is the plain hardware handshake; the
-	// inter-byte/inter-block REQ-low window the SCSI Manager's polled loops sample
-	// comes from io_busy — the target holding REQ low while the backing store
-	// (SD/HPS on the FPGA, the block-device model in sim) fills the next sector.
-	// That latency is real on hardware; it must be modeled realistically in the
-	// sim's block device (see verilator/sim_blkdevice.cpp) for sim to match the
-	// FPGA.  No per-byte delay or heuristics live here — same RTL on both targets.
-
-	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
+	// REQ assertion. Previously this was gated on !sel ("wait for the initiator
+	// to drop SEL before the first REQ"). But the reference implementations
+	// (Snow's NCR5380, MAME) assert REQ as soon as the target is selected and
+	// in an information-transfer phase — they do NOT wait for SEL to deassert.
+	// Our !sel gate added an extra handshake step: target asserts BSY at
+	// CMD_IN, then withholds REQ until SEL drops. The Mac ROM driver's
+	// SEL-release intermittently races that, the command never starts, the
+	// driver times out and issues a bus RESET -> the CMD_IN->IDLE->reselect
+	// loop seen on the FPGA (but not on real HW or MAME). Drop the !sel gate;
+	// `phase != PHASE_IDLE` already prevents REQ during the IDLE->selection
+	// sampling window, so REQ now comes up on selection like the references.
+	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -752,6 +746,36 @@ always @(posedge clk) begin
 end
 assign dbg_wrsnap = { 4'd0, dbg_b1_seen, dbg_b0_seen, dbg_long_l, dbg_word_l,
                       dbg_low_l, dbg_b1, dbg_b0 };
+
+// ---- Selection/command handshake observability (PSEL probe) -----------
+// Live state {phase,sel,bsy,req,ack} plus sticky high-water/counters that
+// SURVIVE bus reset (no rst clause) so they accumulate across the
+// reset/reselect retry loop. Key indicators for the REQ-vs-SEL fix:
+//   reached_data : did a transfer ever get past CMD_IN to a DATA phase?
+//   req_while_sel: REQ rising edges observed while SEL was still asserted
+//                  (was impossible with the old !sel gate; nonzero => fix live)
+//   cmd_bytes    : command bytes ACKed in CMD_IN (does the command advance?)
+//   max_phase    : highest target phase reached.
+reg [2:0] dbg_max_phase;
+reg       dbg_reached_data;
+reg [7:0] dbg_req_while_sel;
+reg [7:0] dbg_cmd_bytes;
+reg       dbg_req_d;
+initial begin
+	dbg_max_phase = 0; dbg_reached_data = 0; dbg_req_while_sel = 0;
+	dbg_cmd_bytes = 0; dbg_req_d = 0;
+end
+always @(posedge clk) begin
+	dbg_req_d <= req;
+	if (phase > dbg_max_phase) dbg_max_phase <= phase;
+	if (phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) dbg_reached_data <= 1'b1;
+	if (req && sel && !dbg_req_d && dbg_req_while_sel != 8'hFF)
+		dbg_req_while_sel <= dbg_req_while_sel + 8'd1;
+	if (phase == PHASE_CMD_IN && stb_adv && dbg_cmd_bytes != 8'hFF)
+		dbg_cmd_bytes <= dbg_cmd_bytes + 8'd1;
+end
+assign dbg_selsnap = { 5'd0, dbg_cmd_bytes, dbg_req_while_sel, dbg_reached_data,
+                       ack, req, bsy, sel, dbg_max_phase, phase };
 
 endmodule
 

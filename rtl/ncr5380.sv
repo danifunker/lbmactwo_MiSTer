@@ -390,6 +390,7 @@ module ncr5380
 	wire [3:0]      target_hs2[DEVS];
 	wire [7:0]      target_cmd[DEVS];
 	wire [31:0]     target_wrsnap[DEVS];   // JTAG debug: first-word-write capture
+	wire [31:0]     target_selsnap[DEVS];  // JTAG debug: selection/command handshake
 	wire [DEVS-1:0] target_bsy;
 
 	// Count SCSI bus resets (Mac asserting ICR.RST) -- the abort/retry signal.
@@ -490,7 +491,8 @@ module ncr5380
 				.dbg_dma_word( dma_word_latched ),
 				.dbg_dma_long( dma_longword_latched ),
 				.dbg_dma_lowbyte( dma_write_low_byte ),
-				.dbg_wrsnap( target_wrsnap[i] )
+				.dbg_wrsnap( target_wrsnap[i] ),
+				.dbg_selsnap( target_selsnap[i] )
 			);
 		end
 	endgenerate
@@ -528,6 +530,17 @@ module ncr5380
 		.source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pwr (.probe(target_wrsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// JTAG ISSP: selection/command handshake for target 0. instance_id "PSEL".
+	//   [2:0] phase  [5:3] max_phase  [6] sel [7] bsy [8] req [9] ack
+	//   [10] reached_data  [18:11] req_while_sel  [26:19] cmd_bytes
+	// reached_data=1 and cmd_bytes>0 => command phase advanced (REQ fix worked).
+	altsource_probe #(
+		.instance_id ("PSEL"),
+		.probe_width (32),
+		.source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_psel (.probe(target_selsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
 
 `ifdef SIMULATION
 	// Host-side stall watchdog: when a target holds REQ but the host stops
