@@ -149,19 +149,21 @@ module dbg_min (
     always @(posedge clk)
         vfetch_r <= {16'd0, vram_fetch_cnt};
 
-    altsource_probe #(
-        .instance_id ("PVID"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvid (.probe(vid_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVID disabled to free JTAG-routing headroom for the cold-boot RAM-clear logic.
+    // altsource_probe #(
+    //     .instance_id ("PVID"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvid (.probe(vid_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    altsource_probe #(
-        .instance_id ("PVFC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvfc (.probe(vfetch_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVFC disabled to free JTAG-routing headroom for the cold-boot RAM-clear logic.
+    // altsource_probe #(
+    //     .instance_id ("PVFC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvfc (.probe(vfetch_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // SCSI diagnosis:
     //   scsi_last_rd  : value the CPU last read from the SCSI controller
@@ -601,12 +603,13 @@ module dbg_min (
     always @(posedge clk)
         slt_r <= {sticky_148, cnt_13c, cnt_148, last_reg_addr};
 
-    altsource_probe #(
-        .instance_id ("PSLT"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pslt (.probe(slt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSLT disabled to free JTAG-routing headroom for the cold-boot RAM-clear logic.
+    // altsource_probe #(
+    //     .instance_id ("PSLT"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pslt (.probe(slt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PADP: ADB Poll-distribution monitor.
     //   Edge-detects cmd_valid 0->1 in adb.sv (= a fresh command byte has
