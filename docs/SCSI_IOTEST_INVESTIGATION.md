@@ -1,6 +1,8 @@
 # SCSI iotest investigation — progress log & handoff
 
-Branch: `clocks-clean-rebased`. Last shipped RBF: **md5 `9fb6970f`** (commit `5f147a4`).
+Branch: `clocks-clean-rebased`. Last shipped RBF: **md5 `192c52ed`** (WRITE-fix build,
+2026-05-29 — verified iotest WRITE column all `pass` 1B..1MB+ on warm-boot run).
+Prior RBF: `9fb6970f` (commit `5f147a4`, selection-fix only).
 
 ## Goal
 Get the `SingleStepTests/preboot/iotest` disk-I/O bench passing on the FPGA core.
@@ -10,21 +12,39 @@ MAME.** Therefore every failure here is a bug in OUR RTL (`rtl/scsi.v`,
 
 ## The three distinct problems
 
-### 1. Multi-byte SCSI WRITE corruption (the original target — STILL OPEN)
-- Symptom (confirmed via the bench results table + `/Results.jsonl`): READ column all
-  `pass`; WRITE column fails verify at **offset 1** for every size ≥512B, with
-  `actual == byte[0]` (the even/high byte duplicated into the odd byte slot). `1B`
-  test passes because it only verifies byte 0.
-- Bench rounds every transfer up to whole 512-byte sectors, so "writes larger than
-  1 byte" = multi-sector / the odd byte of each 16-bit unit is wrong.
-- FIRST FIX ATTEMPT (commit `2d44706`, "sticky `dma_wr_low_phase`") was WRONG and
-  has been **REVERTED** (commit `150aa52`): it latched after reads and drove a stale
-  byte onto the SCSI ID bus during the next selection, corrupting selection → boot
-  `_Read` failed (ioErr -36). Lesson: any write-data mux must not leak into selection.
-- Open question: are the Mac driver's SCSI writes **word-mode or byte-mode**? The
-  `PWR2` probe captured `dma_word_latched=0` on the (degenerate, all-zero) 1B write,
-  hinting byte-mode — which would mean the word-serialization theory is off-target.
-  Need a clean multi-block capture (see "probe gap" below) to settle this.
+### 1. Multi-byte SCSI WRITE corruption (RESOLVED 2026-05-29, md5 `192c52ed`)
+**Verified:** on a warm-boot iotest run, the WRITE column reads `pass` for every
+size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
+
+- It is **EVEN-BYTE DUPLICATION, not a swap.** The bench's `verify_pattern` reports
+  only the FIRST mismatch; it always lands at **offset 1**, which means offset 0 (the
+  even byte) is CORRECT and the even byte is being duplicated into the odd slot. The
+  pattern is `byte[j] = (j ^ (j>>8) ^ seed)` with `seed = test index`. Screenshot
+  proof (4MB, i=11, seed=0x0B): detail line `ex:0A ac:0B`; expected[1]=0x0B^1=0x0A,
+  actual[1]=0x0B=seed=expected[0] → the even byte landed in the odd slot. The old
+  "swap" framing was wrong; the original "actual==byte[0]" note was right.
+- ROOT CAUSE: in word-mode pseudo-DMA the target (`scsi.v`) latches `din` into its
+  sector buffer a few cycles AFTER the ACK pulse (the `stb_ack`→`buffer_wr`→dpram
+  pipeline). By the storage cycle `din` has reverted to `dout` = the EVEN byte
+  (`wdata[15:8]`). The odd byte (`dma_write_low_byte` = `wdata[7:0]`) is muxed onto
+  the bus only for one cycle at `dma_ack_holdoff==1`, which is an ACK-**low** cycle —
+  the target never samples it. So both buffer0 (even slot) and buffer1 (odd slot)
+  capture the even byte. (Writes ARE word-mode; the earlier `PWR2 dma_word_latched=0`
+  was a bad capture. Even the "1B" test issues a full 512B word-mode sector write —
+  it only "passes" because verify checks offset 0 only.)
+- FIX (in `rtl/scsi.v`, `buffer1.data_b`): store the odd byte into buffer1 directly
+  from the already-plumbed, already-stable `dbg_dma_lowbyte` (= ncr5380
+  `dma_write_low_byte`), gated by `dbg_dma_word`; buffer0 (even) is unchanged.
+  `.data_b(dbg_dma_word ? dbg_dma_lowbyte : din)`. This mirrors the proven READ path:
+  the target selects the correct byte by its OWN `data_cnt[0]` from a stable source,
+  so it is **timing-independent** (no holdoff/ACK cycle-counting). Crucially it
+  changes ONLY the internal sector-buffer write data, NOT the SCSI bus-drive mux —
+  so unlike the reverted `2d44706` it cannot leak a stale byte into selection.
+- WHY NOT the obvious "swap the two emitted bytes": the non-`holdoff==1` (default)
+  path also drives `dout`, which is the SCSI ID byte during selection; and
+  `dma_word_latched` is only cleared on reset (can be stale at selection). Any fix on
+  the bus-drive side risks the `2d44706` selection-corruption regression. The
+  target-side buffer fix sidesteps that entirely.
 
 ### 2. SCSI selection / reset-retry hang (FIX SHIPPED in `9fb6970f`, verifying)
 - Symptom: boot intermittently wedges. Probe showed target at `CMD_IN` with `SEL=1`
@@ -107,11 +127,12 @@ MAME.** Therefore every failure here is a bug in OUR RTL (`rtl/scsi.v`,
 2. **Cold-boot readiness (#3):** if first-boot SCSI still fails, gate CPU reset release
    on SCSI/RAM-ready with a timeout fallback (don't deadlock diskless boot). Add a probe
    for the reset-release vs img_mounted timing.
-3. **Fix the PWR2 probe gap** so it captures a real multi-block, non-zero write; read
-   `dma_word_latched` to decide word- vs byte-mode, then design the WRITE fix (#1)
-   against the Snow/MAME reference. Snow delivers writes one byte per `write_dma` call
-   (assert_ack/deassert_ack per byte); our RTL serializes a 16-bit `wdata` — that
-   serialization (or a byte-lane/`iow=!_cpuUDS` issue) is the suspect for #1.
+3. **Verify the WRITE fix** (#1, applied 2026-05-29): after this build deploys + a
+   warm reboot, run the full iotest — the WRITE column should now read `pass` for all
+   sizes (no more `@1 ..` mismatches, no `Mismatched byte` detail line). If it instead
+   shows a real SWAP (offset0 now wrong too), the even/odd buffer mapping is inverted —
+   revisit which buffer is even. If still duplication, the `dbg_dma_lowbyte` source
+   isn't stable at buffer1's storage time — re-check `dma_write_low_byte` latching.
 4. Commit often (local only — do NOT `git push`; "push" here means scp the RBF).
    Always re-verify md5 after edits.
 
