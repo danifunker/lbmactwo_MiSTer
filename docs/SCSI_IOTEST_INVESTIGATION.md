@@ -1,8 +1,10 @@
 # SCSI iotest investigation — progress log & handoff
 
-Branch: `clocks-clean-rebased`. Last shipped RBF: **md5 `192c52ed`** (WRITE-fix build,
-2026-05-29 — verified iotest WRITE column all `pass` 1B..1MB+ on warm-boot run).
-Prior RBF: `9fb6970f` (commit `5f147a4`, selection-fix only).
+Branch: `clocks-clean-rebased`. Last shipped RBF: **md5 `7f3bddf4`** (commit
+`c616bf3`, 2026-05-29 — warm-boot iotest now ~100% reliable). Prior RBFs:
+`8e97e125` (commit `384bc37`, race-free buffer1 odd-byte latch refinement),
+`192c52ed` (commit `b945d3f`, WRITE-corruption fix), `9fb6970f` (commit `5f147a4`,
+selection fix).
 
 ## Goal
 Get the `SingleStepTests/preboot/iotest` disk-I/O bench passing on the FPGA core.
@@ -63,17 +65,49 @@ size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
   (`phase != PHASE_IDLE` still prevents REQ during the IDLE→selection sampling window.)
 - STATUS per user: "got a little further" with this build — so the fix helped.
 
-### 3. Cold-boot vs warm-boot SCSI divergence (STILL OPEN)
-- Symptom: on the FIRST (cold) boot, SCSI fails — **both reads and writes** (user
-  built the read-only iotest variant; it failed on the READ portion on cold boot).
-  After a **warm reboot**, the read suite runs correctly.
+### 3. Cold-boot SCSI failure (STILL OPEN)
+- Symptom (cold boot only): gray checkerboard → mouse cursor → IOTest banner →
+  Read `....` Write `....` → Sad Mac, before the first test runs.
+- Warm reboot still recovers (and now warm-boot iotest runs to completion every
+  time — see #4, the warm-boot reliability fix shipped 2026-05-29).
 - Echoes the prior cold-boot RAM-clear fix (commit `dbedf90`: CPU ran POST against
   not-ready RAM; fixed by FPGA RAM pre-clear + holding CPU reset until boot0.rom).
-- Likely the CPU is released from reset before the SCSI image / HPS / RAM is fully
-  ready, so the first SCSI transaction races init. The reset gate
+- Hypothesis: the CPU is released from reset before the SCSI image / HPS / RAM is
+  fully ready, so the first SCSI transaction races init. The reset gate
   (`LBMacTwo.sv:285`: `~pll_locked || osd_reset_req || buttons[1] || RESET ||
-  !clear_done`) does NOT wait on `img_mounted`/SCSI-ready. A naive add would deadlock
-  diskless boots — needs a guard (mount-arrived OR timeout).
+  !clear_done`) does NOT wait on `img_mounted`/SCSI-ready. A naive add would
+  deadlock diskless boots — needs a guard (mount-arrived OR timeout).
+
+### 4. Warm-boot first-WRITE intermittent Sad Mac (RESOLVED 2026-05-29, md5 `7f3bddf4`)
+- Symptom (warm boot only, ~3/4 of runs on prior builds): boot reached iotest
+  banner, reads all passed, first WRITE test triggered Sad Mac. The other 1/4 of
+  warm-boot runs completed the full bench cleanly.
+- ROOT CAUSE: the generic undecoded-address bus-error timeout in `LBMacTwo.sv`
+  (251 cycles ≈ 8 µs at 31.3344 MHz) was catching legitimate slow SCSI DMA
+  handshakes. The pre-fix `any_select` expression included
+  `(selectSCSI && !scsi_dma_wait)` — so any SCSI DACK cycle where `scsiDREQ`
+  took more than 8 µs to assert was treated as an undecoded address and
+  bus-errored, even though the SCSI controller was operating normally.
+- WHY INTERMITTENT: between the driver's BSR poll (which sees DMARQ=1 →
+  green light) and the subsequent `MOVE.W (buf)+, DACK`, `scsiDREQ` could
+  momentarily drop — most plausibly because `io_busy` was still gated by the
+  PREVIOUS READ's HPS `io_ack` handshake (Linux-side latency on the HPS varies
+  run-to-run). When the linger was <8 µs the cycle completed; when >8 µs, BERR.
+- DIAGNOSIS via JTAG probes after a Sad Mac:
+  - `PSCS` (dbg_min): CPU PC oscillating in ROM Sad Mac handler (0x40003xxx),
+    last SCSI register read = BSR offset 0x50 = 0x4848 (DMARQ=1, PMATCH=1) —
+    the driver saw the green light immediately before the Sad Mac.
+  - `PSEL` (scsi.v): target in DATA_IN, REQ=1, ACK=0 — bus side healthy.
+  - Combined: the `MOVE.W` to DACK was the failing cycle.
+- WHY NOT VISIBLE ON `9fb6970f`: the prior build's synthesis fit happened to
+  route `scsiDREQ` slightly faster, so it more often beat the 8 µs threshold.
+- FIX (commit `c616bf3`): drop the `&& !scsi_dma_wait` gate so SCSI cycles
+  count in `any_select` unconditionally. CPU stalls indefinitely on
+  `scsiDREQ` like the real Mac II BBU glue — no glue-level timeout for SCSI.
+  Driver-level watchdogs (in Mac OS) handle truly-hung SCSI; in our case,
+  user reloads the core. Snow's bus dispatch does the same ("infinite
+  patience") so this matches both the real hardware and the reference emu.
+- VERIFIED: warm-boot iotest now ~100% reliable per user.
 
 ## Probes added this session (read-only JTAG ISSP, in `ncr5380.sv`/`scsi.v`)
 - **`PWR2`** (target 0 / ID6): first multi-block write capture — `byte0`, `byte1` the
