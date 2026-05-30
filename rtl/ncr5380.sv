@@ -524,6 +524,9 @@ module ncr5380
 	//   [23:16] ncr5380 intended odd byte  [24] dma_word_latched
 	//   [25] dma_longword_latched          [26] b0_seen [27] b1_seen
 	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
+	// JTAG In-System Source/Probe primitives are Altera/Quartus-only; exclude
+	// them from the Verilator build (SIMULATION) so the sim still elaborates.
+`ifndef SIMULATION
 	altsource_probe #(
 		.instance_id ("PWR2"),
 		.probe_width (32),
@@ -541,6 +544,7 @@ module ncr5380
 		.source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_psel (.probe(target_selsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
+`endif
 
 `ifdef SIMULATION
 	// Host-side stall watchdog: when a target holds REQ but the host stops

@@ -165,9 +165,17 @@ end
 // Allow ROM/RAM initialization from simulation
 // verilator tracing_off
 /* verilator lint_off UNUSED */
+// Cold-boot RAM pre-clear (sim parity with LBMacTwo.sv's clear FSM).
+// On the FPGA, all configured RAM is zeroed after boot0.rom loads and before
+// the CPU is released, so every cold boot sees the clean low memory a warm
+// restart would have. Verilator's --x-initial flag does not guarantee a 0000
+// fill across the array, so we zero the RAM region (addr[22]=0 -> word indices
+// 0x000000..0x3FFFFF) explicitly here. The ROM/disk region (0x400000..) is
+// loaded later via the ioctl download path, so we leave it untouched.
+integer ram_clr_i;
 initial begin
-	// Memory will be initialized by the simulation testbench
-	// via ioctl_download mechanism
+	for (ram_clr_i = 0; ram_clr_i <= 'h3FFFFF; ram_clr_i = ram_clr_i + 1)
+		mem[ram_clr_i] = 16'h0000;
 end
 /* verilator lint_on UNUSED */
 // verilator tracing_on
