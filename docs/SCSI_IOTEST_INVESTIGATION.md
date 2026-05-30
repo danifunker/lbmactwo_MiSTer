@@ -6,13 +6,26 @@ Branch: `clocks-clean-rebased`. Last shipped RBF: **md5 `7f3bddf4`** (commit
 `192c52ed` (commit `b945d3f`, WRITE-corruption fix), `9fb6970f` (commit `5f147a4`,
 selection fix).
 
-## Goal
-Get the `SingleStepTests/preboot/iotest` disk-I/O bench passing on the FPGA core.
-**The iotest is a GOLDEN reference: it passes on real Macintosh II hardware AND on
-MAME.** Therefore every failure here is a bug in OUR RTL (`rtl/scsi.v`,
-`rtl/ncr5380.sv`), not in the test, the disk image, or the toolchain.
+## Status at a glance
+| # | Bug                                                          | Status                                |
+|---|--------------------------------------------------------------|---------------------------------------|
+| 1 | Multi-byte WRITE corruption (even-byte duplication @ off 1)  | ✅ RESOLVED (`b945d3f` → `384bc37`)   |
+| 2 | Selection / reset-retry hang (REQ gated on `!sel`)           | ✅ RESOLVED (`5f147a4`)               |
+| 3 | Cold-boot first-SCSI-access Sad Mac                          | ⏳ OPEN — see next-steps              |
+| 4 | Warm-boot first-WRITE Sad Mac (~1/4 reliability)             | ✅ RESOLVED (`c616bf3`)               |
 
-## The three distinct problems
+On a warm-boot run, `SingleStepTests/preboot/iotest` now goes end-to-end with the
+full READ + WRITE column reading `pass` at every size (1B..4MB). The only remaining
+open issue is the cold-boot Sad Mac on the first SCSI access (a warm reboot
+recovers and runs the bench cleanly).
+
+## Goal
+Get the `SingleStepTests/preboot/iotest` disk-I/O bench passing on the FPGA core,
+including from a cold first boot. **The iotest is a GOLDEN reference: it passes on
+real Macintosh II hardware AND on MAME.** Therefore every failure here is a bug
+in OUR RTL, not in the test, the disk image, or the toolchain.
+
+## Problems and fixes
 
 ### 1. Multi-byte SCSI WRITE corruption (RESOLVED 2026-05-29, md5 `192c52ed`)
 **Verified:** on a warm-boot iotest run, the WRITE column reads `pass` for every
@@ -48,10 +61,10 @@ size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
   the bus-drive side risks the `2d44706` selection-corruption regression. The
   target-side buffer fix sidesteps that entirely.
 
-### 2. SCSI selection / reset-retry hang (FIX SHIPPED in `9fb6970f`, verifying)
-- Symptom: boot intermittently wedges. Probe showed target at `CMD_IN` with `SEL=1`
+### 2. SCSI selection / reset-retry hang (RESOLVED `5f147a4`, md5 `9fb6970f`)
+- Symptom: boot intermittently wedged. Probe showed target at `CMD_IN` with `SEL=1`
   AND `BSY=1`, REQ held low; target cycling `CMD_IN→IDLE→reselect` (the Mac issuing
-  bus RESETs and retrying). Boot stub screen `A 0008 / D FFD9 / E FFDC` decodes as
+  bus RESETs and retrying). Boot stub screen `A 0008 / D FFD9 / E FFDC` decoded as
   BootDrive=8, driver refnum=-39, `_Read` result = -36 (ioErr).
 - ROOT CAUSE (found by comparing `scsi.v` to Snow `core/src/mac/scsi/controller.rs`):
   our REQ was gated on `!sel`:
@@ -59,11 +72,11 @@ size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
   So the target asserted BSY at CMD_IN but **withheld REQ until the initiator dropped
   SEL** — an extra handshake step the reference NCR5380s (Snow, MAME) do NOT require
   (they assert REQ on selection-complete, SEL-independent). The Mac ROM's SEL-release
-  races our gate → command never starts → reset/retry loop. Only manifests on the FPGA.
+  raced our gate → command never started → reset/retry loop. Only manifested on FPGA.
 - FIX (commit `5f147a4`): dropped the `!sel` term:
   `assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;`
-  (`phase != PHASE_IDLE` still prevents REQ during the IDLE→selection sampling window.)
-- STATUS per user: "got a little further" with this build — so the fix helped.
+  (`phase != PHASE_IDLE` still prevents REQ during the IDLE→selection sampling
+  window.) Verified: the `CMD_IN→IDLE→reselect` loop no longer reproduces.
 
 ### 3. Cold-boot SCSI failure (STILL OPEN)
 - Symptom (cold boot only): gray checkerboard → mouse cursor → IOTest banner →
@@ -109,23 +122,30 @@ size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
   patience") so this matches both the real hardware and the reference emu.
 - VERIFIED: warm-boot iotest now ~100% reliable per user.
 
-## Probes added this session (read-only JTAG ISSP, in `ncr5380.sv`/`scsi.v`)
-- **`PWR2`** (target 0 / ID6): first multi-block write capture — `byte0`, `byte1` the
-  target latched, `dma_write_low_byte` intended, `dma_word_latched`, `dma_longword_latched`.
-  NOTE: the `tlen>=2` gate meant to skip the 1B test appears NOT to take effect in the
-  bitstream (see gotcha), so it keeps capturing the degenerate 1B write. **Probe gap to
-  fix:** redesign so it reliably captures a multi-block, non-zero write (e.g. count
-  write commands, or capture first word where byte0!=byte1, or make non-sticky).
-- **`PSEL`** (target 0): selection/command observability — live `phase/sel/bsy/req/ack`
-  + sticky `max_phase`, `reached_data`, `req_while_sel`, `cmd_bytes`.
-- `dbg_min` (instantiated at `LBMacTwo.sv:1247`) already provides ~17 CPU/SCSI probes
+## Probes in the current bitstream (read-only JTAG ISSP)
+Still present and useful for the open cold-boot bug:
+- **`PSEL`** (`scsi.v`, target 0 / ID6): selection/command observability — live
+  `phase/sel/bsy/req/ack` + sticky `max_phase`, `reached_data`, `req_while_sel`,
+  `cmd_bytes`. Was the diagnostic for #2 and is also the right read after a
+  cold-boot Sad Mac to see whether the first transfer ever reached DATA phase.
+- **`dbg_min`** (`LBMacTwo.sv:1247`): ~17 CPU/SCSI probes
   (PADR/PSTA/PACT/PSCS/PSC2/PSC3/PSCG/PSCH/PVBL/PASC/PAUD/PADB/PAD2/PAD3/PMSE/PADP).
+  **PSCS** captures the CPU's last SCSI register read + value + the current PC;
+  it was the smoking gun for the #4 warm-boot diagnosis (showed CPU stuck in ROM
+  Sad Mac handler with BSR=0x48 as the last read) and is the right first probe to
+  read after any future SCSI-related Sad Mac.
 
-### Reading probes (JTAG cable on this PC, FPGA = device @2)
-- `bash scripts/read_probes.sh`  → dbg_min CPU/SCSI state (multi-sample).
+Obsolete but still in the bitstream:
+- **`PWR2`** (`ncr5380.sv`): first multi-block write capture. Was meant to settle
+  word-vs-byte-mode for the WRITE bug. Never gave a clean capture (the `tlen>=2`
+  gate didn't take effect). Now moot — #1 is fixed via a different mechanism.
+  Candidate to remove next time we want fit budget back, but harmless otherwise.
+
+### Reading probes (JTAG cable on dev PC, FPGA = device @2)
+- `bash scripts/read_probes.sh`  → multi-sample dbg_min CPU/SCSI state.
 - `quartus_stp_tcl -t scripts/read_pwr.tcl`  → decodes PWR2 + PSEL.
   (PATH needs `/c/intelFPGA_lite/17.0/quartus/bin64`.)
-- JTAG read works on the HPS/menu-loaded bitstream; it does not reprogram.
+- JTAG reads work on the HPS/menu-loaded bitstream; reading does not reprogram.
 
 ## Build / deploy / test mechanics (and gotchas)
 - Build: `bash scripts/auto_recompile.sh` (background; ~18–50 min). Output
@@ -144,6 +164,8 @@ size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
   `/media/fat/Screenshots/LBMacTwo/`, scp to a `C:\` path to view.
 - iotest disk image already on board: `/media/fat/games/LBMacTwo/iotest.hda`.
   Rebuilding it needs `rb-cli` (rusty-backup) + a template — only on the user's machine.
+- **Commit locally; do NOT `git push`.** In this project "push" means scp the RBF
+  to the MiSTer, not git push to a remote.
 
 ## Other context
 - The design is fit-marginal (82% ALMs, dominated by the ~21k-ALM mc68881 FPU). It only
@@ -154,21 +176,43 @@ size 1B..1MB+ — no more `@1 ..` mismatches, no `Mismatched byte` detail line.
 - Probe also flags: `boot1` (NuBus video declaration ROM, idx1) = 0 writes — separate
   "video decl ROM not loaded" issue, unrelated to SCSI.
 
-## What to do NEXT (in order)
-1. **Verify the selection fix** on `9fb6970f`: have the user load it, then
-   `read_pwr.tcl` → expect `PSEL: reached_DATA=1`, `cmd_bytes>0`, `req_while_sel>0`.
-   Confirm cold boot now reaches the bench more reliably.
-2. **Cold-boot readiness (#3):** if first-boot SCSI still fails, gate CPU reset release
-   on SCSI/RAM-ready with a timeout fallback (don't deadlock diskless boot). Add a probe
-   for the reset-release vs img_mounted timing.
-3. **Verify the WRITE fix** (#1, applied 2026-05-29): after this build deploys + a
-   warm reboot, run the full iotest — the WRITE column should now read `pass` for all
-   sizes (no more `@1 ..` mismatches, no `Mismatched byte` detail line). If it instead
-   shows a real SWAP (offset0 now wrong too), the even/odd buffer mapping is inverted —
-   revisit which buffer is even. If still duplication, the `dbg_dma_lowbyte` source
-   isn't stable at buffer1's storage time — re-check `dma_write_low_byte` latching.
-4. Commit often (local only — do NOT `git push`; "push" here means scp the RBF).
-   Always re-verify md5 after edits.
+## What to do NEXT — cold-boot fix (#3)
+Only open item. Suggested order:
+
+1. **Diagnose first, fix second.** After the next cold-boot Sad Mac, before doing
+   anything else (no power-cycle, no reload), run:
+   - `bash scripts/read_probes.sh` — grab **PSCS** (`last_reg_off` + `last_read` +
+     PC). Expect to see what register the driver last touched and where the CPU
+     ended up in ROM. Compare against the warm-boot baseline (BSR=0x48 →
+     `MOVE.W` BERR pattern). A different `last_reg_off` would mean cold-boot
+     fails earlier (e.g. during selection or REQ-poll), pointing somewhere else.
+   - `quartus_stp_tcl -t scripts/read_pwr.tcl` — grab **PSEL**. `max_phase` tells
+     us whether the cold-boot transfer ever reached DATA; `cmd_bytes` and
+     `req_while_sel` give the per-transfer history.
+   - Compare to the warm-boot probe values captured in 2026-05-29's session
+     (now-fixed warm-boot: PSCS=BSR-0x4848, PSEL=DATA_IN/REQ=1/ACK=0). If
+     cold-boot probes look DIFFERENT (e.g. transfer never reached CMD_IN), the
+     bug is earlier in the bring-up.
+
+2. **Hypothesis to test first: reset-gate race** (echoes the `dbedf90` cold-boot
+   RAM-clear fix). The reset gate at `LBMacTwo.sv:285`
+   (`~pll_locked || osd_reset_req || buttons[1] || RESET || !clear_done`) does
+   NOT wait on `img_mounted`/SCSI-ready, so the CPU runs POST against a
+   not-yet-mounted disk and the first SCSI access fails. Candidate fix: extend
+   the gate with `!cold_boot_scsi_ready`, where `cold_boot_scsi_ready` is a
+   sticky flag set by `img_mounted` OR a timeout (so diskless boots still
+   come up). Use a generous timeout (~500 ms) so we don't false-positive.
+
+3. **Useful new probe** if step 1's data is ambiguous: capture, at the moment of
+   the very first `selectSCSI` rising edge, the values of `img_mounted`,
+   `clear_done`, `_cpuReset`, and a free-running uptime counter. That tells us
+   exactly how the first SCSI access compares to readiness. A small `dbg_min`
+   addition (one more ISSP probe) is cheaper than another full diagnostic pass.
+
+4. **Verify** after a candidate fix: cold boot from a fully powered-off MiSTer
+   (or whatever simulates that for the user — `init 0` + reboot, OSD-load is
+   not enough) and confirm the iotest bench reaches `pass` on the first try.
+   Then re-run a few cold boots to confirm reliability.
 
 ## Reference implementations to diff against
 - Snow: `../snow/core/src/mac/scsi/controller.rs` (selection, write_dma/read_dma,
