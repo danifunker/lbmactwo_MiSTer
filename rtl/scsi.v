@@ -168,17 +168,72 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
 	// this only gates the first REQ right after selection.
 	//
-	// REQ/ACK interlock: assert REQ whenever the target has the next byte ready
-	// (data phase active, not currently ACKed, sector buffer half not still being
-	// filled, transfer not complete).  This is the plain hardware handshake; the
-	// inter-byte/inter-block REQ-low window the SCSI Manager's polled loops sample
-	// comes from io_busy — the target holding REQ low while the backing store
-	// (SD/HPS on the FPGA, the block-device model in sim) fills the next sector.
-	// That latency is real on hardware; it must be modeled realistically in the
-	// sim's block device (see verilator/sim_blkdevice.cpp) for sim to match the
-	// FPGA.  No per-byte delay or heuristics live here — same RTL on both targets.
+	// REQ/ACK interlock: assert REQ whenever the target has the next byte ready.
+	// The inter-byte/inter-block REQ-low window the SCSI Manager's polled loops
+	// (notably the disk driver's wait-low at RAM $11066) sample comes from two
+	// sources: (1) `io_busy` — the target holding REQ low while the backing store
+	// is mid-fill of the next sector, and (2) a narrow per-block-boundary REQ-low
+	// pulse `blk_gap` below.  io_busy alone covers cases where the fetch overlaps
+	// the boundary; but with well-paced prefetch the fetch can complete before the
+	// boundary, leaving io_busy=0 for the boundary itself and the wait-low loop
+	// stuck on REQ=1 (observed on long multi-block reads, e.g. tlen=317).  blk_gap
+	// models the real drive's small inter-byte pacing at the block boundary — the
+	// REQ-low gap a real SCSI drive produces between the last byte of block N and
+	// the first byte of block N+1 because its electronics aren't fully back-to-back.
+	// Timer width is 12 bits / 4096 cycles ~130us — long enough to survive a VBL
+	// or other ISR landing between the burst-end and the wait-low poll, but
+	// cleared INSTANTLY by `host_data_rd` (a /DACK data-register read).  The host
+	// flow is: burst-end -> wait-low loop polls CSR (sees REQ=0 via blk_gap,
+	// exits) -> setup -> first move.l of next block (host_data_rd asserts) ->
+	// gap cleared, REQ rises, read proceeds.  So a real DMA cycle is never held
+	// long enough to trip the 251-cycle SCSI-DMA BERR watchdog; the gap only
+	// stretches across CSR polling (selectSCSI, which resets the watchdog).
+	// Clear on host_data_rd RISING edge only — `host_data_rd` stays high for the
+	// entire /DACK bus cycle, including the last byte's read that crossed the
+	// boundary, so a level-sensitive clear would zero the counter the very cycle
+	// after we set it.  The rising edge fires only when the host begins a NEW
+	// data-register read (the next block's first byte), which is exactly the
+	// point we want REQ to come back.
+	reg [11:0] blk_gap_cnt;
+	reg [31:0] data_cnt_q;
+	reg        host_data_rd_q;
+	always @(posedge clk) begin
+		host_data_rd_q <= host_data_rd;
+		if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN) begin
+			blk_gap_cnt <= 12'd0;
+			data_cnt_q  <= 32'd0;
+		end else begin
+			data_cnt_q <= data_cnt;
+			// Fire on host_data_rd FALLING edge while at a 512-byte boundary —
+			// the bus cycle that just crossed the boundary has ended.  If the host
+			// is doing a continuous blind burst, its NEXT move.l raises
+			// host_data_rd again within a few cycles, the rising-edge clear hits
+			// and REQ rises before the 251-cycle BERR watchdog could trip.  If the
+			// host paused (per-chunk careful path), host_data_rd stays low and the
+			// 4096-cycle timer holds REQ low long enough for the wait-low loop
+			// ($11066) to observe it and advance to the next chunk.
+			if (!host_data_rd && host_data_rd_q && data_cnt[8:0] == 9'd0 &&
+			    data_cnt != 32'd0 && !data_complete) begin
+				blk_gap_cnt <= 12'd4096;
+`ifdef SIMULATION
+				if ($test$plusargs("scsi_stall_debug"))
+					$display("BLK_GAP_FIRE data_cnt=%0d cmd=%02h tlen=%0d", data_cnt, cmd[0], tlen);
+`endif
+			end
+			else if (host_data_rd && !host_data_rd_q) begin
+				blk_gap_cnt <= 12'd0;            // host starts next byte read -> done
+`ifdef SIMULATION
+				if ($test$plusargs("scsi_stall_debug") && blk_gap_cnt != 12'd0)
+					$display("BLK_GAP_CLEAR data_cnt=%0d remaining_cnt=%0d", data_cnt, blk_gap_cnt);
+`endif
+			end
+			else if (blk_gap_cnt != 12'd0)
+				blk_gap_cnt <= blk_gap_cnt - 12'd1;
+		end
+	end
+	wire blk_gap = (blk_gap_cnt != 12'd0);
 
-	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
+	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && !blk_gap;
 
 assign bsy = (phase != PHASE_IDLE);
 
