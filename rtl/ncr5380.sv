@@ -135,6 +135,9 @@ module ncr5380
 	wire i_dma_rd = bus_cs &  dack & ior;
 	wire i_dma_wr = bus_cs &  dack & iow;
 	wire i_reg_wr = bus_cs & ~dack & iow;
+	// Host read of the Current SCSI Bus Status register (REQ poll) — used by the
+	// target's block-boundary REQ pulse to know the host has observed REQ=0.
+	wire csr_rd = bus_cs & ~dack & ior & (bus_rs == `RREG_CSR);
 
 	always @(posedge clk or posedge reset) begin
 		if (reset) begin
@@ -386,6 +389,8 @@ module ncr5380
 	wire [7:0]      target_hs[DEVS];
 	wire [3:0]      target_hs2[DEVS];
 	wire [7:0]      target_cmd[DEVS];
+	wire [31:0]     target_wrsnap[DEVS];   // JTAG debug: first-word-write capture
+	wire [31:0]     target_selsnap[DEVS];  // JTAG debug: selection/command handshake
 	wire [DEVS-1:0] target_bsy;
 
 	// Count SCSI bus resets (Mac asserting ICR.RST) -- the abort/retry signal.
@@ -451,6 +456,8 @@ module ncr5380
 				.atn    ( scsi_atn ),
 
 				.ack    ( scsi_ack ),
+				.host_csr_rd ( csr_rd ),
+				.host_data_rd ( i_dma_rd ),
 
 				.bsy    ( target_bsy[i]  ),
 				.msg    ( target_msg[i]  ),
@@ -480,7 +487,12 @@ module ncr5380
 				.dbg_phase( target_phase[i] ),
 				.dbg_hs( target_hs[i] ),
 				.dbg_hs2( target_hs2[i] ),
-				.dbg_cmd( target_cmd[i] )
+				.dbg_cmd( target_cmd[i] ),
+				.dbg_dma_word( dma_word_latched ),
+				.dbg_dma_long( dma_longword_latched ),
+				.dbg_dma_lowbyte( dma_write_low_byte ),
+				.dbg_wrsnap( target_wrsnap[i] ),
+				.dbg_selsnap( target_selsnap[i] )
 			);
 		end
 	endgenerate
@@ -505,5 +517,52 @@ module ncr5380
 	assign dbg_scsi4 = { dbg_rst_count, target_hs2[1], target_hs2[0] };
 
 	assign dbg_scsi5 = { target_cmd[1], target_cmd[0] };
+
+	// JTAG ISSP: first-word-write capture for target 0 (ID 6, the boot disk).
+	// Read with quartus_stp via instance_id "PWR".
+	//   [7:0]   byte0 the target latched   [15:8]  byte1 the target latched
+	//   [23:16] ncr5380 intended odd byte  [24] dma_word_latched
+	//   [25] dma_longword_latched          [26] b0_seen [27] b1_seen
+	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
+	// JTAG In-System Source/Probe primitives are Altera/Quartus-only; exclude
+	// them from the Verilator build (SIMULATION) so the sim still elaborates.
+`ifndef SIMULATION
+	altsource_probe #(
+		.instance_id ("PWR2"),
+		.probe_width (32),
+		.source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwr (.probe(target_wrsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// JTAG ISSP: selection/command handshake for target 0. instance_id "PSEL".
+	//   [2:0] phase  [5:3] max_phase  [6] sel [7] bsy [8] req [9] ack
+	//   [10] reached_data  [18:11] req_while_sel  [26:19] cmd_bytes
+	// reached_data=1 and cmd_bytes>0 => command phase advanced (REQ fix worked).
+	altsource_probe #(
+		.instance_id ("PSEL"),
+		.probe_width (32),
+		.source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_psel (.probe(target_selsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
+`endif
+
+`ifdef SIMULATION
+	// Host-side stall watchdog: when a target holds REQ but the host stops
+	// ACKing for a long time, dump the pseudo-DMA state so we can see whether
+	// the host is starved of DREQ (dma_en cleared, holdoff stuck, pmatch lost).
+	reg [31:0] hstall;
+	reg        old_scsi_ack_w;
+	always @(posedge clk) begin
+		old_scsi_ack_w <= scsi_ack;
+		if (scsi_req && !scsi_ack) begin
+			hstall <= hstall + 1'd1;
+			if (hstall == 32'd320000 && $test$plusargs("scsi_stall_debug"))
+				$display("NCR_STALL req=%b ack=%b dreq=%b dma_en=%b dma_ack=%b ack_busy=%b holdoff=%0d mr_dma=%b icr=%02h tcr=%01h pmatch=%b io=%b cd=%b msg=%b",
+				         scsi_req, scsi_ack, dreq, dma_en, dma_ack, dma_ack_busy, dma_ack_holdoff,
+				         mr[`MR_DMA_MODE], icr, tcr, bsr_pmatch, scsi_io, scsi_cd, scsi_msg);
+		end else
+			hstall <= 0;
+	end
+`endif
 
 endmodule

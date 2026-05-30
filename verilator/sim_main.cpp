@@ -69,6 +69,7 @@ int multi_step_amount = 1024;
 // TG68K documents cpu=2'b11 as 68020 mode. The Mac II ROM depends on it.
 int cfg_cpuType = 3;
 int cfg_memSize = 3;       // RAM size: 0=1MB, 1=2MB, 2=4MB, 3=8MB (set via --ram)
+const char* rom_file_override = nullptr;  // --rom <file> overrides the boot0 ROM (e.g. the no-memtest fast-boot ROM)
 
 // CPU trace
 // ---------
@@ -127,6 +128,9 @@ bool verbose_debug_enable = false;
 bool poll268_debug_enable = false;
 bool scsi_debug_enable = false;
 bool scsi_timeout_loop_debug_enable = false;
+bool scsi_stall_history_enable = false;
+uint32_t scsi_stall_dreq_run = 0;
+bool scsi_stall_dumped = false;
 bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
@@ -1235,6 +1239,30 @@ int verilate() {
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (scsi_stall_history_enable && !scsi_stall_dumped) {
+					record_bootmask_history(pc);
+					// DREQ asserted but CPU not draining it -> count consecutive
+					// fetches; once it's clearly wedged, dump the PC ring buffer
+					// (the outer loop that abandoned the data transfer) and stop.
+					if (VERTOPINTERN->emu__DOT__scsiDREQ) {
+						if (++scsi_stall_dreq_run >= 400000) {
+							fprintf(stderr, "SCSI_STALL_HISTORY trigger frame=%d pc=%08X dreq stuck\n",
+							        video.count_frame, pc);
+							int first = bootmask_history_pos - bootmask_history_count;
+							if (first < 0) first += BOOTMASK_HISTORY_SIZE;
+							for (int i = 0; i < bootmask_history_count; i++) {
+								int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
+								const BootmaskHistoryEntry& e = bootmask_history[idx];
+								fprintf(stderr, "STALLHIST %03d frame=%d pc=%08X op=%04X "
+								        "D0=%08X D1=%08X D5=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+								        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
+							}
+							scsi_stall_dumped = true;
+						}
+					} else {
+						scsi_stall_dreq_run = 0;
+					}
+				}
 				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
 					record_bootmask_history(pc);
 					if (bootmask_once_pc(pc)) {
@@ -3198,6 +3226,8 @@ void show_help() {
 	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
 	printf("  --floppy1 <file>              Insert a raw .dsk image in the external floppy drive\n");
 	printf("  --ram <1|2|4|8>               RAM size in MB (default 8)\n");
+	printf("  --rom <file>                  Override the boot0 ROM (default ../releases/boot0.rom)\n");
+	printf("  --no-memtest                  Fast boot: load ../releases/boot0-nomemtest.rom (skips power-on RAM test)\n");
 	printf("  --send-mouse <frame>:<dx>,<dy>[,<btn>[,<dur>]]\n");
 	printf("                                Send headless mouse input at specified frame\n");
 	printf("  --screenshot <frames>         Take screenshots at specified frame numbers\n");
@@ -3406,6 +3436,8 @@ int main(int argc, char** argv, char** env) {
 			periph_debug_enable = true;
 		} else if (strcmp(argv[i], "--verbose-debug") == 0) {
 			verbose_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-stall-history") == 0) {
+			scsi_stall_history_enable = true;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-timeout-loop-debug") == 0) {
@@ -3490,6 +3522,14 @@ int main(int argc, char** argv, char** env) {
 		} else if (strcmp(argv[i], "--floppy1") == 0 && i + 1 < argc) {
 			floppy_disk_files[1] = argv[i + 1];
 			i++;
+		} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
+			rom_file_override = argv[++i];
+			fprintf(stderr, "ROM override: %s\n", rom_file_override);
+		} else if (strcmp(argv[i], "--no-memtest") == 0) {
+			// Convenience: load the pre-patched ROM that skips the destructive
+			// power-on RAM walk (see scripts/patch_rom_nomemtest.sh).
+			rom_file_override = "../releases/boot0-nomemtest.rom";
+			fprintf(stderr, "Fast boot: using no-memtest ROM %s\n", rom_file_override);
 		} else if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) {
 			// RAM size in MB: 1, 2, 4, or 8 -> configRAMSize 0/1/2/3
 			int mb = atoi(argv[++i]);
@@ -3678,8 +3718,8 @@ int main(int argc, char** argv, char** env) {
 	}
 
 	{
-		// Auto-load Mac II ROM at startup
-		const char* rom_file = "../releases/boot0.rom";  // Mac II 256K ROM
+		// Auto-load Mac II ROM at startup (--rom / --no-memtest override the default)
+		const char* rom_file = rom_file_override ? rom_file_override : "../releases/boot0.rom";  // Mac II 256K ROM
 		bus.QueueDownload(rom_file, 0, 1);  // index 0 for ROM
 		fprintf(stderr, "Machine type: Mac II, loading ROM: %s\n", rom_file);
 

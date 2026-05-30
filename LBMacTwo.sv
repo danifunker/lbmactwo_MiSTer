@@ -596,9 +596,23 @@ wire        tg68_longword;
 reg [8:0] berr_counter;
 reg berr_out;
 wire nubus_acked = selectNuBus & ~nubusAck;  // NuBus card actually responding
-wire scsi_dma_wait = selectSCSIDMA && !scsiDREQ;
+// SCSI pseudo-DMA: do NOT bus-error a DACK cycle just because scsiDREQ is low.
+// Real Mac II BBU glue holds the CPU on a SCSI DMA cycle indefinitely until the
+// SCSI chip raises /DRQ -- there is no glue-level timeout. Our previous form
+// `(selectSCSI && !scsi_dma_wait)` excluded selectSCSI from any_select whenever
+// scsi_dma_wait=1, so any DMA cycle whose DREQ took more than 251 cycles (~8us
+// at 31.3344 MHz) to assert was treated as an undecoded address and bus-errored
+// -> Sad Mac during the first WRITE byte. iotest hit this 3/4 of the time
+// because the previous read's HPS `io_ack` linger (Linux-side latency) kept
+// target REQ gated via io_busy for >8us, intermittently exceeding the threshold.
+// Diagnosis: PSCS probe showed CPU's last SCSI read was BSR=0x48 (DMARQ=1,
+// PMATCH=1) immediately before the Sad Mac, i.e. the driver saw the green light
+// and issued MOVE.W to DACK; only the cycle itself failed. PSEL probe showed the
+// target in DATA_IN with REQ=1, ACK=0, confirming the bus side was healthy.
+// Fix: count selectSCSI unconditionally. CPU stalls on a real SCSI hang until
+// the user reloads the core -- same semantic as real hardware.
 wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
-                | (selectSCSI && !scsi_dma_wait) | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
+                | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 wire is_cpu_space = (cpuFC == 3'b111);
 
 always @(posedge clk_sys) begin

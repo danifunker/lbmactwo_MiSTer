@@ -19,6 +19,8 @@ module scsi
 
 	output 	  req,
 	input 	  ack, // initiator acknowledges a request
+	input     host_csr_rd, // pulse: host read the Current SCSI Bus Status reg (REQ poll)
+	input     host_data_rd, // pulse: host read the SCSI data register via /DACK (next byte)
 
 	input   [7:0] din, // data from initiator to target
 	output  [7:0] dout, // data from target to initiator
@@ -42,7 +44,17 @@ module scsi
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
-	output [7:0]  dbg_cmd       // JTAG debug: command-type bitmap (survive reset)
+	output [7:0]  dbg_cmd,      // JTAG debug: command-type bitmap (survive reset)
+
+	// JTAG debug: word-write byte-serialization investigation. The ncr5380
+	// feeds these in so we can capture, at the REAL target sample point, what
+	// byte0/byte1 of the first word write actually latched vs the intended low
+	// byte — pinning whether the low byte ever reaches the target.
+	input         dbg_dma_word,    // ncr5380 dma_word_latched
+	input         dbg_dma_long,    // ncr5380 dma_longword_latched
+	input  [7:0]  dbg_dma_lowbyte, // ncr5380 dma_write_low_byte (intended odd byte)
+	output [31:0] dbg_wrsnap,      // captured first-word-write snapshot
+	output [31:0] dbg_selsnap      // selection/command handshake observability
 );
 
 // SCSI device id
@@ -109,6 +121,38 @@ scsi_dpram buffer0
 wire [7:0] buffer1_dout;
 wire [7:0] buffer1_dout_next;
 wire [7:0] buffer1_dout_next2;
+
+// WORD-WRITE FIX (refinement, supersedes the direct-feed of dbg_dma_lowbyte):
+//   buffer1 holds the ODD byte of each 16-bit unit. In word-mode pseudo-DMA the
+//   target samples `din` a few cycles AFTER the ACK pulse, by which time din has
+//   reverted to the EVEN byte (dout) — so without this fix the even byte was being
+//   duplicated into the odd slot (iotest WRITE verify failed @offset1, actual==byte[0]).
+//
+//   First attempt (one-liner) fed `dbg_dma_lowbyte` (= ncr5380 dma_write_low_byte)
+//   directly into data_b. That was functionally right when timing held, but had two
+//   weaknesses:
+//     (1) RACE: dma_write_low_byte re-latches on the NEXT CPU `i_dma_wr` rise. If the
+//         next word's CPU access lands before the current word's buffer1 dpram-write
+//         edge, buffer1 captures the NEXT word's odd byte → corrupt write.
+//     (2) PATH: ncr5380 reg → cross-module → mux → BlockRAM data_b is a long combo
+//         path on a fit-marginal design; intermittent setup violations corrupt the
+//         write and cascade into a SCSI driver fault → Sad Mac on the first WRITE.
+//
+//   Refinement: latch the current word's odd byte LOCALLY at beat-1's stb_ack (when
+//   data_cnt is even and we're in PHASE_DATA_IN). At that moment dma_write_low_byte
+//   is stable with the current word's wdata[7:0]. Hold it across beat 2's storage.
+//   This is both race-free (locked to the current word, immune to the next CPU
+//   access) and timing-friendly (BlockRAM data_b is now a short local-reg-to-RAM
+//   path). Byte-mode (dbg_dma_word=0) still uses din directly, unchanged.
+//   buffer0 (even byte) is untouched — it was already storing correctly.
+reg [7:0] odd_byte_r;
+always @(posedge clk) begin
+	if (rst)
+		odd_byte_r <= 8'h00;
+	else if (stb_ack && (phase == PHASE_DATA_IN) && ~data_cnt[0] && dbg_dma_word)
+		odd_byte_r <= dbg_dma_lowbyte;
+end
+
 scsi_dpram buffer1
 (
 	.clock(clk),
@@ -119,7 +163,7 @@ scsi_dpram buffer1
 	.q_a(buf1_q_a),
 
 	.address_b(data_cnt[9:1]),
-	.data_b(din),
+	.data_b(dbg_dma_word ? odd_byte_r : din),
 	.wren_b(buffer1_wr),
 	.q_b(buffer1_dout),
 
@@ -158,14 +202,18 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	// Do not drive REQ while SEL is still asserted.  After we assert BSY the
-	// initiator must release SEL to complete selection; only then may the
-	// target begin the information-transfer (REQ/ACK) handshake.  Asserting
-	// REQ during selection races with the initiator's SEL release and made
-	// the command phase intermittently stall on hardware (sim's ideal timing
-	// hid it).  SEL is deasserted during all CMD/DATA/STATUS/MSG phases, so
-	// this only gates the first REQ right after selection.
-	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete;
+	// REQ assertion. Previously this was gated on !sel ("wait for the initiator
+	// to drop SEL before the first REQ"). But the reference implementations
+	// (Snow's NCR5380, MAME) assert REQ as soon as the target is selected and
+	// in an information-transfer phase — they do NOT wait for SEL to deassert.
+	// Our !sel gate added an extra handshake step: target asserts BSY at
+	// CMD_IN, then withholds REQ until SEL drops. The Mac ROM driver's
+	// SEL-release intermittently races that, the command never starts, the
+	// driver times out and issues a bus RESET -> the CMD_IN->IDLE->reselect
+	// loop seen on the FPGA (but not on real HW or MAME). Drop the !sel gate;
+	// `phase != PHASE_IDLE` already prevents REQ during the IDLE->selection
+	// sampling window, so REQ now comes up on selection like the references.
+	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -472,6 +520,37 @@ always @(posedge clk) begin
 	end
 end
 
+`ifdef SIMULATION
+// No-progress watchdog: in a data phase, if data_cnt has not advanced for a
+// long time, dump the FULL handshake state — independent of REQ level — so a
+// deadlock where REQ is held LOW (io_busy / data_phase_complete)
+// is visible, not just a REQ-high host stall.  Also logs every phase change.
+reg [31:0] stall_cnt;
+reg [31:0] data_cnt_seen;
+reg  [2:0] phase_d;
+always @(posedge clk) begin
+	phase_d <= phase;
+	if (phase != phase_d && $test$plusargs("scsi_stall_debug"))
+		$display("SCSI_PHASE ID=%0d %0d->%0d data_cnt=%0d data_len=%0d complete=%0d cmd=%02h tlen=%0d lba=%0d",
+		         ID, phase_d, phase, data_cnt, data_len, data_complete, cmd[0], tlen, lba);
+	if (phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) begin
+		if (data_cnt != data_cnt_seen) begin
+			data_cnt_seen <= data_cnt;
+			stall_cnt <= 0;
+		end else begin
+			stall_cnt <= stall_cnt + 1'd1;
+			if (stall_cnt == 32'd300000 && $test$plusargs("scsi_stall_debug"))
+				$display("SCSI_STALL ID=%0d phase=%0d data_cnt=%0d/%0d cmpl=%b req=%b ack=%b io_busy=%b io_rd=%b io_ack=%b sel=%b dc9=%b sd_sel=%b dpc=%b cmd=%02h tlen=%0d lba=%0d",
+				         ID, phase, data_cnt, data_len, data_complete, req, ack, io_busy, io_rd, io_ack,
+				         sel, data_cnt[9], sd_buff_sel, data_phase_complete, cmd[0], tlen, lba);
+		end
+	end else begin
+		stall_cnt <= 0;
+		data_cnt_seen <= 0;
+	end
+end
+`endif
+
 // check whether status byte has been sent
 reg status_sent;
 always @(posedge clk) begin
@@ -668,6 +747,67 @@ always @(posedge clk) begin
 		dbg_unsup_op <= op_code;
 end
 assign dbg_cmd = dbg_unsup_op;
+
+// JTAG debug: capture byte0 and byte1 of the FIRST word write exactly as the
+// target latches them (din at buffer0[0] / buffer1[0]), plus the ncr5380's
+// intended odd byte and word/longword flags at that moment. Sticky.
+//   If dbg_b1 == dbg_b0 (and != dbg_low_l) the low byte never reached the
+//   target (the serialization drops it); dbg_word_l shows whether the
+//   word-write path was even engaged.
+reg [7:0] dbg_b0, dbg_b1;
+reg       dbg_b0_seen, dbg_b1_seen;
+reg [7:0] dbg_low_l;
+reg       dbg_word_l, dbg_long_l;
+// Trigger on the first MULTI-BLOCK write (tlen >= 2) so the captured bytes
+// carry the bench's full non-zero pattern (e.g. 1KB test: byte0=2, byte1=3).
+// The 1B/512B tests (tlen==1) and the tiny JSONL result writes are skipped —
+// their first word is all-zero/stale and can't distinguish the bug.
+wire dbg_capture_ok = (phase == PHASE_DATA_IN) && (|tlen[15:1]);
+always @(posedge clk) begin
+	if (buffer0_wr && dbg_capture_ok && (data_cnt[9:1] == 9'd0) && !dbg_b0_seen) begin
+		dbg_b0      <= din;
+		dbg_low_l   <= dbg_dma_lowbyte;
+		dbg_word_l  <= dbg_dma_word;
+		dbg_long_l  <= dbg_dma_long;
+		dbg_b0_seen <= 1'b1;
+	end
+	if (buffer1_wr && dbg_capture_ok && (data_cnt[9:1] == 9'd0) && !dbg_b1_seen) begin
+		dbg_b1      <= din;
+		dbg_b1_seen <= 1'b1;
+	end
+end
+assign dbg_wrsnap = { 4'd0, dbg_b1_seen, dbg_b0_seen, dbg_long_l, dbg_word_l,
+                      dbg_low_l, dbg_b1, dbg_b0 };
+
+// ---- Selection/command handshake observability (PSEL probe) -----------
+// Live state {phase,sel,bsy,req,ack} plus sticky high-water/counters that
+// SURVIVE bus reset (no rst clause) so they accumulate across the
+// reset/reselect retry loop. Key indicators for the REQ-vs-SEL fix:
+//   reached_data : did a transfer ever get past CMD_IN to a DATA phase?
+//   req_while_sel: REQ rising edges observed while SEL was still asserted
+//                  (was impossible with the old !sel gate; nonzero => fix live)
+//   cmd_bytes    : command bytes ACKed in CMD_IN (does the command advance?)
+//   max_phase    : highest target phase reached.
+reg [2:0] dbg_max_phase;
+reg       dbg_reached_data;
+reg [7:0] dbg_req_while_sel;
+reg [7:0] dbg_cmd_bytes;
+reg       dbg_req_d;
+initial begin
+	dbg_max_phase = 0; dbg_reached_data = 0; dbg_req_while_sel = 0;
+	dbg_cmd_bytes = 0; dbg_req_d = 0;
+end
+always @(posedge clk) begin
+	dbg_req_d <= req;
+	if (phase > dbg_max_phase) dbg_max_phase <= phase;
+	if (phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) dbg_reached_data <= 1'b1;
+	if (req && sel && !dbg_req_d && dbg_req_while_sel != 8'hFF)
+		dbg_req_while_sel <= dbg_req_while_sel + 8'd1;
+	if (phase == PHASE_CMD_IN && stb_adv && dbg_cmd_bytes != 8'hFF)
+		dbg_cmd_bytes <= dbg_cmd_bytes + 8'd1;
+end
+assign dbg_selsnap = { 5'd0, dbg_cmd_bytes, dbg_req_while_sel, dbg_reached_data,
+                       ack, req, bsy, sel, dbg_max_phase, phase };
 
 endmodule
 
