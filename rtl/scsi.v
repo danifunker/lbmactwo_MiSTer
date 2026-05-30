@@ -204,14 +204,15 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 			data_cnt_q  <= 32'd0;
 		end else begin
 			data_cnt_q <= data_cnt;
-			// Fire on host_data_rd FALLING edge while at a 512-byte boundary —
-			// the bus cycle that just crossed the boundary has ended.  If the host
-			// is doing a continuous blind burst, its NEXT move.l raises
-			// host_data_rd again within a few cycles, the rising-edge clear hits
-			// and REQ rises before the 251-cycle BERR watchdog could trip.  If the
-			// host paused (per-chunk careful path), host_data_rd stays low and the
-			// 4096-cycle timer holds REQ low long enough for the wait-low loop
-			// ($11066) to observe it and advance to the next chunk.
+			// Fire at every 512-byte boundary on host_data_rd falling-edge.
+			// EMPIRICAL FINDING (2026-05-30 hdr_probe): the rising-edge clear
+			// NEVER triggers — the host's inter-block pause exceeds 4096 cycles
+			// in every observed multi-block read (waveform: ~5 cyc high, ≥115 cyc
+			// low per move.l; 46K rising edges in 700 frames, 0 happen while a
+			// blk_gap is still active).  blk_gap therefore behaves as a pure
+			// fixed-duration REQ-low pulse.  4096 cycles is enough for tlen<=160
+			// reads (host pause > 4096), but the tlen=317 chunk-end wait-low
+			// entry occasionally exceeds even that (probable VBL ISR).
 			if (!host_data_rd && host_data_rd_q && data_cnt[8:0] == 9'd0 &&
 			    data_cnt != 32'd0 && !data_complete) begin
 				blk_gap_cnt <= 12'd4096;
@@ -220,18 +221,40 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 					$display("BLK_GAP_FIRE data_cnt=%0d cmd=%02h tlen=%0d", data_cnt, cmd[0], tlen);
 `endif
 			end
-			else if (host_data_rd && !host_data_rd_q) begin
-				blk_gap_cnt <= 12'd0;            // host starts next byte read -> done
-`ifdef SIMULATION
-				if ($test$plusargs("scsi_stall_debug") && blk_gap_cnt != 12'd0)
-					$display("BLK_GAP_CLEAR data_cnt=%0d remaining_cnt=%0d", data_cnt, blk_gap_cnt);
-`endif
-			end
 			else if (blk_gap_cnt != 12'd0)
 				blk_gap_cnt <= blk_gap_cnt - 12'd1;
 		end
 	end
 	wire blk_gap = (blk_gap_cnt != 12'd0);
+
+`ifdef SIMULATION
+	// host_data_rd waveform probe — log every transition during a data phase
+	// so we can see whether the host's burst leaves any falls between move.l
+	// reads (rising-edge clear depends on them).  Gate on data phase and a
+	// late frame so we don't drown in early-boot noise.
+	reg [31:0] hdr_streak;
+	reg [31:0] hdr_low_streak;
+	always @(posedge clk) begin
+		if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN) begin
+			hdr_streak     <= 32'd0;
+			hdr_low_streak <= 32'd0;
+		end else begin
+			if (host_data_rd) begin
+				if (host_data_rd_q == 1'b0 && $test$plusargs("hdr_probe"))
+					$display("HDR_RISE data_cnt=%0d after_low=%0d cmd=%02h tlen=%0d",
+					         data_cnt, hdr_low_streak, cmd[0], tlen);
+				hdr_streak     <= hdr_streak + 32'd1;
+				hdr_low_streak <= 32'd0;
+			end else begin
+				if (host_data_rd_q == 1'b1 && $test$plusargs("hdr_probe"))
+					$display("HDR_FALL data_cnt=%0d high_streak=%0d cmd=%02h tlen=%0d",
+					         data_cnt, hdr_streak, cmd[0], tlen);
+				hdr_streak     <= 32'd0;
+				hdr_low_streak <= hdr_low_streak + 32'd1;
+			end
+		end
+	end
+`endif
 
 	assign req = (phase != PHASE_IDLE) && !sel && !ack && !io_busy && !data_phase_complete && !blk_gap;
 
