@@ -4,18 +4,24 @@
 Usage:
     python scripts/mister_ws.py up down confirm        # send each in order, with default delay
     python scripts/mister_ws.py --delay 0.6 osd        # custom delay before close
-    python scripts/mister_ws.py --host 192.168.99.143 osd
+    python scripts/mister_ws.py --host my-mister.local osd
 
 Each positional argument is sent as "kbd:<arg>". Special forms:
     sleep:0.5   -> wait that many seconds
+
+The default host/port come from the MISTER_HOST / MISTER_HTTP_PORT
+environment variables (set those in scripts/local.env or your shell
+profile). Falls back to MiSTer.local : 8182 if neither is set.
 """
-import asyncio, sys, argparse, json
+import asyncio, sys, os, argparse, json
 import websockets
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="192.168.99.143")
-    ap.add_argument("--port", type=int, default=8182)
+    ap.add_argument("--host",
+                    default=os.environ.get("MISTER_HOST", "MiSTer.local"))
+    ap.add_argument("--port", type=int,
+                    default=int(os.environ.get("MISTER_HTTP_PORT", "8182")))
     ap.add_argument("--delay", type=float, default=0.35,
                     help="delay between key sends (seconds)")
     ap.add_argument("keys", nargs="+")

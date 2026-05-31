@@ -148,15 +148,20 @@ Plausible reasons `dskReadAck` would skip a slot:
 
 ## Repro script
 
+Personal/local connection details (host, SSH key, Quartus path) come
+from `scripts/local.env` — see `docs/full_control_MiSTer_through_remote_http.md`.
+
 ```bash
+. scripts/local.env
+
 # 1. Clean state on the MiSTer
-ssh -i ~/.ssh/mister_only root@192.168.99.143 \
+ssh -i "$MISTER_SSH_KEY" root@"$MISTER_HOST" \
     "rm -f /media/fat/config/LBMacTwo.s0"
 
 # 2. Cold-load the core
 curl -s -X POST -H 'Content-Type: application/json' \
     -d '{"path":"_Unstable/LBMacTwo.rbf"}' \
-    http://192.168.99.143:8182/api/launch
+    "http://$MISTER_HOST:$MISTER_HTTP_PORT/api/launch"
 sleep 4
 
 # 3. Mount Boot712.dsk via OSD (one osd press, then confirm/left/down/confirm)
@@ -165,5 +170,5 @@ python scripts/mister_ws.py --delay 0.5 \
 
 # 4. Wait, then read JTAG state at the hang
 sleep 30
-quartus_stp_tcl -t scripts/cpu_state.tcl
+"$QUARTUS_BIN/quartus_stp_tcl" -t scripts/cpu_state.tcl
 ```

@@ -64,8 +64,32 @@ module iwm
 	input dskReadAckInt,
 	output [21:0] dskReadAddrExt,
 	input dskReadAckExt,
-	input [7:0] dskReadData
+	input [7:0] dskReadData,
+
+	// --- diagnostic ports (PIWM probe) -----------------------------------
+	// dbg_dsk_ack_cnt    : 16-bit saturating count of dskReadAckInt rising
+	//                      edges (SDRAM grants for the internal drive).
+	// dbg_read_data_latch: live readDataLatch (Mac CPU reads its bit 7 to
+	//                      decide whether a fresh byte is available).
+	// dbg_arm_delay_high : top 7 bits of readDataArmDelay[11:5] — non-zero
+	//                      means the post-motor-on arm delay is still
+	//                      counting; once it reaches 0 the IWM accepts
+	//                      bytes from the floppy bit-cell pipeline.
+	// dbg_flp_byte_cnt   : pass-through from internal floppy (PFLP probe).
+	// dbg_flp_miss_cnt   : pass-through from internal floppy (PFLP probe).
+	// dbg_flp_disk_data  : pass-through live diskImageData (internal drive).
+	output reg [15:0] dbg_dsk_ack_cnt,
+	output wire [7:0] dbg_read_data_latch,
+	output wire [6:0] dbg_arm_delay_high,
+	output wire [15:0] dbg_flp_byte_cnt,
+	output wire [15:0] dbg_flp_miss_cnt,
+	output wire [7:0]  dbg_flp_disk_data,
+	output wire [6:0]  dbg_flp_track,
+	output wire        dbg_flp_side,
+	output wire [15:0] dbg_flp_step_cnt
 );
+	assign dbg_read_data_latch = readDataLatch;
+	assign dbg_arm_delay_high  = readDataArmDelay[11:5];
 
 	// Internal /2 phase divider — produces the ~7.8336 MHz fclk timing
 	// expected by the floppy bit-cell engine, IWM read-latch clear timer, and
@@ -152,7 +176,14 @@ module iwm
 
 		.dskReadAddr(dskReadAddrInt),
 		.dskReadAck(dskReadAckInt),
-		.dskReadData(dskReadData)
+		.dskReadData(dskReadData),
+
+		.dbg_byte_cnt        (dbg_flp_byte_cnt),
+		.dbg_miss_cnt        (dbg_flp_miss_cnt),
+		.dbg_disk_image_data (dbg_flp_disk_data),
+		.dbg_drive_track     (dbg_flp_track),
+		.dbg_drive_side      (dbg_flp_side),
+		.dbg_step_cnt        (dbg_flp_step_cnt)
 	);
 
 	floppy floppyExt
@@ -190,6 +221,22 @@ module iwm
 	
 	wire [7:0] readData = selectExternalDrive ? readDataExt : readDataInt;
 	wire newByteReady = selectExternalDrive ? newByteReadyExt : newByteReadyInt;
+
+	// --- dbg: count dskReadAckInt rising edges -----------------------------
+	// SDRAM "byte arrived from the disk image" pulses for the internal drive.
+	// Sampled on the same div2 phase as floppy.v latches dskReadDataLatch.
+	reg dskReadAckInt_d;
+	always @(posedge clk or negedge _reset) begin
+		if (_reset == 1'b0) begin
+			dskReadAckInt_d <= 1'b0;
+			dbg_dsk_ack_cnt <= 16'd0;
+		end
+		else begin
+			dskReadAckInt_d <= dskReadAckInt;
+			if (dskReadAckInt && !dskReadAckInt_d)
+				dbg_dsk_ack_cnt <= dbg_dsk_ack_cnt + 16'd1;
+		end
+	end
 	wire anyDiskEnable = diskEnable;
 	wire selectedDiskEnableNext = diskEnableNext;
 	wire anyDiskEnableNext = diskEnableNext;

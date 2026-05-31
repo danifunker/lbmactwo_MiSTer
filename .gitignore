@@ -74,3 +74,7 @@ SingleStepTests/gen/gen_fpu.dSYM/
 # External oracle/reference checkouts (their own git repos; not vendored).
 SingleStepTests/Musashi/
 /68881-fpga/
+scripts/local.env
+
+# Local hardware-debug capture output (probe txt + screenshots)
+docs/hang_capture/

@@ -86,7 +86,25 @@ module dbg_min (
 
     // Mouse event diagnostic (PMSE)
     input wire [24:0] ps2_mouse,        // raw HPS mouse vector (bit 24 toggles per packet)
-    input wire        mouse_has_event   // from adb.sv: latched mouse event pending
+    input wire        mouse_has_event,  // from adb.sv: latched mouse event pending
+
+    // Floppy / IWM byte-stream diagnostics (PFLP / PIWM)
+    input wire [15:0] flp_byte_cnt,     // newByteReady rising edges (sat)
+    input wire [15:0] flp_miss_cnt,     // 128-cep slot misses (sat) — RAW marker
+    input wire [7:0]  flp_disk_data,    // live diskImageData (0 = no fresh byte)
+    input wire [15:0] iwm_ack_cnt,      // dskReadAckInt edges (sat) — SDRAM grants
+    input wire [7:0]  iwm_latch,        // live readDataLatch ([7] = "byte avail")
+    input wire [6:0]  iwm_arm_high,     // top 7 bits of readDataArmDelay[11:5]
+
+    // Floppy track / step diagnostics (PFLT)
+    input wire [6:0]  flp_track,        // live driveTrack
+    input wire        flp_side,         // live driveSide
+    input wire [15:0] flp_step_cnt,     // STEP register write edges (wrap16)
+
+    // IORB ioResult write probe (PIR1): cpu data bus on writes to $3B4.
+    // tells us whether the driver ever COMPLETES the I/O (writes ioResult)
+    // or whether the OS is truly stuck on a single never-finishing call.
+    input wire [15:0] cpu_dout          // cpuDataOut[15:0] (CPU write data)
 );
 
     // Coherent snapshots on clk.
@@ -546,12 +564,170 @@ module dbg_min (
     reg [31:0] mse_r;
     always @(posedge clk) mse_r <= {ps2m24_cnt, mhe_cnt};
 
+    // PMSE disabled to free ALM/JTAG budget for PFLP/PIWM (floppy-stream
+    // probes). Mouse path is healthy; re-enable if needed.
+    // altsource_probe #(
+    //     .instance_id ("PMSE"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pmse (.probe(mse_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== Floppy byte-stream diagnostic (PFLP) =============================
+    // Diagnose the post-Welcome boot freeze on Boot712.dsk. Two 16-bit
+    // saturating counters from the internal-drive floppy module:
+    //   [31:16] flp_byte_cnt — newByteReady rising-edge count: bytes
+    //                          successfully fed to the IWM. Should climb
+    //                          steadily while Mac OS reads the floppy.
+    //   [15:0]  flp_miss_cnt — slot misses: moments when the byte-slot
+    //                          timer wraps to 0 with the drive selected
+    //                          for read but the delivery condition fails
+    //                          (typically because diskImageData was not
+    //                          refilled in time). A nonzero, growing miss
+    //                          count while byte_cnt is stalled fingerprints
+    //                          the SDRAM-arbiter starvation hypothesis.
+    reg [31:0] pflp_r;
+    always @(posedge clk)
+        pflp_r <= {flp_byte_cnt, flp_miss_cnt};
+
     altsource_probe #(
-        .instance_id ("PMSE"),
+        .instance_id ("PFLP"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pmse (.probe(mse_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== IWM latch / SDRAM-grant diagnostic (PIWM) ========================
+    // Complements PFLP from the IWM side. Layout:
+    //   [31:16] iwm_ack_cnt    — dskReadAckInt rising edges: SDRAM grants
+    //                            for the internal drive. Should match the
+    //                            byte-delivery rate (~60 kB/s while reading).
+    //   [15:8]  iwm_latch      — live readDataLatch (Mac reads bit 7 as
+    //                            "fresh byte available" indicator).
+    //   [7]     flp_disk_data!=0 — live "fresh byte staged" indicator from
+    //                              floppy.v (diskImageData != 0).
+    //   [6:0]   iwm_arm_high   — top 7 bits of readDataArmDelay[11:5];
+    //                            non-zero means the post-motor-on arm
+    //                            delay is still counting down.
+    reg [31:0] piwm_r;
+    always @(posedge clk)
+        piwm_r <= {iwm_ack_cnt, iwm_latch, (flp_disk_data != 8'h00), iwm_arm_high};
+
+    altsource_probe #(
+        .instance_id ("PIWM"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== IORB capture (PIOA) =============================================
+    // The Welcome hang reaches IOWait at 0x40006C36-3A, which polls
+    // word @ (a0 + 0x10) — the ioResult field of an IORB. Capture the
+    // FIRST data-read address that follows an instruction fetch at the
+    // poll, AND a count of how many times we passed through the loop.
+    //
+    // Strategy: track whether the previous AS cycle's instruction fetch
+    // was at 0x40006C36 (mid-loop). If so, the next AS cycle is the
+    // data read at (a0 + 0x10). Capture that address.
+    //
+    //   [31:0] last data address read right after PC was at 0x40006C36
+    //          (= a0 + 0x10; the IORB is at this minus 0x10).
+    reg prev_was_iowait_fetch;
+    reg [31:0] iowait_data_addr;
+    initial begin
+        prev_was_iowait_fetch = 1'b0;
+        iowait_data_addr      = 32'h0;
+    end
+    // PIOC: count IOWait poll iterations (every time PC = 0x40006C36).
+    // If high & growing during hang, IOWait is actively spinning.
+    reg [15:0] iowait_iter_cnt;
+    initial iowait_iter_cnt = 16'd0;
+
+    always @(posedge clk) begin
+        // The IOWait body is `move.w $10(a0),d0 ; bgt.b $-4`. The 68020
+        // prefetcher reorders the bus cycles, so the IF at 0x40006C36 is
+        // NOT immediately followed by the DF at (a0+0x10) — the prefetcher
+        // may do extra IFs (e.g. the IF at 0x40006C38 for the BGT word)
+        // BEFORE the execute unit issues the DF. Solution: arm a "looking
+        // for DF" flag on IF at C36, and capture the FIRST subsequent bus
+        // cycle whose address is OUTSIDE the ROM region (i.e. in RAM /
+        // IO space). a0+0x10 is in RAM (the IORB lives in RAM).
+        if (cpuAS_n_d && !cpuAS_n) begin
+            if (cpuAddr == 32'h4000_6C36) begin
+                prev_was_iowait_fetch <= 1'b1;
+                iowait_iter_cnt      <= iowait_iter_cnt + 16'd1;
+            end else if (prev_was_iowait_fetch && cpuAddr[31:28] != 4'h4) begin
+                // First non-ROM cycle after the C36 IF -> this is the DF
+                // at (a0+0x10). RAM is 0x00000000-0x00FFFFFF for 8MB
+                // (low aliases) and I/O is 0x50F00000 region. Either
+                // way, NOT 0x4xxxxxxx. Good enough.
+                iowait_data_addr      <= cpuAddr;
+                prev_was_iowait_fetch <= 1'b0;
+            end
+        end
+    end
+
+    altsource_probe #(
+        .instance_id ("PIOA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    reg [31:0] pioc_r;
+    always @(posedge clk) pioc_r <= {16'd0, iowait_iter_cnt};
+    altsource_probe #(
+        .instance_id ("PIOC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PIR1: writes to $0000_03B4 (= IORB.ioResult at Mac low-mem "Params").
+    //   [31:16] last 16-bit value the CPU wrote to $3B4
+    //   [15:0]  wrap16 count of writes to $3B4
+    // If count grows -> driver IS completing I/Os (the OS issues many of
+    // them and IOWait briefly exits each time). If count stays 0 -> the
+    // driver NEVER calls IODone; one single I/O is wedged.
+    reg [15:0] ior_last;
+    reg [15:0] ior_wr_cnt;
+    initial begin ior_last = 16'd0; ior_wr_cnt = 16'd0; end
+    always @(posedge clk) begin
+        // Catch the write at the falling edge of AS (start of bus cycle)
+        // with the right address and RW=0. cpuAddr[1]=0 for the word write.
+        if (cpuAS_n_d && !cpuAS_n && !cpuRW &&
+            cpuAddr == 32'h0000_03B4) begin
+            ior_last   <= cpu_dout;
+            ior_wr_cnt <= ior_wr_cnt + 16'd1;
+        end
+    end
+    reg [31:0] pir1_r;
+    always @(posedge clk) pir1_r <= {ior_last, ior_wr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PIR1"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pir1 (.probe(pir1_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PFLT: floppy track / step / side / live diskImageData.
+    //   [31]    flp_disk_data != 0 (live byte staged)
+    //   [30:24] flp_track[6:0]    (driveTrack — which track encoded RIGHT NOW)
+    //   [23]    flp_side          (driveSide)
+    //   [22:16] iwm_arm_high[6:0] (top 7 bits of readDataArmDelay[11:5])
+    //   [15:0]  flp_step_cnt      (STEP register-write count, wrap16)
+    reg [31:0] pflt_r;
+    always @(posedge clk)
+        pflt_r <= {(flp_disk_data != 8'h00), flp_track, flp_side,
+                   iwm_arm_high, flp_step_cnt};
+
+    altsource_probe #(
+        .instance_id ("PFLT"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
     //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND

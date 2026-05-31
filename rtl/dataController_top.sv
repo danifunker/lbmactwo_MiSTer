@@ -120,7 +120,18 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [17:0] dbg_adb2,
 	output           [31:0] dbg_adb3,   // last 4 bytes CPU READ from VIA1 SR
 	output           [31:0] dbg_adb4,   // last 4 bytes LOADED into VIA1 SR (shift-in)
-	output                  mouse_has_event_o
+	output                  mouse_has_event_o,
+
+	// Floppy/IWM byte-stream diagnostics (PFLP / PIWM / PFLT probes)
+	output           [15:0] dbg_flp_byte_cnt,
+	output           [15:0] dbg_flp_miss_cnt,
+	output           [7:0]  dbg_flp_disk_data,
+	output           [15:0] dbg_iwm_ack_cnt,
+	output           [7:0]  dbg_iwm_latch,
+	output           [6:0]  dbg_iwm_arm_high,
+	output           [6:0]  dbg_flp_track,
+	output                  dbg_flp_side,
+	output           [15:0] dbg_flp_step_cnt
 );
 
 	// CPU reset generation
@@ -919,7 +930,18 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dskReadAckInt(dskReadAckInt),
 		.dskReadAddrExt(dskReadAddrExt),
 		.dskReadAckExt(dskReadAckExt),
-		.dskReadData(memoryDataIn[7:0])
+		.dskReadData(memoryDataIn[7:0]),
+
+		// PFLP / PIWM diagnostic ports
+		.dbg_dsk_ack_cnt    (dbg_iwm_ack_cnt),
+		.dbg_read_data_latch(dbg_iwm_latch),
+		.dbg_arm_delay_high (dbg_iwm_arm_high),
+		.dbg_flp_byte_cnt   (dbg_flp_byte_cnt),
+		.dbg_flp_miss_cnt   (dbg_flp_miss_cnt),
+		.dbg_flp_disk_data  (dbg_flp_disk_data),
+		.dbg_flp_track      (dbg_flp_track),
+		.dbg_flp_side       (dbg_flp_side),
+		.dbg_flp_step_cnt   (dbg_flp_step_cnt)
 	);
 
 	// SCC

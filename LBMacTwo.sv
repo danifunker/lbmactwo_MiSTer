@@ -938,7 +938,17 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_adb2(dbg_adb2),
 	.dbg_adb3(dbg_adb3),
 	.dbg_adb4(dbg_adb4),
-	.mouse_has_event_o(adb_mouse_has_event)
+	.mouse_has_event_o(adb_mouse_has_event),
+
+	.dbg_flp_byte_cnt (dbg_flp_byte_cnt),
+	.dbg_flp_miss_cnt (dbg_flp_miss_cnt),
+	.dbg_flp_disk_data(dbg_flp_disk_data),
+	.dbg_iwm_ack_cnt  (dbg_iwm_ack_cnt),
+	.dbg_iwm_latch    (dbg_iwm_latch),
+	.dbg_iwm_arm_high (dbg_iwm_arm_high),
+	.dbg_flp_track    (dbg_flp_track),
+	.dbg_flp_side     (dbg_flp_side),
+	.dbg_flp_step_cnt (dbg_flp_step_cnt)
 );
 wire [15:0] dbg_scsi;
 wire [15:0] dbg_scsi2;
@@ -950,6 +960,15 @@ wire [17:0] dbg_adb2;
 wire [31:0] dbg_adb3;
 wire [31:0] dbg_adb4;
 wire        adb_mouse_has_event;
+wire [15:0] dbg_flp_byte_cnt;
+wire [15:0] dbg_flp_miss_cnt;
+wire [7:0]  dbg_flp_disk_data;
+wire [15:0] dbg_iwm_ack_cnt;
+wire [7:0]  dbg_iwm_latch;
+wire [6:0]  dbg_iwm_arm_high;
+wire [6:0]  dbg_flp_track;
+wire        dbg_flp_side;
+wire [15:0] dbg_flp_step_cnt;
 
 reg disk_act;
 always @(posedge clk_sys) begin
@@ -1316,7 +1335,18 @@ dbg_min dbg_min_inst (
 	.asc_audio_l    (asc_audio_l),
 	.card_irq_cnt   (dbg_card_irq_cnt),
 	.card_ack_cnt   (dbg_card_ack_cnt),
-	.card_vbl_en    (dbg_card_vbl_en)
+	.card_vbl_en    (dbg_card_vbl_en),
+	// PFLP / PIWM / PFLT
+	.flp_byte_cnt   (dbg_flp_byte_cnt),
+	.flp_miss_cnt   (dbg_flp_miss_cnt),
+	.flp_disk_data  (dbg_flp_disk_data),
+	.iwm_ack_cnt    (dbg_iwm_ack_cnt),
+	.iwm_latch      (dbg_iwm_latch),
+	.iwm_arm_high   (dbg_iwm_arm_high),
+	.flp_track      (dbg_flp_track),
+	.flp_side       (dbg_flp_side),
+	.flp_step_cnt   (dbg_flp_step_cnt),
+	.cpu_dout       (cpuDataOut)
 );
 
 endmodule
