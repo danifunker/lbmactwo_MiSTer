@@ -266,6 +266,7 @@ architecture rtl of mc68881_top is
   signal cir_operand_read_done   : std_logic := '0';         -- Pulse from bus read → dialog proc
   signal cir_operand_read_prev   : std_logic := '0';         -- Edge-detect for operand reads
   signal cir_operand_write_prev  : std_logic := '0';         -- Edge-detect for operand writes
+  signal cir_restore_write_prev  : std_logic := '0';         -- Edge-detect for Restore CIR writes (FRESTORE frame data)
 
   -- CIR cpSAVE/cpRESTORE handshake signals (driven by cir_dialog_proc, read by bus_frame_proc).
   signal cir_save_req          : std_logic := '0';
@@ -2029,7 +2030,13 @@ begin
           when ADDR_CIR_SAVE =>
             fpiar_reg <= d_in;
           when ADDR_CIR_RESTORE =>
-            -- Capture format word for FRESTORE dialog.
+            -- ADDR_CIR_RESTORE: the CPU writes the cpRESTORE format word
+            -- here (state = CIR_RESTORE_FORMAT). Per MC68020 manual §9.4,
+            -- subsequent FRESTORE frame data words are ALSO written here
+            -- (state = CIR_RESTORE_FRAME). bus_frame_proc only captures the
+            -- format word + pulses cir_restore_trigger; the frame-data
+            -- consumption path lives in cir_write_proc next to the existing
+            -- cir_operand_word_arrived driver (VHDL single-driver rule).
             cir_restore_fw_reg <= d_in(15 downto 0);
             cir_restore_trigger <= '1';
           when ADDR_MOVE_CFG =>
@@ -3637,6 +3644,7 @@ begin
       cir_operand_read_done <= '0';
       cir_operand_read_prev <= '0';
       cir_operand_write_prev <= '0';
+      cir_restore_write_prev <= '0';
       cir_save_read_done <= '0';
       cir_save_read_prev <= '0';
       cir_instaddr_reg <= (others => '0');
@@ -3681,6 +3689,17 @@ begin
       else
         cir_operand_write_prev <= '0';
       end if;
+
+      -- Same idea for ADDR_CIR_RESTORE writes — feeds the FRESTORE frame-data
+      -- consumption added to the case statement below (Welcome-hang fix).
+      if bus_write = '1' and addr = ADDR_CIR_RESTORE then
+        cir_restore_write_prev <= '1';
+      else
+        cir_restore_write_prev <= '0';
+      end if;
+
+      -- (cir_restore_write_prev moved to cir_write_proc; same process must
+      --  drive both the edge-detect reg and cir_operand_word_arrived.)
 
       -- Edge-detect for Save CIR reads (format word read during cpSAVE).
       if bus_read = '1' and addr = ADDR_CIR_SAVE then
@@ -3770,6 +3789,32 @@ begin
                 cir_frame_data_reg(cir_restore_word_idx) <= d_in;
               end if;
               -- Capture incoming word for sub-unit restore routing.
+              cir_restore_word_data <= d_in;
+              cir_operand_word_arrived <= '1';
+            end if;
+
+          when ADDR_CIR_RESTORE =>
+            -- Welcome-hang fix (build #15): the MC68020 FRESTORE microcode
+            -- writes ALL frame data words to the Restore CIR ($22006) — not
+            -- to the Operand CIR — per MC68020 manual §9.4. The original
+            -- code only consumed frame data via CIR_ADDR_OPERAND, so the
+            -- dialog FSM never advanced past CIR_RESTORE_FRAME and Response
+            -- CIR returned BUSY forever (PIFA frozen at FRESTORE opcode in
+            -- boot0.rom — see scratch/build13_pifa_findings.md).
+            --
+            -- During state CIR_RESTORE_FRAME, mirror the data-capture path
+            -- above so the FSM's cir_operand_word_arrived consumer advances
+            -- one frame word per CPU write and eventually drains to
+            -- CIR_IDLE. Use cir_restore_write_prev edge-detect (same idiom
+            -- as cir_operand_write_prev) to avoid double-consuming a
+            -- sustained bus_write.
+            --
+            -- During CIR_RESTORE_FORMAT (and other states), bus_frame_proc
+            -- captures the format word itself; do nothing here for those.
+            if cir_state_reg = CIR_RESTORE_FRAME and cir_restore_write_prev = '0' then
+              if cir_restore_word_idx < CIR_FRAME_BUSY_HDR then
+                cir_frame_data_reg(cir_restore_word_idx) <= d_in;
+              end if;
               cir_restore_word_data <= d_in;
               cir_operand_word_arrived <= '1';
             end if;

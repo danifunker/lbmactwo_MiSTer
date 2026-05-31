@@ -753,12 +753,16 @@ module dbg_min (
     reg [31:0] pir1_r;
     always @(posedge clk) pir1_r <= {ior_last, ior_wr_cnt};
 
-    altsource_probe #(
-        .instance_id ("PIR1"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pir1 (.probe(pir1_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIR1 disabled for build #14 to free fit budget for PFRR (FPU Response CIR
+    // confirm). Build #13 found the Welcome hang is an FPU FRESTORE protocol
+    // stall, not an IOWait spin — $3B4 has been frozen at 449 writes for many
+    // builds and isn't load-bearing now that PIR2 watches the dynamic IORB.
+    // altsource_probe #(
+    //     .instance_id ("PIR1"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pir1 (.probe(pir1_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIR2: writes to whatever address PIOA most recently captured.
     // PIOA's iowait_data_addr tracks (a0+0x10) at IOWait -- i.e. the ioResult
@@ -860,12 +864,16 @@ module dbg_min (
     reg [31:0] pir3_r;
     always @(posedge clk) pir3_r <= {ior3_last, ior3_rd_cnt};
 
-    altsource_probe #(
-        .instance_id ("PIR3"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIR3 disabled for build #14 to free fit budget for PFRW (FPU Restore-CIR
+    // write confirm). Build #13 reframed $22000-$2200F as FPU CIR space, not
+    // RAM IORB; the "ioRefNum" reading was meaningless data residue and not
+    // load-bearing for the FPU-FRESTORE-hang investigation.
+    // altsource_probe #(
+    //     .instance_id ("PIR3"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IRQ-delivery probe (PIPL) ========================================
     // Diagnose the post-Phase-1 busy-loop. The long-soak capture
@@ -1100,10 +1108,13 @@ module dbg_min (
     wire mem_bus_rd = cpuAS_n_d && !cpuAS_n && cpuRW;
     always @(posedge clk) begin
         // Arm pending flags on the bus cycle.
-        if (mem_bus_rd && cpuAddr == 32'h0000_2000) mem_22000_p <= 1'b1;
-        if (mem_bus_rd && cpuAddr == 32'h0000_2002) mem_22002_p <= 1'b1;
-        if (mem_bus_rd && cpuAddr == 32'h0000_2004) mem_22004_p <= 1'b1;
-        if (mem_bus_rd && cpuAddr == 32'h0000_2006) mem_22006_p <= 1'b1;
+        // Verilog hex literals ignore underscores: 32'h0000_2000 = 0x00002000
+        // (RAM, NOT the FPU CIR base). The FPU is at 0x00022000-0x00023FFF
+        // (see fpuAddrMatch in LBMacTwo.sv:472). Use the correct constant.
+        if (mem_bus_rd && cpuAddr == 32'h00022000) mem_22000_p <= 1'b1;
+        if (mem_bus_rd && cpuAddr == 32'h00022002) mem_22002_p <= 1'b1;
+        if (mem_bus_rd && cpuAddr == 32'h00022004) mem_22004_p <= 1'b1;
+        if (mem_bus_rd && cpuAddr == 32'h00022006) mem_22006_p <= 1'b1;
         // Latch on mac_dout_valid.
         if (mem_22000_p && mac_dout_valid) begin
             mem_22000_r <= cpu_din;
@@ -1371,5 +1382,109 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pifc (.probe(pifc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== FPU CIR Response/Restore probes (PFRR / PFRW) -- build #14 =======
+    // Build #13 found PIFA frozen at $4000D612 (FRESTORE opcode at $D60E)
+    // and PMEM showed Response CIR ($22000) consistently returning 0x8000
+    // (high bit = "Come Again" = BUSY-like). PFRR confirms the FPU's
+    // Response CIR returns CA=1 forever, and PFRW confirms the OS is
+    // pushing a FRESTORE frame into Restore CIR ($22006) indefinitely.
+    //
+    // Both probes filter on cpuFC == 3'b111 (CPU space, FPU is in CPU
+    // space) so we don't catch any false hits from RAM cycles at the
+    // same virtual address.
+    //
+    //   PFRR (Response CIR reads at $00022000, FC=7):
+    //     [31:16] last 16-bit value the CPU read at $22000 (Response prim)
+    //     [15:8]  wrap8 count of CIR-Response reads
+    //     [7:0]   wrap8 count of CIR-Control writes at $22002 (sanity)
+    //
+    //   PFRW (Restore CIR writes at $00022006, FC=7):
+    //     [31:16] last 16-bit value the CPU wrote at $22006 (frame word)
+    //     [15:8]  wrap8 count of CIR-Restore writes
+    //     [7:0]   wrap8 count of CIR-OpWord writes at $22008 (sanity)
+    //
+    // Expected reading once Phase 2 reached:
+    //   PFRR.last_resp == 0x8000 (or 0x8900 if real BUSY prim)
+    //   PFRR.read_cnt wraps fast — OS polling Response heavily
+    //   PFRW.last_restore = a frame word from the FPU state being pushed
+    //   PFRW.write_cnt wraps fast — frame transfer in progress
+    //   Sanity counts (Control / OpWord) low — the FRESTORE protocol
+    //     doesn't use those registers.
+    // FPU CIR base is 0x00022000, NOT 0x00002000 (Verilog hex literals
+    // ignore underscores so 32'h0000_2000 is RAM, not FPU). Use the full
+    // 0x00022xxx literal so the address comparator actually fires on
+    // FPU CIR cycles.
+    wire pfrr_resp_rd  = cpuAS_n_d && !cpuAS_n &&  cpuRW &&
+                         (cpuFC == 3'b111) && (cpuAddr == 32'h00022000);
+    wire pfrr_ctrl_wr  = cpuAS_n_d && !cpuAS_n && !cpuRW &&
+                         (cpuFC == 3'b111) && (cpuAddr == 32'h00022002);
+    wire pfrw_rest_wr  = cpuAS_n_d && !cpuAS_n && !cpuRW &&
+                         (cpuFC == 3'b111) && (cpuAddr == 32'h00022006);
+    wire pfrw_opw_wr   = cpuAS_n_d && !cpuAS_n && !cpuRW &&
+                         (cpuFC == 3'b111) && (cpuAddr == 32'h00022008);
+    // Latch the read VALUE on mac_dout_valid (same idiom as PIR3).
+    reg pfrr_pending;
+    reg [15:0] pfrr_last_resp;
+    reg [7:0]  pfrr_resp_rd_cnt;
+    reg [7:0]  pfrr_ctrl_wr_cnt;
+    initial begin
+        pfrr_pending     = 1'b0;
+        pfrr_last_resp   = 16'd0;
+        pfrr_resp_rd_cnt = 8'd0;
+        pfrr_ctrl_wr_cnt = 8'd0;
+    end
+    always @(posedge clk) begin
+        if (pfrr_resp_rd) begin
+            pfrr_pending     <= 1'b1;
+            pfrr_resp_rd_cnt <= pfrr_resp_rd_cnt + 8'd1;
+        end
+        if (pfrr_pending && mac_dout_valid) begin
+            pfrr_last_resp <= cpu_din;
+            pfrr_pending   <= 1'b0;
+        end
+        if (pfrr_pending && !cpuAS_n_d && cpuAS_n) begin
+            // AS rose before mac_dout_valid -> drop pending (shouldn't happen
+            // for FPU DSACK protocol but mirror PIR3 safety net)
+            pfrr_pending <= 1'b0;
+        end
+        if (pfrr_ctrl_wr) pfrr_ctrl_wr_cnt <= pfrr_ctrl_wr_cnt + 8'd1;
+    end
+    reg [31:0] pfrr_r;
+    always @(posedge clk)
+        pfrr_r <= {pfrr_last_resp, pfrr_resp_rd_cnt, pfrr_ctrl_wr_cnt};
+
+    reg [15:0] pfrw_last_rest;
+    reg [7:0]  pfrw_rest_wr_cnt;
+    reg [7:0]  pfrw_opw_wr_cnt;
+    initial begin
+        pfrw_last_rest    = 16'd0;
+        pfrw_rest_wr_cnt  = 8'd0;
+        pfrw_opw_wr_cnt   = 8'd0;
+    end
+    always @(posedge clk) begin
+        if (pfrw_rest_wr) begin
+            pfrw_last_rest   <= cpu_dout;
+            pfrw_rest_wr_cnt <= pfrw_rest_wr_cnt + 8'd1;
+        end
+        if (pfrw_opw_wr) pfrw_opw_wr_cnt <= pfrw_opw_wr_cnt + 8'd1;
+    end
+    reg [31:0] pfrw_r;
+    always @(posedge clk)
+        pfrw_r <= {pfrw_last_rest, pfrw_rest_wr_cnt, pfrw_opw_wr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PFRR"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfrr (.probe(pfrr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PFRW"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfrw (.probe(pfrw_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

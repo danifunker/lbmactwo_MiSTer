@@ -80,6 +80,9 @@ foreach inst $info {
     # Build #13 — IF-only PC sampler
     if {$nm eq "PIFA"} { set idx(PIFA) $i }
     if {$nm eq "PIFC"} { set idx(PIFC) $i }
+    # Build #14 — FPU CIR Response/Restore confirmation probes
+    if {$nm eq "PFRR"} { set idx(PFRR) $i }
+    if {$nm eq "PFRW"} { set idx(PFRW) $i }
     incr i
 }
 
@@ -535,6 +538,32 @@ for {set s 1} {$s <= 6} {incr s} {
         set via1 [expr {($oo >> 24) & 0xFF}]
         puts [format "           PER-IO: via1(wrap8)=%u  via2(wrap8)=%u  asc(wrap8)=%u  iwm(wrap8)=%u" \
             $via1 $via2 $asc $iwm]
+    }
+    if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {
+        # FPU CIR Response/Restore probes (build #14). Confirms the FRESTORE
+        # CIR-protocol hang found by build #13.
+        set rr [rd $idx(PFRR)]
+        set rw [rd $idx(PFRW)]
+        set last_resp     [expr {($rr >> 16) & 0xFFFF}]
+        set resp_rd_cnt   [expr {($rr >> 8)  & 0xFF}]
+        set ctrl_wr_cnt   [expr {$rr & 0xFF}]
+        set last_rest     [expr {($rw >> 16) & 0xFFFF}]
+        set rest_wr_cnt   [expr {($rw >> 8)  & 0xFF}]
+        set opw_wr_cnt    [expr {$rw & 0xFF}]
+        # CA bit (15) = "Come Again" / busy semantics in 68881 CIR.
+        set ca_bit [expr {($last_resp >> 15) & 1}]
+        set prim_hint "?"
+        if {$last_resp == 0x0900} { set prim_hint "NULL/release (ready)" }
+        if {$last_resp == 0x8900} { set prim_hint "BUSY (come again)" }
+        if {$last_resp == 0x8000} { set prim_hint "CA=1 + low byte 0x00 (non-standard BUSY-like)" }
+        if {$last_resp == 0x0000} { set prim_hint "all zeros (no read yet or odd state)" }
+        puts [format "           FPU-CIR Response \$22000: last=0x%04X (CA=%d) %s | rd_cnt(wrap8)=%u ctrl_wr_cnt(wrap8)=%u" \
+            $last_resp $ca_bit $prim_hint $resp_rd_cnt $ctrl_wr_cnt]
+        puts [format "           FPU-CIR Restore  \$22006: last=0x%04X | wr_cnt(wrap8)=%u opw_wr_cnt(wrap8)=%u" \
+            $last_rest $rest_wr_cnt $opw_wr_cnt]
+        if {$ca_bit == 1 && $rest_wr_cnt > 0} {
+            puts "                 CONFIRMED: CA=1 forever + Restore writes ongoing => FRESTORE protocol stalled in FPU."
+        }
     }
     if {[info exists idx(PIFA)] && [info exists idx(PIFC)]} {
         # IF-only PC sampler (build #13). PIFA latches cpuAddr on a real
