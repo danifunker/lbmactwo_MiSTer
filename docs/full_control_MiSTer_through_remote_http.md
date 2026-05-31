@@ -174,8 +174,8 @@ It does:
 5. Waits 25 s, screenshots.
 6. Three rounds of `quartus_stp_tcl -t scripts/cpu_state.tcl` with
    30 s gaps + screenshots between.
-7. Writes everything to a fresh `docs/hang_capture/<timestamp>/`
-   (the directory is gitignored — it's run-output, not source).
+7. Writes everything to a fresh `scratch/hang_capture/<timestamp>/`
+   (under the gitignored `scratch/` — it's run-output, not source).
 
 ## JTAG probes (cpu_state.tcl)
 
@@ -359,7 +359,7 @@ verify with probes before guessing):
 | `scripts/local.env.example` | Template for personal/local config. |
 | `scripts/local.env` | **Gitignored** — your actual MISTER_HOST etc. live here. |
 | `docs/welcome_hang_overnight_findings.md` | THE overnight handoff. |
-| `docs/hang_capture/<timestamp>/` | (gitignored) Local probe captures + screenshots from each run of `deploy_test_floppy.sh`. |
+| `scratch/hang_capture/<timestamp>/` | (gitignored, under `scratch/`) Local probe captures + screenshots from each run of `deploy_test_floppy.sh`. |
 | `docs/MISTER_HARDWARE_DEBUGGING.md` | The pre-existing field guide. |
 
 ## One-shot resume recipe (after `/clear`)
@@ -384,7 +384,7 @@ git diff --stat
 bash scripts/deploy_test_floppy.sh
 
 # 5. Look at the latest capture
-ls -t docs/hang_capture/ 2>/dev/null | head -1
+ls -t scratch/hang_capture/ 2>/dev/null | head -1
 ```
 
 If the user asks for a new probe / fix:

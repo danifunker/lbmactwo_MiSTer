@@ -76,5 +76,8 @@ SingleStepTests/Musashi/
 /68881-fpga/
 scripts/local.env
 
-# Local hardware-debug capture output (probe txt + screenshots)
-docs/hang_capture/
+# Scratch directory — in-progress / experimental / one-shot work that
+# does not belong in the repo. Hardware debug captures, ad-hoc
+# screenshots, session-specific notes, etc. See CLAUDE.md "Scratch
+# directory" for the convention.
+scratch/

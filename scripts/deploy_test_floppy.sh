@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy the freshly-built RBF to the MiSTer, reload the core, OSD-mount
 # Boot712.dsk, wait for the Welcome-to-Macintosh freeze, and capture three
-# rounds of JTAG probes (cpu_state.tcl). Output goes to docs/hang_capture/.
+# rounds of JTAG probes (cpu_state.tcl). Output goes to scratch/hang_capture/.
 #
 #   bash scripts/deploy_test_floppy.sh
 #
@@ -26,7 +26,7 @@ export PATH="$QUARTUS_BIN:$PATH"
 MISTER=$MISTER_HOST
 SSHKEY=$MISTER_SSH_KEY
 HTTP="http://$MISTER:$MISTER_HTTP_PORT"
-CAPDIR=docs/hang_capture/$(date +%Y%m%d_%H%M%S)
+CAPDIR=scratch/hang_capture/$(date +%Y%m%d_%H%M%S)
 mkdir -p "$CAPDIR"
 
 echo "[$(date)] === Verify build artifact ==="

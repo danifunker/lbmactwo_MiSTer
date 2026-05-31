@@ -160,13 +160,13 @@ That tells us whether the `$21FF6` IORB ever completes.
 ### Reproducing the captures
 
 The raw probe captures + screenshots that produced the numbers
-quoted above are NOT checked in (they're trivial to regenerate —
-`docs/hang_capture/` is gitignored). To reproduce on the current
-RBF:
+quoted above are NOT checked in (they live under the gitignored
+`scratch/hang_capture/` and are trivial to regenerate). To reproduce
+on the current RBF:
 
 ```bash
 bash scripts/deploy_test_floppy.sh
-ls -t docs/hang_capture/ | head -1   # the freshest run
+ls -t scratch/hang_capture/ | head -1   # the freshest run
 ```
 
 A 10-minute soak after Welcome appears (just `for i in {1..10}; do
