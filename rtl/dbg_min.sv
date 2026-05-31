@@ -1026,12 +1026,15 @@ module dbg_min (
                    4'd0,
                    pscc_wr_cnt, pscc_rd_cnt, pscc_last_low};
 
-    altsource_probe #(
-        .instance_id ("PSCC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSCC disabled for build #13 to free fit budget for PIFA (IF-only PC
+    // sampler). Build #10 ruled out SCC entirely; values are frozen at
+    // 30/35 throughout Phase 2 and re-enabling adds no information.
+    // altsource_probe #(
+    //     .instance_id ("PSCC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== I/O peripheral access histogram (PIOH) ===========================
     // Build #10 PSCC showed SCC accesses are static at 30/36 -- not being
@@ -1268,12 +1271,16 @@ module dbg_min (
     always @(posedge clk)
         padp_r <= {last_cmd, last_cmd_prev, mouse_poll_cnt, kbd_poll_cnt};
 
-    altsource_probe #(
-        .instance_id ("PADP"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PADP disabled for build #13 to free fit budget for PIFC (IF cycle
+    // counter). ADB cmd-histogram showed both kbd_polls and mouse_polls
+    // saturated at 255 -- mouse/kbd path is healthy; not load-bearing
+    // for the Welcome-hang investigation.
+    // altsource_probe #(
+    //     .instance_id ("PADP"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSRR / PSRL: SR byte sequences (newest byte in [7:0]).
     //   PSRR = what the CPU READ from the SR (what ROM actually receives).
@@ -1301,5 +1308,68 @@ module dbg_min (
     //     .source_width(1),
     //     .sld_auto_instance_index ("YES")
     // ) cp_psrl (.probe(psrl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== Instruction-fetch sampler (PIFA / PIFC) -- build #13 =============
+    // The PADR probe samples cpuAddr every clock, so any cycle where AS is
+    // high and the address bus holds the previous cycle's address pollutes
+    // the histogram with residue. PIR2 hammers $22006 with writes ~50k/sample,
+    // so PADR's 24% $22006 bucket is mostly write residue, NOT execution.
+    //
+    // PIFA captures cpuAddr ONLY at the instant of a real instruction-fetch
+    // bus cycle: AS falling edge, cpuRW=1 (read), and cpuFC in {2,6} =
+    // {user program, super program}. That filters out data reads, IACK
+    // (FC=7), and CP cycles. Sample PIFA multiple times per round (rapid
+    // overwrite at ~1 M IF/sec) and build a histogram offline. PIFC tracks
+    // the IF cycle count + last FC for sanity.
+    //
+    //   PIFA: cpuAddr at last IF cycle
+    //   PIFC: [31:24] reserved=0
+    //         [23:16] count of IF cycles at cpuFC=6 (super prog) wrap8
+    //         [15:8]  count of IF cycles at cpuFC=2 (user prog) wrap8
+    //         [7:0]   total IF cycle count wrap8
+    //
+    // Decision tree once PIFA is sampled:
+    //   PIFA ~constant at one address -> tight inner loop; that's the PC
+    //   PIFA scattered across a small range -> short loop body
+    //   PIFA bouncing $40xxxxxx + $00xxxxxx -> ROM + RAM code mixed
+    //   PIFA never at $00022xxx -> the $22000 bucket really was residue
+    //
+    // Note: AS-falling-edge is detected via cpuAS_n_d (already declared
+    // for the as_cycles counter at the top of dbg_min).
+    wire pifa_if_cycle = cpuAS_n_d && !cpuAS_n && cpuRW &&
+                         (cpuFC == 3'b010 || cpuFC == 3'b110);
+    reg [31:0] pifa_r;
+    reg [7:0]  pifc_total, pifc_user, pifc_super;
+    initial begin
+        pifa_r     = 32'd0;
+        pifc_total = 8'd0;
+        pifc_user  = 8'd0;
+        pifc_super = 8'd0;
+    end
+    always @(posedge clk) begin
+        if (pifa_if_cycle) begin
+            pifa_r     <= cpuAddr;
+            pifc_total <= pifc_total + 8'd1;
+            if (cpuFC == 3'b010) pifc_user  <= pifc_user  + 8'd1;
+            if (cpuFC == 3'b110) pifc_super <= pifc_super + 8'd1;
+        end
+    end
+    reg [31:0] pifc_r;
+    always @(posedge clk)
+        pifc_r <= {8'd0, pifc_super, pifc_user, pifc_total};
+
+    altsource_probe #(
+        .instance_id ("PIFA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pifa (.probe(pifa_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PIFC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pifc (.probe(pifc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

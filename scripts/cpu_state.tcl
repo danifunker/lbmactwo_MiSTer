@@ -77,6 +77,9 @@ foreach inst $info {
     if {$nm eq "PMEM"} { set idx(PMEM) $i }
     # Quartus truncates altsource_probe instance_id to 4 chars; PMEM2 -> MEM2.
     if {$nm eq "MEM2"} { set idx(PMEM2) $i }
+    # Build #13 — IF-only PC sampler
+    if {$nm eq "PIFA"} { set idx(PIFA) $i }
+    if {$nm eq "PIFC"} { set idx(PIFC) $i }
     incr i
 }
 
@@ -532,6 +535,27 @@ for {set s 1} {$s <= 6} {incr s} {
         set via1 [expr {($oo >> 24) & 0xFF}]
         puts [format "           PER-IO: via1(wrap8)=%u  via2(wrap8)=%u  asc(wrap8)=%u  iwm(wrap8)=%u" \
             $via1 $via2 $asc $iwm]
+    }
+    if {[info exists idx(PIFA)] && [info exists idx(PIFC)]} {
+        # IF-only PC sampler (build #13). PIFA latches cpuAddr on a real
+        # instruction-fetch bus cycle (AS-edge, RW=1, FC=2|6). PADR is
+        # every-clock and is polluted by write residue ($22006 hammered).
+        # PIFA tells us where the loop body actually executes.
+        set ifa [rd $idx(PIFA)]
+        set ifc [rd $idx(PIFC)]
+        set total [expr {$ifc & 0xFF}]
+        set user  [expr {($ifc >> 8) & 0xFF}]
+        set super [expr {($ifc >> 16) & 0xFF}]
+        puts [format "           IF-PC: last_IF_addr=0x%08X  IFcycles(wrap8)=%u (user=%u super=%u)" \
+            $ifa $total $user $super]
+        # Rapid burst: read PIFA 20 times in quick succession to sample
+        # the IF stream. ~50us per JTAG read, so 20 reads ~= 1ms of
+        # CPU activity = ~1000 IF cycles randomly sampled.
+        set seen {}
+        for {set k 0} {$k < 20} {incr k} {
+            lappend seen [format "0x%08X" [rd $idx(PIFA)]]
+        }
+        puts [format "           IF-PC burst: %s" [join $seen " "]]
     }
     if {[info exists idx(PMEM)] && [info exists idx(PMEM2)]} {
         set m1 [rd $idx(PMEM)]
