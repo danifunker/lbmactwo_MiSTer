@@ -699,6 +699,7 @@ wire [31:0] berr_data_out;
 // size_n=2'b01 indicates word-sized (16-bit) transfers (active-low encoding)
 // sense_n is an inout driven by the FPU internally to indicate presence
 
+wire [31:0] fpu_dbg_cir_state;
 mc68881_fpu_lite fpu_inst (
 	.clk        ( clk_sys              ),
 	.reset_n    ( _cpuReset            ),
@@ -713,7 +714,8 @@ mc68881_fpu_lite fpu_inst (
 	.dsack0_n   ( fpu_dsack0_n         ),
 	.dsack1_n   ( fpu_dsack1_n         ),
 	.sense_n    ( fpu_sense_n          ),
-	.status_valid (                    )
+	.status_valid (                    ),
+	.dbg_cir_state ( fpu_dbg_cir_state )
 );
 
 addrController_top ac0
@@ -1360,7 +1362,8 @@ dbg_min dbg_min_inst (
 	.selectSCC      (selectSCC),
 	.selectVIA      (selectVIA),
 	.selectVIA2     (selectVIA2),
-	.selectIWM      (selectIWM)
+	.selectIWM      (selectIWM),
+	.fpu_dbg_cir_state(fpu_dbg_cir_state)
 );
 
 endmodule

@@ -42,7 +42,21 @@ entity mc68881_top is
     reset_n : in  std_logic;
     clk     : in  std_logic;
     sense_n      : inout std_logic;
-    status_valid : out std_logic   -- '1' when result is ready (for interrupt generation)
+    status_valid : out std_logic;  -- '1' when result is ready (for interrupt generation)
+    -- Diagnostic output for the FRESTORE-hang investigation (build #16).
+    -- Encodes the CIR dialog FSM state + sticky flags so an external JTAG
+    -- probe can see what protocol step the FPU is wedged on without having
+    -- to read internal signals via SignalTap. Layout:
+    --   [31:16] cir_response_prim          (current Response CIR primitive)
+    --   [15:11] cir_state_reg              (encoded position 0..24)
+    --   [10:6]  max_cir_state_pos_seen     (sticky max — what FURTHEST state)
+    --   [5]     cir_opword_written_sticky  (set on first opword write)
+    --   [4]     cir_command_written_sticky (set on first command write)
+    --   [3]     cir_restore_trigger_seen   (set on first ADDR_CIR_RESTORE write)
+    --   [2]     cir_exception_seen         (sticky: state == CIR_EXCEPT_*)
+    --   [1]     cir_restore_frame_seen     (sticky: state ever == CIR_RESTORE_FRAME)
+    --   [0]     cir_active
+    dbg_cir_state : out std_logic_vector(31 downto 0)
   );
 end entity mc68881_top;
 
@@ -4173,24 +4187,34 @@ begin
           end if;
 
         when CIR_SAVE_WAIT =>
-          -- Wait one cycle for frame type determination, then present format word.
-          -- Determine frame type from fpu_initialized_reg and ALU busy state.
-          if fpu_initialized_reg = '0' then
-            frame_format_word_reg <= CIR_FRAME_NULL_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= 0;  -- Null: 0 data words
-          elsif busy = '1' then
-            frame_format_word_reg <= VER_FRAME_BUSY_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= VER_FRAME_BUSY_WORDS;  -- Busy: 45/53 data words
-            alu_save_req_reg <= '1';  -- Trigger sub-unit state snapshot
-          else
-            frame_format_word_reg <= VER_FRAME_IDLE_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= VER_FRAME_IDLE_WORDS;  -- Idle: 6/14 data words
-          end if;
+          -- Build #17 hack: bypass the FSAVE protocol entirely.
+          --
+          -- Build #16's PFST capture proved the FPU's CIR FSM wedges in
+          -- CIR_SAVE_FRAME during early boot, then blocks every subsequent
+          -- FSAVE/FRESTORE because the FSM never returns to CIR_IDLE.  The
+          -- SAVE_FRAME state advances on cir_operand_read_done, but the
+          -- captured PFRR readings show the host barely polls Response and
+          -- never reads OPERAND CIR — i.e. the cpSAVE response-primitive
+          -- contract the CPU's microcode expects isn't matched by our
+          -- current FSM's BUSY response.
+          --
+          -- Until the SAVE protocol is properly implemented (return the
+          -- "Transfer multiple from coprocessor at Operand CIR" primitive
+          -- with the correct byte count, and have CPU read OPERAND CIR for
+          -- frame data), short-circuit SAVE_WAIT directly to CIR_IDLE.  The
+          -- CPU's FSAVE microcode then sees Response=NULL on its first poll,
+          -- completes the instruction without transferring frame data, and
+          -- the FSM is free to handle the next FSAVE / FRESTORE / FPgen op.
+          --
+          -- Side effect: any FPU state the boot OS tries to save is lost.
+          -- Acceptable as a triage step because the OS only uses FSAVE for
+          -- context switches around stubs that don't actually compute, AND
+          -- subsequent FRESTOREs of those (now-NULL) frames reset the FPU to
+          -- power-on state which is also the FPU's current state.
+          --
+          -- See scratch/build16_pfst_findings.md for the diagnostic chain.
           cir_save_req <= '0';
-          cir_state_reg <= CIR_SAVE_FORMAT;
+          cir_state_reg <= CIR_IDLE;
 
         when CIR_SAVE_FORMAT =>
           -- Format word ready in frame_format_word_reg. Wait for host to read
@@ -4467,4 +4491,52 @@ begin
   sense_drive <= '0' when status_busy_reg = '1' else '1';
   sense_n  <= sense_drive;
   status_valid <= status_valid_reg;
+
+  -- ==== Build-#16 diagnostic: pack CIR FSM state for external JTAG probe ===
+  cir_state_dbg : block
+    signal max_state_pos_reg : natural range 0 to 31 := 0;
+    signal opword_seen_reg   : std_logic := '0';
+    signal command_seen_reg  : std_logic := '0';
+    signal trigger_seen_reg  : std_logic := '0';
+    signal except_seen_reg   : std_logic := '0';
+    signal restore_frame_seen_reg : std_logic := '0';
+  begin
+    process(clk, reset_n)
+      variable now_pos : natural;
+    begin
+      if reset_n = '0' then
+        max_state_pos_reg <= 0;
+        opword_seen_reg   <= '0';
+        command_seen_reg  <= '0';
+        trigger_seen_reg  <= '0';
+        except_seen_reg   <= '0';
+        restore_frame_seen_reg <= '0';
+      elsif rising_edge(clk) then
+        now_pos := cir_dialog_state_t'pos(cir_state_reg);
+        if now_pos > max_state_pos_reg then
+          max_state_pos_reg <= now_pos;
+        end if;
+        if cir_opword_written  = '1' then opword_seen_reg   <= '1'; end if;
+        if cir_command_written = '1' then command_seen_reg  <= '1'; end if;
+        if cir_restore_trigger = '1' then trigger_seen_reg  <= '1'; end if;
+        if cir_state_reg = CIR_EXCEPT_PRE  or
+           cir_state_reg = CIR_EXCEPT_MID  or
+           cir_state_reg = CIR_EXCEPT_POST then
+          except_seen_reg <= '1';
+        end if;
+        if cir_state_reg = CIR_RESTORE_FRAME then
+          restore_frame_seen_reg <= '1';
+        end if;
+      end if;
+    end process;
+    dbg_cir_state(31 downto 16) <= cir_response_prim;
+    dbg_cir_state(15 downto 11) <= std_logic_vector(to_unsigned(cir_dialog_state_t'pos(cir_state_reg), 5));
+    dbg_cir_state(10 downto 6)  <= std_logic_vector(to_unsigned(max_state_pos_reg, 5));
+    dbg_cir_state(5)            <= opword_seen_reg;
+    dbg_cir_state(4)            <= command_seen_reg;
+    dbg_cir_state(3)            <= trigger_seen_reg;
+    dbg_cir_state(2)            <= except_seen_reg;
+    dbg_cir_state(1)            <= restore_frame_seen_reg;
+    dbg_cir_state(0)            <= cir_active;
+  end block;
 end architecture rtl;

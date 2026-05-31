@@ -83,6 +83,8 @@ foreach inst $info {
     # Build #14 — FPU CIR Response/Restore confirmation probes
     if {$nm eq "PFRR"} { set idx(PFRR) $i }
     if {$nm eq "PFRW"} { set idx(PFRW) $i }
+    # Build #16 — FPU CIR FSM state probe
+    if {$nm eq "PFST"} { set idx(PFST) $i }
     incr i
 }
 
@@ -538,6 +540,39 @@ for {set s 1} {$s <= 6} {incr s} {
         set via1 [expr {($oo >> 24) & 0xFF}]
         puts [format "           PER-IO: via1(wrap8)=%u  via2(wrap8)=%u  asc(wrap8)=%u  iwm(wrap8)=%u" \
             $via1 $via2 $asc $iwm]
+    }
+    if {[info exists idx(PFST)]} {
+        # FPU CIR FSM state (build #16). Layout in dbg_min comment.
+        set st [rd $idx(PFST)]
+        set resp_prim   [expr {($st >> 16) & 0xFFFF}]
+        set cur_state   [expr {($st >> 11) & 0x1F}]
+        set max_state   [expr {($st >> 6)  & 0x1F}]
+        set opword_seen [expr {($st >> 5)  & 0x1}]
+        set cmd_seen    [expr {($st >> 4)  & 0x1}]
+        set trig_seen   [expr {($st >> 3)  & 0x1}]
+        set exc_seen    [expr {($st >> 2)  & 0x1}]
+        set frame_seen  [expr {($st >> 1)  & 0x1}]
+        set cir_act     [expr {$st & 0x1}]
+        set state_names [list IDLE DECODE XFER_SRC XFER_SRC_WAIT XFER_SRC_WAIT2 \
+            EXECUTE EXEC_DONE XFER_DST XFER_DST_WAIT COND_EVAL COND_WAIT COND_CHECK \
+            EXCEPT_PRE EXCEPT_MID EXCEPT_POST SAVE_WAIT SAVE_FORMAT SAVE_FRAME \
+            RESTORE_FORMAT RESTORE_FRAME PEND_DECODE PEND_XFER_SRC PEND_WAIT PEND_WAIT2 PEND_WAIT3]
+        set cur_name "?"
+        set max_name "?"
+        if {$cur_state < [llength $state_names]} { set cur_name [lindex $state_names $cur_state] }
+        if {$max_state < [llength $state_names]} { set max_name [lindex $state_names $max_state] }
+        puts [format "           FPU-FSM: state=%s(%d) max_seen=%s(%d) resp_prim=0x%04X | opword_seen=%d cmd_seen=%d trigger_seen=%d exc_seen=%d frame_seen=%d active=%d" \
+            $cur_name $cur_state $max_name $max_state $resp_prim \
+            $opword_seen $cmd_seen $trig_seen $exc_seen $frame_seen $cir_act]
+        if {$max_state == 0} {
+            puts "                 max=IDLE => CPU never wrote opword to OPSEL CIR. cpRESTORE protocol not initiated through standard path."
+        } elseif {$max_state >= 12 && $max_state <= 14} {
+            puts "                 max=EXCEPT_* => FORMAT word was invalid; FSM took the exception path."
+        } elseif {$frame_seen == 1} {
+            puts "                 RESTORE_FRAME reached => build #15 fix's path IS exercised. Check PFRR/PFRW for word transfers."
+        } elseif {$max_state == 18} {
+            puts "                 max=RESTORE_FORMAT => FORMAT word never arrived (cir_restore_trigger?) OR fw was unrecognized."
+        }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {
         # FPU CIR Response/Restore probes (build #14). Confirms the FRESTORE

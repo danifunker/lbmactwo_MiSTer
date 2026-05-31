@@ -20,7 +20,10 @@ entity mc68881_fpu_lite is
     reset_n : in  std_logic;
     clk     : in  std_logic;
     sense_n      : inout std_logic;
-    status_valid : out std_logic
+    status_valid : out std_logic;
+    -- See mc68881_top.vhd for layout. Pass-through for the FRESTORE-hang
+    -- diagnostic probe added in build #16.
+    dbg_cir_state : out std_logic_vector(31 downto 0)
   );
 end entity mc68881_fpu_lite;
 
@@ -50,6 +53,7 @@ begin
       reset_n      => reset_n,
       clk          => clk,
       sense_n      => sense_n,
-      status_valid => status_valid
+      status_valid => status_valid,
+      dbg_cir_state => dbg_cir_state
     );
 end architecture wrapper;

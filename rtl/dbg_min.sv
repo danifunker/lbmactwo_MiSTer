@@ -130,7 +130,12 @@ module dbg_min (
     // post-Phase-1 busy-loop IS hammering.
     input wire        selectVIA,         // VIA1 select (Tick, ADB, ASC FIFO IRQ, RTC)
     input wire        selectVIA2,        // VIA2 select (SCSI, NuBus IRQs)
-    input wire        selectIWM          // IWM/SWIM select (floppy regs)
+    input wire        selectIWM,         // IWM/SWIM select (floppy regs)
+
+    // PFST probe: packed FPU CIR FSM state (see mc68881_top.vhd port comment).
+    // Build #15's FRESTORE fix did not unblock boot; this probe is to see
+    // what protocol step the FSM is actually wedged on.
+    input wire [31:0] fpu_dbg_cir_state
 );
 
     // Coherent snapshots on clk.
@@ -1164,12 +1169,16 @@ module dbg_min (
         pflt_r <= {(flp_disk_data != 8'h00), flp_track, flp_side,
                    iwm_arm_high, flp_step_cnt};
 
-    altsource_probe #(
-        .instance_id ("PFLT"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLT disabled for build #16 to free fit budget for PFST (FPU CIR
+    // FSM state probe).  Floppy track / step / side info has been frozen
+    // at driveTrack=22 for many builds — Phase-2 IWM isn't load-bearing
+    // for the FRESTORE-protocol investigation.
+    // altsource_probe #(
+    //     .instance_id ("PFLT"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
     //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND
@@ -1486,5 +1495,32 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pfrw (.probe(pfrw_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== FPU CIR FSM state probe (PFST) -- build #16 =====================
+    // Pass-through of the packed dbg_cir_state vector from mc68881_top:
+    //   [31:16] cir_response_prim
+    //   [15:11] current cir_state_reg position (0=CIR_IDLE)
+    //   [10:6]  max state position ever reached (sticky)
+    //   [5]     opword-written sticky
+    //   [4]     command-written sticky
+    //   [3]     restore-trigger-seen sticky
+    //   [2]     exception-state-seen sticky
+    //   [1]     restore-frame-state-seen sticky
+    //   [0]     cir_active (live)
+    //
+    // Read this together with PIR2 (writes at $22006) to determine which
+    // protocol step is stalled: if max_state stays at CIR_IDLE (=0) the
+    // CPU never wrote opword to OPSEL; if max_state reaches CIR_RESTORE_FORMAT
+    // but never CIR_RESTORE_FRAME, the FORMAT word path is broken; if max
+    // state reaches CIR_EXCEPT_PRE/MID/POST, the FORMAT word was invalid.
+    reg [31:0] pfst_r;
+    always @(posedge clk) pfst_r <= fpu_dbg_cir_state;
+
+    altsource_probe #(
+        .instance_id ("PFST"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
