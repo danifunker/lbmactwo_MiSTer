@@ -537,12 +537,15 @@ module dbg_min (
     reg [31:0] adb_r;
     always @(posedge clk) adb_r <= dbg_adb;
 
-    altsource_probe #(
-        .instance_id ("PADB"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_padb (.probe(adb_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PADB disabled to free fit budget for PMEM (passive memory snoop at
+    // the busy-loop PC). ADB diagnostics aren't load-bearing for the
+    // post-Phase-1 hang -- mouse/keyboard already work.
+    // altsource_probe #(
+    //     .instance_id ("PADB"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_padb (.probe(adb_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PAD2: edge counters for the two ADB strobes + the VIA1 sr_out_pending
     // assertions. Tells whether byte delivery is happening repeatedly, once,
@@ -562,12 +565,13 @@ module dbg_min (
     reg [31:0] adb2_r;
     always @(posedge clk) adb2_r <= {pend_cnt, dout_cnt, din_cnt};
 
-    altsource_probe #(
-        .instance_id ("PAD2"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pad2 (.probe(adb2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PAD2 disabled to free fit budget for PMEM.
+    // altsource_probe #(
+    //     .instance_id ("PAD2"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pad2 (.probe(adb2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PAD3: VIA1 shift-in completion diagnosis.
     //   {complete_cnt[14:0], via1_shift_timer[16:0]}
@@ -586,12 +590,13 @@ module dbg_min (
     reg [31:0] adb3_r;
     always @(posedge clk) adb3_r <= {complete_cnt, shift_timer_now};
 
-    altsource_probe #(
-        .instance_id ("PAD3"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pad3 (.probe(adb3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PAD3 disabled to free fit budget for PMEM.
+    // altsource_probe #(
+    //     .instance_id ("PAD3"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pad3 (.probe(adb3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PMSE: mouse event diagnostic — counts ps2_mouse[24] toggles (HPS
     // delivering events?) and mouse_has_event rising edges (adb.sv latching?).
@@ -1065,6 +1070,74 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pioh (.probe(pioh_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== Passive memory snoop (PMEM / PMEM2) ============================
+    // Build #11 PIOH proved Phase 2 has ZERO bus cycles to VIA1/VIA2/ASC/IWM/SCC.
+    // The CPU is in a pure RAM+FPU compute loop at PC bucket 0x22000.
+    // PMEM passively latches cpu_din whenever the CPU READS at fixed
+    // addresses 0x22000-0x22007 (= 4 words, 8 bytes). The instruction-fetch
+    // cycles at the loop's PC hit these addresses constantly, so the
+    // latches fill within the first few microseconds.
+    //
+    //   PMEM:  [31:16] word at 0x22000 / [15:0] word at 0x22002
+    //   PMEM2: [31:16] word at 0x22004 / [15:0] word at 0x22006
+    //
+    // Reading both probes together gives the first 8 bytes of code at
+    // 0x22000 -- enough to disassemble the loop's first 2-4 instructions
+    // and confirm whether it's an infinite computation loop, a polling
+    // loop on an unmapped peripheral, or something else.
+    reg [15:0] mem_22000_r, mem_22002_r, mem_22004_r, mem_22006_r;
+    reg        mem_22000_p, mem_22002_p, mem_22004_p, mem_22006_p;
+    initial begin
+        mem_22000_r = 16'd0; mem_22002_r = 16'd0;
+        mem_22004_r = 16'd0; mem_22006_r = 16'd0;
+        mem_22000_p = 1'b0; mem_22002_p = 1'b0;
+        mem_22004_p = 1'b0; mem_22006_p = 1'b0;
+    end
+    wire mem_bus_rd = cpuAS_n_d && !cpuAS_n && cpuRW;
+    always @(posedge clk) begin
+        // Arm pending flags on the bus cycle.
+        if (mem_bus_rd && cpuAddr == 32'h0000_2000) mem_22000_p <= 1'b1;
+        if (mem_bus_rd && cpuAddr == 32'h0000_2002) mem_22002_p <= 1'b1;
+        if (mem_bus_rd && cpuAddr == 32'h0000_2004) mem_22004_p <= 1'b1;
+        if (mem_bus_rd && cpuAddr == 32'h0000_2006) mem_22006_p <= 1'b1;
+        // Latch on mac_dout_valid.
+        if (mem_22000_p && mac_dout_valid) begin
+            mem_22000_r <= cpu_din;
+            mem_22000_p <= 1'b0;
+        end
+        if (mem_22002_p && mac_dout_valid) begin
+            mem_22002_r <= cpu_din;
+            mem_22002_p <= 1'b0;
+        end
+        if (mem_22004_p && mac_dout_valid) begin
+            mem_22004_r <= cpu_din;
+            mem_22004_p <= 1'b0;
+        end
+        if (mem_22006_p && mac_dout_valid) begin
+            mem_22006_r <= cpu_din;
+            mem_22006_p <= 1'b0;
+        end
+    end
+    reg [31:0] pmem_r, pmem2_r;
+    always @(posedge clk) begin
+        pmem_r  <= {mem_22000_r, mem_22002_r};
+        pmem2_r <= {mem_22004_r, mem_22006_r};
+    end
+
+    altsource_probe #(
+        .instance_id ("PMEM"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pmem (.probe(pmem_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PMEM2"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pmem2 (.probe(pmem2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)

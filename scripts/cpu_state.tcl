@@ -74,6 +74,8 @@ foreach inst $info {
     if {$nm eq "PIRQ"} { set idx(PIRQ) $i }
     if {$nm eq "PSCC"} { set idx(PSCC) $i }
     if {$nm eq "PIOH"} { set idx(PIOH) $i }
+    if {$nm eq "PMEM"} { set idx(PMEM) $i }
+    if {$nm eq "PMEM2"} { set idx(PMEM2) $i }
     incr i
 }
 
@@ -529,6 +531,42 @@ for {set s 1} {$s <= 6} {incr s} {
         set via1 [expr {($oo >> 24) & 0xFF}]
         puts [format "           PER-IO: via1(wrap8)=%u  via2(wrap8)=%u  asc(wrap8)=%u  iwm(wrap8)=%u" \
             $via1 $via2 $asc $iwm]
+    }
+    if {[info exists idx(PMEM)] && [info exists idx(PMEM2)]} {
+        set m1 [rd $idx(PMEM)]
+        set m2 [rd $idx(PMEM2)]
+        set w0 [expr {($m1 >> 16) & 0xFFFF}]
+        set w1 [expr {$m1         & 0xFFFF}]
+        set w2 [expr {($m2 >> 16) & 0xFFFF}]
+        set w3 [expr {$m2         & 0xFFFF}]
+        puts [format "           CODE@22000: %04X %04X %04X %04X" $w0 $w1 $w2 $w3]
+        # Mini 68k disasm hints for the first word
+        if {$w0 != 0} {
+            set op_hi [expr {($w0 >> 12) & 0xF}]
+            set hint  ""
+            switch -- $op_hi {
+                0x0 { set hint "MOVEP/Bit/Immediate" }
+                0x1 { set hint "MOVE.B" }
+                0x2 { set hint "MOVE.L" }
+                0x3 { set hint "MOVE.W" }
+                0x4 { set hint "Miscellaneous (CLR/NEG/JMP/JSR/LEA/EXT/MOVEM/RTE/RTS/etc.)" }
+                0x5 { set hint "ADDQ/SUBQ/Scc/DBcc" }
+                0x6 { set hint "Bcc/BSR/BRA" }
+                0x7 { set hint "MOVEQ" }
+                0x8 { set hint "OR/DIV/SBCD" }
+                0x9 { set hint "SUB/SUBX/SUBA" }
+                0xA { set hint "(unassigned — A-line trap, used for OS calls!)" }
+                0xB { set hint "EOR/CMPM/CMP/CMPA" }
+                0xC { set hint "AND/MUL/ABCD/EXG" }
+                0xD { set hint "ADD/ADDX/ADDA" }
+                0xE { set hint "Shifts/Rotates" }
+                0xF { set hint "(unassigned — F-line trap, used for FPU/coprocessor!)" }
+            }
+            puts [format "                       w0=0x%04X => %s" $w0 $hint]
+        }
+        if {$w0 == 0 && $w1 == 0 && $w2 == 0 && $w3 == 0} {
+            puts "                       all zeros -- the trigger never fired. The CPU isn't reading these addresses. Loop is elsewhere."
+        }
     }
     after 300
 }
