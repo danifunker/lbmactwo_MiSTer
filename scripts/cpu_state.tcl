@@ -71,6 +71,7 @@ foreach inst $info {
     if {$nm eq "PIR2"} { set idx(PIR2) $i }
     if {$nm eq "PIR3"} { set idx(PIR3) $i }
     if {$nm eq "PIPL"} { set idx(PIPL) $i }
+    if {$nm eq "PIRQ"} { set idx(PIRQ) $i }
     incr i
 }
 
@@ -490,6 +491,17 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                 NO peripheral asserts ANY IRQ. Hang upstream of IRQ delivery (peripheral RTL side)."
         } elseif {$iac == 0} {
             puts "                 IRQs asserted but never IACK'd. CPU masking via SR or interrupt priority logic broken."
+        }
+    }
+    if {[info exists idx(PIRQ)]} {
+        set qq [rd $idx(PIRQ)]
+        set scc_c  [expr {($qq >> 8)  & 0xFF}]
+        set via2_c [expr {($qq >> 16) & 0xFF}]
+        set via1_c [expr {($qq >> 24) & 0xFF}]
+        puts [format "           IRQ-SRC: via1_cnt(wrap8)=%u  via2_cnt(wrap8)=%u  scc_cnt(wrap8)=%u" \
+            $via1_c $via2_c $scc_c]
+        if {$via1_c == 0 && $via2_c == 0 && $scc_c == 0} {
+            puts "                 ALL three IRQ sources frozen at 0 -- they share a sample window; investigate the encoder."
         }
     }
     after 300

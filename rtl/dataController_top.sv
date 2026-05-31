@@ -131,7 +131,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [6:0]  dbg_iwm_arm_high,
 	output           [6:0]  dbg_flp_track,
 	output                  dbg_flp_side,
-	output           [15:0] dbg_flp_step_cnt
+	output           [15:0] dbg_flp_step_cnt,
+
+	// PIRQ probe: per-source IRQ assert signals (active-low) for edge counting
+	// in dbg_min. These are the inputs to the _cpuIPL priority cascade.
+	output                  dbg_via1_irq_n,
+	output                  dbg_via2_irq_n,
+	output                  dbg_scc_irq_n
 );
 
 	// CPU reset generation
@@ -175,6 +181,11 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		!_via2Irq ? 3'b101 :  // VIA2 → IPL 2
 		!_viaIrq  ? 3'b110 :  // VIA1 → IPL 1
 		3'b111;
+
+	// JTAG-debug taps on the unencoded source signals.
+	assign dbg_via1_irq_n = _viaIrq;
+	assign dbg_via2_irq_n = _via2Irq;
+	assign dbg_scc_irq_n  = _sccIrq;
 
 
 	reg [15:0] cpu_data;

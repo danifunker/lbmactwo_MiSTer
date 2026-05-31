@@ -110,7 +110,15 @@ module dbg_min (
     // its bus cycle (cpu_data_in in LBMacTwo.sv). Latched when mac_dout_valid
     // is asserted at the matching address. Allows PIR3 to record the actual
     // refnum read at IORB+0x18.
-    input wire [15:0] cpu_din           // cpu_data_in[15:0] (CPU read data)
+    input wire [15:0] cpu_din,          // cpu_data_in[15:0] (CPU read data)
+
+    // PIRQ probe: unencoded per-source IRQ signals (active-low).  Edge-count
+    // each to compare assertion rates between Phase 1 and Phase 2.  In build
+    // #8's PIPL data only SCC (lvl 4) was seen in Phase 1's ipl_seen bitmap;
+    // P2 shows lvl1+lvl2 but NOT lvl4 -- suggests SCC IRQs stop in P2.
+    input wire        via1_irq_n,        // VIA1 (Tick/60Hz, ADB, ASC FIFO, RTC)
+    input wire        via2_irq_n,        // VIA2 (SCSI, NuBus, slot IRQs)
+    input wire        scc_irq_n          // SCC (serial / AppleTalk)
 );
 
     // Coherent snapshots on clk.
@@ -212,12 +220,15 @@ module dbg_min (
     always @(posedge clk)
         scsi_r <= {sdwr_seen, sdrd_seen, img_seen, 1'b0, scsi_last_reg, scsi_last_rd};
 
-    altsource_probe #(
-        .instance_id ("PSCS"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSCS disabled to free fit budget for PIRQ (per-source IRQ counters).
+    // The "last SCSI read" diagnosis isn't load-bearing for the post-Phase-1
+    // busy-loop investigation.
+    // altsource_probe #(
+    //     .instance_id ("PSCS"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // NCR5380 selection diagnosis.
     //   sel_ids     : sticky OR of every ID byte driven while SEL asserted
@@ -901,6 +912,51 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pipl (.probe(pipl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== Per-IRQ-source edge counters (PIRQ) ============================
+    // PIPL showed IRQs flow normally in Phase 2 (ipl_active_cyc wraps 16
+    // bits per ~200 ms sample), but `levels_seen` revealed SCC stops being
+    // asserted in Phase 2 while VIA1/VIA2 keep firing.  PIRQ counts each
+    // source independently so we can see assertion-rate deltas between
+    // Phase 1 and Phase 2.  Edges are detected on the active-low signal
+    // going low (assertion).
+    //
+    //   [31:24] via1_irq_cnt  (wrap-8): _viaIrq  falling edges
+    //   [23:16] via2_irq_cnt  (wrap-8): _via2Irq falling edges
+    //   [15:8]  scc_irq_cnt   (wrap-8): _sccIrq  falling edges
+    //   [7:0]   reserved      (= 0)
+    //
+    // Decision:
+    //   via1 grows, via2 grows, scc stops growing in P2 => SCC dies in P2.
+    //     Likely cause: AppleTalk init disables SCC IRQ, OR SCC RTL has a
+    //     bug where after some specific access pattern it stops asserting.
+    //   any source stops growing entirely => that peripheral is the wedge.
+    //   all three steady, very high rates => the loop IS being serviced;
+    //     hang is in the handler logic / OS state machine.
+    reg via1_irq_d, via2_irq_d, scc_irq_d;
+    reg [7:0] via1_irq_cnt, via2_irq_cnt, scc_irq_cnt;
+    initial begin
+        via1_irq_d   = 1'b1; via2_irq_d   = 1'b1; scc_irq_d   = 1'b1;
+        via1_irq_cnt = 8'd0; via2_irq_cnt = 8'd0; scc_irq_cnt = 8'd0;
+    end
+    always @(posedge clk) begin
+        via1_irq_d <= via1_irq_n;
+        via2_irq_d <= via2_irq_n;
+        scc_irq_d  <= scc_irq_n;
+        if (via1_irq_d && !via1_irq_n) via1_irq_cnt <= via1_irq_cnt + 8'd1;
+        if (via2_irq_d && !via2_irq_n) via2_irq_cnt <= via2_irq_cnt + 8'd1;
+        if (scc_irq_d  && !scc_irq_n ) scc_irq_cnt  <= scc_irq_cnt  + 8'd1;
+    end
+    reg [31:0] pirq_r;
+    always @(posedge clk)
+        pirq_r <= {via1_irq_cnt, via2_irq_cnt, scc_irq_cnt, 8'd0};
+
+    altsource_probe #(
+        .instance_id ("PIRQ"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pirq (.probe(pirq_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)

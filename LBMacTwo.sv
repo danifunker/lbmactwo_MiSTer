@@ -833,6 +833,9 @@ wire [15:0] dbg_card_irq_cnt;
 wire [15:0] dbg_card_ack_cnt;
 wire        dbg_card_vbl_en;
 wire        dbg_asc_irq_n;
+wire        dbg_via1_irq_n;
+wire        dbg_via2_irq_n;
+wire        dbg_scc_irq_n;
 
 dataController_top #(SCSI_DEVS) dc0
 (
@@ -905,6 +908,9 @@ dataController_top #(SCSI_DEVS) dc0
 	.ascAudioLeft(asc_audio_l),
 	.ascAudioRight(asc_audio_r),
 	.dbg_asc_irq_n(dbg_asc_irq_n),
+	.dbg_via1_irq_n(dbg_via1_irq_n),
+	.dbg_via2_irq_n(dbg_via2_irq_n),
+	.dbg_scc_irq_n(dbg_scc_irq_n),
 
 	// floppy disk interface
 	.insertDisk({dsk_ext_ins, dsk_int_ins}),
@@ -1347,7 +1353,10 @@ dbg_min dbg_min_inst (
 	.flp_side       (dbg_flp_side),
 	.flp_step_cnt   (dbg_flp_step_cnt),
 	.cpu_dout       (cpuDataOut),
-	.cpu_din        (cpu_data_in)
+	.cpu_din        (cpu_data_in),
+	.via1_irq_n     (dbg_via1_irq_n),
+	.via2_irq_n     (dbg_via2_irq_n),
+	.scc_irq_n      (dbg_scc_irq_n)
 );
 
 endmodule
