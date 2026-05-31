@@ -378,19 +378,24 @@ module dbg_min (
         idx0_r <= idx0_cnt;
     end
 
-    altsource_probe #(
-        .instance_id ("PSCG"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pscg (.probe(idx1_r), .source(), .source_clk(clk), .source_ena(1'b1));
-
-    altsource_probe #(
-        .instance_id ("PSCH"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psch (.probe(idx0_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSCG/PSCH disabled to free fit budget for PIPL (IRQ delivery probe).
+    // We know boot0+boot1 ROMs load correctly on hardware; the ROM-download
+    // verification probes aren't load-bearing for the post-Welcome busy-loop
+    // investigation. Re-enable by uncommenting if ROM-load debugging is
+    // needed again.
+    // altsource_probe #(
+    //     .instance_id ("PSCG"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pscg (.probe(idx1_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    //
+    // altsource_probe #(
+    //     .instance_id ("PSCH"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psch (.probe(idx0_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ---- Bus-reset trigger snapshot (PSCF) --------------------------------
     // Latch the SCSI target phase/io-handshake state at the moment the Mac
@@ -830,6 +835,72 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== IRQ-delivery probe (PIPL) ========================================
+    // Diagnose the post-Phase-1 busy-loop. The long-soak capture
+    // (scratch/build6_pir2_longsoak_findings.md) showed the CPU spends 24%
+    // of time at PC bucket 0x22000 and ~13% at 0x7FEA00, with scattered
+    // I/O reads. That's a polling loop. If it's waiting for an interrupt
+    // that never fires, IPL stays at 3'b111 forever.
+    //
+    //   [31:24] ipl_levels_ever_seen  -- bit n => CPU ever saw IPL level n
+    //                                    (lvl0=any, lvl1=VIA1, lvl2=VIA2,
+    //                                     lvl4=SCC, lvl6=NMI on Mac II)
+    //   [23:16] iack_cnt              -- wrap-8 count of IACK bus cycles
+    //                                    (cpuFC == 3'b111 = CPU spaces)
+    //   [15:0]  ipl_active_cycles     -- wrap-16 count of clk cycles where
+    //                                    cpuIPL_n != 3'b111 (= IRQ pending)
+    //
+    // Decision tree:
+    //   ipl_active_cycles grows + iack_cnt grows => IRQs delivered and
+    //     serviced. Hang is in the handler or elsewhere; PIPL is done its
+    //     job ruling out the delivery path.
+    //   ipl_active_cycles grows + iack_cnt = 0 => IRQs asserted but CPU
+    //     masking them (SR I-bit too high). Why? -- next probe.
+    //   ipl_active_cycles = 0 + iack_cnt = 0 => NO peripheral asserts any
+    //     IRQ. The hang is in the peripheral RTL side -- e.g. ASC FIFO
+    //     refill_irq only fires in FIFO mode (asc_mode==1), or a VIA
+    //     timer not counting down.
+    reg [7:0]  ipl_seen_bm;
+    reg [7:0]  pipl_iack_cnt;
+    reg [3:0]  pipl_last_iack_lvl;
+    reg [15:0] pipl_active_cyc;
+    reg        pipl_in_iack_d;
+    wire [2:0] pipl_lvl_now = ~cpuIPL_n;          // active-low decode (111 -> 000)
+    wire       pipl_in_iack = (cpuFC == 3'b111);   // 68k IACK cycle
+    initial begin
+        ipl_seen_bm        = 8'd0;
+        pipl_iack_cnt      = 8'd0;
+        pipl_last_iack_lvl = 4'd0;
+        pipl_active_cyc    = 16'd0;
+        pipl_in_iack_d     = 1'b0;
+    end
+    always @(posedge clk) begin
+        pipl_in_iack_d <= pipl_in_iack;
+        // Mark this IPL level as ever-seen (only when an IRQ is actually
+        // asserted; 3'b111 = no IRQ).
+        if (cpuIPL_n != 3'b111)
+            ipl_seen_bm[pipl_lvl_now] <= 1'b1;
+        // Free-running cycle counter while any IRQ pending.
+        if (cpuIPL_n != 3'b111)
+            pipl_active_cyc <= pipl_active_cyc + 16'd1;
+        // Count rising edges of IACK function code.
+        if (pipl_in_iack && !pipl_in_iack_d) begin
+            pipl_iack_cnt      <= pipl_iack_cnt + 8'd1;
+            // 68k IACK cycle puts the IRQ level in cpuAddr[3:1].
+            pipl_last_iack_lvl <= {1'b0, cpuAddr[3:1]};
+        end
+    end
+    reg [31:0] pipl_r;
+    always @(posedge clk)
+        pipl_r <= {ipl_seen_bm, pipl_iack_cnt, {1'b0, pipl_last_iack_lvl[2:0]}, pipl_active_cyc};
+
+    altsource_probe #(
+        .instance_id ("PIPL"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pipl (.probe(pipl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)

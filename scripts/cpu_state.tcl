@@ -70,6 +70,7 @@ foreach inst $info {
     if {$nm eq "PIR1"} { set idx(PIR1) $i }
     if {$nm eq "PIR2"} { set idx(PIR2) $i }
     if {$nm eq "PIR3"} { set idx(PIR3) $i }
+    if {$nm eq "PIPL"} { set idx(PIPL) $i }
     incr i
 }
 
@@ -462,6 +463,33 @@ for {set s 1} {$s <= 6} {incr s} {
             $rcnt $rval $rsig $drvname]
         if {$rcnt == 0} {
             puts "                 cnt=0 => OS hasn't re-fetched ioRefNum within current iowait_data_addr window"
+        }
+    }
+    if {[info exists idx(PIPL)]} {
+        set pi  [rd $idx(PIPL)]
+        set cyc [expr {$pi & 0xFFFF}]
+        set llv [expr {($pi >> 16) & 0x7}]
+        set iac [expr {($pi >> 20) & 0xFF}]
+        set bm  [expr {($pi >> 24) & 0xFF}]
+        set bms ""
+        for {set b 1} {$b <= 7} {incr b} {
+            if {$bm & (1 << $b)} { lappend bms "lvl$b" }
+        }
+        if {$bms eq ""} { set bmstr "(none)" } else { set bmstr [join $bms ,] }
+        # Map Mac II IRQ levels back to source
+        set src ""
+        switch -- $llv {
+            1 {set src " (VIA1)"}
+            2 {set src " (VIA2)"}
+            4 {set src " (SCC)"}
+            6 {set src " (NMI)"}
+        }
+        puts [format "           IRQ: ipl_active_cyc(wrap16)=%u iack_cnt(wrap8)=%u last_iack_lvl=%d%s levels_seen=%s" \
+            $cyc $iac $llv $src $bmstr]
+        if {$cyc == 0 && $iac == 0} {
+            puts "                 NO peripheral asserts ANY IRQ. Hang upstream of IRQ delivery (peripheral RTL side)."
+        } elseif {$iac == 0} {
+            puts "                 IRQs asserted but never IACK'd. CPU masking via SR or interrupt priority logic broken."
         }
     }
     after 300
