@@ -148,14 +148,14 @@ module nubus_video_mdc824 #(
 
     wire rom_lane_valid = (local_addr[1:0] == 2'b11);
 
-    // ROM download (NuBus declaration ROM @ ioctl_index 1, sim only): the
-    // bitstream bakes boot2.hex via $readmemh; on real MiSTer only index 0
-    // auto-loads, so this path is a sim convenience.  One 16-bit word per ioctl
-    // word -> single write port (M10K-friendly).
-    always @(posedge clk) begin
-        if (ioctl_wr && ioctl_download && ioctl_index == 8'd1)
-            rom[ioctl_addr[14:1]] <= ioctl_data;
-    end
+    // Declaration ROM is baked into the bitstream via $readmemh("boot2.hex")
+    // above; no runtime download path is provided. (Previously this listened
+    // for ioctl_index==8'd1 as a "sim convenience", but the F1 floppy mount
+    // now also arrives at ioctl_index=1 per MiSTer hps_io's F<N> convention.
+    // Routing the 800K floppy stream into the 32K decl ROM wrapped 25× and
+    // corrupted the slot-manager declaration, hanging Mac OS on the "Welcome
+    // to Macintosh" splash. Sim should bake the ROM the same way real
+    // hardware does.)
 
     // ========================================================================
     // Registers

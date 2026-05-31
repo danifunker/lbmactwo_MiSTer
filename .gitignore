@@ -74,3 +74,10 @@ SingleStepTests/gen/gen_fpu.dSYM/
 # External oracle/reference checkouts (their own git repos; not vendored).
 SingleStepTests/Musashi/
 /68881-fpga/
+scripts/local.env
+
+# Scratch directory — in-progress / experimental / one-shot work that
+# does not belong in the repo. Hardware debug captures, ad-hoc
+# screenshots, session-specific notes, etc. See CLAUDE.md "Scratch
+# directory" for the convention.
+scratch/

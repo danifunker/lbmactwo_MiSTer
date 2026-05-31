@@ -150,26 +150,17 @@ module nubus_video_highres #(
     // byte addresses (addr[1:0] == 0).
     wire rom_lane_valid = (addr[1:0] == 2'b00);
 
-    // ROM Download — boot1.rom (ioctl_index 1), 8KB
-    // No byte-swap: ioctl_data[15:8] = even file byte, [7:0] = odd file byte,
-    // which matches our rom_byte_out selection via addr[2].
+    // Declaration ROM is baked into the bitstream via $readmemh("boot1.hex")
+    // above; no runtime ioctl path. Previously listened for ioctl_index==8'd1
+    // as a sim convenience, but the F1 floppy mount now arrives at index 1
+    // per the MiSTer hps_io F<N> convention, and an 800K stream into 8K of
+    // ROM wrapped 100× and corrupted the decl table -> Mac OS hung on the
+    // "Welcome" splash. Sim should bake the ROM the same way.
     // synthesis translate_off
     integer rom_load_count = 0;
     integer vbl_debug_count = 0;
     integer vram_debug_count = 0;
     // synthesis translate_on
-    always @(posedge clk) begin
-        if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
-            rom[ioctl_addr[12:1]] <= ioctl_data;
-            // synthesis translate_off
-            rom_load_count = rom_load_count + 1;
-            if (rom_load_count <= 4 || rom_load_count == 4096)
-                $display("NUBUS_ROM_LOAD[%0d]: addr=%h data=%h -> rom[%0d]=%h",
-                    rom_load_count, ioctl_addr, ioctl_data,
-                    ioctl_addr[12:1], ioctl_data);
-            // synthesis translate_on
-        end
-    end
 
     // ========================================================================
     // TFB 2.2 Registers (MAME register indices)

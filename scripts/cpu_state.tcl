@@ -62,6 +62,12 @@ foreach inst $info {
     if {$nm eq "PADP"} { set idx(PADP) $i }
     if {$nm eq "PSRR"} { set idx(PSRR) $i }
     if {$nm eq "PSRL"} { set idx(PSRL) $i }
+    if {$nm eq "PFLP"} { set idx(PFLP) $i }
+    if {$nm eq "PIWM"} { set idx(PIWM) $i }
+    if {$nm eq "PIOA"} { set idx(PIOA) $i }
+    if {$nm eq "PIOC"} { set idx(PIOC) $i }
+    if {$nm eq "PFLT"} { set idx(PFLT) $i }
+    if {$nm eq "PIR1"} { set idx(PIR1) $i }
     incr i
 }
 
@@ -363,6 +369,50 @@ for {set s 1} {$s <= 6} {incr s} {
         set l2 [expr {($ll >> 16) & 0xFF}]
         set l3 [expr {($ll >> 24) & 0xFF}]
         puts [format "           SR LOAD seq (newest->oldest): %02X %02X %02X %02X" $l0 $l1 $l2 $l3]
+    }
+    if {[info exists idx(PFLP)]} {
+        set fp [rd $idx(PFLP)]
+        set miss  [expr {$fp & 0xFFFF}]
+        set bytes [expr {($fp >> 16) & 0xFFFF}]
+        puts [format "           FLP: byte_cnt=%u  slot_miss_cnt=%u  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)" $bytes $miss]
+    }
+    if {[info exists idx(PIWM)]} {
+        set iw [rd $idx(PIWM)]
+        set armh  [expr {$iw & 0x7F}]
+        set staged [expr {($iw >> 7) & 0x1}]
+        set latch [expr {($iw >> 8) & 0xFF}]
+        set acks  [expr {($iw >> 16) & 0xFFFF}]
+        set latch_bit7 [expr {($latch >> 7) & 0x1}]
+        puts [format "           IWM: sdram_grants=%u  readDataLatch=0x%02X(bit7=%d/byte_avail)  staged=%d  armDelayHi=0x%02X" \
+            $acks $latch $latch_bit7 $staged $armh]
+    }
+    if {[info exists idx(PIOA)]} {
+        set io [rd $idx(PIOA)]
+        set iorb [expr {$io - 0x10}]
+        puts [format "           IORB: last (a0+0x10) seen after IOWait fetch = 0x%08X -> IORB at 0x%08X" \
+            $io $iorb]
+    }
+    if {[info exists idx(PIOC)]} {
+        set ic [rd $idx(PIOC)]
+        set iters [expr {$ic & 0xFFFF}]
+        puts [format "           IOWait: iter_cnt(wrap16)=%u (growing => IOWait actively polling)" $iters]
+    }
+    if {[info exists idx(PFLT)]} {
+        set ft [rd $idx(PFLT)]
+        set steps [expr {$ft & 0xFFFF}]
+        set armh  [expr {($ft >> 16) & 0x7F}]
+        set side  [expr {($ft >> 23) & 0x1}]
+        set trk   [expr {($ft >> 24) & 0x7F}]
+        set staged [expr {($ft >> 31) & 0x1}]
+        puts [format "           FLT: driveTrack=%u(0x%02X) side=%u  step_cnt(wrap16)=%u  staged=%d  armDelayHi=0x%02X" \
+            $trk $trk $side $steps $staged $armh]
+    }
+    if {[info exists idx(PIR1)]} {
+        set i1 [rd $idx(PIR1)]
+        set cnt [expr {$i1 & 0xFFFF}]
+        set val [expr {($i1 >> 16) & 0xFFFF}]
+        puts [format "           IOR: \$3B4 write_cnt(wrap16)=%u  last_value=0x%04X  (cnt=0 => ioResult NEVER set; cnt>0 => driver completes)" \
+            $cnt $val]
     }
     after 300
 }

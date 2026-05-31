@@ -87,8 +87,37 @@ module floppy
 
 	output [21:0] dskReadAddr,
 	input dskReadAck,
-	input [7:0] dskReadData
+	input [7:0] dskReadData,
+
+	// --- diagnostic ports (PFLP probe; safe to leave dangling when unused) ---
+	// dbg_byte_cnt : 16-bit wrapping count of newByteReady rising edges
+	//                (= bytes successfully handed to the IWM). Should climb
+	//                steadily while Mac OS is reading the floppy.
+	// dbg_miss_cnt : 16-bit wrapping count of "slot miss" events: moments
+	//                when diskDataByteTimer wraps to 0 but the delivery
+	//                conditions fail (diskImageData==0, or readyToAdvanceHead
+	//                is low, or driveReadDataSelected is low). A nonzero,
+	//                growing value pinpoints the byte-stream stall hypothesis.
+	// dbg_disk_image_data : live diskImageData (current latched byte from
+	//                       SDRAM, or 0 if already consumed and not refilled).
+	// dbg_drive_track : live driveTrack[6:0] (which floppy track is being
+	//                   encoded). If the Mac OS retries the same sector it
+	//                   stays at one value; if it progresses through the
+	//                   disk it climbs.
+	// dbg_drive_side  : live driveSide bit
+	// dbg_step_cnt    : 16-bit wrapping count of STEP register writes (head
+	//                   step commands). If 0 across the hang, the driver
+	//                   never seeks — re-reading the same track forever.
+	output reg [15:0] dbg_byte_cnt,
+	output reg [15:0] dbg_miss_cnt,
+	output wire [7:0] dbg_disk_image_data,
+	output wire [6:0] dbg_drive_track,
+	output wire       dbg_drive_side,
+	output reg [15:0] dbg_step_cnt
 );
+	assign dbg_disk_image_data = diskImageData;
+	assign dbg_drive_track     = driveTrack;
+	assign dbg_drive_side      = driveSide;
 
 	assign motor = ~driveRegs[`DRIVE_REG_MOTORON];
 	assign act = lstrbEdge;
@@ -152,8 +181,15 @@ module floppy
 	wire doubleSidedDisk = diskSides;
 
 	wire [3:0] driveSenseAddr = {SEL,ca2,ca1,ca0};
-	wire driveReadDataSelected = (driveSenseAddr == `DRIVE_REG_RDDATA0) ||
-	                             (driveSenseAddr == `DRIVE_REG_RDDATA1);
+	// NOTE: the `DRIVE_REG_* constants encode the legacy Sony {CA2,CA1,CA0,SEL}
+	// addressing (RDDATA0=8, RDDATA1=9). driveSenseAddr above uses the
+	// MAME-style {SEL,CA2,CA1,CA0} layout instead, so RDDATA0/RDDATA1 land at
+	// 4 and 12 respectively. Use the re-encoded values here, otherwise the
+	// IWM never sees newByteReady and the CPU reads 0x00 from the floppy.
+	localparam [3:0] SENSE_ADDR_RDDATA0 = 4'd4;   // {SEL=0,CA2=1,CA1=0,CA0=0}
+	localparam [3:0] SENSE_ADDR_RDDATA1 = 4'd12;  // {SEL=1,CA2=1,CA1=0,CA0=0}
+	wire driveReadDataSelected = (driveSenseAddr == SENSE_ADDR_RDDATA0) ||
+	                             (driveSenseAddr == SENSE_ADDR_RDDATA1);
 
 	// MAME's Mac/Sony floppy model reports sense as {VIA PA5, CA2, CA1, CA0}.
 	// Keep the legacy read-data selector above for the local byte-stream model,
@@ -201,12 +237,17 @@ module floppy
 				newByteReady <= 1;
 				diskDataByteTimer <= 1;  // make timer run again
 
-				// clear diskImageData after it's used, so we can tell when we get a new one from the disk	
+				// clear diskImageData after it's used, so we can tell when we get a new one from the disk
 				diskImageData <= 0;
 
-				// Wait for the IWM read latch to be consumed before presenting the
-				// next encoded disk byte; otherwise slow CPU polling skips ahead.
-				readyToAdvanceHead <= 1'b0;
+				// Self-pace at the Sony GCR rate (128 cep_div2 ticks ≈ 16.4 µs/byte);
+				// real-hardware behaviour. A previous version cleared this to 1'b0 to
+				// wait for the IWM to consume the byte (overrun guard), but the side
+				// effect was 5–10× slower reads: any time the CPU's burst-polling
+				// fell behind by even one cycle the floppy stalled another full
+				// 128-tick byte slot. A real Sony drive doesn't wait either — if the
+				// CPU misses a byte the OS retries the sector, exactly like hardware.
+				readyToAdvanceHead <= 1'b1;
 			end
 
 			// extraRomReadAck comes every hsync which is every 21us. The iwm data rates
@@ -230,12 +271,39 @@ module floppy
 			// switch drive sides if DRIVE_REG_RDDATA0 or DRIVE_REG_RDDATA1 are read
 			// TODO: we don't know if this is a true read, since we don't know if IWM is selected or
 			// could be bad if we use this test to flush a cache of encoded disk data
-			if (_enable == 1'b0 && driveSenseAddr == `DRIVE_REG_RDDATA0 && lstrb == 1'b0)
+			if (_enable == 1'b0 && driveSenseAddr == SENSE_ADDR_RDDATA0 && lstrb == 1'b0)
 				driveSide <= 0;
-			if (_enable == 1'b0 && driveSenseAddr == `DRIVE_REG_RDDATA1 && lstrb == 1'b0)
+			if (_enable == 1'b0 && driveSenseAddr == SENSE_ADDR_RDDATA1 && lstrb == 1'b0)
 				driveSide <= 1;
 		end
 	end
+	end
+
+	// --- diagnostic counters (PFLP probe) --------------------------------
+	// Increment dbg_byte_cnt each time a byte is successfully delivered
+	// (newByteReady rises). Increment dbg_miss_cnt each time the byte slot
+	// timer wraps to 0 while the drive IS selected for read data but the
+	// delivery condition fails — i.e. SDRAM hasn't refilled diskImageData
+	// in time. dbg_disk_image_data is wired directly to diskImageData.
+	always @(posedge clk or negedge _reset) begin
+		if (_reset == 1'b0) begin
+			dbg_byte_cnt <= 16'd0;
+			dbg_miss_cnt <= 16'd0;
+		end
+		else if (cep) begin
+			// Free-running 16-bit counters — wrap on overflow so the host can
+			// compute "bytes delivered since last sample" as a wrapping delta.
+			// (Earlier version saturated at 0xFFFF; that hides whether the
+			// floppy is still feeding during a long hang.)
+			if (diskDataByteTimer == 0 && readyToAdvanceHead && diskImageData != 0 &&
+			    driveReadDataSelected && _enable == 1'b0) begin
+				dbg_byte_cnt <= dbg_byte_cnt + 16'd1;
+			end
+			else if (diskDataByteTimer == 0 &&
+			         driveReadDataSelected && _enable == 1'b0) begin
+				dbg_miss_cnt <= dbg_miss_cnt + 16'd1;
+			end
+		end
 	end
 
 	// create a signal on the falling edge of lstrb
@@ -295,10 +363,13 @@ module floppy
 	//`define DRIVE_REG_STEP		2  /* R: drive head stepping (1 = complete) */
 												/* W: 0 = step drive head */
 	always @(posedge clk or negedge _reset) begin
-		if (_reset == 1'b0) begin	
-			driveTrack <= 0; 
-		end 
+		if (_reset == 1'b0) begin
+			driveTrack   <= 0;
+			dbg_step_cnt <= 16'd0;
+		end
 		else if(cep && _enable == 1'b0 && lstrbEdge == 1'b1 && driveWriteAddr == `DRIVE_REG_STEP && ca2 == 1'b0) begin
+			// Count each commit of a STEP register write. Wraps 16-bit.
+			dbg_step_cnt <= dbg_step_cnt + 16'd1;
 			if (driveRegs[`DRIVE_REG_DIRTN] == 1'b0 && driveTrack != 7'h4F) begin
 				driveTrack <= driveTrack + 1'b1;
 			end
