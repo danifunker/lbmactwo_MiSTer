@@ -179,53 +179,68 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// stuck on REQ=1 (observed on long multi-block reads, e.g. tlen=317).  blk_gap
 	// models the real drive's small inter-byte pacing at the block boundary — the
 	// REQ-low gap a real SCSI drive produces between the last byte of block N and
-	// the first byte of block N+1 because its electronics aren't fully back-to-back.
-	// Timer width is 12 bits / 4096 cycles ~130us — long enough to survive a VBL
-	// or other ISR landing between the burst-end and the wait-low poll, but
-	// cleared INSTANTLY by `host_data_rd` (a /DACK data-register read).  The host
-	// flow is: burst-end -> wait-low loop polls CSR (sees REQ=0 via blk_gap,
-	// exits) -> setup -> first move.l of next block (host_data_rd asserts) ->
-	// gap cleared, REQ rises, read proceeds.  So a real DMA cycle is never held
-	// long enough to trip the 251-cycle SCSI-DMA BERR watchdog; the gap only
-	// stretches across CSR polling (selectSCSI, which resets the watchdog).
-	// Clear on host_data_rd RISING edge only — `host_data_rd` stays high for the
-	// entire /DACK bus cycle, including the last byte's read that crossed the
-	// boundary, so a level-sensitive clear would zero the counter the very cycle
-	// after we set it.  The rising edge fires only when the host begins a NEW
-	// data-register read (the next block's first byte), which is exactly the
-	// point we want REQ to come back.
-	reg [11:0] blk_gap_cnt;
+	// the first byte of block N+1.
+	//
+	// Implementation: a one-bit latch (`blk_gap_armed`).
+	//
+	//   ARM:    `host_data_rd` falling edge at a 512-byte boundary.  The last
+	//           byte of block N has just been ACK'd by the host; the next
+	//           interaction (whether continuous-burst's next move.l or a CSR
+	//           poll between chunks) is the host's first observation after the
+	//           boundary.
+	//   CLEAR:  EITHER `host_csr_rd` rising edge (the inter-chunk wait-low loop
+	//           at $11066 polls CSR; this is the path that takes a variable
+	//           amount of time and can land across a VBL ISR) OR `host_data_rd`
+	//           rising edge (the continuous-burst case where the host issues
+	//           its next move.l immediately; ~120 cycles after the boundary).
+	//
+	// This is naturally ISR-tolerant: the gap holds REQ low until the host
+	// actually polls or attempts the next byte, however long that takes.  Real
+	// DMA cycles aren't held longer than the host's own ~120-cycle inter-
+	// move.l gap, so the 251-cycle SCSI-DMA BERR watchdog cannot trip; CSR
+	// polls go through `selectSCSI` which resets that watchdog anyway.
+	//
+	// HISTORY: an earlier timer-based version (12-bit, 4096-cycle pulse) worked
+	// for tlen<=160 reads (host's natural pause exceeds 4096) but stalled on
+	// the tlen=317 chunk boundary at data_cnt=19456 when an ISR pushed the
+	// wait-low loop entry past 4096 cycles.  See commit b94e44d for the
+	// host_data_rd waveform investigation that motivated this redesign.
+	reg        blk_gap_armed;
 	reg [31:0] data_cnt_q;
 	reg        host_data_rd_q;
+	reg        host_csr_rd_q;
 	always @(posedge clk) begin
 		host_data_rd_q <= host_data_rd;
+		host_csr_rd_q  <= host_csr_rd;
 		if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN) begin
-			blk_gap_cnt <= 12'd0;
-			data_cnt_q  <= 32'd0;
+			blk_gap_armed <= 1'b0;
+			data_cnt_q    <= 32'd0;
 		end else begin
 			data_cnt_q <= data_cnt;
-			// Fire at every 512-byte boundary on host_data_rd falling-edge.
-			// EMPIRICAL FINDING (2026-05-30 hdr_probe): the rising-edge clear
-			// NEVER triggers — the host's inter-block pause exceeds 4096 cycles
-			// in every observed multi-block read (waveform: ~5 cyc high, ≥115 cyc
-			// low per move.l; 46K rising edges in 700 frames, 0 happen while a
-			// blk_gap is still active).  blk_gap therefore behaves as a pure
-			// fixed-duration REQ-low pulse.  4096 cycles is enough for tlen<=160
-			// reads (host pause > 4096), but the tlen=317 chunk-end wait-low
-			// entry occasionally exceeds even that (probable VBL ISR).
+			// ARM at 512-byte boundary on host_data_rd falling edge.
 			if (!host_data_rd && host_data_rd_q && data_cnt[8:0] == 9'd0 &&
 			    data_cnt != 32'd0 && !data_complete) begin
-				blk_gap_cnt <= 12'd4096;
+				blk_gap_armed <= 1'b1;
 `ifdef SIMULATION
 				if ($test$plusargs("scsi_stall_debug"))
-					$display("BLK_GAP_FIRE data_cnt=%0d cmd=%02h tlen=%0d", data_cnt, cmd[0], tlen);
+					$display("BLK_GAP_ARM data_cnt=%0d cmd=%02h tlen=%0d", data_cnt, cmd[0], tlen);
 `endif
 			end
-			else if (blk_gap_cnt != 12'd0)
-				blk_gap_cnt <= blk_gap_cnt - 12'd1;
+			// CLEAR on first CSR poll or next data read after ARM.
+			else if (blk_gap_armed &&
+			         ((host_csr_rd  && !host_csr_rd_q) ||
+			          (host_data_rd && !host_data_rd_q))) begin
+				blk_gap_armed <= 1'b0;
+`ifdef SIMULATION
+				if ($test$plusargs("scsi_stall_debug"))
+					$display("BLK_GAP_CLR data_cnt=%0d via_%s",
+					         data_cnt,
+					         (host_csr_rd && !host_csr_rd_q) ? "csr" : "data");
+`endif
+			end
 		end
 	end
-	wire blk_gap = (blk_gap_cnt != 12'd0);
+	wire blk_gap = blk_gap_armed;
 
 `ifdef SIMULATION
 	// host_data_rd waveform probe — log every transition during a data phase

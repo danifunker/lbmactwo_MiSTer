@@ -135,9 +135,12 @@ module ncr5380
 	wire i_dma_rd = bus_cs &  dack & ior;
 	wire i_dma_wr = bus_cs &  dack & iow;
 	wire i_reg_wr = bus_cs & ~dack & iow;
-	// Host read of the Current SCSI Bus Status register (REQ poll) — used by the
-	// target's block-boundary REQ pulse to know the host has observed REQ=0.
-	wire csr_rd = bus_cs & ~dack & ior & (bus_rs == `RREG_CSR);
+	// Host read of either status register (CSR=4 or BSR=5) — both contain a
+	// usable REQ image and the Mac SCSI Manager wait loops are known to poll
+	// either one depending on the code path.  scsi.v's blk_gap latch clears
+	// when this pulses (the host has just observed REQ).
+	wire csr_rd = bus_cs & ~dack & ior &
+	              ((bus_rs == `RREG_CSR) || (bus_rs == `RREG_BSR));
 
 	always @(posedge clk or posedge reset) begin
 		if (reset) begin
