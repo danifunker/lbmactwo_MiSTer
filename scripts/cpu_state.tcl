@@ -68,6 +68,8 @@ foreach inst $info {
     if {$nm eq "PIOC"} { set idx(PIOC) $i }
     if {$nm eq "PFLT"} { set idx(PFLT) $i }
     if {$nm eq "PIR1"} { set idx(PIR1) $i }
+    if {$nm eq "PIR2"} { set idx(PIR2) $i }
+    if {$nm eq "PIR3"} { set idx(PIR3) $i }
     incr i
 }
 
@@ -413,6 +415,54 @@ for {set s 1} {$s <= 6} {incr s} {
         set val [expr {($i1 >> 16) & 0xFFFF}]
         puts [format "           IOR: \$3B4 write_cnt(wrap16)=%u  last_value=0x%04X  (cnt=0 => ioResult NEVER set; cnt>0 => driver completes)" \
             $cnt $val]
+    }
+    if {[info exists idx(PIR2)]} {
+        # PIR2 watches the address PIOA most recently captured (the
+        # CURRENTLY-polled IORB's ioResult, whatever address it is at).
+        set i2  [rd $idx(PIR2)]
+        set cnt [expr {$i2 & 0xFFFF}]
+        set val [expr {($i2 >> 16) & 0xFFFF}]
+        # Re-read PIOA so the printed address matches what PIR2 is tracking
+        # right now (PIOA may have shifted since the PIR1/PFLT/etc reads
+        # above, but they are tied together by the same iowait_data_addr).
+        set dynaddr 0
+        set dynior  0
+        if {[info exists idx(PIOA)]} {
+            set dynaddr [rd $idx(PIOA)]
+            set dynior  [expr {$dynaddr - 0x10}]
+        }
+        puts [format "           IOR2: dyn ioResult @ 0x%08X (IORB 0x%08X) write_cnt(wrap16)=%u  last_value=0x%04X" \
+            $dynaddr $dynior $cnt $val]
+        puts "                 cnt=0 (delta) over a 1-min soak => driver for THIS IORB never IODone's; identify via ioRefNum @ IORB+0x18"
+        puts "                 cnt>0 + growing                  => driver IS completing; hang is deeper than IOWait spin"
+    }
+    if {[info exists idx(PIR3)]} {
+        # PIR3: CPU reads at (iowait_data_addr + 0x08) = IORB+0x18 = ioRefNum.
+        set i3 [rd $idx(PIR3)]
+        set rcnt [expr {$i3 & 0xFFFF}]
+        set rval [expr {($i3 >> 16) & 0xFFFF}]
+        # Refnum is signed 16-bit
+        set rsig $rval
+        if {$rsig >= 32768} { set rsig [expr {$rsig - 65536}] }
+        set drvname "(unknown)"
+        switch -- $rsig {
+            -33 {set drvname ".Sony (floppy)"}
+            -34 {set drvname ".Print"}
+            -35 {set drvname ".Sound (early)"}
+            -36 {set drvname ".Sound"}
+            -37 {set drvname ".MPP (AppleTalk)"}
+            -38 {set drvname ".SCSI"}
+            -39 {set drvname ".ATP (AppleTalk)"}
+            -50 {set drvname "AppleTalk async"}
+            -51 {set drvname "AppleTalk sync"}
+            -67 {set drvname ".XPP"}
+            0   {set drvname "(no read seen yet)"}
+        }
+        puts [format "           IOR3: refnum_rd_cnt(wrap16)=%u  last_value=0x%04X (%d) => %s" \
+            $rcnt $rval $rsig $drvname]
+        if {$rcnt == 0} {
+            puts "                 cnt=0 => OS hasn't re-fetched ioRefNum within current iowait_data_addr window"
+        }
     }
     after 300
 }

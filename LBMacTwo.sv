@@ -1346,7 +1346,8 @@ dbg_min dbg_min_inst (
 	.flp_track      (dbg_flp_track),
 	.flp_side       (dbg_flp_side),
 	.flp_step_cnt   (dbg_flp_step_cnt),
-	.cpu_dout       (cpuDataOut)
+	.cpu_dout       (cpuDataOut),
+	.cpu_din        (cpu_data_in)
 );
 
 endmodule

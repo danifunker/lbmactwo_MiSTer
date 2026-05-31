@@ -104,7 +104,13 @@ module dbg_min (
     // IORB ioResult write probe (PIR1): cpu data bus on writes to $3B4.
     // tells us whether the driver ever COMPLETES the I/O (writes ioResult)
     // or whether the OS is truly stuck on a single never-finishing call.
-    input wire [15:0] cpu_dout          // cpuDataOut[15:0] (CPU write data)
+    input wire [15:0] cpu_dout,         // cpuDataOut[15:0] (CPU write data)
+
+    // PIR3 / ioRefNum probe: the muxed read-back data the CPU receives on
+    // its bus cycle (cpu_data_in in LBMacTwo.sv). Latched when mac_dout_valid
+    // is asserted at the matching address. Allows PIR3 to record the actual
+    // refnum read at IORB+0x18.
+    input wire [15:0] cpu_din           // cpu_data_in[15:0] (CPU read data)
 );
 
     // Coherent snapshots on clk.
@@ -235,12 +241,15 @@ module dbg_min (
     always @(posedge clk)
         scsi2_r <= {8'd0, sel_ids, scsi_dbg_hi};
 
-    altsource_probe #(
-        .instance_id ("PSC2"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc2 (.probe(scsi2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC2 disabled (along with PSC3) to free fit budget for PIR3 (ioRefNum).
+    // The SCSI selection-state diagnosis isn't load-bearing for the
+    // Welcome-hang investigation.
+    // altsource_probe #(
+    //     .instance_id ("PSC2"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc2 (.probe(scsi2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Post-selection progress: track the MAX phase each target reaches and
     // whether the HPS ever completes a disk op (sd_ack).  scsi_dbg2 layout:
@@ -262,12 +271,16 @@ module dbg_min (
     always @(posedge clk)
         scsi3_r <= {8'd0, ph1, ph0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
 
-    altsource_probe #(
-        .instance_id ("PSC3"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC3 disabled to free fit budget for PIR2 (dynamic IORB ioResult watcher).
+    // The SCSI phase-progress counters are not load-bearing for the
+    // Welcome-hang investigation; re-enable by uncommenting if SCSI debugging
+    // is needed again.
+    // altsource_probe #(
+    //     .instance_id ("PSC3"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target REQ/ACK observations (sticky, from scsi.v dbg_hs).
     reg [31:0] scsi4_r;
@@ -710,6 +723,113 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pir1 (.probe(pir1_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PIR2: writes to whatever address PIOA most recently captured.
+    // PIOA's iowait_data_addr tracks (a0+0x10) at IOWait -- i.e. the ioResult
+    // field of whichever IORB the OS is currently polling. As the OS
+    // transitions between IORBs (e.g. fixed Params $3A4 -> dynamic $21FF6),
+    // the trigger address follows automatically. So PIR1 watches the fixed
+    // Params ioResult ($3B4) and PIR2 watches the CURRENTLY-polled IORB's
+    // ioResult, whatever it is. Same layout as PIR1:
+    //   [31:16] last 16-bit value the CPU wrote to that address
+    //   [15:0]  wrap16 count of writes to that address
+    //
+    // Decision tree at the Phase-2 hang:
+    //   PIR2.cnt grows during a 1-min observation
+    //     => the dynamic-IORB driver IS completing; hang is deeper than
+    //        IOWait spin (interrupt? VIA timer? sw-loop delay?).
+    //   PIR2.cnt == 0 after a 1-min observation
+    //     => the driver NEVER calls IODone; one single I/O is wedged.
+    //        Identify which driver via ioRefNum at IORB+0x18 (PIOA-0x10+0x18
+    //        = PIOA+0x08), then look up the refnum (-33 .Sony, -36 .Sound,
+    //        -38 .SCSI, etc.).
+    //
+    // Guard with (iowait_data_addr != 0) so we don't catch the cold-RAM
+    // clear's writes to $0 before PIOA has captured anything real.
+    reg [15:0] ior2_last;
+    reg [15:0] ior2_wr_cnt;
+    initial begin ior2_last = 16'd0; ior2_wr_cnt = 16'd0; end
+    always @(posedge clk) begin
+        if (cpuAS_n_d && !cpuAS_n && !cpuRW &&
+            (iowait_data_addr != 32'h0) &&
+            cpuAddr == iowait_data_addr) begin
+            ior2_last   <= cpu_dout;
+            ior2_wr_cnt <= ior2_wr_cnt + 16'd1;
+        end
+    end
+    reg [31:0] pir2_r;
+    always @(posedge clk) pir2_r <= {ior2_last, ior2_wr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PIR2"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pir2 (.probe(pir2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PIR3: CPU READS at (iowait_data_addr + 0x08) = (IORB + 0x18) = ioRefNum.
+    // The Mac IO Manager looks up the driver via IORB.ioRefNum at dispatch
+    // time, NOT during IOWait spin. So this probe fires whenever the OS
+    // touches that field of the CURRENTLY-tracked IORB; the latched 16-bit
+    // value is the driver refnum.
+    //
+    //   [31:16] last 16-bit value the CPU READ at (iowait_data_addr + 0x08)
+    //   [15:0]  wrap16 count of reads at that address
+    //
+    // Mac driver refnums (16-bit signed):
+    //   -33 (0xFFDF) .Sony     -34 (0xFFDE) .Print     -35 (0xFFDD) .Sound (early)
+    //   -36 (0xFFDC) .Sound    -38 (0xFFDA) .SCSI      -50 (0xFFCE) AppleTalk async
+    //   -51 (0xFFCD) AppleTalk sync   -67 (0xFFBD) .XPP
+    //
+    // Decision flow once Phase 2 is reached (PIR2.cnt frozen):
+    //   PIR3.cnt > 0 + last_value = refnum  -> we KNOW which driver owns the
+    //                                          wedged IORB. Probe THAT driver.
+    //   PIR3.cnt = 0                        -> OS hasn't re-fetched the field;
+    //                                          dispatch happened before
+    //                                          iowait_data_addr captured this
+    //                                          IORB. Next move: snapshot the
+    //                                          last cpuAddr in [iorb..iorb+0x40)
+    //                                          range to find ANY read into the
+    //                                          IORB header.
+    //
+    // Same guard as PIR2: require iowait_data_addr != 0 so cold-RAM-clear
+    // reads at $00000008 don't get captured as fake refnums.
+    // Trigger: latch when (a) the bus cycle's address matches IORB+0x18,
+    // (b) it's a READ, and (c) the read data has actually been muxed onto
+    // the CPU's input bus (mac_dout_valid). We catch the address on the
+    // falling-edge sample but the data on the SAME cycle as mac_dout_valid
+    // — they will hold together for the duration of the cycle.
+    reg [15:0] ior3_last;
+    reg [15:0] ior3_rd_cnt;
+    reg        ior3_addr_match;   // set on the falling AS edge, cleared at the data-valid cycle
+    initial begin ior3_last = 16'd0; ior3_rd_cnt = 16'd0; ior3_addr_match = 1'b0; end
+    wire ior3_trigger = cpuAS_n_d && !cpuAS_n && cpuRW &&
+                        (iowait_data_addr != 32'h0) &&
+                        cpuAddr == (iowait_data_addr + 32'h8);
+    always @(posedge clk) begin
+        if (ior3_trigger) ior3_addr_match <= 1'b1;
+        // mac_dout_valid pulses when the read data is on cpu_data_in.
+        if (ior3_addr_match && mac_dout_valid) begin
+            ior3_last       <= cpu_din;
+            ior3_rd_cnt     <= ior3_rd_cnt + 16'd1;
+            ior3_addr_match <= 1'b0;
+        end
+        // If AS goes high again before mac_dout_valid (e.g. a different
+        // bus cycle for some reason), drop the pending match so we don't
+        // latch unrelated data.
+        if (ior3_addr_match && !cpuAS_n_d && cpuAS_n) begin
+            ior3_addr_match <= 1'b0;
+        end
+    end
+    reg [31:0] pir3_r;
+    always @(posedge clk) pir3_r <= {ior3_last, ior3_rd_cnt};
+
+    altsource_probe #(
+        .instance_id ("PIR3"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)
