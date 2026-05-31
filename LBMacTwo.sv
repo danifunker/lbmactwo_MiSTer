@@ -986,7 +986,11 @@ always @(posedge clk_sys) begin
 	reg old_down;
 
 	old_down <= dio_download;
-	if(old_down && ~dio_download && dio_index == 2) begin
+	// F1 in conf_str maps to ioctl_index=1 (MiSTer hps_io convention) for the
+	// primary floppy, matching MacPlus_MiSTer and macplus-og. Earlier this checked
+	// index 2/3, which is wrong: index 1 fell through to the catch-all dio_a else
+	// branch and the download silently overwrote the boot ROM region in SDRAM.
+	if(old_down && ~dio_download && dio_index == 1) begin
 		dsk_int_ds <= (dio_addr == 409600);   // double sides disk, addr counts words, not bytes
 		dsk_int_ss <= (dio_addr == 204800);   // single sided disk
 	end
@@ -1001,7 +1005,7 @@ always @(posedge clk_sys) begin
 	reg old_down;
 
 	old_down <= dio_download;
-	if(old_down && ~dio_download && dio_index == 3) begin
+	if(old_down && ~dio_download && dio_index == 2) begin  // F2 -> ioctl_index=2
 		dsk_ext_ds <= (dio_addr == 409600);   // double sided disk, addr counts words, not bytes
 		dsk_ext_ss <= (dio_addr == 204800);   // single sided disk
 	end
@@ -1094,8 +1098,13 @@ always @(posedge clk_sys) begin
 		// sim has its own separate top in verilator/sim.v).
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
 			dio_a <= {3'b000, dio_addr[17:0]}; // Map to 0 (Slot 0 offset 0)
-		else if (dio_index[1:0] == 2 || dio_index[1:0] == 3) // Floppy disk images at indices 2,3
-			dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+		// F1/F2 in conf_str map to ioctl_index 1/2 respectively (MiSTer hps_io
+		// convention; matches MacPlus_MiSTer and macplus-og). Place primary at
+		// SDRAM slot offset 0x80000 (+0x400000 base => 0x480000) and secondary at
+		// 0x100000 (=> 0x500000), each up to 512K words = 1MB. An 800K image
+		// (0x64000 words) fits in either slot with headroom.
+		else if (dio_index[1:0] == 1 || dio_index[1:0] == 2) // Floppy disk images
+			dio_a <= {dio_index[1:0], dio_addr[18:0]};
 		else
 			dio_a <= {dio_index[6], dio_addr[17:0]};
 

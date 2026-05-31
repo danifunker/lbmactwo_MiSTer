@@ -71,13 +71,24 @@ module iwm
 	// expected by the floppy bit-cell engine, IWM read-latch clear timer, and
 	// read-arm delay. Toggles once per cep pulse so ce_p_div2 / ce_n_div2 fire
 	// every other cep / cen tick.
+	//
+	// Phase alignment is load-bearing for the SDRAM read race in floppy.v:
+	//   - ce_n_div2 captures dskReadAck (start of SDRAM read).
+	//   - ce_p_div2 latches dskReadData (after SDRAM dout updates).
+	// SDRAM dout becomes valid at clk_8 state 5 (~T2.5 of the busCycle), so
+	// ce_p_div2 must fire at T3 of the same busCycle, not T2. The original
+	// `cep & ce_phase` gating put it at T2 — a 1-clk32 gap from ce_n_div2,
+	// racing the SDRAM read and feeding floppy.v stale bytes. macplus avoids
+	// this by gating cep/cen directly off clk8_en_p (T3) / clk8_en_n (T1),
+	// giving a full 2-clk32 gap; we match that timing by deriving ce_p_div2
+	// from `cen & ~ce_phase` (also fires at T3 of every other busCycle).
 	reg ce_phase;
 	always @(posedge clk or negedge _reset) begin
 		if (!_reset)      ce_phase <= 1'b0;
 		else if (cep)     ce_phase <= ~ce_phase;
 	end
-	wire ce_p_div2 = cep & ce_phase;
-	wire ce_n_div2 = cen & ce_phase;
+	wire ce_n_div2 = cen & ce_phase;     // T1 of every other busCycle
+	wire ce_p_div2 = cen & ~ce_phase;    // T3 of the same busCycle (2 clk32 after ce_n_div2)
 
 	// Mac II uses even addresses (UDS), Mac Plus/SE uses odd (LDS)
 	wire iwmAccess = !_cpuLDS | !_cpuUDS;

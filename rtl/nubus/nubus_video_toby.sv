@@ -221,11 +221,16 @@ module nubus_video_toby (
     assign vga_g = (vga_blank_reg || !video_en) ? 8'h00 : {8{pixel_out}};
     assign vga_b = (vga_blank_reg || !video_en) ? 8'h00 : {8{pixel_out}};
 
-    // ROM Download - boot1.rom is index 1
-    // ioctl_addr is byte address from hps_io (increments by 2 per word with WIDE=1)
-    // Byte-swap to big-endian for NuBus (68k) byte order
+    // ROM Download — DISABLED. ioctl_index==1 used to load boot1.rom here, but
+    // F1 floppy mounts now arrive at index 1 per MiSTer hps_io's F<N>
+    // convention; the 800K floppy stream wraps 100× into the 4K decl ROM and
+    // shreds it. Toby is not currently synthesized (commented out in
+    // files.qip) and its ROM is not baked-in — if anyone re-enables this
+    // card, either bake the ROM via $readmemh or change the conf_str to
+    // route boot1.rom through a unique ioctl_index that doesn't collide
+    // with floppy slots.
     always @(posedge clk) begin
-        if (ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
+        if (1'b0 && ioctl_wr && ioctl_download && ioctl_index == 8'd1) begin
             rom[ioctl_addr[11:1]] <= {ioctl_data[7:0], ioctl_data[15:8]};
         end
     end

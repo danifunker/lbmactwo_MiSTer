@@ -152,8 +152,15 @@ module floppy
 	wire doubleSidedDisk = diskSides;
 
 	wire [3:0] driveSenseAddr = {SEL,ca2,ca1,ca0};
-	wire driveReadDataSelected = (driveSenseAddr == `DRIVE_REG_RDDATA0) ||
-	                             (driveSenseAddr == `DRIVE_REG_RDDATA1);
+	// NOTE: the `DRIVE_REG_* constants encode the legacy Sony {CA2,CA1,CA0,SEL}
+	// addressing (RDDATA0=8, RDDATA1=9). driveSenseAddr above uses the
+	// MAME-style {SEL,CA2,CA1,CA0} layout instead, so RDDATA0/RDDATA1 land at
+	// 4 and 12 respectively. Use the re-encoded values here, otherwise the
+	// IWM never sees newByteReady and the CPU reads 0x00 from the floppy.
+	localparam [3:0] SENSE_ADDR_RDDATA0 = 4'd4;   // {SEL=0,CA2=1,CA1=0,CA0=0}
+	localparam [3:0] SENSE_ADDR_RDDATA1 = 4'd12;  // {SEL=1,CA2=1,CA1=0,CA0=0}
+	wire driveReadDataSelected = (driveSenseAddr == SENSE_ADDR_RDDATA0) ||
+	                             (driveSenseAddr == SENSE_ADDR_RDDATA1);
 
 	// MAME's Mac/Sony floppy model reports sense as {VIA PA5, CA2, CA1, CA0}.
 	// Keep the legacy read-data selector above for the local byte-stream model,
@@ -201,12 +208,17 @@ module floppy
 				newByteReady <= 1;
 				diskDataByteTimer <= 1;  // make timer run again
 
-				// clear diskImageData after it's used, so we can tell when we get a new one from the disk	
+				// clear diskImageData after it's used, so we can tell when we get a new one from the disk
 				diskImageData <= 0;
 
-				// Wait for the IWM read latch to be consumed before presenting the
-				// next encoded disk byte; otherwise slow CPU polling skips ahead.
-				readyToAdvanceHead <= 1'b0;
+				// Self-pace at the Sony GCR rate (128 cep_div2 ticks ≈ 16.4 µs/byte);
+				// real-hardware behaviour. A previous version cleared this to 1'b0 to
+				// wait for the IWM to consume the byte (overrun guard), but the side
+				// effect was 5–10× slower reads: any time the CPU's burst-polling
+				// fell behind by even one cycle the floppy stalled another full
+				// 128-tick byte slot. A real Sony drive doesn't wait either — if the
+				// CPU misses a byte the OS retries the sector, exactly like hardware.
+				readyToAdvanceHead <= 1'b1;
 			end
 
 			// extraRomReadAck comes every hsync which is every 21us. The iwm data rates
@@ -230,9 +242,9 @@ module floppy
 			// switch drive sides if DRIVE_REG_RDDATA0 or DRIVE_REG_RDDATA1 are read
 			// TODO: we don't know if this is a true read, since we don't know if IWM is selected or
 			// could be bad if we use this test to flush a cache of encoded disk data
-			if (_enable == 1'b0 && driveSenseAddr == `DRIVE_REG_RDDATA0 && lstrb == 1'b0)
+			if (_enable == 1'b0 && driveSenseAddr == SENSE_ADDR_RDDATA0 && lstrb == 1'b0)
 				driveSide <= 0;
-			if (_enable == 1'b0 && driveSenseAddr == `DRIVE_REG_RDDATA1 && lstrb == 1'b0)
+			if (_enable == 1'b0 && driveSenseAddr == SENSE_ADDR_RDDATA1 && lstrb == 1'b0)
 				driveSide <= 1;
 		end
 	end
