@@ -75,7 +75,8 @@ foreach inst $info {
     if {$nm eq "PSCC"} { set idx(PSCC) $i }
     if {$nm eq "PIOH"} { set idx(PIOH) $i }
     if {$nm eq "PMEM"} { set idx(PMEM) $i }
-    if {$nm eq "PMEM2"} { set idx(PMEM2) $i }
+    # Quartus truncates altsource_probe instance_id to 4 chars; PMEM2 -> MEM2.
+    if {$nm eq "MEM2"} { set idx(PMEM2) $i }
     incr i
 }
 
