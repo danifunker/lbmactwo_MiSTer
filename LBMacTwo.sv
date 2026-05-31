@@ -1357,7 +1357,10 @@ dbg_min dbg_min_inst (
 	.via1_irq_n     (dbg_via1_irq_n),
 	.via2_irq_n     (dbg_via2_irq_n),
 	.scc_irq_n      (dbg_scc_irq_n),
-	.selectSCC      (selectSCC)
+	.selectSCC      (selectSCC),
+	.selectVIA      (selectVIA),
+	.selectVIA2     (selectVIA2),
+	.selectIWM      (selectIWM)
 );
 
 endmodule

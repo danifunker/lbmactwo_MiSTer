@@ -73,6 +73,7 @@ foreach inst $info {
     if {$nm eq "PIPL"} { set idx(PIPL) $i }
     if {$nm eq "PIRQ"} { set idx(PIRQ) $i }
     if {$nm eq "PSCC"} { set idx(PSCC) $i }
+    if {$nm eq "PIOH"} { set idx(PIOH) $i }
     incr i
 }
 
@@ -519,6 +520,15 @@ for {set s 1} {$s <= 6} {incr s} {
         } elseif {$wrc == 0} {
             puts "                 SCC reads but no writes -- OS is polling SCC waiting for status that never changes (e.g. RR0 RX_AVAIL)."
         }
+    }
+    if {[info exists idx(PIOH)]} {
+        set oo [rd $idx(PIOH)]
+        set iwm  [expr {$oo & 0xFF}]
+        set asc  [expr {($oo >> 8)  & 0xFF}]
+        set via2 [expr {($oo >> 16) & 0xFF}]
+        set via1 [expr {($oo >> 24) & 0xFF}]
+        puts [format "           PER-IO: via1(wrap8)=%u  via2(wrap8)=%u  asc(wrap8)=%u  iwm(wrap8)=%u" \
+            $via1 $via2 $asc $iwm]
     }
     after 300
 }

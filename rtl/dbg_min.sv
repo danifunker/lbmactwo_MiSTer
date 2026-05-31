@@ -123,7 +123,14 @@ module dbg_min (
     // PSCC probe: CPU access to SCC. PIRQ build #9 showed scc_irq_cnt=0
     // throughout boot, so SCC IRQ never asserts. PSCC tests whether the OS
     // even talks to SCC -- if not, the boot ROM didn't initialize it.
-    input wire        selectSCC          // selectSCC from addrDecoder
+    input wire        selectSCC,         // selectSCC from addrDecoder
+
+    // PIOH probe (build #11): per-peripheral CPU access counters. PSCC
+    // showed SCC isn't the wedge. PIOH identifies which peripheral the
+    // post-Phase-1 busy-loop IS hammering.
+    input wire        selectVIA,         // VIA1 select (Tick, ADB, ASC FIFO IRQ, RTC)
+    input wire        selectVIA2,        // VIA2 select (SCSI, NuBus IRQs)
+    input wire        selectIWM          // IWM/SWIM select (floppy regs)
 );
 
     // Coherent snapshots on clk.
@@ -1020,6 +1027,44 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== I/O peripheral access histogram (PIOH) ===========================
+    // Build #10 PSCC showed SCC accesses are static at 30/36 -- not being
+    // polled. PIOH counts CPU bus cycles per peripheral so we can identify
+    // which one IS being hit by the post-Phase-1 busy-loop. ASC was already
+    // in the existing PASC probe (asc_wr_cnt); here we add VIA1, VIA2, IWM,
+    // and re-count ASC for symmetry. All wrap-8.
+    //
+    //   [31:24] via1_acc_cnt  (wrap-8): any cpu cycle to selectVIA  region
+    //   [23:16] via2_acc_cnt  (wrap-8): any cpu cycle to selectVIA2 region
+    //   [15:8]  asc_acc_cnt   (wrap-8): any cpu cycle to selectASC  region
+    //   [7:0]   iwm_acc_cnt   (wrap-8): any cpu cycle to selectIWM  region
+    //
+    // The peripheral whose counter wraps fastest is what the loop hits
+    // most. If VIA1 dominates -> the loop is polling VIA1 IFR (interrupt
+    // flag register) for a bit that never sets. If ASC dominates -> the
+    // Sound Manager is polling ASC. Etc.
+    reg [7:0] pioh_via1_cnt, pioh_via2_cnt, pioh_asc_cnt, pioh_iwm_cnt;
+    initial begin
+        pioh_via1_cnt = 8'd0; pioh_via2_cnt = 8'd0;
+        pioh_asc_cnt  = 8'd0; pioh_iwm_cnt  = 8'd0;
+    end
+    always @(posedge clk) begin
+        if (pscc_bus_cycle && selectVIA ) pioh_via1_cnt <= pioh_via1_cnt + 8'd1;
+        if (pscc_bus_cycle && selectVIA2) pioh_via2_cnt <= pioh_via2_cnt + 8'd1;
+        if (pscc_bus_cycle && selectASC ) pioh_asc_cnt  <= pioh_asc_cnt  + 8'd1;
+        if (pscc_bus_cycle && selectIWM ) pioh_iwm_cnt  <= pioh_iwm_cnt  + 8'd1;
+    end
+    reg [31:0] pioh_r;
+    always @(posedge clk)
+        pioh_r <= {pioh_via1_cnt, pioh_via2_cnt, pioh_asc_cnt, pioh_iwm_cnt};
+
+    altsource_probe #(
+        .instance_id ("PIOH"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pioh (.probe(pioh_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)
