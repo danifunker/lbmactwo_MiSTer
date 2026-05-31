@@ -118,7 +118,12 @@ module dbg_min (
     // P2 shows lvl1+lvl2 but NOT lvl4 -- suggests SCC IRQs stop in P2.
     input wire        via1_irq_n,        // VIA1 (Tick/60Hz, ADB, ASC FIFO, RTC)
     input wire        via2_irq_n,        // VIA2 (SCSI, NuBus, slot IRQs)
-    input wire        scc_irq_n          // SCC (serial / AppleTalk)
+    input wire        scc_irq_n,         // SCC (serial / AppleTalk)
+
+    // PSCC probe: CPU access to SCC. PIRQ build #9 showed scc_irq_cnt=0
+    // throughout boot, so SCC IRQ never asserts. PSCC tests whether the OS
+    // even talks to SCC -- if not, the boot ROM didn't initialize it.
+    input wire        selectSCC          // selectSCC from addrDecoder
 );
 
     // Coherent snapshots on clk.
@@ -361,12 +366,15 @@ module dbg_min (
     always @(posedge clk)
         disk_r <= {disk_wr_cnt, disk_word0};
 
-    altsource_probe #(
-        .instance_id ("PSC8"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc8 (.probe(disk_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC8 disabled to free fit budget for PSCC.
+    // The sd_buff disk-word read counter isn't load-bearing now that we
+    // know Phase 1 disk I/O completes normally and the hang is post-disk.
+    // altsource_probe #(
+    //     .instance_id ("PSC8"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc8 (.probe(disk_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ---- ROM-download verification (PSCG) ---------------------------------
     // Count HPS ioctl writes per ROM index, to confirm the NuBus video
@@ -957,6 +965,61 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pirq (.probe(pirq_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== SCC access probe (PSCC) =========================================
+    // Build #9's PIRQ proved scc_irq_cnt = 0 across the entire boot. SCC
+    // never asserts an IRQ. Now: does the OS even talk to SCC?  If no
+    // CPU cycles ever hit selectSCC, the boot ROM didn't initialize SCC --
+    // possibly because XPRAM SPValid magic bytes are wrong (rtl/rtc.v) and
+    // it skipped AppleTalk init entirely. If the CPU DOES talk to SCC,
+    // then SCC RTL or wr9[3] (MIE) is the wedge.
+    //
+    //   [31]    selectSCC_ever_seen  (sticky)
+    //   [30]    selectASC_ever_seen  (sticky, for context)
+    //   [29]    selectVIA_ever_seen  (sticky, sanity check)
+    //   [28]    selectVIA2_ever_seen (sticky, sanity check)
+    //   [27:24] reserved
+    //   [23:16] scc_wr_cnt (wrap-8)
+    //   [15:8]  scc_rd_cnt (wrap-8)
+    //   [7:0]   last_scc_low_addr (low 8 bits of cpuAddr on last SCC access)
+    reg pscc_scc_ever, pscc_asc_ever, pscc_via_ever, pscc_via2_ever;
+    reg [7:0] pscc_wr_cnt, pscc_rd_cnt;
+    reg [7:0] pscc_last_low;
+    initial begin
+        pscc_scc_ever = 1'b0; pscc_asc_ever = 1'b0;
+        pscc_via_ever = 1'b0; pscc_via2_ever = 1'b0;
+        pscc_wr_cnt = 8'd0; pscc_rd_cnt = 8'd0;
+        pscc_last_low = 8'd0;
+    end
+    wire pscc_bus_cycle = cpuAS_n_d && !cpuAS_n;
+    always @(posedge clk) begin
+        if (selectSCC ) pscc_scc_ever  <= 1'b1;
+        if (selectASC ) pscc_asc_ever  <= 1'b1;
+        if (selectRAM ) ; // ignore: too common to be useful here
+        if (selectROM ) ; // ignore: also too common
+        if (pscc_bus_cycle && selectSCC) begin
+            pscc_last_low <= cpuAddr[7:0];
+            if (cpuRW)  pscc_rd_cnt <= pscc_rd_cnt + 8'd1;
+            else        pscc_wr_cnt <= pscc_wr_cnt + 8'd1;
+        end
+    end
+    // Sample selectVIA/VIA2 stickies via the existing selectNuBus path proxy
+    // -- since dbg_min doesn't currently take selectVIA/VIA2 directly, use
+    // the indirect indicators we DO have: PSCS already tracked select via
+    // its inputs, but PSCS is disabled. For build #10 we leave VIA/VIA2
+    // ever-seen at 0 in PSCC's bits 29/28 (decoder will treat 0 as "n/a").
+    reg [31:0] pscc_r;
+    always @(posedge clk)
+        pscc_r <= {pscc_scc_ever, pscc_asc_ever, pscc_via_ever, pscc_via2_ever,
+                   4'd0,
+                   pscc_wr_cnt, pscc_rd_cnt, pscc_last_low};
+
+    altsource_probe #(
+        .instance_id ("PSCC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)

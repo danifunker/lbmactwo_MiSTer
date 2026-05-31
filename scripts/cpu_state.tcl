@@ -72,6 +72,7 @@ foreach inst $info {
     if {$nm eq "PIR3"} { set idx(PIR3) $i }
     if {$nm eq "PIPL"} { set idx(PIPL) $i }
     if {$nm eq "PIRQ"} { set idx(PIRQ) $i }
+    if {$nm eq "PSCC"} { set idx(PSCC) $i }
     incr i
 }
 
@@ -502,6 +503,21 @@ for {set s 1} {$s <= 6} {incr s} {
             $via1_c $via2_c $scc_c]
         if {$via1_c == 0 && $via2_c == 0 && $scc_c == 0} {
             puts "                 ALL three IRQ sources frozen at 0 -- they share a sample window; investigate the encoder."
+        }
+    }
+    if {[info exists idx(PSCC)]} {
+        set ss [rd $idx(PSCC)]
+        set lowaddr [expr {$ss & 0xFF}]
+        set rdc     [expr {($ss >> 8)  & 0xFF}]
+        set wrc     [expr {($ss >> 16) & 0xFF}]
+        set scc_ev  [expr {($ss >> 31) & 0x1}]
+        set asc_ev  [expr {($ss >> 30) & 0x1}]
+        puts [format "           SCC-ACC: ever=%d (asc_ever=%d) | wr_cnt(wrap8)=%u  rd_cnt(wrap8)=%u  last_addr_low=0x%02X" \
+            $scc_ev $asc_ev $wrc $rdc $lowaddr]
+        if {$scc_ev == 0} {
+            puts "                 selectSCC NEVER asserted -- the OS hasn't touched SCC at all. Likely XPRAM/SPValid pushed boot past AppleTalk init or ROM probe skipped it."
+        } elseif {$wrc == 0} {
+            puts "                 SCC reads but no writes -- OS is polling SCC waiting for status that never changes (e.g. RR0 RX_AVAIL)."
         }
     }
     after 300

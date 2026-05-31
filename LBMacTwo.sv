@@ -1356,7 +1356,8 @@ dbg_min dbg_min_inst (
 	.cpu_din        (cpu_data_in),
 	.via1_irq_n     (dbg_via1_irq_n),
 	.via2_irq_n     (dbg_via2_irq_n),
-	.scc_irq_n      (dbg_scc_irq_n)
+	.scc_irq_n      (dbg_scc_irq_n),
+	.selectSCC      (selectSCC)
 );
 
 endmodule
