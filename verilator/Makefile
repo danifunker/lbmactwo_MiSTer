@@ -5,7 +5,7 @@ TOP = --top-module emu
 RTL = ../rtl
 V_INC = +incdir+$(RTL)
 
-V_DEFINE = +define+debug=1 +define+SIMULATION=1 +define+USE_EGRET_CPU=1  -CFLAGS "-I../sim/imgui -I../sim/vinc -I../sim/ -g "  --timescale-override 1ps/1ps -Wno-TIMESCALEMOD \
+V_DEFINE = +define+debug=1 +define+SIMULATION=1 +define+USE_EGRET_CPU=1  -CFLAGS "-I../sim/imgui -I../sim/vinc -I../sim/ "  --timescale-override 1ps/1ps -Wno-TIMESCALEMOD \
 	-I$(RTL) \
 	-I$(RTL)/tg68k \
 	-I$(RTL)/uart \
@@ -26,7 +26,8 @@ ifeq ($(USE_FPU_STUB),1)
   V_DEFINE += +define+USE_FPU_STUB
 endif
 #V_DEFINE += --threads 8  # this slows it way down
-V_DEFINE += --trace-fst
+# --trace-fst disabled by default for sim speed; uncomment to re-enable FST tracing
+#V_DEFINE += --trace-fst
 V_DEFINE +=
 
 UNAME_S := $(shell uname -s)
@@ -61,10 +62,8 @@ endif
 CFLAGS += $(CC_OPT) $(CC_DEFINE) -Iimgui
 LDFLAGS = $(LIBS)
 EXE = ./obj_dir/Vemu
-#V_OPT = -O3 --x-assign fast --x-initial fast --noassert
-V_OPT =  --x-assign fast --x-initial fast --noassert
-#CC_OPT = -O
-CC_OPT =
+V_OPT = -O3 --x-assign fast --x-initial fast --noassert
+CC_OPT = -O2
 
 # Mac II RTL source files
 # TG68K.v is the complete synthesized VHDL→Verilog output containing the entire CPU
@@ -119,11 +118,10 @@ $(VOUT): $(V_SRC)  Makefile
 	$V -cc $(V_OPT) -LDFLAGS "$(LDFLAGS) " -exe --trace --Mdir ./obj_dir $(V_DEFINE) $(V_INC) $(TOP) -CFLAGS $(CFLAGS) $(V_SRC) $(C_SRC)
 
 $(EXE): $(VOUT) $(C_SRC)
-#	(cd obj_dir; make OPT="-fauto-inc-dec -fdce -fdefer-pop -fdse -ftree-ccp -ftree-ch -ftree-fre -ftree-dce -ftree-dse" -f Vemu.mk)
-	(cd obj_dir; make -f Vemu.mk)
+	(cd obj_dir; make OPT_FAST="-O3" OPT_SLOW="-O1" -f Vemu.mk)
 
 fast:
-	(cd obj_dir; rm -f *.o ; make OPT="-fcompare-elim -fcprop-registers -fguess-branch-probability -fauto-inc-dec -fif-conversion2 -fif-conversion -fipa-pure-const -fdce -fipa-profile -fipa-reference -fmerge-constants -fsplit-wide-types -fdefer-pop -fdse -ftree-ccp -ftree-ch -ftree-fre -ftree-dce -ftree-dse -ftree-builtin-call-dce -ftree-copyrename -ftree-dominator-opts -ftree-forwprop -ftree-phiprop -ftree-sra -ftree-pta -ftree-ter -funit-at-a-time -ftree-bit-ccp -falign-functions  -falign-jumps -falign-loops  -falign-labels -fcaller-saves -fcrossjumping -fcse-follow-jumps -fcse-skip-blocks -fdelete-null-pointer-checks -fdevirtualize -fexpensive-optimizations -fgcse  -fgcse-lm -finline-small-functions -findirect-inlining -fipa-sra -foptimize-sibling-calls -fpartial-inlining -fpeephole2 -fregmove -freorder-blocks  -freorder-functions -frerun-cse-after-loop -fsched-interblock  -fsched-spec -fschedule-insns -fschedule-insns2 -fstrict-aliasing -fstrict-overflow -ftree-switch-conversion -ftree-pre -ftree-vrp" -f Vemu.mk)
+	(cd obj_dir; rm -f *.o ; make OPT_FAST="-O3" OPT_SLOW="-O1" OPT="-O3 -fcompare-elim -fcprop-registers -fguess-branch-probability -fauto-inc-dec -fif-conversion2 -fif-conversion -fipa-pure-const -fdce -fipa-profile -fipa-reference -fmerge-constants -fsplit-wide-types -fdefer-pop -fdse -ftree-ccp -ftree-ch -ftree-fre -ftree-dce -ftree-dse -ftree-builtin-call-dce -ftree-copyrename -ftree-dominator-opts -ftree-forwprop -ftree-phiprop -ftree-sra -ftree-pta -ftree-ter -funit-at-a-time -ftree-bit-ccp -falign-functions  -falign-jumps -falign-loops  -falign-labels -fcaller-saves -fcrossjumping -fcse-follow-jumps -fcse-skip-blocks -fdelete-null-pointer-checks -fdevirtualize -fexpensive-optimizations -fgcse  -fgcse-lm -finline-small-functions -findirect-inlining -fipa-sra -foptimize-sibling-calls -fpartial-inlining -fpeephole2 -fregmove -freorder-blocks  -freorder-functions -frerun-cse-after-loop -fsched-interblock  -fsched-spec -fschedule-insns -fschedule-insns2 -fstrict-aliasing -fstrict-overflow -ftree-switch-conversion -ftree-pre -ftree-vrp" -f Vemu.mk)
 
 clean:
 	rm -f obj_dir/*
