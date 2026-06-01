@@ -132,6 +132,23 @@ bool scsi_stall_history_enable = false;
 uint32_t scsi_stall_dreq_run = 0;
 bool scsi_stall_dumped = false;
 int scsi_stall_history_min_frame = 3500;  // --scsi-stall-history-min-frame N to lower for tlen=317 etc
+
+// --cpu-spin-history: detect when the CPU has been spinning in a tight loop
+// for a long time and dump the PC ring buffer + lowmem state.  Used when SCSI
+// is idle (so scsi_stall_history's stall_cnt trigger won't fire) but the host
+// is stuck — e.g., the post-Welcome ToolBox dispatch loop.
+//
+// Trigger: track min/max PC over a sliding window of recent fetches; if the
+// window is "narrow" (max - min < SPIN_RANGE) for SPIN_FETCHES consecutive
+// fetches, fire.  Once-and-done like scsi_stall_history.
+bool cpu_spin_history_enable = false;
+int cpu_spin_history_min_frame = 1000;
+uint32_t cpu_spin_window_min_pc = 0xFFFFFFFF;
+uint32_t cpu_spin_window_max_pc = 0;
+uint32_t cpu_spin_run = 0;
+bool cpu_spin_dumped = false;
+const uint32_t CPU_SPIN_RANGE = 64;        // tight loops live within ~64 bytes
+const uint32_t CPU_SPIN_FETCHES = 200000;  // ~3-4 seconds of sim time
 bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
@@ -1270,6 +1287,70 @@ int verilate() {
 							        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
 						}
 						scsi_stall_dumped = true;
+					}
+				}
+				// Generic tight-loop detector — independent of SCSI state.
+				// Periodically scan the bootmask_history ring; if it contains
+				// only a small number of distinct PCs (within a small byte
+				// range), we're in a tight loop.  Robust to VBL ISRs (those
+				// only fire ~once/16ms so they occupy a small fraction of the
+				// 512-entry ring).
+				if (cpu_spin_history_enable && !cpu_spin_dumped) {
+					record_bootmask_history(pc);
+					if (video.count_frame >= cpu_spin_history_min_frame) {
+						cpu_spin_run++;
+						// Scan ring every 10000 fetches (cheap).
+						bool fire = false;
+						if (cpu_spin_run % 10000 == 0 && bootmask_history_count == BOOTMASK_HISTORY_SIZE) {
+							uint32_t min_pc = 0xFFFFFFFF, max_pc = 0;
+							for (int i = 0; i < BOOTMASK_HISTORY_SIZE; i++) {
+								uint32_t p = bootmask_history[i].pc;
+								// Skip ROM-trap dispatch and ISR vectors (heuristic:
+								// PCs below $1000 are vector table, $400000+ that are
+								// "far" from the bulk we ignore — actually no, just
+								// take all PCs but compute min/max within a clipped
+								// range to ignore outliers).  Simpler: count occurrences
+								// of each PC in 64-byte buckets, find dominant bucket.
+								if (p < min_pc) min_pc = p;
+								if (p > max_pc) max_pc = p;
+							}
+							// Compute dominant 64-byte bucket
+							int best_count = 0;
+							uint32_t best_bucket = 0;
+							for (int i = 0; i < BOOTMASK_HISTORY_SIZE; i++) {
+								uint32_t bucket = bootmask_history[i].pc & ~63u;
+								int c = 0;
+								for (int j = 0; j < BOOTMASK_HISTORY_SIZE; j++) {
+									if ((bootmask_history[j].pc & ~63u) == bucket) c++;
+								}
+								if (c > best_count) { best_count = c; best_bucket = bucket; }
+							}
+							// If 75% of ring is in one 64-byte bucket -> tight loop.
+							if (best_count * 4 >= BOOTMASK_HISTORY_SIZE * 3) {
+								cpu_spin_window_min_pc = best_bucket;
+								cpu_spin_window_max_pc = best_bucket + 63;
+								fire = true;
+							}
+						}
+						if (fire) {
+							fprintf(stderr, "CPU_SPIN_HISTORY trigger frame=%d pc=%08X range=%08X..%08X\n",
+							        video.count_frame, pc, cpu_spin_window_min_pc, cpu_spin_window_max_pc);
+							fprintf(stderr, "LOWMEM_BOOTWAIT B0172=%02X(MBState) B0160=%02X B08CF=%02X "
+							        "W0172=%04X W017A=%04X W08CE=%04X L08EE=%08X\n",
+							        ram_byte(0x0172), ram_byte(0x0160), ram_byte(0x08CF),
+							        ram_word(0x0172), ram_word(0x017A), ram_word(0x08CE),
+							        ram_long(0x08EE));
+							int first2 = bootmask_history_pos - bootmask_history_count;
+							if (first2 < 0) first2 += BOOTMASK_HISTORY_SIZE;
+							for (int i = 0; i < bootmask_history_count; i++) {
+								int idx = (first2 + i) % BOOTMASK_HISTORY_SIZE;
+								const BootmaskHistoryEntry& e = bootmask_history[idx];
+								fprintf(stderr, "SPINHIST %03d frame=%d pc=%08X op=%04X "
+								        "D0=%08X D1=%08X D5=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+								        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
+							}
+							cpu_spin_dumped = true;
+						}
 					}
 				}
 				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
@@ -3449,6 +3530,11 @@ int main(int argc, char** argv, char** env) {
 			scsi_stall_history_enable = true;
 		} else if (strcmp(argv[i], "--scsi-stall-history-min-frame") == 0 && i + 1 < argc) {
 			scsi_stall_history_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--cpu-spin-history") == 0) {
+			cpu_spin_history_enable = true;
+		} else if (strcmp(argv[i], "--cpu-spin-history-min-frame") == 0 && i + 1 < argc) {
+			cpu_spin_history_min_frame = std::stoi(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
