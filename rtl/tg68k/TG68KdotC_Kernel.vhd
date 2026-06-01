@@ -889,8 +889,21 @@ PROCESS (clk)
 				IF micro_state = cp_cond_eval THEN
 					cp_cond_true <= data_in(0);
 				END IF;
-				-- cpSAVE format word capture
-				IF micro_state = cp_save_rd_fmt THEN
+				-- cpSAVE format word capture.
+				--
+				-- Bus-state pipeline: cp_write_opw's setstate=11 queues the
+				-- OpWord write to run DURING cp_save_rd_fmt. cp_save_rd_fmt's
+				-- setstate=10 queues the Save-CIR read to run DURING
+				-- cp_save_decode. So the Save-CIR read result on data_in is
+				-- only valid at the clkena edge ENDING cp_save_decode, not
+				-- cp_save_rd_fmt. Latching during cp_save_rd_fmt grabbed
+				-- whatever data_in held at the end of the prior OpWord WRITE
+				-- (typically stale 0x0000), and every downstream consumer of
+				-- cp_save_fmt (frame-count loader + decode null check) ran on
+				-- garbage. That made every non-null frame look NULL and the
+				-- FPU stayed in CIR_SAVE_FRAME waiting for Operand reads
+				-- (tracker bug #1, build #23 wedge).
+				IF micro_state = cp_save_decode THEN
 					cp_save_fmt <= data_in(15 downto 0);
 				END IF;
 				-- cpSAVE/cpRESTORE frame word counter
@@ -909,9 +922,15 @@ PROCESS (clk)
 				-- Operand CIR reads, and the FPU sat in CIR_SAVE_FRAME
 				-- waiting for them forever (tracker bug #1).
 				IF micro_state = cp_save_decode THEN
-					IF cp_save_fmt(7 downto 0) = X"18" THEN
+					-- Read data_in live (it carries the Save-CIR read result
+					-- during cp_save_decode) — cp_save_fmt is being LATCHED
+					-- at this same edge from data_in, so cp_save_fmt holds
+					-- the PRIOR (garbage) value within this same clkena
+					-- cycle. Reading data_in directly matches the latch
+					-- input.
+					IF data_in(7 downto 0) = X"18" THEN
 						cp_frame_cnt <= "0001100"; -- 12 words (24 bytes)
-					ELSIF cp_save_fmt(7 downto 0) = X"B4" THEN
+					ELSIF data_in(7 downto 0) = X"B4" THEN
 						cp_frame_cnt <= "1011010"; -- 90 words (180 bytes)
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null: 0 data words
@@ -4673,14 +4692,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					next_micro_state <= cp_save_decode;
 
 				WHEN cp_save_decode =>
-					-- Decode format word (now in cp_save_fmt via registered process)
-					-- cp_frame_cnt loaded in registered process
-					-- See the cp_save/restore_decode comment above re byte ordering:
-					-- the format identifier ($00 NULL / $18 IDLE / $B4 BUSY) lives in
-					-- bits[7:0]. The earlier (15 downto 8) check looked at the
-					-- version byte and treated every frame as NULL.
+					-- The Save-CIR read result is live on data_in this cycle
+					-- (state=10 carried over from cp_save_rd_fmt's setstate).
+					-- cp_save_fmt is being latched at this same clkena edge,
+					-- so the combinational decision must read data_in
+					-- directly — same pattern as cp_idle_resp. Identifier
+					-- byte ($00 NULL / $18 IDLE / $B4 BUSY) is in bits[7:0].
 					setstate <= "01";      -- idle
-					IF cp_save_fmt(7 downto 0) = X"00" THEN
+					IF data_in(7 downto 0) = X"00" THEN
 						-- Null frame: go to idle to decrement EA, then write format
 						next_micro_state <= cp_save_idle;
 					ELSE
