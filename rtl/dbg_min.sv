@@ -1151,19 +1151,24 @@ module dbg_min (
         pmem2_r <= {mem_22004_r, mem_22006_r};
     end
 
-    altsource_probe #(
-        .instance_id ("PMEM"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pmem (.probe(pmem_r), .source(), .source_clk(clk), .source_ena(1'b1));
-
-    altsource_probe #(
-        .instance_id ("PMEM2"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pmem2 (.probe(pmem2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PMEM / PMEM2 disabled for build #24 retry to free routing for the
+    // cpSAVE latch-timing fix (TG68 cp_save_decode now reads data_in
+    // directly, which added fanout). These probes snooped writes around
+    // $22000 during the FRESTORE-wedge investigation (build #12-#15),
+    // which is closed. PFRR + PFRW + PFST cover the same address space.
+    // altsource_probe #(
+    //     .instance_id ("PMEM"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pmem (.probe(pmem_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    //
+    // altsource_probe #(
+    //     .instance_id ("PMEM2"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pmem2 (.probe(pmem2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PFLT: floppy track / step / side / live diskImageData.
     //   [31]    flp_disk_data != 0 (live byte staged)
