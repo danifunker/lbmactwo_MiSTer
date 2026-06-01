@@ -365,17 +365,25 @@ package mc68881_pkg is
   constant CIR_SRC_BYTE          : std_logic_vector(2 downto 0) := "110";
   constant CIR_SRC_FPN           : std_logic_vector(2 downto 0) := "111";
 
-  -- FSAVE frame format words (MC68881).
+  -- FSAVE frame format words (per M68881 User's Manual §6.6.1.1).
+  -- bits[15:8] = version code ($1F = 68881, $3F = 68882, $00 = NULL)
+  -- bits[7:0]  = format identifier ($00 NULL, $18 IDLE, $B4 BUSY)
+  -- Mac OS 7 boot-time FPU detection inspects the version byte to identify
+  -- the coprocessor — if it reads $00 it concludes "no coprocessor
+  -- installed" and posts a system-error alert. Earlier builds (#22-#23)
+  -- shipped these with the version byte at $00, which is why build #23 got
+  -- the OS to GUI but immediately tripped the "coprocessor not installed"
+  -- bomb dialog (tracker bug #6).
   constant CIR_FRAME_NULL_FW     : std_logic_vector(15 downto 0) := x"0000";
-  constant CIR_FRAME_IDLE_FW     : std_logic_vector(15 downto 0) := x"0018";
-  constant CIR_FRAME_BUSY_FW     : std_logic_vector(15 downto 0) := x"00B4";
+  constant CIR_FRAME_IDLE_FW     : std_logic_vector(15 downto 0) := x"1F18";
+  constant CIR_FRAME_BUSY_FW     : std_logic_vector(15 downto 0) := x"1FB4";
   constant CIR_FRAME_IDLE_WORDS  : natural := 6;   -- 24 bytes / 4
   constant CIR_FRAME_BUSY_WORDS  : natural := 45;  -- 180 bytes / 4
   constant CIR_FRAME_BUSY_HDR    : natural := 12;  -- Header words 0-11 (operands + metadata)
 
-  -- FSAVE frame format words (MC68882).
-  constant CIR_FRAME_IDLE_FW_82     : std_logic_vector(15 downto 0) := x"0038";
-  constant CIR_FRAME_BUSY_FW_82     : std_logic_vector(15 downto 0) := x"00D4";
+  -- FSAVE frame format words (MC68882) — version byte $3F.
+  constant CIR_FRAME_IDLE_FW_82     : std_logic_vector(15 downto 0) := x"3F38";
+  constant CIR_FRAME_BUSY_FW_82     : std_logic_vector(15 downto 0) := x"3FD4";
   constant CIR_FRAME_IDLE_WORDS_82  : natural := 14;  -- 56 bytes / 4
   constant CIR_FRAME_BUSY_WORDS_82  : natural := 53;  -- 212 bytes / 4
 
