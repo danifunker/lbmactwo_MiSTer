@@ -1017,6 +1017,14 @@ PROCESS (clk)
 					data_write_tmp(15 downto 0) <= sndOPC;
 				-- (cp_xfer_to writes drive the bus via combinational
 				-- data_write_muxin path, bypassing data_write_tmp.)
+				ELSIF micro_state = cp_except_ack THEN
+					-- Control CIR write to ACK the FPU's CIR_EXCEPT_* state.
+					-- Only bit 0 matters (cir_control_ack is d_in(0) on the FPU
+					-- side, see mc68881_top.vhd line 3843). Other bits ignored.
+					-- Without this clause, data_write_tmp held whatever the
+					-- prior cp_write_cmd put there (= sndOPC, bit 0 typically 0),
+					-- so the ACK never reached the FPU.
+					data_write_tmp(15 downto 0) <= x"0001";
 				ELSIF micro_state = cp_save_idle THEN
 					-- Forward CIR read data or format word for memory write
 					IF cp_frame_cnt = "0000000" THEN
