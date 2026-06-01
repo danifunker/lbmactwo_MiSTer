@@ -4615,9 +4615,16 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				WHEN cp_except_trap =>
 					-- Bus state="11" this cycle from cp_except_ack — bus runs
-					-- the Control CIR write of x"0001". Release the bus and
-					-- raise the vectored coprocessor-exception trap.
+					-- the Control CIR write of x"0001". MUST hold set_cpaddr
+					-- and cp_cir_reg across the active bus access (same
+					-- pattern as cp_xfer_to_hi / cp_xfer_to_lo); without
+					-- them the memaddr mux falls through to memaddr_a and
+					-- the write lands somewhere other than Control CIR.
+					-- Release the bus afterwards and raise trap_cpexcept.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00001";  -- Control CIR ($02)
 					setstate <= "01";
+					datatype <= "01";
 					trap_cpexcept <= '1';
 					trapmake <= '1';
 
