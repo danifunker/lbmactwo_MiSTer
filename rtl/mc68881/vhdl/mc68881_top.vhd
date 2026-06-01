@@ -4187,34 +4187,24 @@ begin
           end if;
 
         when CIR_SAVE_WAIT =>
-          -- Build #17 hack: bypass the FSAVE protocol entirely.
-          --
-          -- Build #16's PFST capture proved the FPU's CIR FSM wedges in
-          -- CIR_SAVE_FRAME during early boot, then blocks every subsequent
-          -- FSAVE/FRESTORE because the FSM never returns to CIR_IDLE.  The
-          -- SAVE_FRAME state advances on cir_operand_read_done, but the
-          -- captured PFRR readings show the host barely polls Response and
-          -- never reads OPERAND CIR — i.e. the cpSAVE response-primitive
-          -- contract the CPU's microcode expects isn't matched by our
-          -- current FSM's BUSY response.
-          --
-          -- Until the SAVE protocol is properly implemented (return the
-          -- "Transfer multiple from coprocessor at Operand CIR" primitive
-          -- with the correct byte count, and have CPU read OPERAND CIR for
-          -- frame data), short-circuit SAVE_WAIT directly to CIR_IDLE.  The
-          -- CPU's FSAVE microcode then sees Response=NULL on its first poll,
-          -- completes the instruction without transferring frame data, and
-          -- the FSM is free to handle the next FSAVE / FRESTORE / FPgen op.
-          --
-          -- Side effect: any FPU state the boot OS tries to save is lost.
-          -- Acceptable as a triage step because the OS only uses FSAVE for
-          -- context switches around stubs that don't actually compute, AND
-          -- subsequent FRESTOREs of those (now-NULL) frames reset the FPU to
-          -- power-on state which is also the FPU's current state.
-          --
-          -- See scratch/build16_pfst_findings.md for the diagnostic chain.
+          -- Wait one cycle for frame type determination, then present format word.
+          -- Determine frame type from fpu_initialized_reg and ALU busy state.
+          if fpu_initialized_reg = '0' then
+            frame_format_word_reg <= CIR_FRAME_NULL_FW;
+            cir_save_word_idx <= 0;
+            cir_xfer_word_count <= 0;  -- Null: 0 data words
+          elsif busy = '1' then
+            frame_format_word_reg <= VER_FRAME_BUSY_FW;
+            cir_save_word_idx <= 0;
+            cir_xfer_word_count <= VER_FRAME_BUSY_WORDS;  -- Busy: 45/53 data words
+            alu_save_req_reg <= '1';  -- Trigger sub-unit state snapshot
+          else
+            frame_format_word_reg <= VER_FRAME_IDLE_FW;
+            cir_save_word_idx <= 0;
+            cir_xfer_word_count <= VER_FRAME_IDLE_WORDS;  -- Idle: 6/14 data words
+          end if;
           cir_save_req <= '0';
-          cir_state_reg <= CIR_IDLE;
+          cir_state_reg <= CIR_SAVE_FORMAT;
 
         when CIR_SAVE_FORMAT =>
           -- Format word ready in frame_format_word_reg. Wait for host to read

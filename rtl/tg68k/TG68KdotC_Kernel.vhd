@@ -396,6 +396,15 @@ architecture logic of TG68KdotC_Kernel is
 	-- cp_xfer_from_store.
 	signal cp_xfer_data		: std_logic_vector(31 downto 0);
 	signal cp_dn_writeback	: std_logic;
+	-- Coprocessor exception primitive (AN-947): when the FPU returns an
+	-- EXCEPT_PRE/MID/POST response (bits15:13 = 101/110/111, bit12 = 0), the
+	-- CPU must (a) write Control CIR with bit 0 = 1 to release the FPU's
+	-- CIR_EXCEPT_* state, then (b) trap to the vector in the low byte of the
+	-- response word. cp_except_vec latches that vector; trap_cpexcept routes
+	-- it through the shared trap_vector mux.
+	signal cp_except_vec		: std_logic_vector(7 downto 0);
+	signal set_cp_except_vec: std_logic;
+	signal trap_cpexcept		: bit;
 
 	signal set					: bit_vector(lastOpcBit downto 0);
 	signal set_exec			: bit_vector(lastOpcBit downto 0);
@@ -832,7 +841,8 @@ PROCESS (clk)
 				   OR next_micro_state = cp_xfer_from_store
 				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_rd_cir
 				   OR next_micro_state = cp_restore_wr_fmt OR next_micro_state = cp_restore_wr_data
-				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp THEN
+				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp
+				   OR next_micro_state = cp_except_ack OR next_micro_state = cp_except_trap THEN
 					cp_fc_override <= '1';
 				ELSE
 					cp_fc_override <= '0';
@@ -916,6 +926,12 @@ PROCESS (clk)
 					cp_xfer_data(31 downto 16) <= data_in;
 				ELSIF micro_state = cp_xfer_from_store THEN
 					cp_xfer_data(15 downto 0) <= data_in;
+				END IF;
+				-- Latch FPU exception vector from response primitive low byte.
+				-- Asserted during cp_idle_resp / cp_cond_eval at the clkena
+				-- edge that ends the Response CIR read (data_in stable).
+				IF set_cp_except_vec='1' THEN
+					cp_except_vec <= data_in(7 downto 0);
 				END IF;
 				-- MOVES FC override management
 				IF endOPC='1' THEN
@@ -1027,6 +1043,10 @@ PROCESS (clk)
 				ELSIF micro_state = cp_cond_eval THEN
 					-- FScc: prepare result byte ($FF or $00) for memory write-back
 					data_write_tmp(7 downto 0) <= (others => last_data_read(0));
+				ELSIF micro_state = cp_except_ack THEN
+					-- Control CIR ACK word: bit 0 = 1 releases the FPU's
+					-- CIR_EXCEPT_* state back to CIR_IDLE.
+					data_write_tmp(15 downto 0) <= x"0001";
 				ELSIF exec(hold_dwr)='1' THEN
 					data_write_tmp <= data_write_tmp;
 				ELSIF exec(exg)='1' THEN
@@ -1130,10 +1150,15 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 				END IF;	
 				IF trap_1111='1' THEN
 					trap_vector(9 downto 0) <= "00" & X"2C";
-				END IF;	
+				END IF;
+				IF trap_cpexcept='1' THEN
+					-- Vector latched from FPU exception primitive low byte.
+					-- Byte offset = vector_number * 4 → shift left by 2.
+					trap_vector(9 downto 0) <= cp_except_vec & "00";
+				END IF;
 				IF trap_trap='1' THEN
 					trap_vector(9 downto 0) <= "0010" & opcode(3 downto 0) & "00";
-				END IF;	
+				END IF;
 				IF trap_interrupt='1' or set_vectoraddr = '1' THEN
 					trap_vector(9 downto 0) <= IPL_vec & "00";      --TH
 				END IF;	
@@ -1650,7 +1675,7 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 						SVmode <= preSVmode;
 					END IF;	
 				END IF;
-				IF trap_berr='1' OR trap_illegal='1' OR trap_addr_error='1' OR trap_priv='1' OR trap_1010='1' OR trap_1111='1' THEN
+				IF trap_berr='1' OR trap_illegal='1' OR trap_addr_error='1' OR trap_priv='1' OR trap_1010='1' OR trap_1111='1' OR trap_cpexcept='1' THEN
 					make_trace <= '0';
 					FlagsSR(7) <= '0';
 				END IF;
@@ -1744,6 +1769,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		trap_priv <='0';
 		trap_1010 <='0';
 		trap_1111 <='0';
+		trap_cpexcept <='0';
+		set_cp_except_vec <= '0';
 		trap_trap <='0';
 		trap_trapv <= '0';
 		trapmake <='0';
@@ -4452,9 +4479,16 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						ELSE
 							next_micro_state <= cp_xfer_from_hi;
 						END IF;
+					ELSIF data_in(15) = '1' AND data_in(12) = '0'
+					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
+						-- EXCEPT_PRE/MID/POST primitive (bits15:13 = 101/110/111,
+						-- bit12 = 0). Vector in low byte. Must ACK Control CIR
+						-- before trapping, else FPU stays wedged in CIR_EXCEPT_*.
+						set_cp_except_vec <= '1';
+						next_micro_state <= cp_except_ack;
 					ELSE
-						-- Exceptions, supervisor check, transfer-multiple, etc.
-						-- Not implemented; raise F-line trap.
+						-- Supervisor check, transfer-multiple, etc. — not
+						-- implemented; raise F-line trap.
 						trap_1111 <= '1';
 						trapmake <= '1';
 					END IF;
@@ -4555,6 +4589,37 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- Never entered by current dispatch; safe fallback.
 					setstate <= "01";
 					next_micro_state <= cp_read_resp;
+
+				-- ====================================================
+				-- FPU exception primitive ACK + trap.
+				--
+				-- Entered from cp_idle_resp (and cp_cond_eval) when the FPU
+				-- returns EXCEPT_PRE/MID/POST. Two states:
+				--   cp_except_ack  — setup cycle: queue a Control CIR ($02)
+				--                    write of bit 0 = 1. data_write_tmp is
+				--                    forced to x"0001" by the data-write
+				--                    mux below.
+				--   cp_except_trap — bus runs the write (state="11" carried
+				--                    from cp_except_ack). Release the bus
+				--                    and raise trap_cpexcept; the trap_vector
+				--                    mux routes cp_except_vec & "00" as the
+				--                    byte offset.
+				-- ====================================================
+
+				WHEN cp_except_ack =>
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00001";  -- Control CIR ($02)
+					setstate <= "11";       -- queue bus write for next cycle
+					datatype <= "01";       -- word
+					next_micro_state <= cp_except_trap;
+
+				WHEN cp_except_trap =>
+					-- Bus state="11" this cycle from cp_except_ack — bus runs
+					-- the Control CIR write of x"0001". Release the bus and
+					-- raise the vectored coprocessor-exception trap.
+					setstate <= "01";
+					trap_cpexcept <= '1';
+					trapmake <= '1';
 
 				-- cpSAVE states: read format from FPU, write frame to memory -(An)
 				WHEN cp_save_rd_fmt =>
@@ -4697,8 +4762,10 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
 						-- Pre/mid/post-instruction exception primary
 						-- (bits 15-13 = 101/110/111 with bit 12 = 0).
-						trap_1111 <= '1';
-						trapmake <= '1';
+						-- ACK Control CIR before trapping; otherwise FPU
+						-- wedges in CIR_EXCEPT_*.
+						set_cp_except_vec <= '1';
+						next_micro_state <= cp_except_ack;
 					ELSIF data_in(15) = '1' AND data_in(12) = '0'
 					   AND data_in(11 downto 8) = "1001" THEN
 						-- BUSY (Null primary, CA=1): FPU still computing,
