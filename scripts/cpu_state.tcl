@@ -85,6 +85,8 @@ foreach inst $info {
     if {$nm eq "PFRW"} { set idx(PFRW) $i }
     # Build #16 — FPU CIR FSM state probe
     if {$nm eq "PFST"} { set idx(PFST) $i }
+    # Build #22 — Coprocessor Control CIR ACK observability probe
+    if {$nm eq "PCAK"} { set idx(PCAK) $i }
     incr i
 }
 
@@ -572,6 +574,31 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                 RESTORE_FRAME reached => build #15 fix's path IS exercised. Check PFRR/PFRW for word transfers."
         } elseif {$max_state == 18} {
             puts "                 max=RESTORE_FORMAT => FORMAT word never arrived (cir_restore_trigger?) OR fw was unrecognized."
+        }
+    }
+    if {[info exists idx(PCAK)]} {
+        # Control CIR ACK observability (build #22). Watches the bus for
+        # writes to $00022002 (Control CIR) and records count + bit-0
+        # sub-count + last data word.
+        set ck [rd $idx(PCAK)]
+        set total_cnt [expr {($ck >> 24) & 0xFF}]
+        set ack_cnt   [expr {($ck >> 16) & 0xFF}]
+        set last_din  [expr {$ck & 0xFFFF}]
+        set bit0      [expr {$last_din & 0x1}]
+        puts [format "           FPU-ACK: total_writes(sat8)=%u  ack_writes(sat8)=%u  last_din=0x%04X (bit0=%d)" \
+            $total_cnt $ack_cnt $last_din $bit0]
+        if {$total_cnt == 0} {
+            puts "                 PCAK=0 => CPU never wrote Control CIR (\$22002)."
+            puts "                          cp_except_ack/cp_except_trap path is NOT firing — verify exception"
+            puts "                          primitive decode in cp_idle_resp actually matches what the FPU returns."
+        } elseif {$ack_cnt == 0} {
+            puts [format "                 ack_cnt=0 but total=%u => write reaches FPU with bit 0 = 0." $total_cnt]
+            puts "                          data_write_tmp clause for cp_except_ack isn't winning the mux —"
+            puts "                          something later in the IF-ELSIF chain is overriding to 0x0422 (sndOPC)."
+        } else {
+            puts [format "                 ack_cnt=%u => bit 0 = 1 reached FPU. Now check PFST current state:" $ack_cnt]
+            puts "                          if STILL EXCEPT_PRE(12), FPU-side ACK gate (cir_mode_reg=1?) is blocking;"
+            puts "                          if IDLE, protocol works and the wedge has a different root."
         }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {

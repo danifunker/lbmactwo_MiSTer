@@ -1523,4 +1523,59 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ==== Coprocessor Control CIR ACK probe (PCAK) -- build #22 ===========
+    // Diagnoses whether the bug-#3 fix (cp_except_ack/cp_except_trap path
+    // writing 0x0001 to Control CIR at $00022002) actually produces a bus
+    // write the FPU can see, and whether bit 0 of that write is 1.
+    //
+    // Read together with PFST:
+    //   - If PCAK[31:24] = 0 AND PFST max_state reached EXCEPT_PRE: my
+    //     microstate sequence never generated the bus write. The flow from
+    //     cp_idle_resp -> cp_except_ack -> cp_except_trap is broken.
+    //   - If PCAK[31:24] > 0 AND PCAK last_din bit 0 = 0: my write reaches
+    //     the FPU but with the wrong data (sndOPC bleed-through or muxing
+    //     bug). data_write_tmp <= 0x0001 clause isn't firing in time.
+    //   - If PCAK[23:16] > 0 (one or more writes with bit 0 = 1) AND PFST
+    //     current state STILL = EXCEPT_PRE: the FPU received the ACK but
+    //     its CIR_EXCEPT_PRE -> CIR_IDLE transition isn't firing (FPU-side
+    //     issue, possibly cir_mode_reg = 0 or another guard).
+    //   - If PCAK[23:16] > 0 AND PFST current state = CIR_IDLE: the
+    //     protocol works end-to-end; the bench wedge has a different root.
+    //
+    // Packed layout:
+    //   [31:24] total Control CIR writes seen on bus (saturating 8-bit)
+    //   [23:16] count of those writes where cpu_dout[0] = 1 (saturating)
+    //   [15:0]  last cpu_dout[15:0] captured on a Control CIR write event
+    //
+    // Trigger: falling edge of cpuAS_n (bus-cycle start) AND the access is
+    // a write to Control CIR — cpuFC=111 (CPU space), cpuAddr[31:16]=0x0002,
+    // cpuAddr[15:13]=001, cpuAddr[5:1]=00001, cpuRW=0 (write).
+    wire pcak_event =
+        (cpuAS_n_d && !cpuAS_n)           // falling edge of _cpuAS
+        && (cpuFC == 3'b111)
+        && (cpuAddr[31:16] == 16'h0002)
+        && (cpuAddr[15:13] == 3'b001)
+        && (cpuAddr[5:1]   == 5'b00001)
+        && !cpuRW;
+    reg [7:0]  pcak_total_cnt;
+    reg [7:0]  pcak_ack_cnt;
+    reg [15:0] pcak_last_din;
+    always @(posedge clk) begin
+        if (pcak_event) begin
+            pcak_last_din <= cpu_dout;
+            if (pcak_total_cnt != 8'hFF) pcak_total_cnt <= pcak_total_cnt + 8'd1;
+            if (cpu_dout[0] && pcak_ack_cnt != 8'hFF) pcak_ack_cnt <= pcak_ack_cnt + 8'd1;
+        end
+    end
+    reg [31:0] pcak_r;
+    always @(posedge clk)
+        pcak_r <= {pcak_total_cnt, pcak_ack_cnt, pcak_last_din};
+
+    altsource_probe #(
+        .instance_id ("PCAK"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pcak (.probe(pcak_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
 endmodule
