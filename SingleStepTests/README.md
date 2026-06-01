@@ -52,8 +52,25 @@ rather than the CPU schema. Snapshot of the baseline corpus lives in
 ```
 cd SingleStepTests/cpu_fpu
 make
-./obj_dir/Vcpu_fpu_tests fpu_corpus_baseline.json
+./obj_dir/Vcpu_fpu_tests fpu_corpus_baseline.json   # math baseline only
+./obj_dir/Vcpu_fpu_tests cpu_fpu_full_corpus.json   # FSAVE/FRESTORE FIRST, then baseline
 ```
+
+`cpu_fpu_full_corpus.json` is the **front-loaded full corpus**: the 8
+FSAVE/FRESTORE tests run as rows 1–8, then the 1328 math tests. Rebuild
+it (and the supervisor bench's `cpu_fpu_full_tests.h`) after regenerating
+the baseline:
+
+```
+python3 combine_corpus.py                                  # -> cpu_fpu_full_corpus.json
+python3 ../macos_bench/gen_cpu_fpu_header.py \
+    cpu_fpu_full_corpus.json ../macos_bench/cpu_fpu_full_tests.h
+```
+
+Front-loading matters: the full run aborts ~test 1248 under MAME (an
+unrelated FMOVEM gap), so save/restore tests at the tail would never
+execute. (They're privileged, so the combined corpus is supervisor-only —
+the user-mode Mac OS app keeps using the baseline-only `cpu_fpu_tests.h`.)
 
 Expected: **1148 passed, 180 failed**. The 180 failures are diagnostic
 signal pointing at specific TG68K coprocessor microcode gaps (FMOVE
@@ -71,6 +88,48 @@ unsupported FPU ops raise a 1111 (F-line) trap:
 ```
 ./obj_dir/Vcpu_fpu_tests fline_trap_regression.json
 ```
+
+And a **FSAVE / FRESTORE (cpSAVE / cpRESTORE) corpus** that exercises the
+CIR state-frame save/restore dialog — the one path neither the math
+baseline nor the F-line set touches:
+
+```
+./obj_dir/Vcpu_fpu_tests save_restore_corpus.json
+```
+
+8 vectors, goldens captured from MAME `maciihmu` (the oracle) via
+`gen/mame_save_restore_capture.lua`. Regenerate with:
+
+```
+cd ~/repos/mame
+SDL_VIDEODRIVER=offscreen ./mame maciihmu -skip_gameinfo -ramsize 8M \
+    -nothrottle -seconds_to_run 90 -window -autoboot_delay 1 \
+    -autoboot_script <repo>/SingleStepTests/gen/mame_save_restore_capture.lua
+# -> /tmp/save_restore_corpus.jsonl (rows) + /tmp/save_restore_frames.txt (frame dumps)
+# convert the JSONL to the JSON-array form this bench consumes.
+```
+
+**What these vectors actually test (read before extending).** `FSAVE` /
+`FRESTORE` move the coprocessor's *internal* (microcode) state via the
+IDLE/BUSY/NULL frame — **not** the programmer-visible FP data registers
+FP0..FP7 / FPCR / FPSR (those move with `FMOVEM`). So a
+save → clobber FP3 → restore does **not** bring the clobbered register
+back: correct 68881 behavior leaves the clobber in place. Two vectors
+assert exactly that (`expected = 99`, the clobbered value); the others
+assert the FPU is still *usable* after a full save/restore cycle
+(`FMOVE.L FPn,D1` reads the expected value back). The frame-shape probes
+captured the format words a real 68881 emits: **IDLE = `0x1F18`**
+(version `0x1F`, 24 data bytes), **NULL = `0x0000`** — see
+`/tmp/save_restore_frames.txt`.
+
+**Why this corpus is the diagnostic.** A core that wedges the CIR
+`SAVE_FRAME` dialog never retires the `FSAVE`, so the program never
+reaches its result move — every row fails as a **timeout / stale
+D-register** rather than a wrong value. On MAME (correct) all 8 pass;
+divergence localizes the save/restore protocol bug. The same vectors
+also run on real hardware through the supervisor CPU/FPU bench
+(`preboot/supervisor_bench/`), which is where the actual FPGA wedge
+shows up.
 
 ### FPU-only bench (`fpu/`)
 
