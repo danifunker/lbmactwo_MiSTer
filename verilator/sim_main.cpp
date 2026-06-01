@@ -238,7 +238,7 @@ bool bus_handshake_debug_prev_vpa_non_via = false;
 bool nubus_video_debug_enable = false;
 bool nubus_video_debug_full = false;
 int nubus_video_debug_count = 0;
-const int nubus_video_debug_max = 1000;
+const int nubus_video_debug_max = 5000000;  // raised 2026-06-01; was 1000 (truncated entire boot)
 bool nubus_video_debug_prev_bus_control = false;
 bool frame_probe_enable = false;
 int frame_probe_interval = 10;
@@ -2311,13 +2311,18 @@ int verilate() {
 							is_reg_write ? 4 :
 							is_ramdac_write ? 5 :
 							(is_vbl_control || is_vbl_status) ? 6 : 0;
+						// Caps raised 2026-06-01 — the prior 160-write VRAM_W cap was
+						// silently hiding every CPU drawing access past the initial
+						// splash, leading to the false conclusion that the CPU
+						// stopped drawing.  Allow ~1M of each so a multi-thousand-
+						// frame headless boot trace is genuinely complete.
 						bool can_log_cat =
-							(cat_id == 1) ? (nubus_video_debug_rom_count < 160) :
-							(cat_id == 2) ? (nubus_video_debug_vram_r_count < 64) :
-							(cat_id == 3) ? (nubus_video_debug_vram_w_count < 160) :
-							(cat_id == 4) ? (nubus_video_debug_reg_w_count < 128) :
-							(cat_id == 5) ? (nubus_video_debug_ramdac_w_count < 256) :
-							(cat_id == 6) ? (nubus_video_debug_vbl_count < 160) : true;
+							(cat_id == 1) ? (nubus_video_debug_rom_count < 1000000) :
+							(cat_id == 2) ? (nubus_video_debug_vram_r_count < 1000000) :
+							(cat_id == 3) ? (nubus_video_debug_vram_w_count < 1000000) :
+							(cat_id == 4) ? (nubus_video_debug_reg_w_count < 1000000) :
+							(cat_id == 5) ? (nubus_video_debug_ramdac_w_count < 1000000) :
+							(cat_id == 6) ? (nubus_video_debug_vbl_count < 1000000) : true;
 						if (can_log_cat && VERTOPINTERN->debug_cpuRW) {
 							nubus_video_debug_read_pending = true;
 							nubus_video_debug_addr = addr;
