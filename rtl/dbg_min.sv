@@ -939,12 +939,16 @@ module dbg_min (
     always @(posedge clk)
         pipl_r <= {ipl_seen_bm, pipl_iack_cnt, {1'b0, pipl_last_iack_lvl[2:0]}, pipl_active_cyc};
 
-    altsource_probe #(
-        .instance_id ("PIPL"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pipl (.probe(pipl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIPL disabled for build #22 to free routing congestion for PCAK
+    // (Control CIR ACK observability). PIPL was the post-Phase-1 IRQ
+    // delivery probe; the SCC/Phase-2 investigation it served has long
+    // since concluded. Re-enable if IRQ delivery becomes relevant again.
+    // altsource_probe #(
+    //     .instance_id ("PIPL"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pipl (.probe(pipl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== Per-IRQ-source edge counters (PIRQ) ============================
     // PIPL showed IRQs flow normally in Phase 2 (ipl_active_cyc wraps 16
@@ -984,12 +988,15 @@ module dbg_min (
     always @(posedge clk)
         pirq_r <= {via1_irq_cnt, via2_irq_cnt, scc_irq_cnt, 8'd0};
 
-    altsource_probe #(
-        .instance_id ("PIRQ"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pirq (.probe(pirq_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIRQ disabled for build #22 to free routing congestion for PCAK.
+    // The SCC/Phase-2 per-source IRQ counters proved their point and
+    // aren't load-bearing for the FPU CIR ACK investigation.
+    // altsource_probe #(
+    //     .instance_id ("PIRQ"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pirq (.probe(pirq_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== SCC access probe (PSCC) =========================================
     // Build #9's PIRQ proved scc_irq_cnt = 0 across the entire boot. SCC
