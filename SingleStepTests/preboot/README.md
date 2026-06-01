@@ -42,11 +42,17 @@ preboot/
 │   │   └── old/patch_results_offset.py  legacy single-offset patcher
 │   └── make/common.mk        toolchain + paths included by every bench Makefile
 ├── supervisor_bench/         CPU / FPU instruction-correctness tests
-│   ├── bench_main.c          test runner + JSONL emitter
-│   (test corpora cpu_tests.h / fpu_tests.h are included
-│    via relative path from gen/ — see bench_main.c)
-│   ├── variant_cpu_scsi.s    SCSI-medium glue
-│   ├── payload_entry_cpu.s   bench-specific entry shim
+│   ├── bench_main.c          CPU runner + JSONL emitter (gen/cpu_tests.h)
+│   ├── fpu_bench_main.c      FPU runner (gen/fpu_tests.h) — separate artifact
+│   ├── cpu_fpu_bench_main.c  CPU+FPU integration runner
+│   │                         (macos_bench/cpu_fpu_tests.h) — separate artifact
+│   (test corpora are included via relative path; cpu_tests.h /
+│    fpu_tests.h live in gen/, cpu_fpu_tests.h in macos_bench/)
+│   ├── variant_cpu_scsi.s    SCSI-medium glue (shared by all three benches)
+│   ├── payload_entry_cpu.s   bench-specific entry shim (shared)
+│   ├── build_cpu_{hda,dsk}.sh   CPU bench image builders
+│   ├── build_fpu_{hda,dsk}.sh   FPU bench image builders
+│   ├── build_cpu_fpu_{hda,dsk}.sh  CPU+FPU bench image builders
 │   ├── build_cpu_scsi.sh     image build (uses legacy api hfs verbs)
 │   ├── build_image*.sh       skeleton image builders
 │   └── Makefile              includes ../common/make/common.mk
@@ -248,17 +254,68 @@ and we'll want to fall back to a simpler probe (e.g. `_SCSIStat`).
 
 ### supervisor_bench (CPU / FPU correctness)
 
+There are **three separate bench artifacts**, each its own payload and
+disk image but sharing the boot stub, entry shim, results-offset glue,
+runtime, and 1 bpp display kernel:
+
+| Bench | Corpus | `make` target | Image builders |
+|---|---|---|---|
+| CPU correctness | `gen/cpu_tests.h` | `cpu` | `build_cpu_{hda,dsk}.sh` |
+| FPU correctness | `gen/fpu_tests.h` | `fpu` | `build_fpu_{hda,dsk}.sh` |
+| CPU+FPU integration (full) | `macos_bench/cpu_fpu_full_tests.h` (FSAVE/FRESTORE first, then baseline) | `cpu_fpu` | `build_cpu_fpu_{hda,dsk}.sh` |
+| CPU+FPU FSAVE/FRESTORE only | `macos_bench/save_restore_tests.h` | `cpu_fpu_save_restore` | `build_cpu_fpu_save_restore_hda.sh` |
+
 ```bash
 cd preboot/supervisor_bench
-make cpu_scsi        # production: boot_stub_scsi.bin + payload_cpu_scsi.bin
+make cpu             # CPU bench  -> boot_stub_patch.bin + payload_cpu_scsi.bin
+make fpu             # FPU bench  -> boot_stub_patch.bin + payload_fpu_scsi.bin
+make cpu_fpu         # CPU+FPU    -> boot_stub_patch.bin + payload_cpu_fpu_scsi.bin
+make cpu_fpu_save_restore   # FSAVE/FRESTORE sub-corpus (8 tests)
+./build_fpu_hda.sh       # assembles /tmp/fpubench.hda     (SCSI)
+./build_fpu_dsk.sh       # assembles /tmp/fpubench.dsk     (800K floppy)
+./build_cpu_fpu_hda.sh   # assembles /tmp/cpufpubench.hda  (SCSI)
+./build_cpu_fpu_dsk.sh   # assembles /tmp/cpufpubench.dsk  (800K floppy)
+./build_cpu_fpu_save_restore_hda.sh  # /tmp/cpufpu_saverestore.hda (SCSI)
+
+# The cpu_fpu_save_restore variant is the same CPU/FPU runner with the
+# corpus header swapped (macos_bench/save_restore_tests.h, generated from
+# cpu_fpu/save_restore_corpus.json). It's the artifact to boot on the
+# FPGA to catch the CIR save/restore wedge: a wedging core never retires
+# the FSAVE, so those rows hang / diverge from these MAME goldens
+# (verified all 8 pass in MAME, which is the correct oracle).
+
+# legacy / scaffolding targets:
+make cpu_scsi        # CPU bench on the older fixed-offset SCSI boot stub
 make all             # skeleton boot + payload
 make scsi            # skeleton SCSI variant
 make minimal         # diagnostic: "is boot path alive"
 make probe           # diagnostic: framebuffer polarity (4 stripes)
 make calibrate       # diagnostic: stride ruler (200×200 square)
 make strides         # diagnostic: 4 strides bracketed
-./build_cpu_scsi.sh  # assembles the SCSI CPU bench HDA
 ```
+
+All three benches run privileged out of the boot block, recover from
+faulting tests via `common/runtime/recovery.s` (so one bad test reports
+`vec=N` instead of crashing the run), and write `/Results.jsonl` for
+host-side extraction with `rb-cli get IMG@1 /Results.jsonl out.jsonl`.
+
+**Output schemas** (one JSON line per test):
+
+- CPU: `{"name","vec","final"/"trap_state":{d,a,ccr,pc,ram}}` (see
+  `results/cpu_supervisor/README.md`).
+- FPU: `{"name","vec","final"/"trap_state":{d,a,fp,fpcr,fpsr,fpiar}}` —
+  `fp` is 8 arrays of 12 bytes (extended precision), matching the
+  `macos_bench/fpu_bench.c` schema so the same diff tooling applies.
+- CPU+FPU: `{"name","op_a","result_reg","expected","actual","vec","pass"}`.
+
+**MAME note.** The FPU bench runs the full 270-test corpus under
+`maciihmu` (verified). The CPU+FPU corpus runs ~1247/1328 before MAME's
+68k core aborts on `FMOVEM: mode 0 unimplemented` (a MAME emulation gap,
+not a bench fault — the FMOVEM tests at the tail of the corpus exercise
+a mode MAME's m68kfpu doesn't implement). The full corpus runs on real
+Mac II hardware. Results batch in 16 KB writes and flush at end, so a
+MAME *fatal* abort mid-run loses the in-flight batch (the last few
+tests); the persisted lines are intact.
 
 The `make cpu_scsi_8bpp` target also exists but is **deferred** — it
 compiles successfully but the resulting payload won't render on

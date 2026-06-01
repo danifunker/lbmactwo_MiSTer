@@ -29,7 +29,7 @@ COMMON_BOOT    := $(COMMON)/boot
 
 SIZE := $(PREFIX)size
 
-.PHONY: all clean scsi cpu_scsi cpu minimal probe calibrate strides cpu_scsi_8bpp sizes
+.PHONY: all clean scsi cpu_scsi cpu fpu cpu_fpu cpu_fpu_baseline cpu_fpu_save_restore minimal probe calibrate strides cpu_scsi_8bpp sizes
 all: $(BUILD)/boot_stub_floppy.bin $(BUILD)/payload.bin sizes
 scsi:        $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_scsi.bin
 cpu_scsi:    $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_cpu_scsi.bin
@@ -38,6 +38,23 @@ cpu_scsi:    $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_cpu_scsi.bin
 # disk (.hda) — build_dsk.sh / build_hda.sh place /Payload anywhere and
 # patch the offset, rather than relying on the fixed 0x51600 layout.
 cpu:         $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_cpu_scsi.bin
+# FPU correctness bench (gen/fpu_tests.h) and CPU+FPU integration bench —
+# separate artifacts, same patchable boot stub. build_fpu_*.sh /
+# build_cpu_fpu_*.sh assemble their disks. The cpu_fpu full corpus is
+# FRONT-LOADED: macos_bench/cpu_fpu_full_tests.h (built by
+# cpu_fpu/combine_corpus.py) runs the 8 FSAVE/FRESTORE tests first, then
+# the 1328 math baseline — so they're reachable before MAME's ~1248 abort.
+fpu:         $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_fpu_scsi.bin
+cpu_fpu:     $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_cpu_fpu_scsi.bin
+# Baseline-only CPU+FPU bench: the original 1328-test math corpus with NO
+# FSAVE/FRESTORE tests (macos_bench/cpu_fpu_tests.h). This is the "old"
+# cpufpubench before the save/restore tests were front-loaded.
+cpu_fpu_baseline: $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_cpu_fpu_baseline_scsi.bin
+# Focused FSAVE/FRESTORE (cpSAVE/cpRESTORE) sub-corpus — same CPU/FPU
+# runner, different corpus header (macos_bench/save_restore_tests.h).
+# This is the artifact to boot on the FPGA to catch the CIR save/restore
+# wedge: a wedging core never retires the FSAVE, so the run hangs/diverges.
+cpu_fpu_save_restore: $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_cpu_fpu_save_restore_scsi.bin
 minimal:     $(BUILD)/boot_stub_minimal.bin
 probe:       $(BUILD)/boot_stub_probe.bin
 calibrate:   $(BUILD)/boot_stub_calibrate.bin
@@ -74,6 +91,18 @@ $(BUILD)/variant_cpu_scsi.o: variant_cpu_scsi.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 $(BUILD)/bench_main.o: bench_main.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/fpu_bench_main.o: fpu_bench_main.c | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/cpu_fpu_bench_main.o: cpu_fpu_bench_main.c | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+# Same source, FSAVE/FRESTORE sub-corpus selected via the header override.
+$(BUILD)/cpu_fpu_save_restore_main.o: cpu_fpu_bench_main.c ../../macos_bench/save_restore_tests.h | $(BUILD)
+	$(CC) $(CFLAGS) -DCPU_FPU_CORPUS_HEADER='"../../macos_bench/save_restore_tests.h"' -c -o $@ $<
+# Full corpus with FSAVE/FRESTORE FRONT-LOADED (cpu_fpu_full_tests.h, built
+# by cpu_fpu/combine_corpus.py: save/restore tests 0-7, then the 1328
+# math baseline). This is what `make cpu_fpu` ships.
+$(BUILD)/cpu_fpu_full_main.o: cpu_fpu_bench_main.c ../../macos_bench/cpu_fpu_full_tests.h | $(BUILD)
+	$(CC) $(CFLAGS) -DCPU_FPU_CORPUS_HEADER='"../../macos_bench/cpu_fpu_full_tests.h"' -c -o $@ $<
 
 # ---------- Boot blocks (production + diagnostic) ----------
 # Production: lives in preboot/common/boot/. Floppy (non-SCSI) variant
@@ -146,6 +175,55 @@ CPU_SCSI_OBJS := $(BUILD)/payload_entry_cpu.o \
                  $(BUILD)/recovery.o
 $(BUILD)/payload_cpu_scsi.elf: $(CPU_SCSI_OBJS) $(PAYLOAD_LD)
 	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(CPU_SCSI_OBJS)
+
+# FPU bench — same object set as the CPU bench but swaps in fpu_bench_main.o.
+FPU_SCSI_OBJS := $(BUILD)/payload_entry_cpu.o \
+                 $(BUILD)/variant_cpu_scsi.o \
+                 $(BUILD)/fpu_bench_main.o \
+                 $(BUILD)/jsonl_writer.o \
+                 $(BUILD)/freestanding.o \
+                 $(BUILD)/eject.o \
+                 $(BUILD)/font_ascii.o \
+                 $(BUILD)/recovery.o
+$(BUILD)/payload_fpu_scsi.elf: $(FPU_SCSI_OBJS) $(PAYLOAD_LD)
+	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(FPU_SCSI_OBJS)
+
+# CPU+FPU integration bench — swaps in cpu_fpu_bench_main.o.
+CPU_FPU_SCSI_OBJS := $(BUILD)/payload_entry_cpu.o \
+                     $(BUILD)/variant_cpu_scsi.o \
+                     $(BUILD)/cpu_fpu_full_main.o \
+                     $(BUILD)/jsonl_writer.o \
+                     $(BUILD)/freestanding.o \
+                     $(BUILD)/eject.o \
+                     $(BUILD)/font_ascii.o \
+                     $(BUILD)/recovery.o
+$(BUILD)/payload_cpu_fpu_scsi.elf: $(CPU_FPU_SCSI_OBJS) $(PAYLOAD_LD)
+	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(CPU_FPU_SCSI_OBJS)
+
+# Baseline-only variant: cpu_fpu_bench_main.o uses the default
+# (baseline-only) corpus header, so no FSAVE/FRESTORE tests.
+CPU_FPU_BASELINE_OBJS := $(BUILD)/payload_entry_cpu.o \
+                         $(BUILD)/variant_cpu_scsi.o \
+                         $(BUILD)/cpu_fpu_bench_main.o \
+                         $(BUILD)/jsonl_writer.o \
+                         $(BUILD)/freestanding.o \
+                         $(BUILD)/eject.o \
+                         $(BUILD)/font_ascii.o \
+                         $(BUILD)/recovery.o
+$(BUILD)/payload_cpu_fpu_baseline_scsi.elf: $(CPU_FPU_BASELINE_OBJS) $(PAYLOAD_LD)
+	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(CPU_FPU_BASELINE_OBJS)
+
+# FSAVE/FRESTORE sub-corpus variant: swaps the corpus object only.
+CPU_FPU_SR_OBJS := $(BUILD)/payload_entry_cpu.o \
+                   $(BUILD)/variant_cpu_scsi.o \
+                   $(BUILD)/cpu_fpu_save_restore_main.o \
+                   $(BUILD)/jsonl_writer.o \
+                   $(BUILD)/freestanding.o \
+                   $(BUILD)/eject.o \
+                   $(BUILD)/font_ascii.o \
+                   $(BUILD)/recovery.o
+$(BUILD)/payload_cpu_fpu_save_restore_scsi.elf: $(CPU_FPU_SR_OBJS) $(PAYLOAD_LD)
+	$(LD) $(LDFLAGS) -T $(PAYLOAD_LD) -o $@ $(CPU_FPU_SR_OBJS)
 
 CPU_SCSI_8BPP_OBJS := $(BUILD)/payload_entry_cpu_8bpp.o \
                       $(BUILD)/variant_cpu_scsi.o \
