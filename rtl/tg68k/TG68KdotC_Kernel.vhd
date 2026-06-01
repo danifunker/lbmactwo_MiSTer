@@ -894,18 +894,32 @@ PROCESS (clk)
 					cp_save_fmt <= data_in(15 downto 0);
 				END IF;
 				-- cpSAVE/cpRESTORE frame word counter
+				--
+				-- M68881 frame format word layout (per M68881 User's Manual
+				-- §6.6.1.1 + verified against Snow's FSAVE write at
+				-- snow/core/src/cpu_m68k/fpu/ops_generic.rs:57 which emits
+				-- 0x1F180000 for an idle 68881 frame):
+				--   bits[15:8]  version code ($1F for 68881, $3F for 68882,
+				--               $00 if no version, e.g. NULL frame)
+				--   bits[7:0]   format identifier
+				--               $00 = NULL, $18 = IDLE, $B4 = BUSY
+				-- The earlier check tested bits[15:8] for $18/$B4, which is
+				-- the VERSION byte not the identifier — every non-null
+				-- frame got misidentified as NULL, the TG68 skipped its
+				-- Operand CIR reads, and the FPU sat in CIR_SAVE_FRAME
+				-- waiting for them forever (tracker bug #1).
 				IF micro_state = cp_save_decode THEN
-					IF cp_save_fmt(15 downto 8) = X"18" THEN
+					IF cp_save_fmt(7 downto 0) = X"18" THEN
 						cp_frame_cnt <= "0001100"; -- 12 words (24 bytes)
-					ELSIF cp_save_fmt(15 downto 8) = X"B4" THEN
+					ELSIF cp_save_fmt(7 downto 0) = X"B4" THEN
 						cp_frame_cnt <= "1011010"; -- 90 words (180 bytes)
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null: 0 data words
 					END IF;
 				ELSIF micro_state = cp_restore_decode THEN
-					IF last_data_read(15 downto 8) = X"18" THEN
+					IF last_data_read(7 downto 0) = X"18" THEN
 						cp_frame_cnt <= "0001100"; -- 12 words
-					ELSIF last_data_read(15 downto 8) = X"B4" THEN
+					ELSIF last_data_read(7 downto 0) = X"B4" THEN
 						cp_frame_cnt <= "1011010"; -- 90 words
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null
@@ -4661,8 +4675,12 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN cp_save_decode =>
 					-- Decode format word (now in cp_save_fmt via registered process)
 					-- cp_frame_cnt loaded in registered process
+					-- See the cp_save/restore_decode comment above re byte ordering:
+					-- the format identifier ($00 NULL / $18 IDLE / $B4 BUSY) lives in
+					-- bits[7:0]. The earlier (15 downto 8) check looked at the
+					-- version byte and treated every frame as NULL.
 					setstate <= "01";      -- idle
-					IF cp_save_fmt(15 downto 8) = X"00" THEN
+					IF cp_save_fmt(7 downto 0) = X"00" THEN
 						-- Null frame: go to idle to decrement EA, then write format
 						next_micro_state <= cp_save_idle;
 					ELSE
@@ -4730,9 +4748,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				WHEN cp_restore_decode =>
 					-- Decode format: cp_frame_cnt loaded in registered process
-					-- last_data_read still has the format word
+					-- last_data_read still has the format word.
+					-- Identifier byte is in bits[7:0] — see cp_save/restore_decode
+					-- registered-process comment above.
 					setstate <= "01";      -- idle
-					IF last_data_read(15 downto 8) = X"00" THEN
+					IF last_data_read(7 downto 0) = X"00" THEN
 						-- Null frame: done, writeback An
 						cp_an_writeback <= '1';
 						next_micro_state <= idle;
