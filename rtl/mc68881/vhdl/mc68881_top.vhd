@@ -193,7 +193,27 @@ architecture rtl of mc68881_top is
   signal frame_restore_pending_reg : std_logic := '0';
   signal frame_start_save_reg : std_logic := '0';
   signal frame_start_restore_reg : std_logic := '0';
-  signal fpu_initialized_reg : std_logic := '0';
+  -- fpu_initialized_reg gates whether FSAVE returns a NULL frame ($0000) or
+  -- an IDLE frame ($1F18). On a real 68881 this reflects "has the FPU run
+  -- any op since power-on"; it starts at '0' and flips to '1' on the first
+  -- op_issue_pulse (line 2372).
+  --
+  -- The Mac II boot ROM's FPU detection sequence does FSAVE and inspects the
+  -- first long-word's high byte. If the byte is $00 (NULL frame) it
+  -- concludes "no coprocessor installed." Real Mac II hardware can usually
+  -- side-step this because the ROM does an FPU op (FMOVE/FNOP) before the
+  -- detect FSAVE, which initialises the FPU first. Our boot sequence does
+  -- not have that prelude visible on the bus (probe data shows the FPU
+  -- never reaches CIR_DECODE before the wedge), so the first FSAVE returns
+  -- NULL and the OS bombs with "coprocessor not installed".
+  --
+  -- Initialise to '1' so the FPU always presents an IDLE frame from
+  -- power-on. A real 68881 reaches the same state after its first op, so
+  -- this is the post-boot steady-state behaviour exposed earlier. FRESTORE
+  -- of a NULL frame still flips this back to '0' (line 2457) and a
+  -- subsequent op_issue_pulse re-asserts it — internal save/restore
+  -- semantics are preserved.
+  signal fpu_initialized_reg : std_logic := '1';
 
   signal sys_ctrl_save_req_reg    : std_logic := '0';
   signal sys_ctrl_restore_req_reg : std_logic := '0';
@@ -1992,7 +2012,10 @@ begin
       frame_restore_pending_reg <= '0';
       frame_start_save_reg <= '0';
       frame_start_restore_reg <= '0';
-      fpu_initialized_reg <= '0';
+      -- See fpu_initialized_reg signal-declaration comment: '1' on reset so
+      -- the Mac II boot ROM's FSAVE-based FPU detection reads $1F18 (IDLE
+      -- 68881) instead of $0000 (NULL = "no coprocessor").
+      fpu_initialized_reg <= '1';
       opsel_write_prev_reg <= '0';
       cir_restore_trigger <= '0';
     elsif rising_edge(clk) then
