@@ -226,16 +226,24 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 					$display("BLK_GAP_ARM data_cnt=%0d cmd=%02h tlen=%0d", data_cnt, cmd[0], tlen);
 `endif
 			end
-			// CLEAR on first CSR poll or next data read after ARM.
+			// CLEAR on:
+			//   * `host_csr_rd` FALLING edge (CSR/BSR read completed — guarantees
+			//     the CPU already latched the bus value with REQ=0; clearing on
+			//     the RISING edge would let REQ rise mid-cycle and the CPU would
+			//     sample REQ=1, so the wait-low loop at RAM $11066 never exits).
+			//   * `host_data_rd` RISING edge (next move.l attempting a data read;
+			//     we need REQ to come UP immediately so the chip can ack —
+			//     waiting for the cycle to finish here would deadlock since the
+			//     chip won't ack without REQ=1 first).
 			else if (blk_gap_armed &&
-			         ((host_csr_rd  && !host_csr_rd_q) ||
-			          (host_data_rd && !host_data_rd_q))) begin
+			         ((!host_csr_rd  &&  host_csr_rd_q) ||
+			          ( host_data_rd && !host_data_rd_q))) begin
 				blk_gap_armed <= 1'b0;
 `ifdef SIMULATION
 				if ($test$plusargs("scsi_stall_debug"))
 					$display("BLK_GAP_CLR data_cnt=%0d via_%s",
 					         data_cnt,
-					         (host_csr_rd && !host_csr_rd_q) ? "csr" : "data");
+					         (!host_csr_rd && host_csr_rd_q) ? "csr" : "data");
 `endif
 			end
 		end

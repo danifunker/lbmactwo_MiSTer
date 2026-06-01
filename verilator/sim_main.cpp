@@ -131,6 +131,7 @@ bool scsi_timeout_loop_debug_enable = false;
 bool scsi_stall_history_enable = false;
 uint32_t scsi_stall_dreq_run = 0;
 bool scsi_stall_dumped = false;
+int scsi_stall_history_min_frame = 3500;  // --scsi-stall-history-min-frame N to lower for tlen=317 etc
 bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
@@ -1244,31 +1245,31 @@ int verilate() {
 					// DREQ asserted but CPU not draining it -> count consecutive
 					// fetches; once it's clearly wedged, dump the PC ring buffer
 					// (the outer loop that abandoned the data transfer) and stop.
-					if (video.count_frame >= 3500) {
-						if (++scsi_stall_dreq_run >= 50) {
-							fprintf(stderr, "SCSI_STALL_HISTORY trigger frame=%d pc=%08X dreq stuck\n",
-							        video.count_frame, pc);
-							// Low-mem state for the boot-wait loop at $40802432:
-							// `tst.b $172.w; bne` — $172 is MBState (mouse button).
-							// Dump the bytes the loop and its companions touch.
-							fprintf(stderr, "LOWMEM_BOOTWAIT B0172=%02X(MBState) B0160=%02X B08CF=%02X "
-							        "W0172=%04X W017A=%04X W08CE=%04X L08EE=%08X\n",
-							        ram_byte(0x0172), ram_byte(0x0160), ram_byte(0x08CF),
-							        ram_word(0x0172), ram_word(0x017A), ram_word(0x08CE),
-							        ram_long(0x08EE));
-							int first = bootmask_history_pos - bootmask_history_count;
-							if (first < 0) first += BOOTMASK_HISTORY_SIZE;
-							for (int i = 0; i < bootmask_history_count; i++) {
-								int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
-								const BootmaskHistoryEntry& e = bootmask_history[idx];
-								fprintf(stderr, "STALLHIST %03d frame=%d pc=%08X op=%04X "
-								        "D0=%08X D1=%08X D5=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
-								        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
-							}
-							scsi_stall_dumped = true;
+					// Gate the dump on the SAME mechanism scsi.v uses for SCSI_STALL
+					// (its `stall_cnt` counter, which resets on any data progress
+					// and trips at 300_000 cycles).  This is the only condition
+					// that's actually the real hang — not transient dreq dips.
+					uint32_t stall_cnt0 = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__stall_cnt;
+					uint32_t data_cnt0  = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt;
+					if (video.count_frame >= scsi_stall_history_min_frame &&
+					    stall_cnt0 >= 200000) {
+						fprintf(stderr, "SCSI_STALL_HISTORY trigger frame=%d pc=%08X stall_cnt=%u data_cnt=%u\n",
+						        video.count_frame, pc, stall_cnt0, data_cnt0);
+						fprintf(stderr, "LOWMEM_BOOTWAIT B0172=%02X(MBState) B0160=%02X B08CF=%02X "
+						        "W0172=%04X W017A=%04X W08CE=%04X L08EE=%08X\n",
+						        ram_byte(0x0172), ram_byte(0x0160), ram_byte(0x08CF),
+						        ram_word(0x0172), ram_word(0x017A), ram_word(0x08CE),
+						        ram_long(0x08EE));
+						int first = bootmask_history_pos - bootmask_history_count;
+						if (first < 0) first += BOOTMASK_HISTORY_SIZE;
+						for (int i = 0; i < bootmask_history_count; i++) {
+							int idx = (first + i) % BOOTMASK_HISTORY_SIZE;
+							const BootmaskHistoryEntry& e = bootmask_history[idx];
+							fprintf(stderr, "STALLHIST %03d frame=%d pc=%08X op=%04X "
+							        "D0=%08X D1=%08X D5=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+							        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
 						}
-					} else {
-						scsi_stall_dreq_run = 0;
+						scsi_stall_dumped = true;
 					}
 				}
 				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
@@ -3446,6 +3447,9 @@ int main(int argc, char** argv, char** env) {
 			verbose_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-stall-history") == 0) {
 			scsi_stall_history_enable = true;
+		} else if (strcmp(argv[i], "--scsi-stall-history-min-frame") == 0 && i + 1 < argc) {
+			scsi_stall_history_min_frame = std::stoi(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "--scsi-debug") == 0) {
 			scsi_debug_enable = true;
 		} else if (strcmp(argv[i], "--scsi-timeout-loop-debug") == 0) {
