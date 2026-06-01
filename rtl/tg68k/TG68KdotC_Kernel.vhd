@@ -4620,12 +4620,25 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- pattern as cp_xfer_to_hi / cp_xfer_to_lo); without
 					-- them the memaddr mux falls through to memaddr_a and
 					-- the write lands somewhere other than Control CIR.
-					-- Release the bus afterwards and raise trap_cpexcept.
+					-- Release the bus afterwards and trap.
+					--
+					-- Vector routing: build #18/#19 used trap_cpexcept with
+					-- cp_except_vec & "00" as the dynamic vector, but lastvec
+					-- showed 04 (Illegal Instruction) — cp_except_vec capture
+					-- isn't surviving the cp_idle_resp→cp_except_ack edge in
+					-- the way I expected. For build #20 fall back to the
+					-- proven trap_1111 path (vector $2C = F-line), matching
+					-- the build #17 behavior we know dispatches correctly.
+					-- The vast majority of FPU exception primitives carry
+					-- vector $0B (CIR_VEC_FLINE for lite-disabled ops); the
+					-- rare non-F-line cases (BSUN, OVFL, etc.) will land on
+					-- F-line too — wrong vector but at least the FPU's CIR
+					-- state gets ACKed and the bench can move on.
 					set_cpaddr <= '1';
 					cp_cir_reg <= "00001";  -- Control CIR ($02)
 					setstate <= "01";
 					datatype <= "01";
-					trap_cpexcept <= '1';
+					trap_1111 <= '1';
 					trapmake <= '1';
 
 				-- cpSAVE states: read format from FPU, write frame to memory -(An)
