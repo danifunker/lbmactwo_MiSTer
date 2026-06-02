@@ -38,8 +38,33 @@
 #     (JSR (d16,PC)) which doesn't depend on Z.  The BTST still runs but
 #     its result is ignored.
 #
-# Together patches (1) and (2) let the ROM continue past $40806DC0 into
-# the normal boot sequence without running the multi-second RAM test.
+# (3) Force the MMU-presence test at $40803AF0 to always conclude
+#     "MMU present" (D0=3) regardless of how the F-line instruction
+#     reports.
+#
+#     The Mac II ROM runs an MMU detection sequence:
+#         $3AEE: moveq #3, D0
+#         $3AF0: bsr.s  $3AF8           ; F-line F0 08 (PMOVE-ish)
+#         $3AF2: bne.s  $3AF6           ; if test was OK, keep D0=3
+#         $3AF4: moveq #1, D0           ; else D0=1
+#         $3AF6: rts
+#
+#     MAME's macii uses M68020HMMU which emulates the MMU so the
+#     instruction "works" and the test returns NE — D0 stays at 3.
+#     Verilator and the FPGA build use TG68K which doesn't have an
+#     MMU; the F-line traps to the installed handler, which sets D0=0
+#     and returns EQ — D0 becomes 1.  Downstream the ROM uses the
+#     value at $0CB1 (= D0 here) to choose between two boot paths;
+#     the "no MMU" path produces a different heap layout that
+#     eventually hangs at the MBState wait.
+#
+#     Fix: change `bne.s +2` ($66 $02) at offset $3AF2 into
+#     `bra.s +2` ($60 $02) so the branch is unconditional and D0
+#     keeps its original $3.  Downstream code then writes $40800050
+#     to $0CB4 and $40 to $0CB8 just as MAME does.
+#
+# Patches (1), (2) and (3) together get the boot past the early
+# wait, the missing memtest side effect, and the MMU detection.
 #
 # The checksum byte(s) in the first longword are adjusted to keep
 # `(stored_checksum_word) + sum_of_body_words` constant (the ROM's
@@ -71,13 +96,23 @@ fi
 #   0x1A8 =   424 : beq.s -> bra.s   0x67 -> 0x60  (second warm-start gateway)
 #   0x6DDE = 28126 : bne.s -> NOP    0x66 -> 0x4E  (wait-loop back-branch high)
 #   0x6DDF = 28127 : bne.s -> NOP    0xF8 -> 0x71  (wait-loop back-branch low)
+#
+# NOTE: an earlier version of this script also patched 0x3AF2 (bne.s -> bra.s)
+# to force the "MMU present" path of the F-line PMOVE test, on the theory that
+# our TG68K's lack of MMU made the boot diverge.  Empirically that made the
+# boot WORSE (gray screen, even Welcome dialog never drew), so it was reverted.
+# Patch (3) discussion above is kept as documentation but the patch is not
+# applied.  The "no MMU" path probably has its own bug elsewhere; if we ever
+# fix that, the MMU patch will be useful to switch to the working path.
 PATCHES="2:d2:ac 3:c4:3d 236:67:60 424:67:60 28126:66:4e 28127:f8:71"
 
-# Older "memtest-only" intermediate patched values that the prior version
-# of this script produced.  When the byte already matches one of these, we
-# treat it as a partial upgrade — re-apply all NEW values so the ROM ends
-# up fully patched.
-OLD_PATCH="2:c4"
+# Older / intermediate patched values that prior versions of this script
+# produced.  When the byte already matches one of these, we treat it as a
+# partial upgrade — re-apply all NEW values so the ROM ends up fully patched.
+#   - "memtest-only" first patch: offset 2 was 0xc4
+#   - "memtest + wait-loop": offset 2 was 0xac (this is what just shipped before
+#     adding the MMU patch)
+OLD_PATCH="2:c4 2:ac"
 
 [ -f "$IN" ] || { echo "error: input ROM '$IN' not found" >&2; exit 1; }
 
