@@ -43,6 +43,7 @@
 #include <iomanip>
 #include <vector>
 #include <algorithm>
+#include <set>
 #include <cstring>
 using namespace std;
 
@@ -145,6 +146,11 @@ bool force_mbstate_zero_done = false;
 // spin detector doesn't fire because the host is in a wider algorithmic loop.
 int pc_dump_frame = -1;
 bool pc_dump_done = false;
+// --pc-dump-frames <f1,f2,..>: multi-frame variant — fire a dump at each
+// listed frame.  Each dump rotates the ring snapshot independently so the
+// last 512 PCs at each checkpoint reflect that frame's run-up.
+std::vector<int> pc_dump_frames_list;
+size_t pc_dump_frames_next = 0;
 
 // --cpu-spin-history: detect when the CPU has been spinning in a tight loop
 // for a long time and dump the PC ring buffer + lowmem state.  Used when SCSI
@@ -1366,10 +1372,52 @@ int verilate() {
 						}
 					}
 				}
-				// --pc-dump-frame: unconditional ring dump at the requested
-				// frame.  Always fill the ring; fire the dump when armed.
-				if (pc_dump_frame >= 0 && !pc_dump_done) {
+				// --pc-dump-frame / --pc-dump-frames: unconditional ring dumps.
+				// Keep the ring updated whenever any dump is armed.
+				if ((pc_dump_frame >= 0 && !pc_dump_done) ||
+				    pc_dump_frames_next < pc_dump_frames_list.size()) {
 					record_bootmask_history(pc);
+				}
+				// Multi-frame variant: fire at each requested frame in order.
+				while (pc_dump_frames_next < pc_dump_frames_list.size() &&
+				       (int)video.count_frame >= pc_dump_frames_list[pc_dump_frames_next] &&
+				       bootmask_history_count == BOOTMASK_HISTORY_SIZE) {
+					int target_frame = pc_dump_frames_list[pc_dump_frames_next];
+					int best_count = 0; uint32_t best_bucket = 0;
+					for (int i = 0; i < BOOTMASK_HISTORY_SIZE; i++) {
+						uint32_t bucket = bootmask_history[i].pc & ~63u;
+						int c = 0;
+						for (int j = 0; j < BOOTMASK_HISTORY_SIZE; j++) {
+							if ((bootmask_history[j].pc & ~63u) == bucket) c++;
+						}
+						if (c > best_count) { best_count = c; best_bucket = bucket; }
+					}
+					fprintf(stderr, "MULTI_PC_DUMP target=%d frame=%d pc=%08X dominant_bucket=%08X count=%d/%d "
+					        "MBState=%02X $173=%02X $0D10=%08X $0D14=%08X $08EE=%08X\n",
+					        target_frame, video.count_frame, pc, best_bucket, best_count, BOOTMASK_HISTORY_SIZE,
+					        ram_byte(0x0172), ram_byte(0x0173),
+					        ram_long(0x0D10), ram_long(0x0D14), ram_long(0x08EE));
+					// Dump top 10 PCs by bucket for compact comparison.
+					struct PCEntry { uint32_t bucket; int count; };
+					std::vector<PCEntry> entries;
+					std::set<uint32_t> seen;
+					for (int i = 0; i < BOOTMASK_HISTORY_SIZE; i++) {
+						uint32_t b = bootmask_history[i].pc & ~63u;
+						if (seen.count(b)) continue;
+						seen.insert(b);
+						int c = 0;
+						for (int j = 0; j < BOOTMASK_HISTORY_SIZE; j++) {
+							if ((bootmask_history[j].pc & ~63u) == b) c++;
+						}
+						entries.push_back({b, c});
+					}
+					std::sort(entries.begin(), entries.end(),
+					          [](const PCEntry& a, const PCEntry& b){ return a.count > b.count; });
+					for (size_t k = 0; k < entries.size() && k < 10; k++) {
+						fprintf(stderr, "MULTI_PC_TOP target=%d rank=%zu bucket=%08X count=%d\n",
+						        target_frame, k, entries[k].bucket, entries[k].count);
+					}
+					pc_dump_frames_next++;
 				}
 				if (pc_dump_frame >= 0 && !pc_dump_done &&
 				    video.count_frame >= pc_dump_frame &&
@@ -3597,6 +3645,15 @@ int main(int argc, char** argv, char** env) {
 			pc_dump_frame = std::stoi(argv[i + 1]);
 			i++;
 			printf("Will dump PC ring at frame %d\n", pc_dump_frame);
+		} else if (strcmp(argv[i], "--pc-dump-frames") == 0 && i + 1 < argc) {
+			std::string arg = argv[++i];
+			std::stringstream ss(arg);
+			std::string tok;
+			while (std::getline(ss, tok, ',')) {
+				pc_dump_frames_list.push_back(std::stoi(tok));
+			}
+			std::sort(pc_dump_frames_list.begin(), pc_dump_frames_list.end());
+			printf("Will dump PC ring at frames: %s\n", arg.c_str());
 		} else if (strcmp(argv[i], "--force-mbstate-zero") == 0 && i + 1 < argc) {
 			force_mbstate_zero_frame = std::stoi(argv[i + 1]);
 			i++;
