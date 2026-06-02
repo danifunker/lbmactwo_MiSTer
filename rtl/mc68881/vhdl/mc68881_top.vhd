@@ -3395,20 +3395,24 @@ begin
             -- FSAVE frame data read: return idle frame word by index.
             case cir_save_word_idx is
               when 0 =>
-                -- Frame version tag (upper 16) + internal flags (lower 16).
-                d_out_comb <= x"0001" & x"0000";  -- Version 1, no flags
+                -- Build #34 fix (bug #6): zero out non-Motorola "Version 1"
+                -- tag. Real 68881 IDLE frame BIU words are internal/opaque
+                -- state; Mac OS may sanity-check unexpected values here.
+                d_out_comb <= (others => '0');
               when 1 =>
-                -- Last operation selector + class encoding.
-                d_out_comb(15 downto 0) <= std_logic_vector(to_unsigned(
-                  fpu_op_t'pos(op_sel_reg), 16));
-                d_out_comb(31 downto 16) <= std_logic_vector(to_unsigned(
-                  fpu_op_class_t'pos(op_class(op_sel_reg)), 16));
+                -- Build #34 fix: was non-Motorola op_sel/op_class; expose
+                -- FPCR-shape instead (host can round-trip it cleanly).
+                d_out_comb <= fpcr_reg;
               when 2 =>
                 -- Exception event state (packed FPSR EXC + AEXC).
                 d_out_comb <= fpsr_reg;
               when 3 =>
-                -- Microsequencer state (cycle counter).
-                d_out_comb <= micro_total_reg;
+                -- Build #34 fix: was micro_total_reg (a free-running cycle
+                -- counter) — that's GUARANTEED to differ between cpSAVE
+                -- and any cpRESTORE-then-cpSAVE round trip and could trip
+                -- a sanity check. Use fpiar_reg (a real 68881 field) so
+                -- the round trip is stable.
+                d_out_comb <= fpiar_reg;
               when 4 =>
                 -- CIR dialog flags.
                 d_out_comb <= (others => '0');
@@ -4509,7 +4513,15 @@ begin
   d_out <= d_out_reg when (sync_read = '1' or sync_read_latched = '1') else d_out_comb;
   dsack0_n <= dsack0_i;
   dsack1_n <= dsack1_i;
-  sense_drive <= '0' when status_busy_reg = '1' else '1';
+  -- Build #34 fix (bug #6): drive sense_n permanently low to match real
+  -- MC68881 open-drain behavior. The real 68881 SENSE pin is an open-drain
+  -- output that the FPU drives LOW whenever installed (independent of
+  -- busy state). The original "low only when busy" was non-spec: idle
+  -- (most of the time) presented sense_n = '1' = "not installed" by
+  -- Motorola convention. Mac II doesn't read sense_n via software, but
+  -- this aligns with documented 68881 behavior and removes one degree
+  -- of difference from spec that could matter for other OSes.
+  sense_drive <= '0';
   sense_n  <= sense_drive;
   status_valid <= status_valid_reg;
 
