@@ -70,6 +70,16 @@ int multi_step_amount = 1024;
 // TG68K documents cpu=2'b11 as 68020 mode. The Mac II ROM depends on it.
 int cfg_cpuType = 3;
 int cfg_memSize = 3;       // RAM size: 0=1MB, 1=2MB, 2=4MB, 3=8MB (set via --ram)
+
+// Pre-write the WLSC warm-start flag to low-mem $0CFC during early boot.
+// The full power-on RAM test in MAME ends up writing this flag; with the
+// no-memtest patch we skip that test, but several later ROM checks
+// (e.g., $40800E66) branch on whether $0CFC equals "WLSC" and take
+// significantly different code paths if not — leading to different heap
+// layouts and ultimately a hung boot.  Set via --no-memtest, override
+// off with --no-wlsc-init.
+bool init_wlsc_on_boot = false;
+bool wlsc_was_written = false;
 const char* rom_file_override = nullptr;  // --rom <file> overrides the boot0 ROM (e.g. the no-memtest fast-boot ROM)
 
 // CPU trace
@@ -1256,6 +1266,25 @@ int verilate() {
 		if (clk_sys.clk != clk_sys.old) {
 			if (clk_sys.IsRising() && *bus.ioctl_download != 1) {
 				blockdevice.BeforeEval(main_time);
+				// Force the WLSC warm-start flag at low-mem $0CFC.  The full
+				// memtest in MAME writes this byte after running (verified
+				// in MAME at frame 310, PC $40800204 is the MOVE.L #WLSC
+				// instruction).  Later ROM code at $40800E66 reads $0CFC
+				// and takes a different code path when it isn't WLSC,
+				// which is what produces the post-Welcome divergence in
+				// our --no-memtest boot.  Continuously force it (the boot
+				// zeros low RAM at some point and a one-shot pre-write
+				// gets clobbered).  Safe because memtest is skipped.
+				if (init_wlsc_on_boot) {
+					if (!wlsc_was_written) {
+						fprintf(stderr, "WLSC ($574C5343) forcing at $0CFC every cycle\n");
+						wlsc_was_written = true;
+					}
+					if (ram_word(0x0CFC) != 0x574C || ram_word(0x0CFE) != 0x5343) {
+						ram_write_word(0x0CFC, 0x574C);  // 'WL'
+						ram_write_word(0x0CFE, 0x5343);  // 'SC'
+					}
+				}
 			}
 			if (clk_sys.clk) {
 				input.BeforeEval();
@@ -3755,6 +3784,10 @@ int main(int argc, char** argv, char** env) {
 			// power-on RAM walk (see scripts/patch_rom_nomemtest.sh).
 			rom_file_override = "../releases/boot0-nomemtest.rom";
 			fprintf(stderr, "Fast boot: using no-memtest ROM %s\n", rom_file_override);
+			init_wlsc_on_boot = true;
+		} else if (strcmp(argv[i], "--no-wlsc-init") == 0) {
+			init_wlsc_on_boot = false;
+			fprintf(stderr, "WLSC pre-init disabled\n");
 		} else if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) {
 			// RAM size in MB: 1, 2, 4, or 8 -> configRAMSize 0/1/2/3
 			int mb = atoi(argv[++i]);
