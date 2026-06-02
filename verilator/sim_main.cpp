@@ -285,6 +285,8 @@ int frame_probe_last_frame = -1;
 std::string scsi_disk_files[2];
 std::string floppy_disk_files[2];
 bool force_calib_enable = false;
+bool force_calib_derived = false;  // also force the derived bytes/words; --force-mame-calib-derived
+bool force_calib_derived_done = false;
 uint16_t force_calib_0d00 = 0;
 uint16_t force_calib_0da6 = 0;
 int force_calib_min_frame = 0;
@@ -405,6 +407,13 @@ static inline void ram_write_word(uint32_t addr, uint16_t data) {
 		return;
 	}
 	VERTOPINTERN->emu__DOT__ram__DOT__mem[(addr >> 1) & 0x7FFFFF] = data;
+}
+
+static inline void ram_write_byte(uint32_t addr, uint8_t data) {
+	uint16_t w = ram_word(addr & ~1U);
+	if (addr & 1) w = (w & 0xFF00) | data;
+	else          w = (w & 0x00FF) | ((uint16_t)data << 8);
+	ram_write_word(addr & ~1U, w);
 }
 
 static inline uint32_t ram_long(uint32_t addr) {
@@ -1321,9 +1330,35 @@ int verilate() {
 			    video.count_frame >= force_calib_min_frame) {
 				ram_write_word(0x0D00, force_calib_0d00);
 				ram_write_word(0x0DA6, force_calib_0da6);
+				// Derived calibration values seen to differ at frame 400 in
+				// the maciihmu vs Verilator RAM diff.  Computed by the boot
+				// from the CPU-speed measurement, so forcing only the
+				// primary $0D00 / $0DA6 leaves these wrong.  Apply ONCE at
+				// the requested frame — per-cycle forcing kept clobbering
+				// legitimate boot writes and crashed the CPU.
+				if (force_calib_derived && !force_calib_derived_done &&
+				    (int)video.count_frame >= force_calib_min_frame) {
+					// Corrected addresses (offsets within their row dump).
+					ram_write_word(0x0826, 0x0020);
+					ram_write_word(0x089A, 0x0020);
+					ram_write_word(0x08B2, 0x33E8);
+					ram_write_word(0x0B12, 0x47C4);
+					ram_write_word(0x0C0E, 0x2C60);
+					ram_write_byte(0x08AD, 0x80);
+					ram_write_byte(0x09FA, 0x00);
+					ram_write_byte(0x0B0B, 0x1F);
+					ram_write_byte(0x0B2E, 0x81);
+					ram_write_byte(0x0B35, 0xDF);
+					ram_write_byte(0x0BAF, 0x0F);
+					ram_write_byte(0x0D62, 0x01);
+					fprintf(stderr, "FORCE_CALIB_DERIVED frame=%d (12 bytes/words written)\n",
+					        video.count_frame);
+					force_calib_derived_done = true;
+				}
 				if (!force_calib_reported) {
-					fprintf(stderr, "FORCE_CALIB frame=%d W0D00=%04X W0DA6=%04X\n",
-					        video.count_frame, force_calib_0d00, force_calib_0da6);
+					fprintf(stderr, "FORCE_CALIB frame=%d W0D00=%04X W0DA6=%04X derived=%d\n",
+					        video.count_frame, force_calib_0d00, force_calib_0da6,
+					        force_calib_derived ? 1 : 0);
 					force_calib_reported = true;
 				}
 			}
@@ -3789,6 +3824,16 @@ int main(int argc, char** argv, char** env) {
 			force_calib_0d00 = 0x0A3B;
 			force_calib_0da6 = 0x0417;
 			force_calib_min_frame = 120;
+		} else if (strcmp(argv[i], "--force-mame-calib-derived") == 0) {
+			force_calib_enable = true;
+			force_calib_derived = true;
+			force_calib_0d00 = 0x0A3B;
+			force_calib_0da6 = 0x0417;
+			// Fire the derived one-shot at frame 100 — after early ROM init
+			// has written its values, before they're used to allocate.
+			force_calib_min_frame = 100;
+			fprintf(stderr, "Force MAME calib + derived (one-shot at frame %d)\n",
+			        force_calib_min_frame);
 		} else if (strcmp(argv[i], "--force-calib") == 0 && i + 2 < argc) {
 			force_calib_enable = true;
 			force_calib_0d00 = (uint16_t)strtoul(argv[++i], nullptr, 0);
