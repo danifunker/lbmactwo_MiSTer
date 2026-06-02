@@ -1742,6 +1742,65 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pfbe (.probe(pfbe_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ==== PFCS: _SysError call-site probe (build #32, bug #6) ==============
+    // Build #31's PFBE caught $40002430, the SystemError-dialog-setup
+    // epilogue (CLR.B $0160 ext-word), not the SysError CALLER. The bomb is
+    // triggered by a _SysError A-trap ($A9C9) somewhere — but it could be
+    // in ROM, in System file RAM code, or in an Init. PFCS latches the PC
+    // of the FIRST instruction fetch whose data word is $A9C9. cpu_din at
+    // AS-rising edge during an IF cycle = the fetched opcode word; if that
+    // word is $A9C9, the PC is the instruction's address.
+    //
+    // Combined with the surrounding code at that PC, we can:
+    //   - Disassemble the previous instruction to see D0's value (= SysError
+    //     code, dsNoFPU=90).
+    //   - Trace back to find what FPU op (or check) led to this call.
+    //
+    // Layout:
+    //   [31:0] caller_pc — PC of the first _SysError ($A9C9) opcode fetch.
+    //                      0 = no _SysError ever fetched (bomb is via a
+    //                      different mechanism, e.g. direct dispatch table
+    //                      vector or trap dispatch).
+    wire pfcs_is_if_end = !cpuAS_n_d && cpuAS_n           // AS rising edge
+                       && (cpuFC == 3'b110 || cpuFC == 3'b010);  // IF cycle
+    // We need to remember cpuAddr at AS falling and check cpu_din at AS rising.
+    reg [31:0] pfcs_pending_pc;
+    reg        pfcs_pending_armed;
+    reg        pfcs_first_seen;
+    reg [31:0] pfcs_caller_pc;
+    initial begin
+        pfcs_pending_pc    = 32'h0;
+        pfcs_pending_armed = 1'b0;
+        pfcs_first_seen    = 1'b0;
+        pfcs_caller_pc     = 32'h0;
+    end
+    wire pfcs_is_if_start = cpuAS_n_d && !cpuAS_n
+                         && cpuRW
+                         && (cpuFC == 3'b110 || cpuFC == 3'b010);
+    always @(posedge clk) begin
+        if (pfcs_is_if_start) begin
+            pfcs_pending_pc    <= cpuAddr;
+            pfcs_pending_armed <= 1'b1;
+        end
+        if (pfcs_pending_armed && pfcs_is_if_end) begin
+            pfcs_pending_armed <= 1'b0;
+            if (!pfcs_first_seen && cpu_din == 16'hA9C9) begin
+                pfcs_caller_pc  <= pfcs_pending_pc;
+                pfcs_first_seen <= 1'b1;
+            end
+        end
+    end
+    reg [31:0] pfcs_r;
+    always @(posedge clk)
+        pfcs_r <= pfcs_caller_pc;
+
+    altsource_probe #(
+        .instance_id ("PFCS"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfcs (.probe(pfcs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
     // ==== PFTR (build #30) -- kept for reference but noisy ==================
     // Detects exception entries by watching for supervisor-data (FC=5) reads
     // to the vector table (addr < $400 covers all 256 vectors at VBR=0).

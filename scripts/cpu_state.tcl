@@ -93,6 +93,8 @@ foreach inst $info {
     if {$nm eq "PFTR"} { set idx(PFTR) $i }
     # Build #31 — bomb-entry PC snapshot (bug #6 call-site localization)
     if {$nm eq "PFBE"} { set idx(PFBE) $i }
+    # Build #32 — _SysError opcode (A9C9) caller PC capture
+    if {$nm eq "PFCS"} { set idx(PFCS) $i }
     incr i
 }
 
@@ -704,6 +706,21 @@ for {set s 1} {$s <= 6} {incr s} {
         }
         if {$berr_cnt > 0} {
             puts [format "                    berr_cnt=%u => bus-error edges observed. May have driven the trap." $berr_cnt]
+        }
+    }
+    if {[info exists idx(PFCS)]} {
+        # Build #32 — first IF of opcode $A9C9 = _SysError.
+        set caller_pc [rd $idx(PFCS)]
+        puts [format "           FPU-SYS: syserr_caller_pc=0x%08X" $caller_pc]
+        if {$caller_pc == 0} {
+            puts "                    No _SysError fetch seen yet. Either bomb hasn't fired"
+            puts "                              OR it's via dispatch-table jump (not opcode \$A9C9)."
+        } elseif {$caller_pc >= 0x40000000 && $caller_pc < 0x41000000} {
+            puts [format "                    Caller in ROM at 0x%08X. Disassemble around there to see" $caller_pc]
+            puts "                              what code path / SysError handler decided to bomb."
+        } else {
+            puts [format "                    Caller in RAM at 0x%08X. This is System file / Init code." $caller_pc]
+            puts "                              No ROM disassembly available; correlate with FPU activity."
         }
     }
     if {[info exists idx(PFBE)]} {
