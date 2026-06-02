@@ -87,6 +87,8 @@ foreach inst $info {
     if {$nm eq "PFST"} { set idx(PFST) $i }
     # Build #22 — Coprocessor Control CIR ACK observability probe
     if {$nm eq "PCAK"} { set idx(PCAK) $i }
+    # Build #27 — FPU detection probe (bug #6: coprocessor not installed)
+    if {$nm eq "PFPD"} { set idx(PFPD) $i }
     incr i
 }
 
@@ -599,6 +601,52 @@ for {set s 1} {$s <= 6} {incr s} {
             puts [format "                 ack_cnt=%u => bit 0 = 1 reached FPU. Now check PFST current state:" $ack_cnt]
             puts "                          if STILL EXCEPT_PRE(12), FPU-side ACK gate (cir_mode_reg=1?) is blocking;"
             puts "                          if IDLE, protocol works and the wedge has a different root."
+        }
+    }
+    if {[info exists idx(PFPD)]} {
+        # FPU detection probe (build #27, bug #6). Counts FPU CIR-space bus
+        # cycles by shape to diagnose "coprocessor not installed" dialog.
+        set fd [rd $idx(PFPD)]
+        set total_cyc   [expr {($fd >> 24) & 0xFF}]
+        set last_low    [expr {($fd >> 16) & 0xFF}]
+        set periph_cnt  [expr {($fd >> 8)  & 0xFF}]
+        set save_rd_cnt [expr {$fd & 0xFF}]
+        set reg_name "?"
+        switch -- $last_low {
+            0x00 { set reg_name "Response (cpGEN read)" }
+            0x02 { set reg_name "Control (ACK)" }
+            0x04 { set reg_name "Save CIR (cpSAVE format)" }
+            0x06 { set reg_name "Restore CIR (cpRESTORE format)" }
+            0x08 { set reg_name "Op Word (cpGEN)" }
+            0x0A { set reg_name "Command Word (cpGEN)" }
+            0x0E { set reg_name "Condition (cpScc/cpDBcc/cpTRAPcc/cpBcc)" }
+            0x10 { set reg_name "Operand" }
+            0x14 { set reg_name "Register Select" }
+            0x18 { set reg_name "Instruction Address" }
+            0x1C { set reg_name "Operand Address" }
+            default { set reg_name [format "?(\$%02X)" $last_low] }
+        }
+        puts [format "           FPU-DET: total(sat8)=%u  last_addr=\$%02X (%s)  cpGEN-shape(sat8)=%u  Save-rd(sat8)=%u" \
+            $total_cyc $last_low $reg_name $periph_cnt $save_rd_cnt]
+        if {$total_cyc == 0} {
+            puts "                    PFPD=0 => CPU never touched FPU space. Bug is upstream:"
+            puts "                              ROM Universal.a's TestForFPU may not be running, OR address"
+            puts "                              decode at \$00022000-\$00023FFF (LBMacTwo.sv:472) is broken."
+        } elseif {$periph_cnt == 0} {
+            puts "                    cpGEN-shape=0 => OS only reads Response/Save/Restore, never writes"
+            puts "                              OpWord/Command — meaning no real FPU instruction reaches the"
+            puts "                              CIR write path. Likely HWCfgFlags FPU bit cleared at boot:"
+            puts "                              Universal.a TestForFPU's FNOP took the F-line trap (FPU did"
+            puts "                              not return clean Response). Inspect what our FPU returns on"
+            puts "                              Response CIR after an OpWord/Command write (PFRR last_resp)."
+        } elseif {$save_rd_cnt == 0} {
+            puts "                    Save-rd=0 => OS never read Save CIR. FSAVE protocol path untouched"
+            puts "                              this boot; bug #1 fix isn't being exercised. Bomb origin is"
+            puts "                              some OTHER FPU instruction the FPU doesn't service."
+        } else {
+            puts "                    cpGEN-shape and Save-rd both grow => CIR traffic is healthy."
+            puts "                              The dialog is from a specific op path. Check PFRR/PFST for"
+            puts "                              what response shape preceded the trap, and PFST max_seen."
         }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {

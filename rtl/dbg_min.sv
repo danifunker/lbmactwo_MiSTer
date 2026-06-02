@@ -721,21 +721,26 @@ module dbg_min (
         end
     end
 
-    altsource_probe #(
-        .instance_id ("PIOA"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIOA disabled for build #27 to free routing budget for PFPD (FPU
+    // detection probe). The Welcome-hang IOWait investigation is closed
+    // (bug #1 RESOLVED); PIOA/PIOC aren't load-bearing for bug #6 FPU
+    // detection work.
+    // altsource_probe #(
+    //     .instance_id ("PIOA"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
 
     reg [31:0] pioc_r;
     always @(posedge clk) pioc_r <= {16'd0, iowait_iter_cnt};
-    altsource_probe #(
-        .instance_id ("PIOC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIOC disabled for build #27 (same rationale as PIOA above).
+    // altsource_probe #(
+    //     .instance_id ("PIOC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIR1: writes to $0000_03B4 (= IORB.ioResult at Mac low-mem "Params").
     //   [31:16] last 16-bit value the CPU wrote to $3B4
@@ -1589,5 +1594,90 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pcak (.probe(pcak_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== FPU detection probe (PFPD) — build #27, bug #6 ===================
+    // Diagnoses bug #6 "coprocessor not installed" bomb. supermario's
+    // OS/Universal.a:TestForFPU shows Mac OS detects the FPU at ROM boot by
+    // executing FNOP and checking whether the F-line trap fires; the result
+    // is written to HWCfgFlags bit 12 (hwCbFPU). Later code (apps, INITs,
+    // SANE) reads that bit but never re-probes. So the dialog 7 min into
+    // boot fires when an FPU instruction takes an F-line trap — either
+    // because (a) HWCfgFlags bit got cleared at boot (TestForFPU's FNOP
+    // F-lined and the OS recorded "no FPU"), or (b) a different FPU op
+    // path our FPU doesn't service correctly fires later.
+    //
+    // PFPD layout (packed 32 bits):
+    //   [31:24] total FPU bus cycles in CPU space (saturating 8-bit).
+    //           Should grow steadily as the OS uses the FPU. =0 means the
+    //           CPU is not even trying to touch the FPU.
+    //   [23:16] cpuAddr[7:0] of the last FPU access. Wraps fast; sample
+    //           several times to see the access pattern. Mac OS typical
+    //           CIR offsets: $00 Response, $02 Control, $04 Save, $06
+    //           Restore, $08 OpWord, $0A Command, $0E Condition, $10
+    //           Operand, $18 InstAddr, $1C OpAddr.
+    //   [15:8]  count of FPU accesses where cpuAddr[5:1] is NOT in
+    //           {0,2,3} — i.e. NOT touched by the LBMacTwo.sv:484-487
+    //           remap. These cover OpWord/Command/Condition/Operand/etc.
+    //           writes — the "cpGEN-style traffic" of normal FPU
+    //           instructions including FNOP. If this stays at 0 while
+    //           [31:24] grows, the OS is only reading Response/Save and
+    //           never issuing real FPU ops (suggests it already concluded
+    //           "no FPU" via Universal.a's FNOP probe).
+    //   [7:0]   count of READS to $22004 = Save CIR (cpuAddr[7:0]=$04 AND
+    //           cpuRW=1). Confirms FSAVE format-word read path runs and
+    //           the bug-#1 fix is exercised on this boot.
+    //
+    // Reading the probe at the bomb dialog:
+    //   total grows but periph_like stays at 0  => Mac OS never issues
+    //     a real FPU instruction. HWCfgFlags FPU bit must have been cleared
+    //     at boot — FNOP detection failed. Look at what our FPU returned
+    //     on the FNOP path (Response CIR for cpGEN).
+    //   total grows, periph_like grows, save_rd_cnt grows => FPU
+    //     instructions ARE flowing through CIR mode. The dialog comes from
+    //     a specific op the FPU doesn't handle correctly. Probably a
+    //     missing cpGEN response shape.
+    //   total = 0 entirely => the OS isn't touching the FPU at all. The
+    //     dialog is from a different mechanism (peripheral-mode probe,
+    //     bus-error from a stray pointer, etc.) — Theory 2 or 3
+    //     reconsidered.
+    wire pfpd_fpu_cycle = (cpuAS_n_d && !cpuAS_n)
+        && (cpuFC == 3'b111)
+        && (cpuAddr[31:16] == 16'h0002)
+        && (cpuAddr[15:13] == 3'b001);
+    wire pfpd_remap_target = (cpuAddr[5:1] == 5'd0)
+                          || (cpuAddr[5:1] == 5'd2)
+                          || (cpuAddr[5:1] == 5'd3);
+    wire pfpd_save_rd_evt = pfpd_fpu_cycle && cpuRW
+                         && (cpuAddr[7:0] == 8'h04);
+    reg [7:0] pfpd_total;
+    reg [7:0] pfpd_periph_like;
+    reg [7:0] pfpd_save_rd_cnt;
+    reg [7:0] pfpd_last_low;
+    initial begin
+        pfpd_total        = 8'd0;
+        pfpd_periph_like  = 8'd0;
+        pfpd_save_rd_cnt  = 8'd0;
+        pfpd_last_low     = 8'd0;
+    end
+    always @(posedge clk) begin
+        if (pfpd_fpu_cycle) begin
+            pfpd_last_low <= cpuAddr[7:0];
+            if (pfpd_total != 8'hFF) pfpd_total <= pfpd_total + 8'd1;
+            if (!pfpd_remap_target && pfpd_periph_like != 8'hFF)
+                pfpd_periph_like <= pfpd_periph_like + 8'd1;
+        end
+        if (pfpd_save_rd_evt && pfpd_save_rd_cnt != 8'hFF)
+            pfpd_save_rd_cnt <= pfpd_save_rd_cnt + 8'd1;
+    end
+    reg [31:0] pfpd_r;
+    always @(posedge clk)
+        pfpd_r <= {pfpd_total, pfpd_last_low, pfpd_periph_like, pfpd_save_rd_cnt};
+
+    altsource_probe #(
+        .instance_id ("PFPD"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfpd (.probe(pfpd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
