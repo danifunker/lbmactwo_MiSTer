@@ -9,14 +9,10 @@ local dump_str  = os.getenv("MAME_DUMP_FRAMES") or "300,400,450,500"
 local dump_at = {}
 for f in string.gmatch(dump_str, "[^,]+") do dump_at[tonumber(f)] = true end
 
--- Regions: { name, base_addr, length }
+-- Regions: { name, base_addr, length }.  Full low-RAM sweep so we catch
+-- the divergent bytes regardless of where they live.
 local regions = {
-	{ "vectors", 0x0000, 0x400 },     -- exception vector table
-	{ "lomem_2",  0x0400, 0x400 },    -- system globals 1
-	{ "lomem_8",  0x0800, 0x800 },    -- trap dispatch + globals
-	{ "queue",    0x2400, 0x400 },    -- around the queue base seen at $2748
-	{ "alloc1",  0x9000, 0x400 },     -- area where MAME's $0D10 points ($93A2)
-	{ "alloc2",  0x18400, 0x400 },    -- area where MAME's $08EE points ($18574)
+	{ "low64K", 0x0000, 0x10000 },    -- 0-64KB
 }
 
 local function dump_region(target_frame, name, base, len)

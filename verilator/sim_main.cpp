@@ -1509,12 +1509,7 @@ int verilate() {
 					// Dump several RAM regions in the same RAM_HEX format the
 					// MAME probe uses, so we can directly diff the two sims.
 					struct { const char* name; uint32_t base; uint32_t len; } regions[] = {
-						{ "vectors", 0x0000, 0x400 },
-						{ "lomem_2",  0x0400, 0x400 },
-						{ "lomem_8",  0x0800, 0x800 },
-						{ "queue",    0x2400, 0x400 },
-						{ "alloc1",   0x9000, 0x400 },
-						{ "alloc2",   0x18400, 0x400 },
+						{ "low64K", 0x0000, 0x10000 },  // full 64KB low RAM sweep
 					};
 					for (size_t ri = 0; ri < sizeof(regions)/sizeof(regions[0]); ri++) {
 						for (uint32_t ofs = 0; ofs < regions[ri].len; ofs += 16) {
