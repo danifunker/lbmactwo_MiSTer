@@ -709,18 +709,28 @@ for {set s 1} {$s <= 6} {incr s} {
         }
     }
     if {[info exists idx(PFCS)]} {
-        # Build #32 — first IF of opcode $A9C9 = _SysError.
-        set caller_pc [rd $idx(PFCS)]
-        puts [format "           FPU-SYS: syserr_caller_pc=0x%08X" $caller_pc]
-        if {$caller_pc == 0} {
-            puts "                    No _SysError fetch seen yet. Either bomb hasn't fired"
-            puts "                              OR it's via dispatch-table jump (not opcode \$A9C9)."
-        } elseif {$caller_pc >= 0x40000000 && $caller_pc < 0x41000000} {
-            puts [format "                    Caller in ROM at 0x%08X. Disassemble around there to see" $caller_pc]
-            puts "                              what code path / SysError handler decided to bomb."
+        # Build #33 — LATEST $A9C9 fetch PC + total count.
+        set fd [rd $idx(PFCS)]
+        set pc_low24 [expr {($fd >> 8)  & 0xFFFFFF}]
+        set count    [expr {$fd & 0xFF}]
+        # Infer prefix: $40 for ROM, $00 for RAM. ROM PCs typically >= $1000.
+        if {$pc_low24 >= 0x1000} {
+            set caller_pc [expr {0x40000000 | $pc_low24}]
+            set zone "ROM"
         } else {
-            puts [format "                    Caller in RAM at 0x%08X. This is System file / Init code." $caller_pc]
-            puts "                              No ROM disassembly available; correlate with FPU activity."
+            set caller_pc [expr {0x00000000 | $pc_low24}]
+            set zone "RAM"
+        }
+        puts [format "           FPU-SYS: latest_A9C9_pc=0x%08X (%s)  count(sat8)=%u" \
+            $caller_pc $zone $count]
+        if {$count == 0} {
+            puts "                    No _SysError fetch seen. Bomb is via dispatch-table jump"
+            puts "                              (direct JSR to SystemError, no A9C9 opcode)."
+        } else {
+            puts "                    Compare count across sample rounds: if it grew between two"
+            puts "                              rounds, a new _SysError fired between them. The latest_pc"
+            puts "                              is the most recent caller — that's the bomb if count"
+            puts "                              changed at the bomb-visible round."
         }
     }
     if {[info exists idx(PFBE)]} {

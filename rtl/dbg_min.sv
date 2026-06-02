@@ -1777,6 +1777,11 @@ module dbg_min (
     wire pfcs_is_if_start = cpuAS_n_d && !cpuAS_n
                          && cpuRW
                          && (cpuFC == 3'b110 || cpuFC == 3'b010);
+    // Build #33: track LATEST $A9C9 fetch (overwrite always), plus a
+    // saturating count of total $A9C9 fetches. Build #32's "first only"
+    // semantics stuck at $400011DC from T+90s onward and couldn't reveal
+    // whether another _SysError fired at the bomb moment (T+5..7min).
+    reg [7:0] pfcs_count;
     always @(posedge clk) begin
         if (pfcs_is_if_start) begin
             pfcs_pending_pc    <= cpuAddr;
@@ -1784,15 +1789,17 @@ module dbg_min (
         end
         if (pfcs_pending_armed && pfcs_is_if_end) begin
             pfcs_pending_armed <= 1'b0;
-            if (!pfcs_first_seen && cpu_din == 16'hA9C9) begin
-                pfcs_caller_pc  <= pfcs_pending_pc;
-                pfcs_first_seen <= 1'b1;
+            if (cpu_din == 16'hA9C9) begin
+                pfcs_caller_pc <= pfcs_pending_pc;  // overwrite ALWAYS
+                if (pfcs_count != 8'hFF) pfcs_count <= pfcs_count + 8'd1;
             end
         end
     end
+    // Pack count into low 8 bits of probe; keep PC in upper 24. Loses high
+    // byte of PC but that's $40 for ROM / $00 for RAM — inferable from value.
     reg [31:0] pfcs_r;
     always @(posedge clk)
-        pfcs_r <= pfcs_caller_pc;
+        pfcs_r <= {pfcs_caller_pc[23:0], pfcs_count};
 
     altsource_probe #(
         .instance_id ("PFCS"),
