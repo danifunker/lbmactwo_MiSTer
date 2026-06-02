@@ -1691,4 +1691,73 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pfpd (.probe(pfpd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ==== PFTR: trap-vector-fetch + bus-error probe (build #30, bug #6) ====
+    // Detects exception entries by watching for supervisor-data (FC=5) reads
+    // to the vector table (addr < $400 covers all 256 vectors at VBR=0).
+    // On 68020, when an exception fires, the CPU reads VBR + vec_num*4 in
+    // FC=5; we latch that read address to identify the firing vector. Also
+    // counts bus-error edges so we can tell BERR-driven traps from native
+    // F-line / coproc-protocol-violation traps.
+    //
+    // Layout:
+    //   [31:24] pftr_last_vec       — vector number of the LAST exception
+    //                                 entry (= cpuAddr[9:2] of the vector
+    //                                 fetch). Decode reference:
+    //                                   $02 BUS_ERR  $03 ADDR_ERR
+    //                                   $04 ILL_INST $05 DIVZ
+    //                                   $0B LINE_F   $0D COPROC_PV
+    //                                   $0E FORMAT_ERR
+    //                                   $30 BSUN     $34 OPERR
+    //   [23:16] pftr_trap_cnt       — trap-entry count (wrap-8). Confirms
+    //                                 whether ANY trap fired between rounds.
+    //   [15:0]  pftr_berr_cnt       — bus-error rising-edge count (wrap-16).
+    //                                 Distinguishes BERR-triggered traps
+    //                                 from native protocol traps.
+    //
+    // Decision tree:
+    //   pftr_trap_cnt grows + last_vec=$0B → F-line trap fired. Bomb is the
+    //     System file's NewFLineRoutine-style handler. The PC trail before
+    //     the trap shows the offending opcode site.
+    //   pftr_trap_cnt grows + last_vec=$0D → coprocessor protocol violation.
+    //     FPU returned a Response value the CPU rejected. Check PFRR's
+    //     last_resp shape against AN-947 primary encodings.
+    //   pftr_trap_cnt grows + last_vec=$02 → bus error. Either FPU DSACK
+    //     timed out or an address went undecoded.
+    //   pftr_berr_cnt > 0 + last_vec=$0B → BERR triggered F-line indirectly
+    //     (the bus error converts to an F-line trap in some paths).
+    //   pftr_trap_cnt unchanged → no traps fired. Bomb is not exception-
+    //     driven; look for direct _SysError call from System code.
+    wire pftr_vec_fetch = cpuAS_n_d && !cpuAS_n && cpuRW
+                       && (cpuFC == 3'b101)            // supervisor data
+                       && (cpuAddr[31:10] == 22'd0);   // addr < $400
+
+    reg [7:0]  pftr_last_vec;
+    reg [7:0]  pftr_trap_cnt;
+    reg [15:0] pftr_berr_cnt;
+    reg        pftr_berr_d;
+    initial begin
+        pftr_last_vec = 8'd0;
+        pftr_trap_cnt = 8'd0;
+        pftr_berr_cnt = 16'd0;
+        pftr_berr_d   = 1'b0;
+    end
+    always @(posedge clk) begin
+        pftr_berr_d <= berr;
+        if (pftr_vec_fetch) begin
+            pftr_last_vec <= cpuAddr[9:2];        // vector number = addr/4
+            pftr_trap_cnt <= pftr_trap_cnt + 8'd1;
+        end
+        if (berr && !pftr_berr_d) pftr_berr_cnt <= pftr_berr_cnt + 16'd1;
+    end
+    reg [31:0] pftr_r;
+    always @(posedge clk)
+        pftr_r <= {pftr_last_vec, pftr_trap_cnt, pftr_berr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PFTR"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pftr (.probe(pftr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
 endmodule

@@ -89,6 +89,8 @@ foreach inst $info {
     if {$nm eq "PCAK"} { set idx(PCAK) $i }
     # Build #27 — FPU detection probe (bug #6: coprocessor not installed)
     if {$nm eq "PFPD"} { set idx(PFPD) $i }
+    # Build #30 — trap-vector-fetch + bus-error probe (bug #6 root-cause)
+    if {$nm eq "PFTR"} { set idx(PFTR) $i }
     incr i
 }
 
@@ -647,6 +649,59 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                              detection). Check PFRR last_resp to see what Response value"
             puts "                              the FPU returned; non-NULL/non-BUSY/non-exception triggers"
             puts "                              TG68 cp_cond_eval/cp_idle_resp F-line fall-through."
+        }
+    }
+    if {[info exists idx(PFTR)]} {
+        # Build #30 — trap-vector-fetch + bus-error probe.
+        set tr [rd $idx(PFTR)]
+        set last_vec  [expr {($tr >> 24) & 0xFF}]
+        set trap_cnt  [expr {($tr >> 16) & 0xFF}]
+        set berr_cnt  [expr {$tr & 0xFFFF}]
+        # Decode vector number to a human-readable name.
+        set vec_name "unknown"
+        switch -- $last_vec {
+            0  {set vec_name "(none)"}
+            2  {set vec_name "BUS_ERR"}
+            3  {set vec_name "ADDR_ERR"}
+            4  {set vec_name "ILL_INST"}
+            5  {set vec_name "DIVZ"}
+            6  {set vec_name "CHK"}
+            7  {set vec_name "TRAPV"}
+            8  {set vec_name "PRIV"}
+            9  {set vec_name "TRACE"}
+            10 {set vec_name "LINE_A"}
+            11 {set vec_name "LINE_F"}
+            13 {set vec_name "COPROC_PV"}
+            14 {set vec_name "FORMAT_ERR"}
+            48 {set vec_name "FBSUN"}
+            49 {set vec_name "FINEX"}
+            50 {set vec_name "FDIV0"}
+            51 {set vec_name "FUNDFL"}
+            52 {set vec_name "FOPERR"}
+            53 {set vec_name "FOVFL"}
+            54 {set vec_name "FSNAN"}
+            default {set vec_name "vec#$last_vec"}
+        }
+        puts [format "           FPU-TRP: last_vec=%u (%s)  trap_cnt(sat8)=%u  berr_cnt(wrap16)=%u" \
+            $last_vec $vec_name $trap_cnt $berr_cnt]
+        if {$trap_cnt == 0} {
+            puts "                    trap_cnt=0 => no trap fired (or VBR moved -- this probe assumes VBR=0)."
+            puts "                              Bomb is NOT via exception vector. Likely a direct _SysError"
+            puts "                              call from a System patch / driver."
+        } elseif {$last_vec == 11} {
+            puts "                    LINE_F trap fired => F-line exception. System file's F-line handler"
+            puts "                              likely posts dsNoFPU. Check what FPU op opcode TG68 traced"
+            puts "                              just before this vector fetch (IF-PC trail above)."
+        } elseif {$last_vec == 13} {
+            puts "                    COPROC_PV fired => the FPU returned a Response value the CPU rejected."
+            puts "                              Inspect PFRR last_resp + PFST max_seen against AN-947 primary"
+            puts "                              encodings (NULL/BUSY/TRANSFER/EXCEPTION)."
+        } elseif {$last_vec == 2} {
+            puts "                    BUS_ERR fired => an address went undecoded or FPU DSACK timed out."
+            puts "                              Cross-reference with PFPD last_addr."
+        }
+        if {$berr_cnt > 0} {
+            puts [format "                    berr_cnt=%u => bus-error edges observed. May have driven the trap." $berr_cnt]
         }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {
