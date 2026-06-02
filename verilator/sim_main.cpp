@@ -133,6 +133,19 @@ uint32_t scsi_stall_dreq_run = 0;
 bool scsi_stall_dumped = false;
 int scsi_stall_history_min_frame = 3500;  // --scsi-stall-history-min-frame N to lower for tlen=317 etc
 
+// --force-mbstate-zero <frame>: at the given frame, write 0 to low-mem $172
+// (MBState) — a sim-only diagnostic for the MBState wait at $40802432.  If
+// this unblocks the boot, the wait is the genuine blocker; if it doesn't,
+// there's a different blocker even with MBState clear.
+int force_mbstate_zero_frame = -1;
+bool force_mbstate_zero_done = false;
+
+// --pc-dump-frame <frame>: dump the PC ring + low-mem snapshot at the given
+// frame regardless of whether the CPU is in a tight loop.  Used when the
+// spin detector doesn't fire because the host is in a wider algorithmic loop.
+int pc_dump_frame = -1;
+bool pc_dump_done = false;
+
 // --cpu-spin-history: detect when the CPU has been spinning in a tight loop
 // for a long time and dump the PC ring buffer + lowmem state.  Used when SCSI
 // is idle (so scsi_stall_history's stall_cnt trigger won't fire) but the host
@@ -1353,6 +1366,42 @@ int verilate() {
 						}
 					}
 				}
+				// --pc-dump-frame: unconditional ring dump at the requested
+				// frame.  Always fill the ring; fire the dump when armed.
+				if (pc_dump_frame >= 0 && !pc_dump_done) {
+					record_bootmask_history(pc);
+				}
+				if (pc_dump_frame >= 0 && !pc_dump_done &&
+				    video.count_frame >= pc_dump_frame &&
+				    bootmask_history_count == BOOTMASK_HISTORY_SIZE) {
+					int best_count = 0;
+					uint32_t best_bucket = 0;
+					for (int i = 0; i < BOOTMASK_HISTORY_SIZE; i++) {
+						uint32_t bucket = bootmask_history[i].pc & ~63u;
+						int c = 0;
+						for (int j = 0; j < BOOTMASK_HISTORY_SIZE; j++) {
+							if ((bootmask_history[j].pc & ~63u) == bucket) c++;
+						}
+						if (c > best_count) { best_count = c; best_bucket = bucket; }
+					}
+					fprintf(stderr, "PC_DUMP frame=%d pc=%08X dominant_bucket=%08X count=%d/%d\n",
+					        video.count_frame, pc, best_bucket, best_count, BOOTMASK_HISTORY_SIZE);
+					fprintf(stderr, "LOWMEM_BOOTWAIT B0172=%02X(MBState) B0160=%02X B08CF=%02X "
+					        "W0172=%04X W017A=%04X W08CE=%04X L08EE=%08X\n",
+					        ram_byte(0x0172), ram_byte(0x0160), ram_byte(0x08CF),
+					        ram_word(0x0172), ram_word(0x017A), ram_word(0x08CE),
+					        ram_long(0x08EE));
+					int first3 = bootmask_history_pos - bootmask_history_count;
+					if (first3 < 0) first3 += BOOTMASK_HISTORY_SIZE;
+					for (int i = 0; i < bootmask_history_count; i++) {
+						int idx = (first3 + i) % BOOTMASK_HISTORY_SIZE;
+						const BootmaskHistoryEntry& e = bootmask_history[idx];
+						fprintf(stderr, "PCHIST %03d frame=%d pc=%08X op=%04X "
+						        "D0=%08X D1=%08X D5=%08X A2=%08X A3=%08X A4=%08X SP=%08X RET=%08X\n",
+						        i, e.frame, e.pc, e.op, e.d0, e.d1, e.d5, e.a2, e.a3, e.a4, e.sp, e.ret);
+					}
+					pc_dump_done = true;
+				}
 				if (bootmask_once_debug_enable && !bootmask_once_stop_requested) {
 					record_bootmask_history(pc);
 					if (bootmask_once_pc(pc)) {
@@ -2464,6 +2513,14 @@ int verilate() {
 
 		if (clk_sys.IsRising()) {
 			main_time++;
+			// Per-cycle force MBState=0 (sim diagnostic).  ADB autopolls write
+			// 0x80 between frames so a once-per-frame force doesn't hold.
+			// Per-cycle keeps the byte 0 except for whatever the chip writes
+			// in the same posedge, which the CPU sees cleared on the next.
+			if (force_mbstate_zero_frame >= 0 && force_mbstate_zero_done) {
+				uint16_t w = ram_word(0x0172);
+				if (w & 0xFF00) ram_write_word(0x0172, w & 0x00FF);
+			}
 			if (poll268_debug_enable && !*bus.ioctl_download) {
 				static int poll268_log_count = 0;
 				static uint32_t poll268_last_pc = 0xFFFFFFFF;
@@ -3536,6 +3593,14 @@ int main(int argc, char** argv, char** env) {
 		} else if (strcmp(argv[i], "--scsi-stall-history-min-frame") == 0 && i + 1 < argc) {
 			scsi_stall_history_min_frame = std::stoi(argv[i + 1]);
 			i++;
+		} else if (strcmp(argv[i], "--pc-dump-frame") == 0 && i + 1 < argc) {
+			pc_dump_frame = std::stoi(argv[i + 1]);
+			i++;
+			printf("Will dump PC ring at frame %d\n", pc_dump_frame);
+		} else if (strcmp(argv[i], "--force-mbstate-zero") == 0 && i + 1 < argc) {
+			force_mbstate_zero_frame = std::stoi(argv[i + 1]);
+			i++;
+			printf("Will force $172 (MBState)=0 at frame %d\n", force_mbstate_zero_frame);
 		} else if (strcmp(argv[i], "--cpu-spin-history") == 0) {
 			cpu_spin_history_enable = true;
 		} else if (strcmp(argv[i], "--cpu-spin-history-min-frame") == 0 && i + 1 < argc) {
@@ -3933,6 +3998,24 @@ int main(int argc, char** argv, char** env) {
 				} else {
 					apply_mouse_packet(0, 0, 0);
 				}
+			}
+
+			// --force-mbstate-zero: write 0 to low-mem $172 EVERY frame
+			// from the configured frame onward.  ADB autopoll rewrites the
+			// byte to 0x80 between frames, so a one-shot write doesn't
+			// hold; this overrides every frame so the MBState wait loop
+			// at $40802432 sees 0 whenever it polls.
+			if (force_mbstate_zero_frame >= 0 &&
+			    video.count_frame >= force_mbstate_zero_frame) {
+				if (!force_mbstate_zero_done) {
+					uint16_t before = ram_word(0x0172);
+					fprintf(stderr, "FORCE_MBSTATE_ZERO armed at frame=%d before=%04X\n",
+					        video.count_frame, before);
+					force_mbstate_zero_done = true;
+				}
+				// keep clearing byte $172 specifically (preserve $173)
+				uint16_t w = ram_word(0x0172);
+				ram_write_word(0x0172, w & 0x00FF);
 			}
 
 			bool took_screenshot_this_frame = false;
