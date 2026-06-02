@@ -91,6 +91,8 @@ foreach inst $info {
     if {$nm eq "PFPD"} { set idx(PFPD) $i }
     # Build #30 — trap-vector-fetch + bus-error probe (bug #6 root-cause)
     if {$nm eq "PFTR"} { set idx(PFTR) $i }
+    # Build #31 — bomb-entry PC snapshot (bug #6 call-site localization)
+    if {$nm eq "PFBE"} { set idx(PFBE) $i }
     incr i
 }
 
@@ -702,6 +704,22 @@ for {set s 1} {$s <= 6} {incr s} {
         }
         if {$berr_cnt > 0} {
             puts [format "                    berr_cnt=%u => bus-error edges observed. May have driven the trap." $berr_cnt]
+        }
+    }
+    if {[info exists idx(PFBE)]} {
+        # Build #31 — PC just before first IF to SysError dialog ($40002432).
+        set pc_before_bomb [rd $idx(PFBE)]
+        puts [format "           FPU-BMB: pc_before_bomb=0x%08X" $pc_before_bomb]
+        if {$pc_before_bomb == 0} {
+            puts "                    pc_before_bomb=0 => either bomb hasn't fired yet OR the dialog"
+            puts "                              never triggered the \$40002432 wait loop entry. Bomb may"
+            puts "                              come via a different dialog handler or different SP."
+        } else {
+            puts "                    Disassemble ROM/RAM at this address to find what code called"
+            puts "                              the SysError trap. If in ROM (\$4xxxxxxx), this points"
+            puts "                              to the F-line handler's continuation; if in RAM"
+            puts "                              (\$00xxxxxx), it's a System file / patch code that"
+            puts "                              issued the bomb directly."
         }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {

@@ -1691,7 +1691,58 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pfpd (.probe(pfpd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // ==== PFTR: trap-vector-fetch + bus-error probe (build #30, bug #6) ====
+    // ==== PFBE: bomb-entry PC snapshot (build #31, bug #6) =================
+    // PFTR (build #30) was noisy — its FC=5+addr<$400 filter caught low-mem
+    // global reads (MBState @ $172, IORB ioResult @ $3B4) not just traps.
+    // The bomb dialog wait loop lives in Mac II ROM at $40002432; the FIRST
+    // IF to that address is the moment the bomb appears. PFBE captures the
+    // PC of the IF *immediately before* that — i.e., the last instruction
+    // executed by the SystemError setup code or its caller chain. Combined
+    // with PFPD/PFRR/PFST snapshots at the same time, this localizes the
+    // bomb call site.
+    //
+    // Layout:
+    //   [31:0] pc_before_bomb — IF-PC of the instruction just before the
+    //                           first IF to the SysError dialog. Decode:
+    //                           ROM disassembly at this PC (or RAM if
+    //                           PC is in $00xxxxxx range) shows what
+    //                           triggered the SysError.
+    //
+    // The probe is one-shot (latches the value on the FIRST trigger), so
+    // subsequent re-entries to the dialog (e.g. if user clicks Restart and
+    // it bombs again) don't overwrite it.
+    wire pfbe_is_if = cpuAS_n_d && !cpuAS_n && cpuRW
+                   && (cpuFC == 3'b110 || cpuFC == 3'b010);  // supervisor or user IF
+    reg        pfbe_first_seen;
+    reg [31:0] pfbe_pc_before_bomb;
+    reg [31:0] pfbe_prev_if_pc;
+    initial begin
+        pfbe_first_seen     = 1'b0;
+        pfbe_pc_before_bomb = 32'h0;
+        pfbe_prev_if_pc     = 32'h0;
+    end
+    always @(posedge clk) begin
+        if (pfbe_is_if) begin
+            if (!pfbe_first_seen && cpuAddr == 32'h4000_2432) begin
+                pfbe_first_seen     <= 1'b1;
+                pfbe_pc_before_bomb <= pfbe_prev_if_pc;
+            end else if (!pfbe_first_seen) begin
+                pfbe_prev_if_pc <= cpuAddr;
+            end
+        end
+    end
+    reg [31:0] pfbe_r;
+    always @(posedge clk)
+        pfbe_r <= pfbe_pc_before_bomb;
+
+    altsource_probe #(
+        .instance_id ("PFBE"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfbe (.probe(pfbe_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PFTR (build #30) -- kept for reference but noisy ==================
     // Detects exception entries by watching for supervisor-data (FC=5) reads
     // to the vector table (addr < $400 covers all 256 vectors at VBR=0).
     // On 68020, when an exception fires, the CPU reads VBR + vec_num*4 in
