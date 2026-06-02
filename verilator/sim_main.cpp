@@ -80,6 +80,16 @@ int cfg_memSize = 3;       // RAM size: 0=1MB, 1=2MB, 2=4MB, 3=8MB (set via --ra
 // off with --no-wlsc-init.
 bool init_wlsc_on_boot = false;
 bool wlsc_was_written = false;
+
+// Pre-fill RAM with the walking 0xDB6DB6DB / 0xB6DB6DB6 / 0x6DB6DB6D pattern
+// that MAME's full memtest leaves behind.  Byte-by-byte diff of MAME vs
+// Verilator's --no-memtest RAM at frame 500 shows that the boot DOES depend
+// on these "leftover" pattern bytes (e.g., queue at $2400 has them in
+// fields the boot never initializes; reading those fields as zero in
+// Verilator vs pattern in MAME flips downstream branches).  Set via
+// --no-memtest, override off with --no-memtest-fill.
+bool prefill_memtest_pattern = false;
+bool prefill_done = false;
 const char* rom_file_override = nullptr;  // --rom <file> overrides the boot0 ROM (e.g. the no-memtest fast-boot ROM)
 
 // CPU trace
@@ -1285,6 +1295,21 @@ int verilate() {
 						ram_write_word(0x0CFE, 0x5343);  // 'SC'
 					}
 				}
+				// Pre-fill all of RAM with the walking $DB6DB6DB pattern that
+				// MAME's full memtest leaves behind.  Only fire ONCE, before
+				// the boot has had a chance to initialize anything.
+				if (prefill_memtest_pattern && !prefill_done) {
+					// Cover the first 8 MB of RAM with the pattern.  Three
+					// rotations of $DB6DB6DB at byte granularity; the value
+					// written per 32-bit word is the same throughout.
+					uint32_t ram_words = 8 * 1024 * 1024 / 2;  // 4M 16-bit words
+					for (uint32_t a = 0; a < ram_words * 2; a += 4) {
+						ram_write_word(a,     0xDB6D);
+						ram_write_word(a + 2, 0xB6DB);
+					}
+					fprintf(stderr, "Pre-filled 8 MB RAM with walking memtest pattern $DB6DB6DB\n");
+					prefill_done = true;
+				}
 			}
 			if (clk_sys.clk) {
 				input.BeforeEval();
@@ -1446,6 +1471,30 @@ int verilate() {
 						fprintf(stderr, "MULTI_PC_TOP target=%d rank=%zu bucket=%08X count=%d\n",
 						        target_frame, k, entries[k].bucket, entries[k].count);
 					}
+					// Dump several RAM regions in the same RAM_HEX format the
+					// MAME probe uses, so we can directly diff the two sims.
+					struct { const char* name; uint32_t base; uint32_t len; } regions[] = {
+						{ "vectors", 0x0000, 0x400 },
+						{ "lomem_2",  0x0400, 0x400 },
+						{ "lomem_8",  0x0800, 0x800 },
+						{ "queue",    0x2400, 0x400 },
+						{ "alloc1",   0x9000, 0x400 },
+						{ "alloc2",   0x18400, 0x400 },
+					};
+					for (size_t ri = 0; ri < sizeof(regions)/sizeof(regions[0]); ri++) {
+						for (uint32_t ofs = 0; ofs < regions[ri].len; ofs += 16) {
+							char buf[256]; int bp = 0;
+							for (int k = 0; k < 16; k++) {
+								bp += snprintf(buf + bp, sizeof(buf) - bp, "%s%02X",
+								               k ? " " : "",
+								               ram_byte(regions[ri].base + ofs + k));
+							}
+							fprintf(stderr, "RAM_HEX target=%d %s %08X %s\n",
+							        target_frame, regions[ri].name,
+							        regions[ri].base + ofs, buf);
+						}
+					}
+					fprintf(stderr, "RAM_HEX_DONE target=%d\n", target_frame);
 					pc_dump_frames_next++;
 				}
 				if (pc_dump_frame >= 0 && !pc_dump_done &&
@@ -3785,6 +3834,10 @@ int main(int argc, char** argv, char** env) {
 			rom_file_override = "../releases/boot0-nomemtest.rom";
 			fprintf(stderr, "Fast boot: using no-memtest ROM %s\n", rom_file_override);
 			init_wlsc_on_boot = true;
+			prefill_memtest_pattern = true;
+		} else if (strcmp(argv[i], "--no-memtest-fill") == 0) {
+			prefill_memtest_pattern = false;
+			fprintf(stderr, "Memtest pattern pre-fill disabled\n");
 		} else if (strcmp(argv[i], "--no-wlsc-init") == 0) {
 			init_wlsc_on_boot = false;
 			fprintf(stderr, "WLSC pre-init disabled\n");
