@@ -12,7 +12,7 @@ for f in string.gmatch(dump_str, "[^,]+") do dump_at[tonumber(f)] = true end
 -- Regions: { name, base_addr, length }.  Full low-RAM sweep so we catch
 -- the divergent bytes regardless of where they live.
 local regions = {
-	{ "low64K", 0x0000, 0x10000 },    -- 0-64KB
+	{ "low128K", 0x0000, 0x20000 },   -- 0-128KB so we catch System code at ~0x12000
 }
 
 local function dump_region(target_frame, name, base, len)
