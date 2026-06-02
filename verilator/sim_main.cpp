@@ -286,6 +286,7 @@ std::string scsi_disk_files[2];
 std::string floppy_disk_files[2];
 bool force_calib_enable = false;
 bool force_calib_derived = false;  // also force the derived bytes/words; --force-mame-calib-derived
+bool track_0d10_writers = false;   // --track-0d10: log every change of $0D10 with PC + regs
 bool force_calib_derived_done = false;
 uint16_t force_calib_0d00 = 0;
 uint16_t force_calib_0da6 = 0;
@@ -1365,6 +1366,22 @@ int verilate() {
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				if (track_0d10_writers) {
+					static uint32_t last_0d10 = 0;
+					static int log_count = 0;
+					uint32_t cur = ram_long(0x0D10);
+					if (cur != last_0d10 && log_count < 60) {
+						uint32_t sp = tg68_reg(15);
+						uint32_t ret = ram_long(sp);
+						fprintf(stderr, "VER_0D10_CHG frame=%d pc=%08X prev=%08X curr=%08X "
+						        "SP=%08X ret=%08X A0=%08X A1=%08X D0=%08X D1=%08X\n",
+						        video.count_frame, pc, last_0d10, cur,
+						        sp, ret, tg68_reg(8), tg68_reg(9),
+						        tg68_reg(0), tg68_reg(1));
+						last_0d10 = cur;
+						log_count++;
+					}
+				}
 				if (scsi_stall_history_enable && !scsi_stall_dumped) {
 					record_bootmask_history(pc);
 					// DREQ asserted but CPU not draining it -> count consecutive
@@ -3819,6 +3836,9 @@ int main(int argc, char** argv, char** env) {
 			force_calib_0d00 = 0x0A3B;
 			force_calib_0da6 = 0x0417;
 			force_calib_min_frame = 120;
+		} else if (strcmp(argv[i], "--track-0d10") == 0) {
+			track_0d10_writers = true;
+			fprintf(stderr, "Tracking writes to $0D10\n");
 		} else if (strcmp(argv[i], "--force-mame-calib-derived") == 0) {
 			force_calib_enable = true;
 			force_calib_derived = true;
