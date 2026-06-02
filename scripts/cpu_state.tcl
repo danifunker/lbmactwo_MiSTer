@@ -604,13 +604,15 @@ for {set s 1} {$s <= 6} {incr s} {
         }
     }
     if {[info exists idx(PFPD)]} {
-        # FPU detection probe (build #27, bug #6). Counts FPU CIR-space bus
+        # FPU detection probe (build #28, bug #6). Counts FPU CIR-space bus
         # cycles by shape to diagnose "coprocessor not installed" dialog.
+        # Build #28: [7:0] now counts Condition CIR writes (FBcc/FNOP),
+        # replacing Save-CIR reads (which build #27 already confirmed work).
         set fd [rd $idx(PFPD)]
         set total_cyc   [expr {($fd >> 24) & 0xFF}]
         set last_low    [expr {($fd >> 16) & 0xFF}]
         set periph_cnt  [expr {($fd >> 8)  & 0xFF}]
-        set save_rd_cnt [expr {$fd & 0xFF}]
+        set cond_wr_cnt [expr {$fd & 0xFF}]
         set reg_name "?"
         switch -- $last_low {
             0x00 { set reg_name "Response (cpGEN read)" }
@@ -626,27 +628,25 @@ for {set s 1} {$s <= 6} {incr s} {
             0x1C { set reg_name "Operand Address" }
             default { set reg_name [format "?(\$%02X)" $last_low] }
         }
-        puts [format "           FPU-DET: total(sat8)=%u  last_addr=\$%02X (%s)  cpGEN-shape(sat8)=%u  Save-rd(sat8)=%u" \
-            $total_cyc $last_low $reg_name $periph_cnt $save_rd_cnt]
+        puts [format "           FPU-DET: total(sat8)=%u  last_addr=\$%02X (%s)  cpGEN-shape(sat8)=%u  Cond-wr(sat8)=%u" \
+            $total_cyc $last_low $reg_name $periph_cnt $cond_wr_cnt]
         if {$total_cyc == 0} {
             puts "                    PFPD=0 => CPU never touched FPU space. Bug is upstream:"
-            puts "                              ROM Universal.a's TestForFPU may not be running, OR address"
-            puts "                              decode at \$00022000-\$00023FFF (LBMacTwo.sv:472) is broken."
+            puts "                              ROM TestForFPU may not be running, OR address decode at"
+            puts "                              \$00022000-\$00023FFF (LBMacTwo.sv:472) is broken."
+        } elseif {$cond_wr_cnt == 0} {
+            puts "                    Cond-wr=0 => no Condition CIR writes ever happened. The OS NEVER"
+            puts "                              issued an FBcc/FNOP/FScc/FDBcc/FTRAPcc. This rules out"
+            puts "                              the supermario Universal.a-style FNOP F-line detection."
+            puts "                              Either the OS uses a different detection path, OR FNOP"
+            puts "                              never reached the FPU because the F-line trap fired upstream."
         } elseif {$periph_cnt == 0} {
-            puts "                    cpGEN-shape=0 => OS only reads Response/Save/Restore, never writes"
-            puts "                              OpWord/Command — meaning no real FPU instruction reaches the"
-            puts "                              CIR write path. Likely HWCfgFlags FPU bit cleared at boot:"
-            puts "                              Universal.a TestForFPU's FNOP took the F-line trap (FPU did"
-            puts "                              not return clean Response). Inspect what our FPU returns on"
-            puts "                              Response CIR after an OpWord/Command write (PFRR last_resp)."
-        } elseif {$save_rd_cnt == 0} {
-            puts "                    Save-rd=0 => OS never read Save CIR. FSAVE protocol path untouched"
-            puts "                              this boot; bug #1 fix isn't being exercised. Bomb origin is"
-            puts "                              some OTHER FPU instruction the FPU doesn't service."
+            puts "                    cpGEN-shape=0 but Cond-wr>0 => only FBcc-style ops, no cpSAVE/cpRESTORE."
         } else {
-            puts "                    cpGEN-shape and Save-rd both grow => CIR traffic is healthy."
-            puts "                              The dialog is from a specific op path. Check PFRR/PFST for"
-            puts "                              what response shape preceded the trap, and PFST max_seen."
+            puts "                    Cond-wr>0 and cpGEN-shape>0 => FBcc protocol DID run (likely FNOP"
+            puts "                              detection). Check PFRR last_resp to see what Response value"
+            puts "                              the FPU returned; non-NULL/non-BUSY/non-exception triggers"
+            puts "                              TG68 cp_cond_eval/cp_idle_resp F-line fall-through."
         }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {

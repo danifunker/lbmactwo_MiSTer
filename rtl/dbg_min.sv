@@ -1460,19 +1460,21 @@ module dbg_min (
         pfrr_resp_rd_cnt = 8'd0;
         pfrr_ctrl_wr_cnt = 8'd0;
     end
+    // Build #28 PFRR fix: FPU reads use DSACK, not the SDRAM arbiter, so
+    // mac_dout_valid never fires for FPU accesses and the old code would
+    // never capture last_resp. Latch cpu_din on AS rising edge — for FPU
+    // reads, the LBMacTwo.sv data mux routes fpu_data_out to cpu_data_in
+    // (cpu_din) for the whole cycle, so the value visible at end-of-cycle
+    // is the response data TG68 actually clocked.
     always @(posedge clk) begin
         if (pfrr_resp_rd) begin
             pfrr_pending     <= 1'b1;
             pfrr_resp_rd_cnt <= pfrr_resp_rd_cnt + 8'd1;
         end
-        if (pfrr_pending && mac_dout_valid) begin
+        if (pfrr_pending && !cpuAS_n_d && cpuAS_n) begin
+            // AS rising edge: bus cycle ends. Capture the data the CPU saw.
             pfrr_last_resp <= cpu_din;
             pfrr_pending   <= 1'b0;
-        end
-        if (pfrr_pending && !cpuAS_n_d && cpuAS_n) begin
-            // AS rose before mac_dout_valid -> drop pending (shouldn't happen
-            // for FPU DSACK protocol but mirror PIR3 safety net)
-            pfrr_pending <= 1'b0;
         end
         if (pfrr_ctrl_wr) pfrr_ctrl_wr_cnt <= pfrr_ctrl_wr_cnt + 8'd1;
     end
@@ -1623,9 +1625,16 @@ module dbg_min (
     //           [31:24] grows, the OS is only reading Response/Save and
     //           never issuing real FPU ops (suggests it already concluded
     //           "no FPU" via Universal.a's FNOP probe).
-    //   [7:0]   count of READS to $22004 = Save CIR (cpuAddr[7:0]=$04 AND
-    //           cpuRW=1). Confirms FSAVE format-word read path runs and
-    //           the bug-#1 fix is exercised on this boot.
+    //   [7:0]   count of WRITES to $2200E = Condition CIR (cpuAddr[7:0]=$0E
+    //           AND cpuRW=0). Build #27 used this slot for Save-CIR reads,
+    //           but the data captured in build #27 already confirmed Save-rd
+    //           works (=1). Build #28 repurposes it to count cpBcc/cpScc/
+    //           cpDBcc/cpTRAPcc Condition writes — these include FNOP, which
+    //           is structurally cpBcc-word with cond=FBF. If this stays at 0
+    //           while opword_seen=1, the OS issued OpWord writes for cpSAVE/
+    //           cpRESTORE only; NO FBcc protocol ran => HWCfgFlags FPU bit
+    //           never got tested by an FNOP detection. If it's > 0, FNOP/
+    //           FBcc detection DID run; bomb is from PFRR last_resp shape.
     //
     // Reading the probe at the bomb dialog:
     //   total grows but periph_like stays at 0  => Mac OS never issues
@@ -1647,16 +1656,18 @@ module dbg_min (
     wire pfpd_remap_target = (cpuAddr[5:1] == 5'd0)
                           || (cpuAddr[5:1] == 5'd2)
                           || (cpuAddr[5:1] == 5'd3);
-    wire pfpd_save_rd_evt = pfpd_fpu_cycle && cpuRW
-                         && (cpuAddr[7:0] == 8'h04);
+    // Build #28: cond_wr_evt counts writes to $2200E (Condition CIR) —
+    // confirms whether FBcc/FNOP detection actually fires.
+    wire pfpd_cond_wr_evt = pfpd_fpu_cycle && !cpuRW
+                         && (cpuAddr[7:0] == 8'h0E);
     reg [7:0] pfpd_total;
     reg [7:0] pfpd_periph_like;
-    reg [7:0] pfpd_save_rd_cnt;
+    reg [7:0] pfpd_cond_wr_cnt;
     reg [7:0] pfpd_last_low;
     initial begin
         pfpd_total        = 8'd0;
         pfpd_periph_like  = 8'd0;
-        pfpd_save_rd_cnt  = 8'd0;
+        pfpd_cond_wr_cnt  = 8'd0;
         pfpd_last_low     = 8'd0;
     end
     always @(posedge clk) begin
@@ -1666,12 +1677,12 @@ module dbg_min (
             if (!pfpd_remap_target && pfpd_periph_like != 8'hFF)
                 pfpd_periph_like <= pfpd_periph_like + 8'd1;
         end
-        if (pfpd_save_rd_evt && pfpd_save_rd_cnt != 8'hFF)
-            pfpd_save_rd_cnt <= pfpd_save_rd_cnt + 8'd1;
+        if (pfpd_cond_wr_evt && pfpd_cond_wr_cnt != 8'hFF)
+            pfpd_cond_wr_cnt <= pfpd_cond_wr_cnt + 8'd1;
     end
     reg [31:0] pfpd_r;
     always @(posedge clk)
-        pfpd_r <= {pfpd_total, pfpd_last_low, pfpd_periph_like, pfpd_save_rd_cnt};
+        pfpd_r <= {pfpd_total, pfpd_last_low, pfpd_periph_like, pfpd_cond_wr_cnt};
 
     altsource_probe #(
         .instance_id ("PFPD"),
