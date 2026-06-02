@@ -2433,7 +2433,7 @@ begin
           frame_mem_reg(2) <= (others => '0');
           frame_mem_reg(3) <= (others => '0');
         else
-          frame_mem_reg(0) <= x"00000018";  -- idle frame format
+          frame_mem_reg(0) <= x"0000" & CIR_FRAME_IDLE_FW;  -- idle frame format (build #29: use $1F18 constant)
           frame_mem_reg(1) <= fpcr_reg;
           frame_mem_reg(2) <= fpsr_reg;
           frame_mem_reg(3) <= status_frame_word;
@@ -2455,7 +2455,7 @@ begin
           frame_mem_reg(2) <= (others => '0');
           frame_mem_reg(3) <= (others => '0');
         else
-          frame_mem_reg(0) <= x"00000018";  -- idle frame format
+          frame_mem_reg(0) <= x"0000" & CIR_FRAME_IDLE_FW;  -- idle frame format (build #29: use $1F18 constant)
           frame_mem_reg(1) <= fpcr_reg;
           frame_mem_reg(2) <= fpsr_reg;
           frame_mem_reg(3) <= status_frame_word;
@@ -2724,11 +2724,19 @@ begin
       -- Detect protocol violation only on the rising edge of an OPSEL write
       -- (opsel_write_prev_reg = '0') to avoid false positives when the host
       -- holds bus_write asserted across multiple clocks.
+      -- Build #29 fix (bug #6): broaden trigger AND clear stuck pending.
+      -- The original code only flagged the violation; not clearing pending
+      -- left cir_response_reg holding the prior FBcc's cond_word (= $0000
+      -- for FBF), so any future Response read by a new op would return
+      -- $0000 -- which trips TG68 cp_idle_resp's F-line fall-through,
+      -- posting the "coprocessor not installed" bomb. Broaden trigger
+      -- from conditional_prog_op_write only to ANY new OpWord write so
+      -- cpSAVE/cpRESTORE/cpGEN after a missed-read FBcc also recover.
       if bus_write = '1' and addr = ADDR_OPSEL and
          opsel_write_prev_reg = '0' and
-         conditional_prog_op_write = '1' and
          cir_response_pending_reg = '1' then
         cir_protocol_violation_reg <= '1';
+        cir_response_pending_reg   <= '0';
       end if;
 
       if op_issue_pulse = '1' then
