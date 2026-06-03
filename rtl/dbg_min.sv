@@ -1883,12 +1883,15 @@ module dbg_min (
     always @(posedge clk)
         phwc_r <= {phwc_last_pc[23:0], phwc_last_bit4, phwc_count};
 
-    altsource_probe #(
-        .instance_id ("PHWC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_phwc (.probe(phwc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PHWC retired build #63 — answered (hwCbFPU bit consistently = 1 across
+    // many builds; no new info from continued monitoring). Slot freed for
+    // PFLT (F-line trap source PC capture).
+    // altsource_probe #(
+    //     .instance_id ("PHWC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_phwc (.probe(phwc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PSFW: FPU Save-CIR read capture (build #45, bug #6) ==============
     // Captures fpu_data_out[15:0] every time the CPU does a bus read of the
@@ -2405,5 +2408,48 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pfln (.probe(pfln_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PFLT: F-line trap source PC (build #63) =============================
+    // Tracks the most recent supervisor IF PC continuously, and snapshots it
+    // (sticky) at the moment of the FIRST F-line vector fetch (\$00B0 read
+    // with cpuFC=101). That snapshot is the PC of the instruction whose
+    // execution triggered the F-line exception — i.e., the F-line instruction
+    // itself.
+    //
+    // Build #62's PFLN counted 8 F-line vector reads. PFLT identifies the
+    // FIRST one's source — which is likely the FPU instruction that our
+    // implementation can't handle correctly. Combined with the byte at that
+    // PC (which is the F-line opcode), this pinpoints the exact instruction
+    // that needs implementing or fixing in mc68881 / TG68 cp_idle_resp.
+    //
+    // Layout: pflt_r[31:0] = pfts_first_flt_pc (sticky, 32-bit super-IF PC).
+    reg [31:0] pfts_last_super_if_pc;
+    reg [31:0] pfts_first_flt_pc;
+    reg        pflt_armed;
+    initial begin
+        pfts_last_super_if_pc = 32'h0;
+        pfts_first_flt_pc     = 32'h0;
+        pflt_armed            = 1'b0;
+    end
+    wire pflt_is_super_if = cpuAS_n_d && !cpuAS_n && cpuRW
+                         && (cpuFC == 3'b110);
+    always @(posedge clk) begin
+        if (pflt_is_super_if) pfts_last_super_if_pc <= cpuAddr;
+        // pfln_vec_rd already defined above; reuse for the F-line vector
+        // detect event.
+        if (pfln_vec_rd && !pflt_armed) begin
+            pfts_first_flt_pc <= pfts_last_super_if_pc;
+            pflt_armed        <= 1'b1;
+        end
+    end
+    reg [31:0] pfts_r;
+    always @(posedge clk) pfts_r <= pfts_first_flt_pc;
+
+    altsource_probe #(
+        .instance_id ("PFTS"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfts (.probe(pfts_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

@@ -116,6 +116,8 @@ foreach inst $info {
     # Build #62 — F-line vector RAM read + trap-entry counter
     if {$nm eq "PVCF"} { set idx(PVCF) $i }
     if {$nm eq "PFLN"} { set idx(PFLN) $i }
+    # Build #63 — F-line trap source PC (which F-line instruction triggered)
+    if {$nm eq "PFTS"} { set idx(PFTS) $i }
     incr i
 }
 
@@ -863,6 +865,22 @@ for {set s 1} {$s <= 6} {incr s} {
             puts [format "                    Handler in RAM at \$%08X (System file or boot-time patch)." $vcf_full]
         } else {
             puts [format "                    Handler at unusual address \$%08X — verify probe wiring." $vcf_full]
+        }
+    }
+    if {[info exists idx(PFTS)]} {
+        # Build #63 — F-line trap source PC. Sticky-locks the supervisor IF
+        # PC at the moment of the FIRST F-line vector fetch — i.e., the PC
+        # of the F-line instruction that triggered the trap.
+        # Named PFTS (not PFLT) because the old retired floppy-track probe
+        # used PFLT and its reg was never cleaned up — name collision.
+        set ft [rd $idx(PFTS)]
+        puts [format "           FPU-FLT: F-line trap source PC = 0x%08X" $ft]
+        if {$ft == 0} {
+            puts "                    No F-line trap yet captured (PFLN count probably also 0)."
+        } elseif {$ft >= 0x40000000} {
+            puts [format "                    ROM PC. Disassemble boot0.rom near \$%08X to find the F-line instruction." $ft]
+        } else {
+            puts [format "                    RAM PC \$%08X — System file code. The Finder or a Mac OS extension issued the failing F-line." $ft]
         }
     }
     if {[info exists idx(PFLN)]} {
