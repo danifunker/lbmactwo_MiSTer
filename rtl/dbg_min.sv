@@ -2213,9 +2213,13 @@ module dbg_min (
     // are lost. Acceptable: A-trap instructions are 2-byte word-aligned, so
     // PC LSB is always 0 and the bit-7 alignment gives 256-byte resolution
     // — enough to find the calling routine, even if not the exact insn.
-    wire pfcs_event = cpuAS_n_d && !cpuAS_n && cpuRW
-                   && (cpuFC == 3'b110)               // super prog IF
-                   && (cpu_din == 16'hA9C9);
+    // Build #61: ARM unconditionally on every super-prog IF cycle. The
+    // build-#59 design required cpu_din==$A9C9 at AS-falling but cpu_din
+    // isn't settled yet at that edge — count stuck at 0 even though ROM
+    // has 21 $A9C9 instructions. Check $A9C9 only at AS-rising when data
+    // is settled.
+    wire pfcs_arm = cpuAS_n_d && !cpuAS_n && cpuRW
+                 && (cpuFC == 3'b110);                 // super prog IF
     reg pfcs_pending;
     reg [31:0] pfcs_fetch_pc_pending;
     reg [31:0] pfcs_last_pc;
@@ -2227,12 +2231,7 @@ module dbg_min (
         pfcs_count             = 7'd0;
     end
     always @(posedge clk) begin
-        if (pfcs_event) begin
-            // At AS-falling, cpu_din is not yet settled. But $A9C9 is rare
-            // enough that ANY cycle whose pre-settled data matches it is
-            // almost certainly the intended fetch (false-positive risk
-            // negligible). Lock the PC, then re-confirm at AS-rising and
-            // commit. If at AS-rising cpu_din no longer matches, drop it.
+        if (pfcs_arm) begin
             pfcs_pending          <= 1'b1;
             pfcs_fetch_pc_pending <= cpuAddr;
         end
@@ -2278,7 +2277,13 @@ module dbg_min (
     // Layout: pbcp_r[31:0] = bomb_caller_pc (sticky, 32-bit super-IF PC).
     wire pbcp_is_super_if = cpuAS_n_d && !cpuAS_n && cpuRW
                          && (cpuFC == 3'b110);
-    wire pbcp_in_bomb_range = (cpuAddr[31:8] == 24'h400024);
+    // Build #61: widen filter to $400023C0-$400024FF (covers the dialog
+    // routine entry at $400023E4 + rendering loop + post-loop + wait).
+    // Build #60's narrower $40002400-$400024FF caught only the BSR.W
+    // displacement-word fetch inside the dialog, missing the actual entry.
+    wire pbcp_in_bomb_range = (cpuAddr[31:8] == 24'h400024)
+                           || ((cpuAddr[31:8] == 24'h400023) && cpuAddr[7:6] == 2'b11);
+    // The second clause matches $400023C0-$400023FF (bits 7:6 = 11).
     reg [31:0] pbcp_prev_pc;
     reg [31:0] pbcp_caller_pc;
     reg        pbcp_armed;
