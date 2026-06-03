@@ -2036,12 +2036,15 @@ module dbg_min (
     always @(posedge clk)
         pmty_r <= {pmty_d28_hword, pmty_d28_pc_lo};
 
-    altsource_probe #(
-        .instance_id ("PMTY"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pmty (.probe(pmty_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PMTY retired build #59 — purpose (verify $0D28 write goes through) is
+    // fully answered by PD28 read probe + Snow comparison in build #58. Slot
+    // freed for PFCS (_SysError caller capture).
+    // altsource_probe #(
+    //     .instance_id ("PMTY"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pmty (.probe(pmty_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PFLN: F-line vector fetch detector (build #35, bug #6) ===========
     // RETIRED build #37 — build #36 confirmed PFLN.count = 8 (constant) across
@@ -2178,5 +2181,76 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pd24 (.probe(pd24_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PFCS: _SysError ($A9C9) instruction-fetch capture (build #59) ====
+    // Build #58 invalidated the SDRAM-$0D28-corruption pivot — PD28/PD24
+    // both read Snow-correct values at bomb time (scratch/build58_findings.md).
+    // The bomb still fires though, so SOMEONE is calling _SysError(dsNoFPU=90).
+    //
+    // $A9C9 is the only A-trap that yields the System-Error dialog. This
+    // probe catches the supervisor-program instruction-fetch bus cycle whose
+    // read data is $A9C9. Captures the FETCH PC (cpuAddr) at AS-rising, plus
+    // a saturating count. Sample at bomb time; the most recent PC is the
+    // immediate caller of _SysError (often a ROM trampoline that the actual
+    // System-file caller jumped through).
+    //
+    // Build #33 tried this with a different filter (cpu_din captured at
+    // AS-falling, which is stale) and saw only $400011DC, an unrelated
+    // dispatcher. This rev uses AS-rising data so cpu_din is settled, and
+    // counts BOTH ROM and RAM fetches (no FC restriction beyond "super
+    // program") so trampolines aren't lost.
+    //
+    // Layout:
+    //   [31:8] pfcs_last_pc[31:8] — top 24 bits of fetch PC
+    //   [7:0]  composite — sat-8 count of $A9C9 fetches (bits[6:0]),
+    //                       bit 7 = pfcs_last_pc[7] (preserves the
+    //                       full PC for ROM/RAM disambiguation).
+    //
+    // The low byte of PC is approximated by bit 7; the full PC's low 8 bits
+    // are lost. Acceptable: A-trap instructions are 2-byte word-aligned, so
+    // PC LSB is always 0 and the bit-7 alignment gives 256-byte resolution
+    // — enough to find the calling routine, even if not the exact insn.
+    wire pfcs_event = cpuAS_n_d && !cpuAS_n && cpuRW
+                   && (cpuFC == 3'b110)               // super prog IF
+                   && (cpu_din == 16'hA9C9);
+    reg pfcs_pending;
+    reg [31:0] pfcs_fetch_pc_pending;
+    reg [31:0] pfcs_last_pc;
+    reg [6:0]  pfcs_count;
+    initial begin
+        pfcs_pending           = 1'b0;
+        pfcs_fetch_pc_pending  = 32'h0;
+        pfcs_last_pc           = 32'h0;
+        pfcs_count             = 7'd0;
+    end
+    always @(posedge clk) begin
+        if (pfcs_event) begin
+            // At AS-falling, cpu_din is not yet settled. But $A9C9 is rare
+            // enough that ANY cycle whose pre-settled data matches it is
+            // almost certainly the intended fetch (false-positive risk
+            // negligible). Lock the PC, then re-confirm at AS-rising and
+            // commit. If at AS-rising cpu_din no longer matches, drop it.
+            pfcs_pending          <= 1'b1;
+            pfcs_fetch_pc_pending <= cpuAddr;
+        end
+        if (pfcs_pending && !cpuAS_n_d && cpuAS_n) begin
+            if (cpu_din == 16'hA9C9) begin
+                pfcs_last_pc <= pfcs_fetch_pc_pending;
+                if (pfcs_count != 7'h7F)
+                    pfcs_count <= pfcs_count + 7'd1;
+            end
+            pfcs_pending <= 1'b0;
+        end
+    end
+    reg [31:0] pfcs_r;
+    always @(posedge clk)
+        pfcs_r <= {pfcs_last_pc[31:8], pfcs_last_pc[7], pfcs_count};
+
+    altsource_probe #(
+        .instance_id ("PFCS"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfcs (.probe(pfcs_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

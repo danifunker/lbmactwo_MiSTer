@@ -109,6 +109,8 @@ foreach inst $info {
     # Build #58 — low-mem longword read probes (SDRAM-corruption diagnostic)
     if {$nm eq "PD28"} { set idx(PD28) $i }
     if {$nm eq "PD24"} { set idx(PD24) $i }
+    # Build #59 — _SysError ($A9C9) instruction-fetch PC capture
+    if {$nm eq "PFCS"} { set idx(PFCS) $i }
     incr i
 }
 
@@ -836,6 +838,36 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                              controller addr-stability bug — sdram.v samples \`addr\`"
             puts "                              both at T=0 (row) and T=3 (col) without latching, so any"
             puts "                              addr change between those two states corrupts writes."
+        }
+    }
+    if {[info exists idx(PFCS)]} {
+        # Build #59 — _SysError (\$A9C9) instruction-fetch capture.
+        # Layout: [31:8] = pfcs_last_pc[31:8]
+        #         [7]    = pfcs_last_pc[7]   (bit-7 of PC for ROM/RAM check)
+        #         [6:0]  = sat-7 count of \$A9C9 fetches.
+        # Note: low 7 bits of PC are dropped (resolution = 128 bytes). A-trap
+        # PCs are word-aligned so PC LSB is always 0; this still identifies
+        # the calling routine.
+        set pfcs [rd $idx(PFCS)]
+        set fc_pc_hi24 [expr {($pfcs >> 8) & 0xFFFFFF}]
+        set fc_pc_b7   [expr {($pfcs >> 7) & 0x1}]
+        set fc_count   [expr {$pfcs & 0x7F}]
+        set fc_pc_approx [expr {($fc_pc_hi24 << 8) | ($fc_pc_b7 << 7)}]
+        puts [format "           FPU-FCS: _SysError(\$A9C9) fetch_pc≈0x%08X  count(sat7)=%u" \
+            $fc_pc_approx $fc_count]
+        if {$fc_count == 0} {
+            puts "                    No \$A9C9 fetch captured yet. Bomb path either hasn't reached the"
+            puts "                              _SysError A-trap or uses a different mechanism (direct JSR to"
+            puts "                              bomb dialog code in ROM, bypassing the A-trap)."
+        } elseif {$fc_pc_approx >= 0x40000000} {
+            puts "                    ROM caller. Disassemble boot0.rom near this PC to find which ROM"
+            puts "                              routine invokes _SysError. Likely a trampoline; trace back"
+            puts "                              to who called THAT routine (look at the supervisor stack)."
+        } else {
+            puts "                    RAM caller — System file code. Disassemble boot0.rom + boot disk's"
+            puts "                              System file at this RAM PC. This is the actual bomb-causing"
+            puts "                              routine (per project_bug6_session2 memory: hypothesized at"
+            puts "                              PC~\$00014070)."
         }
     }
     if {[info exists idx(PFLN)]} {
