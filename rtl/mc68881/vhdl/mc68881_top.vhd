@@ -2012,9 +2012,17 @@ begin
       frame_restore_pending_reg <= '0';
       frame_start_save_reg <= '0';
       frame_start_restore_reg <= '0';
-      -- See fpu_initialized_reg signal-declaration comment: '1' on reset so
-      -- the Mac II boot ROM's FSAVE-based FPU detection reads $1F18 (IDLE
-      -- 68881) instead of $0000 (NULL = "no coprocessor").
+      -- Build #42 (bug #6): RESTORE to '1' on reset. Build #40 reverted
+      -- this to '0' on a wrong theory. Snow trace (captured 2026-06-02)
+      -- shows Mac OS at PC=$0001406C does FSAVE then MOVE.W (A7), D0;
+      -- CMPI.W #$1F18, D0; BEQ. Snow's op_fsave always emits $1F180000
+      -- unconditionally (../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57)
+      -- — never NULL on first save. With fpu_initialized_reg='0' our
+      -- CIR_SAVE_WAIT returns NULL ($0000) on first FSAVE, Mac OS reads
+      -- D0=$0000, CMPI.W #$1F18 not equal, falls into "no FPU" path,
+      -- bomb dialog. The supermario-TestForFPU concern from #40's
+      -- revert is moot — that probe uses F-line traps, not the FSAVE
+      -- format word.
       fpu_initialized_reg <= '1';
       opsel_write_prev_reg <= '0';
       cir_restore_trigger <= '0';
@@ -2400,11 +2408,13 @@ begin
           frame_busy_reg <= '0';
           if frame_restore_pending_reg = '1' then
             if frame_mem_reg(0) = x"00000000" then
-              -- Null frame: reset FPU state
+              -- Null frame: reset FPU register state, but NOT
+              -- fpu_initialized_reg. Build #43 (bug #6): see comment
+              -- on cir_restore_null_req branch below for why.
               fpcr_reg <= (others => '0');
               fpsr_reg <= (others => '0');
               fpiar_reg <= (others => '0');
-              fpu_initialized_reg <= '0';
+              -- fpu_initialized_reg deliberately preserved.
             else
               -- Idle frame ($18): restore from W1/W2
               fpcr_reg <= frame_mem_reg(1);
@@ -2475,10 +2485,21 @@ begin
         frame_restore_pending_reg <= '1';
       end if;
 
-      -- CIR FRESTORE null: reset FPU to power-on state.
+      -- CIR FRESTORE null: reset FPU register state, but do NOT clear
+      -- fpu_initialized_reg. Build #43 (bug #6): Snow's op_fsave
+      -- (../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57) emits
+      -- $1F180000 unconditionally — Snow has no "initialized" concept.
+      -- Mac OS at PC=$0001406C does FSAVE then CMPI.W #$1F18, D0; BEQ
+      -- — so the FSAVE must return $1F18 (IDLE) even immediately after
+      -- the ROM's CLR.L -(A7); FRESTORE NULL at $4000D604. Clearing
+      -- fpu_initialized_reg here caused build #42 to bomb identically
+      -- to #40: ROM FRESTORE NULL set it to '0', then System file
+      -- FSAVE returned NULL ($0000), CMPI.W failed, "coprocessor not
+      -- installed" bomb.
       if cir_restore_null_req = '1' then
-        fpu_initialized_reg <= '0';
+        -- fpu_initialized_reg deliberately NOT cleared — see comment.
         -- pending_valid_reg cleared in cir_dialog_proc (null restore clears CIR state).
+        null;
       end if;
 
       -- CIR FRESTORE commit: mark FPU initialized and restore staged header data.
@@ -3393,32 +3414,26 @@ begin
             end case;
           elsif cir_state_reg = CIR_SAVE_FRAME then
             -- FSAVE frame data read: return idle frame word by index.
+            -- Build #41 (bug #6): for MC68881 IDLE frames, emit all
+            -- zeros to match Snow byte-for-byte ($1F180000 + 24
+            -- zeros — see ../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57).
+            -- Pre-#41 the case statement below leaked MC68882
+            -- pending-pipeline state into 881 IDLE frames because
+            -- is_valid_idle_fw() accepts both $0018 (881) and $0038
+            -- (882). The wrapper short-circuits 881 IDLE to zeros
+            -- while preserving the case-statement payloads for 882
+            -- and BUSY frames.
+            if fpu_version_g = FPU_68881
+               and frame_format_word_reg = CIR_FRAME_IDLE_FW then
+              d_out_comb <= (others => '0');
+            else
             case cir_save_word_idx is
-              when 0 =>
-                -- Build #34 fix (bug #6): zero out non-Motorola "Version 1"
-                -- tag. Real 68881 IDLE frame BIU words are internal/opaque
-                -- state; Mac OS may sanity-check unexpected values here.
-                d_out_comb <= (others => '0');
-              when 1 =>
-                -- Build #34 fix: was non-Motorola op_sel/op_class; expose
-                -- FPCR-shape instead (host can round-trip it cleanly).
-                d_out_comb <= fpcr_reg;
-              when 2 =>
-                -- Exception event state (packed FPSR EXC + AEXC).
-                d_out_comb <= fpsr_reg;
-              when 3 =>
-                -- Build #34 fix: was micro_total_reg (a free-running cycle
-                -- counter) — that's GUARANTEED to differ between cpSAVE
-                -- and any cpRESTORE-then-cpSAVE round trip and could trip
-                -- a sanity check. Use fpiar_reg (a real 68881 field) so
-                -- the round trip is stable.
-                d_out_comb <= fpiar_reg;
-              when 4 =>
-                -- CIR dialog flags.
-                d_out_comb <= (others => '0');
-              when 5 =>
-                -- Reserved.
-                d_out_comb <= (others => '0');
+              when 0 => d_out_comb <= (others => '0');
+              when 1 => d_out_comb <= (others => '0');
+              when 2 => d_out_comb <= (others => '0');
+              when 3 => d_out_comb <= (others => '0');
+              when 4 => d_out_comb <= (others => '0');
+              when 5 => d_out_comb <= (others => '0');
               -- Busy frame words 6-44 (only present for Busy format).
               when 6 =>
                 if is_valid_idle_fw(frame_format_word_reg) then
@@ -3515,6 +3530,7 @@ begin
                 -- Word 52 (reserved) and any out-of-range.
                 d_out_comb <= (others => '0');
             end case;
+            end if;  -- Build #41: closes "if fpu_version_g = FPU_68881 ..."
           else
             d_out_comb <= result_hi_reg;
           end if;
@@ -4222,22 +4238,19 @@ begin
           end if;
 
         when CIR_SAVE_WAIT =>
-          -- Wait one cycle for frame type determination, then present format word.
-          -- Determine frame type from fpu_initialized_reg and ALU busy state.
-          if fpu_initialized_reg = '0' then
-            frame_format_word_reg <= CIR_FRAME_NULL_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= 0;  -- Null: 0 data words
-          elsif busy = '1' then
-            frame_format_word_reg <= VER_FRAME_BUSY_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= VER_FRAME_BUSY_WORDS;  -- Busy: 45/53 data words
-            alu_save_req_reg <= '1';  -- Trigger sub-unit state snapshot
-          else
-            frame_format_word_reg <= VER_FRAME_IDLE_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= VER_FRAME_IDLE_WORDS;  -- Idle: 6/14 data words
-          end if;
+          -- Build #44 (bug #6): hardcode IDLE frame unconditionally.
+          -- Snow's op_fsave (../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57)
+          -- always emits $1F180000 — no fpu_initialized / busy conditional.
+          -- Builds #41-#43 showed our conditional misroutes FSAVE: either
+          -- fpu_initialized_reg='0' (NULL frame) or busy='1' (BUSY frame
+          -- $1FB4) makes Mac OS's CMPI.W #$1F18, D0; BEQ check at $14076
+          -- fail, triggering the "coprocessor not installed" bomb. JTAG
+          -- probe in #43 confirmed FSAVE entered CIR_SAVE_FRAME (so NOT
+          -- NULL) but Mac OS still bombed — must be the BUSY frame path.
+          -- This change collapses to Snow's behavior: always IDLE.
+          frame_format_word_reg <= VER_FRAME_IDLE_FW;
+          cir_save_word_idx <= 0;
+          cir_xfer_word_count <= VER_FRAME_IDLE_WORDS;
           cir_save_req <= '0';
           cir_state_reg <= CIR_SAVE_FORMAT;
 

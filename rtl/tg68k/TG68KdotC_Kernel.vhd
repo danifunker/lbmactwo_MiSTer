@@ -928,18 +928,28 @@ PROCESS (clk)
 					-- the PRIOR (garbage) value within this same clkena
 					-- cycle. Reading data_in directly matches the latch
 					-- input.
+					--
+					-- Build #39 fix (bug #6): Mac II ROM bomb root cause.
+					-- 881 IDLE frame is 28 bytes (14 16-bit words), NOT 24
+					-- bytes. 881 BUSY is 184 bytes (92 words), NOT 180.
+					-- Our prior counts (12/90 words) left A7 4 bytes short
+					-- of where real 881 would land. Mac OS context-save
+					-- layout assumed 28-byte 881 frame; mismatched A7 ate
+					-- 4 bytes off return PC / register save area, eventual
+					-- bomb path. Per M68881 User's Manual §6.6.1.1 + AN-947
+					-- frame identifier table.
 					IF data_in(7 downto 0) = X"18" THEN
-						cp_frame_cnt <= "0001100"; -- 12 words (24 bytes)
+						cp_frame_cnt <= "0001110"; -- 14 words (28 bytes) — was 12
 					ELSIF data_in(7 downto 0) = X"B4" THEN
-						cp_frame_cnt <= "1011010"; -- 90 words (180 bytes)
+						cp_frame_cnt <= "1011100"; -- 92 words (184 bytes) — was 90
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null: 0 data words
 					END IF;
 				ELSIF micro_state = cp_restore_decode THEN
 					IF last_data_read(7 downto 0) = X"18" THEN
-						cp_frame_cnt <= "0001100"; -- 12 words
+						cp_frame_cnt <= "0001110"; -- 14 words (28 bytes) — was 12
 					ELSIF last_data_read(7 downto 0) = X"B4" THEN
-						cp_frame_cnt <= "1011010"; -- 90 words
+						cp_frame_cnt <= "1011100"; -- 92 words (184 bytes) — was 90
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null
 					END IF;
