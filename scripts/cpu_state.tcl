@@ -89,17 +89,42 @@ foreach inst $info {
     if {$nm eq "PCAK"} { set idx(PCAK) $i }
     # Build #27 — FPU detection probe (bug #6: coprocessor not installed)
     if {$nm eq "PFPD"} { set idx(PFPD) $i }
-    # Build #30 — trap-vector-fetch + bus-error probe (bug #6 root-cause)
+    # Build #30 — trap-vector-fetch + bus-error probe (RETIRED in #35)
     if {$nm eq "PFTR"} { set idx(PFTR) $i }
-    # Build #31 — bomb-entry PC snapshot (bug #6 call-site localization)
+    # Build #31 — bomb-entry PC snapshot (RETIRED in #35)
     if {$nm eq "PFBE"} { set idx(PFBE) $i }
-    # Build #32 — _SysError opcode (A9C9) caller PC capture
+    # Build #32 — _SysError opcode (A9C9) caller PC capture (RETIRED in #35)
     if {$nm eq "PFCS"} { set idx(PFCS) $i }
+    # Build #35 — bug #6 phase 2 probes
+    if {$nm eq "PFOQ"} { set idx(PFOQ) $i } ;# PC of last cpGEN OpWord write
+    if {$nm eq "PFOV"} { set idx(PFOV) $i } ;# last 2 OpWord values
+    if {$nm eq "PFLN"} { set idx(PFLN) $i } ;# F-line vector ($B0) fetch detector (retired #37)
+    # Build #37 — HWCfgFlags writes (bug #6 phase 3)
+    if {$nm eq "PHWC"} { set idx(PHWC) $i }
+    # Build #45 — FPU Save-CIR read + FSAVE memory write probes (bug #6 phase 4)
+    if {$nm eq "PSFW"} { set idx(PSFW) $i }
+    if {$nm eq "PSFM"} { set idx(PSFM) $i }
+    # Build #47 — MMUType byte ($0CB1) write+read tracker (bug #6 phase 6)
+    if {$nm eq "PMTY"} { set idx(PMTY) $i }
+    # Build #58 — low-mem longword read probes (SDRAM-corruption diagnostic)
+    if {$nm eq "PD28"} { set idx(PD28) $i }
+    if {$nm eq "PD24"} { set idx(PD24) $i }
     incr i
 }
 
 # signed 16-bit interpretation helper
 proc s16 {v} { set v [expr {$v & 0xFFFF}]; if {$v >= 32768} { return [expr {$v - 65536}] }; return $v }
+
+# Build #35 — classify F-line OpWord (second word of F-line instruction).
+proc opword_class {ow} {
+    if {$ow == 0} { return "(none)" }
+    set top3 [expr {($ow >> 13) & 0x7}]
+    if {[expr {$ow & 0xE000}] == 0x0000} { return "cpGEN" }
+    if {[expr {$ow & 0xC000}] == 0x4000} { return "cpDBcc/cpScc/cpTRAPcc" }
+    if {[expr {$ow & 0xC000}] == 0x8000} { return "cpBcc.W" }
+    if {[expr {$ow & 0xC000}] == 0xC000} { return "cpBcc.L" }
+    return "?"
+}
 
 proc decode_cmd {v} {
     set s {}
@@ -655,107 +680,215 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                              TG68 cp_cond_eval/cp_idle_resp F-line fall-through."
         }
     }
-    if {[info exists idx(PFTR)]} {
-        # Build #30 — trap-vector-fetch + bus-error probe.
-        set tr [rd $idx(PFTR)]
-        set last_vec  [expr {($tr >> 24) & 0xFF}]
-        set trap_cnt  [expr {($tr >> 16) & 0xFF}]
-        set berr_cnt  [expr {$tr & 0xFFFF}]
-        # Decode vector number to a human-readable name.
-        set vec_name "unknown"
-        switch -- $last_vec {
-            0  {set vec_name "(none)"}
-            2  {set vec_name "BUS_ERR"}
-            3  {set vec_name "ADDR_ERR"}
-            4  {set vec_name "ILL_INST"}
-            5  {set vec_name "DIVZ"}
-            6  {set vec_name "CHK"}
-            7  {set vec_name "TRAPV"}
-            8  {set vec_name "PRIV"}
-            9  {set vec_name "TRACE"}
-            10 {set vec_name "LINE_A"}
-            11 {set vec_name "LINE_F"}
-            13 {set vec_name "COPROC_PV"}
-            14 {set vec_name "FORMAT_ERR"}
-            48 {set vec_name "FBSUN"}
-            49 {set vec_name "FINEX"}
-            50 {set vec_name "FDIV0"}
-            51 {set vec_name "FUNDFL"}
-            52 {set vec_name "FOPERR"}
-            53 {set vec_name "FOVFL"}
-            54 {set vec_name "FSNAN"}
-            default {set vec_name "vec#$last_vec"}
+    if {[info exists idx(PHWC)]} {
+        # Build #37 — HWCfgFlags ($0B22) write tracker.
+        set hw [rd $idx(PHWC)]
+        set hw_pc_low24 [expr {($hw >> 8) & 0xFFFFFF}]
+        set hw_bit4     [expr {($hw >> 7) & 0x1}]
+        set hw_count    [expr {$hw & 0x7F}]
+        # Infer high byte from value: ROM is $4xxxxxxx, RAM is $00xxxxxx.
+        if {$hw_pc_low24 >= 0x1000} {
+            set hw_pc [expr {0x40000000 | $hw_pc_low24}]
+            set hw_zone "ROM"
+        } else {
+            set hw_pc [expr {0x00000000 | $hw_pc_low24}]
+            set hw_zone "RAM"
         }
-        puts [format "           FPU-TRP: last_vec=%u (%s)  trap_cnt(sat8)=%u  berr_cnt(wrap16)=%u" \
-            $last_vec $vec_name $trap_cnt $berr_cnt]
-        if {$trap_cnt == 0} {
-            puts "                    trap_cnt=0 => no trap fired (or VBR moved -- this probe assumes VBR=0)."
-            puts "                              Bomb is NOT via exception vector. Likely a direct _SysError"
-            puts "                              call from a System patch / driver."
-        } elseif {$last_vec == 11} {
-            puts "                    LINE_F trap fired => F-line exception. System file's F-line handler"
-            puts "                              likely posts dsNoFPU. Check what FPU op opcode TG68 traced"
-            puts "                              just before this vector fetch (IF-PC trail above)."
-        } elseif {$last_vec == 13} {
-            puts "                    COPROC_PV fired => the FPU returned a Response value the CPU rejected."
-            puts "                              Inspect PFRR last_resp + PFST max_seen against AN-947 primary"
-            puts "                              encodings (NULL/BUSY/TRANSFER/EXCEPTION)."
-        } elseif {$last_vec == 2} {
-            puts "                    BUS_ERR fired => an address went undecoded or FPU DSACK timed out."
-            puts "                              Cross-reference with PFPD last_addr."
-        }
-        if {$berr_cnt > 0} {
-            puts [format "                    berr_cnt=%u => bus-error edges observed. May have driven the trap." $berr_cnt]
+        puts [format "           FPU-HWC: writes=%u  last_writer_pc=0x%08X (%s)  last_bit4(hwCbFPU)=%d" \
+            $hw_count $hw_pc $hw_zone $hw_bit4]
+        if {$hw_count == 0} {
+            puts "                    HWCfgFlags \$0B22 never written. Either ROM doesn't write the high byte"
+            puts "                              (writes via word access at \$0B22-low-half), or the bus probe"
+            puts "                              doesn't catch FC=5 accesses to this addr."
+        } elseif {$hw_bit4 == 0} {
+            puts "                    hwCbFPU(bit4)=0 at last write => FPU bit CLEARED."
+            puts "                              Disassemble at last_writer_pc to find who cleared it."
+            puts "                              This is the bomb path's source: Gestalt(FPU) returns gestaltNoFPU=0,"
+            puts "                              SystemError(dsNoFPU=90) follows."
+        } else {
+            puts "                    hwCbFPU(bit4)=1 at last write => FPU bit STILL SET."
+            puts "                              Bomb path uses a DIFFERENT detection than HWCfgFlags. Look for"
+            puts "                              code that does its own FPU probe (FNOP, FMOVE, FSAVE inspection)"
+            puts "                              and bombs on result independent of HWCfgFlags."
         }
     }
-    if {[info exists idx(PFCS)]} {
-        # Build #33 — LATEST $A9C9 fetch PC + total count.
-        set fd [rd $idx(PFCS)]
-        set pc_low24 [expr {($fd >> 8)  & 0xFFFFFF}]
-        set count    [expr {$fd & 0xFF}]
-        # Infer prefix: $40 for ROM, $00 for RAM. ROM PCs typically >= $1000.
-        if {$pc_low24 >= 0x1000} {
-            set caller_pc [expr {0x40000000 | $pc_low24}]
-            set zone "ROM"
+    if {[info exists idx(PSFW)]} {
+        # Build #45 — FPU Save-CIR read capture (bug #6 phase 4).
+        set sw [rd $idx(PSFW)]
+        set sw_val   [expr {($sw >> 16) & 0xFFFF}]
+        set sw_pclo  [expr {($sw >> 8) & 0xFF}]
+        set sw_count [expr {$sw & 0xFF}]
+        puts [format "           FPU-SFW: save_cir_reads(sat8)=%u  last_value=0x%04X  last_pc_lo=0x%02X" \
+            $sw_count $sw_val $sw_pclo]
+        if {$sw_count == 0} {
+            puts "                    save_cir_reads=0 => CPU never read Save CIR. CIR_SAVE_FORMAT never"
+            puts "                              reached, OR CPU bus access didn't hit FPU. Check PFST FSM trace."
+        } elseif {$sw_val == 0x1F18} {
+            puts "                    last_value=0x1F18 => FPU is delivering the correct IDLE 881 format word."
+            puts "                              If the bomb still fires, the byte path FPU->memory is OK but"
+            puts "                              memory->Mac OS read is being corrupted, OR Mac OS checks a"
+            puts "                              different memory location."
+        } elseif {$sw_val == 0x0000} {
+            puts "                    last_value=0x0000 => FPU delivered NULL frame format word."
+            puts "                              CIR_SAVE_WAIT took the NULL branch — fpu_initialized_reg='0'"
+            puts "                              or frame_format_word_reg never updated."
+        } elseif {$sw_val == 0x1FB4} {
+            puts "                    last_value=0x1FB4 => FPU delivered BUSY 881 format word."
+            puts "                              CIR_SAVE_WAIT took the busy='1' branch — ALU was busy at"
+            puts "                              FSAVE time. Investigate why busy lingers."
         } else {
-            set caller_pc [expr {0x00000000 | $pc_low24}]
-            set zone "RAM"
-        }
-        puts [format "           FPU-SYS: latest_A9C9_pc=0x%08X (%s)  count(sat8)=%u" \
-            $caller_pc $zone $count]
-        if {$count == 0} {
-            puts "                    No _SysError fetch seen. Bomb is via dispatch-table jump"
-            puts "                              (direct JSR to SystemError, no A9C9 opcode)."
-        } else {
-            puts "                    Compare count across sample rounds: if it grew between two"
-            puts "                              rounds, a new _SysError fired between them. The latest_pc"
-            puts "                              is the most recent caller — that's the bomb if count"
-            puts "                              changed at the bomb-visible round."
+            puts [format "                    last_value=0x%04X => UNEXPECTED. Neither IDLE (0x1F18), BUSY" $sw_val]
+            puts "                              (0x1FB4), NULL (0x0000), nor 882 IDLE (0x3F38). Something is"
+            puts "                              corrupting the format word — investigate d_out_reg latch."
         }
     }
-    if {[info exists idx(PFBE)]} {
-        # Build #31 — PC just before first IF to SysError dialog ($40002432).
-        set pc_before_bomb [rd $idx(PFBE)]
-        puts [format "           FPU-BMB: pc_before_bomb=0x%08X" $pc_before_bomb]
-        if {$pc_before_bomb == 0} {
-            puts "                    pc_before_bomb=0 => either bomb hasn't fired yet OR the dialog"
-            puts "                              never triggered the \$40002432 wait loop entry. Bomb may"
-            puts "                              come via a different dialog handler or different SP."
+    if {[info exists idx(PSFM)]} {
+        # Build #46 — FPU FSAVE format-word write capture (bug #6 phase 5).
+        set sm [rd $idx(PSFM)]
+        set sm_addr_lo  [expr {($sm >> 16) & 0xFFFF}]
+        set sm_1f18_cnt [expr {($sm >> 8) & 0xFF}]
+        set sm_any_cnt  [expr {$sm & 0xFF}]
+        puts [format "           FPU-SFM: stack_writes(sat8)=%u  \$1F18_writes(sat8)=%u  last_\$1F18_addr_lo=0x%04X" \
+            $sm_any_cnt $sm_1f18_cnt $sm_addr_lo]
+        if {$sm_any_cnt == 0} {
+            puts "                    stack_writes=0 => no CPU writes near user-mode stack \$003FF000-FFFF."
+            puts "                              Probe filter never matched — A7 may be elsewhere."
+        } elseif {$sm_1f18_cnt == 0} {
+            puts "                    \$1F18 NEVER written to stack!"
+            puts "                              FPU delivers 0x1F18 (per PSFW) but it never reaches memory."
+            puts "                              The corruption is in the TG68 cp_save_fmt -> data_write_tmp"
+            puts "                              -> bus path. Investigate data_write_muxin / data_write_mux"
+            puts "                              for word writes during cp_save_wr_mem."
+        } elseif {$sm_addr_lo == 0xFBBC} {
+            puts "                    \$1F18 written at \$003FFBBC (matches Snow's A7_post)."
+            puts "                              The format word IS reaching the right memory slot. Mac OS"
+            puts "                              must be reading from a different address, OR there's a later"
+            puts "                              write that overwrites \$1F18 before Mac OS reads it."
         } else {
-            puts "                    Disassemble ROM/RAM at this address to find what code called"
-            puts "                              the SysError trap. If in ROM (\$4xxxxxxx), this points"
-            puts "                              to the F-line handler's continuation; if in RAM"
-            puts "                              (\$00xxxxxx), it's a System file / patch code that"
-            puts "                              issued the bomb directly."
+            puts [format "                    \$1F18 written at \$003F%04X (NOT \$003FFBBC where Snow puts it)." $sm_addr_lo]
+            puts "                              Format word reaches memory but at wrong address. A7 differs"
+            puts "                              from Snow's \$003FFBD8 at FSAVE entry — investigate why."
+        }
+    }
+    if {[info exists idx(PMTY)]} {
+        # Build #57 — \$00000D28 trap-pointer writer capture.
+        # Snow has \$0D28=\$40806486 (ROM pointer). LBMacTwo has \$00008CD8
+        # (string-area pointer). Catches the bad write.
+        set pkt [rd $idx(PMTY)]
+        set hword [expr {($pkt >> 16) & 0xFFFF}]
+        set pclo  [expr {$pkt & 0xFFFF}]
+        puts [format "           FPU-MTY: \$0D28 last_write_hword=0x%04X  writer_pc_lo16=0x%04X" $hword $pclo]
+        if {$hword == 0x0000} {
+            puts "                    Written high word=\$0000 — caller wrote bad value (\$0000 8CD8)."
+            puts "                              The source code intentionally wrote a string pointer here."
+        } elseif {$hword == 0x4080} {
+            puts "                    Written high word=\$4080 — caller wrote correct ROM ptr (\$4080 6486),"
+            puts "                              but read returns wrong (\$0000 8CD8). SDRAM corruption."
+        } elseif {$hword == 0} {
+            puts "                    No write to \$0D28 captured yet."
+        } else {
+            puts [format "                    Written high word=0x%04X — unexpected. Disassemble at writer_pc_lo." $hword]
+        }
+        # Legacy build #47/50 MMUType decode blocks retired — PMTY layout
+        # changed to $0D28 writer tracking in build #57. The old mt_wval/mt_rcnt
+        # variables don't exist anymore; this block (was disabled behind `if {0}`)
+        # crashed the script at the elseif because TCL eagerly evaluates the
+        # elseif expressions. Removed entirely.
+    }
+    if {[info exists idx(PD28)]} {
+        # Build #58 — longword read of \$00000D28. Step 1 of SDRAM-corruption
+        # diagnostic. Known bad: should read Snow's \$40806486, observed \$00008CD8.
+        set pd28 [rd $idx(PD28)]
+        set pd28_hi [expr {($pd28 >> 16) & 0xFFFF}]
+        set pd28_lo [expr {$pd28 & 0xFFFF}]
+        puts [format "           SDR-D28: \$00000D28 longword = 0x%04X%04X  (Snow = 0x40806486)" $pd28_hi $pd28_lo]
+        if {$pd28 == 0x40806486} {
+            puts "                    MATCH Snow! \$0D28 reads CORRECT. Earlier corruption may have"
+            puts "                              been transient or already fixed. Investigate sequencing."
+        } elseif {$pd28 == 0x00008CD8} {
+            puts "                    CONFIRMED bad value \$00008CD8. Trap dispatcher will jump into"
+            puts "                              error-string area at \$8CD8 -> SystemError(90) bomb."
+        } elseif {$pd28 == 0} {
+            puts "                    No read of \$0D28 captured yet (CPU hasn't read it, or bomb"
+            puts "                              fired before the dispatcher read fired)."
+        } else {
+            puts [format "                    UNEXPECTED value 0x%08X — neither Snow's good ptr nor the" $pd28]
+            puts "                              previously-observed bad value. Different bug path."
+        }
+    }
+    if {[info exists idx(PD24)]} {
+        # Build #58 — longword read of \$00000D24. Step 1 systemic-vs-specific test.
+        # Snow says \$00000D24 = \$000028FC.
+        set pd24 [rd $idx(PD24)]
+        set pd24_hi [expr {($pd24 >> 16) & 0xFFFF}]
+        set pd24_lo [expr {$pd24 & 0xFFFF}]
+        puts [format "           SDR-D24: \$00000D24 longword = 0x%04X%04X  (Snow = 0x000028FC)" $pd24_hi $pd24_lo]
+        if {$pd24 == 0x000028FC} {
+            puts "                    MATCH Snow! Corruption is SPECIFIC to \$0D28 (not systemic across"
+            puts "                              low-mem longwords). Next: search for aliasing or for"
+            puts "                              extra software writers of \$0D28 with value \$00008CD8."
+        } elseif {$pd24 == 0} {
+            puts "                    No read of \$0D24 captured yet — CPU hasn't read this addr in"
+            puts "                              the observed window. Probe filter may not fit boot path."
+        } else {
+            puts [format "                    NOT Snow's value. SDRAM corruption is SYSTEMIC for low-mem"]
+            puts "                              longwords, not specific to \$0D28. Most likely cause: SDRAM"
+            puts "                              controller addr-stability bug — sdram.v samples \`addr\`"
+            puts "                              both at T=0 (row) and T=3 (col) without latching, so any"
+            puts "                              addr change between those two states corrupts writes."
+        }
+    }
+    if {[info exists idx(PFLN)]} {
+        # Build #35 — F-line vector fetch detector + berr counter (replaces PFTR).
+        set ln [rd $idx(PFLN)]
+        set ln_count    [expr {($ln >> 24) & 0xFF}]
+        set ln_berr_cnt [expr {($ln >> 16) & 0xFF}]
+        set ln_last_din [expr {$ln & 0xFFFF}]
+        puts [format "           FPU-LFL: line_f_vec_reads(sat8)=%u  berr(sat8)=%u  last_handler_lo16=0x%04X" \
+            $ln_count $ln_berr_cnt $ln_last_din]
+        if {$ln_count == 0} {
+            puts "                    line_f_vec_reads=0 => F-line trap entry never fired. Bomb is NOT via"
+            puts "                              the F-line exception path. (For Sys 6 dsLineFErr expect>0.)"
+        } else {
+            puts "                    line_f_vec_reads>0 => F-line exception fired. last_handler_lo16 is the"
+            puts "                              low 16 bits of the handler address (read from \$B0/\$B2)."
+            puts "                              Compare across rounds: count delta around bomb visibility"
+            puts "                              tells us the F-line trap is the bomb mechanism."
+        }
+    }
+    if {[info exists idx(PFOQ)]} {
+        # Build #35 — PC of last OpWord write (F-line instruction site).
+        set opword_pc [rd $idx(PFOQ)]
+        puts [format "           FPU-OPQ: last_opword_pc=0x%08X" $opword_pc]
+        if {$opword_pc == 0} {
+            puts "                    last_opword_pc=0 => no OpWord write seen yet (no cpGEN/cpSAVE/cpRESTORE)."
+        } else {
+            puts "                    Disassemble at this PC. Should be an F-line instruction (opword 1111xxxx)."
+            puts "                              If RAM (\$00xxxxxx), it's a System-file-installed handler doing FPU work."
+            puts "                              If ROM (\$4xxxxxxx), it's the Mac II startup ROM (TestForFPU or FPU init)."
+        }
+    }
+    if {[info exists idx(PFOV)]} {
+        # Build #35 — last 2 OpWord values.
+        set ov [rd $idx(PFOV)]
+        set opw_last [expr {($ov >> 16) & 0xFFFF}]
+        set opw_prev [expr {$ov & 0xFFFF}]
+        set cls_last [opword_class $opw_last]
+        set cls_prev [opword_class $opw_prev]
+        puts [format "           FPU-OPV: last_opword=0x%04X (%s)  prev_opword=0x%04X (%s)" \
+            $opw_last $cls_last $opw_prev $cls_prev]
+        if {$opw_last == 0} {
+            puts "                    No OpWord written. Either FPU never reached or only FBcc was issued"
+            puts "                              (FBcc writes Condition CIR, not OpWord CIR — see PFPD Cond-wr)."
         }
     }
     if {[info exists idx(PFRR)] && [info exists idx(PFRW)]} {
-        # FPU CIR Response/Restore probes (build #14). Confirms the FRESTORE
-        # CIR-protocol hang found by build #13.
+        # Build #35 — PFRR upgraded: FBcc vs prim Response read tracking.
         set rr [rd $idx(PFRR)]
         set rw [rd $idx(PFRW)]
         set last_resp     [expr {($rr >> 16) & 0xFFFF}]
-        set resp_rd_cnt   [expr {($rr >> 8)  & 0xFF}]
+        set last_was_fbcc [expr {($rr >> 15) & 0x1}]
+        set prim_rd_cnt   [expr {($rr >> 8)  & 0x7F}]
         set ctrl_wr_cnt   [expr {$rr & 0xFF}]
         set last_rest     [expr {($rw >> 16) & 0xFFFF}]
         set rest_wr_cnt   [expr {($rw >> 8)  & 0xFF}]
@@ -766,11 +899,20 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$last_resp == 0x0900} { set prim_hint "NULL/release (ready)" }
         if {$last_resp == 0x8900} { set prim_hint "BUSY (come again)" }
         if {$last_resp == 0x8000} { set prim_hint "CA=1 + low byte 0x00 (non-standard BUSY-like)" }
-        if {$last_resp == 0x0000} { set prim_hint "all zeros (no read yet or odd state)" }
-        puts [format "           FPU-CIR Response \$22000: last=0x%04X (CA=%d) %s | rd_cnt(wrap8)=%u ctrl_wr_cnt(wrap8)=%u" \
-            $last_resp $ca_bit $prim_hint $resp_rd_cnt $ctrl_wr_cnt]
+        if {$last_resp == 0x0000} { set prim_hint "all zeros (FBF cond_word OR uninitialized)" }
+        if {$last_was_fbcc} {
+            set path_hint "FBcc cond_word"
+        } else {
+            set path_hint "prim path"
+        }
+        puts [format "           FPU-CIR Response \$22000: last=0x%04X (%s) %s | prim_rd_cnt(sat7)=%u ctrl_wr_cnt(wrap8)=%u" \
+            $last_resp $path_hint $prim_hint $prim_rd_cnt $ctrl_wr_cnt]
         puts [format "           FPU-CIR Restore  \$22006: last=0x%04X | wr_cnt(wrap8)=%u opw_wr_cnt(wrap8)=%u" \
             $last_rest $rest_wr_cnt $opw_wr_cnt]
+        if {$prim_rd_cnt == 0 && $opw_wr_cnt > 0} {
+            puts "                 NOTE: opw_wr_cnt>0 but prim_rd_cnt=0 => CPU never reads Response for cpGEN/SAVE/RESTORE."
+            puts "                       That's a TG68 protocol bug — every cpGEN-class write must be followed by a Response read."
+        }
         if {$ca_bit == 1 && $rest_wr_cnt > 0} {
             puts "                 CONFIRMED: CA=1 forever + Restore writes ongoing => FRESTORE protocol stalled in FPU."
         }

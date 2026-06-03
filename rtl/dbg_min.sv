@@ -471,12 +471,14 @@ module dbg_min (
     always @(posedge clk)
         pvbl_r <= {card_vbl_en, card_irq_cnt[14:0], card_ack_cnt};
 
-    altsource_probe #(
-        .instance_id ("PVBL"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVBL disabled build #58 — audio investigation done; freeing fit budget
+    // for SDRAM-corruption read probes PD24/PD28.
+    // altsource_probe #(
+    //     .instance_id ("PVBL"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PASC: ASC FIFO refill cadence — refill REQUESTS vs CPU REFILLS.
     //   {asc_irq_cnt[15:0], asc_wr_cnt[15:0]}
@@ -497,12 +499,15 @@ module dbg_min (
     always @(posedge clk)
         pasc_r <= {asc_irq_cnt, asc_wr_cnt};
 
-    altsource_probe #(
-        .instance_id ("PASC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pasc (.probe(pasc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PASC disabled build #35 — JTAG hub limit is ~20 ISSP/device for this
+    // bitstream. Freed slot for PFPD/PFOQ/PFOV/PFLN (bug #6 FPU debug).
+    // Not load-bearing for FPU bomb investigation.
+    // altsource_probe #(
+    //     .instance_id ("PASC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pasc (.probe(pasc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PAUD: ASC output sample range (distortion signature).  Track sticky
     // signed min/max of the left channel.  Clean audio sweeps a bounded range;
@@ -519,12 +524,13 @@ module dbg_min (
     always @(posedge clk)
         paud_r <= {audio_max, audio_min};
 
-    altsource_probe #(
-        .instance_id ("PAUD"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_paud (.probe(paud_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PAUD disabled build #35 — same fit-budget rationale as PASC above.
+    // altsource_probe #(
+    //     .instance_id ("PAUD"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_paud (.probe(paud_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== ADB / VIA1-SR diagnostic probes (PADB / PAD2 / PAD3) ============
     // DISABLED to free fit budget now that the ADB shift-in hang is fixed.
@@ -644,12 +650,14 @@ module dbg_min (
     always @(posedge clk)
         pflp_r <= {flp_byte_cnt, flp_miss_cnt};
 
-    altsource_probe #(
-        .instance_id ("PFLP"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLP disabled build #58 — floppy works; freeing fit budget for
+    // SDRAM-corruption read probes PD24/PD28.
+    // altsource_probe #(
+    //     .instance_id ("PFLP"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IWM latch / SDRAM-grant diagnostic (PIWM) ========================
     // Complements PFLP from the IWM side. Layout:
@@ -667,12 +675,14 @@ module dbg_min (
     always @(posedge clk)
         piwm_r <= {iwm_ack_cnt, iwm_latch, (flp_disk_data != 8'h00), iwm_arm_high};
 
-    altsource_probe #(
-        .instance_id ("PIWM"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIWM disabled build #58 — floppy works; freeing fit budget for
+    // SDRAM-corruption read probes PD24/PD28.
+    // altsource_probe #(
+    //     .instance_id ("PIWM"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IORB capture (PIOA) =============================================
     // The Welcome hang reaches IOWait at 0x40006C36-3A, which polls
@@ -1449,38 +1459,67 @@ module dbg_min (
                          (cpuFC == 3'b111) && (cpuAddr == 32'h00022006);
     wire pfrw_opw_wr   = cpuAS_n_d && !cpuAS_n && !cpuRW &&
                          (cpuFC == 3'b111) && (cpuAddr == 32'h00022008);
-    // Latch the read VALUE on mac_dout_valid (same idiom as PIR3).
-    reg pfrr_pending;
+    // Build #35 PFRR upgrade: distinguish FBcc cond_word reads from prim
+    // Response reads. Builds #28-#34 always showed last_resp=0x0000 — that's
+    // the FBcc/FBF cond word (correctly evaluated false), not the prim path.
+    // The prim Response value (cir_response_prim, currently 0x0900 NULL) is
+    // what TG68's cp_idle_resp decodes — if the FPU sends a shape TG68 can't
+    // recognize, it routes to F-line and System 6 bombs with dsLineFErr.
+    //
+    // Mechanism: track a sticky "cond-pending" flag. Set by any write to
+    // Condition CIR ($0E). Cleared by the next Response CIR read. That read
+    // is classified as "FBcc" (cond_word); all other Response reads are
+    // "prim" reads.
+    //
+    // Layout:
+    //   [31:16] pfrr_last_resp        — cpu_din at AS rising, any Response read
+    //   [15]    pfrr_last_was_fbcc    — 1=last read was FBcc cond_word path
+    //                                   0=last read was prim path
+    //   [14:8]  pfrr_prim_rd_cnt      — 7-bit count of prim Response reads
+    //                                   (FBcc reads counted via PFPD Cond-wr)
+    //   [7:0]   pfrr_ctrl_wr_cnt      — Control CIR writes (kept from #28)
+    wire pfrr_cond_wr  = cpuAS_n_d && !cpuAS_n && !cpuRW &&
+                         (cpuFC == 3'b111) && (cpuAddr == 32'h0002200E);
+    reg        pfrr_fbcc_pending;
+    reg        pfrr_read_pending;
+    reg        pfrr_read_was_fbcc;
     reg [15:0] pfrr_last_resp;
-    reg [7:0]  pfrr_resp_rd_cnt;
+    reg        pfrr_last_was_fbcc;
+    reg [6:0]  pfrr_prim_rd_cnt;
     reg [7:0]  pfrr_ctrl_wr_cnt;
     initial begin
-        pfrr_pending     = 1'b0;
-        pfrr_last_resp   = 16'd0;
-        pfrr_resp_rd_cnt = 8'd0;
-        pfrr_ctrl_wr_cnt = 8'd0;
+        pfrr_fbcc_pending  = 1'b0;
+        pfrr_read_pending  = 1'b0;
+        pfrr_read_was_fbcc = 1'b0;
+        pfrr_last_resp     = 16'd0;
+        pfrr_last_was_fbcc = 1'b0;
+        pfrr_prim_rd_cnt   = 7'd0;
+        pfrr_ctrl_wr_cnt   = 8'd0;
     end
-    // Build #28 PFRR fix: FPU reads use DSACK, not the SDRAM arbiter, so
-    // mac_dout_valid never fires for FPU accesses and the old code would
-    // never capture last_resp. Latch cpu_din on AS rising edge — for FPU
-    // reads, the LBMacTwo.sv data mux routes fpu_data_out to cpu_data_in
-    // (cpu_din) for the whole cycle, so the value visible at end-of-cycle
-    // is the response data TG68 actually clocked.
     always @(posedge clk) begin
+        if (pfrr_cond_wr) pfrr_fbcc_pending <= 1'b1;
         if (pfrr_resp_rd) begin
-            pfrr_pending     <= 1'b1;
-            pfrr_resp_rd_cnt <= pfrr_resp_rd_cnt + 8'd1;
+            pfrr_read_pending  <= 1'b1;
+            pfrr_read_was_fbcc <= pfrr_fbcc_pending;
+            if (pfrr_fbcc_pending) begin
+                pfrr_fbcc_pending <= 1'b0;
+            end else begin
+                if (pfrr_prim_rd_cnt != 7'h7F)
+                    pfrr_prim_rd_cnt <= pfrr_prim_rd_cnt + 7'd1;
+            end
         end
-        if (pfrr_pending && !cpuAS_n_d && cpuAS_n) begin
-            // AS rising edge: bus cycle ends. Capture the data the CPU saw.
-            pfrr_last_resp <= cpu_din;
-            pfrr_pending   <= 1'b0;
+        if (pfrr_read_pending && !cpuAS_n_d && cpuAS_n) begin
+            // AS rising edge: bus cycle ends. Capture data the CPU saw.
+            pfrr_last_resp     <= cpu_din;
+            pfrr_last_was_fbcc <= pfrr_read_was_fbcc;
+            pfrr_read_pending  <= 1'b0;
         end
         if (pfrr_ctrl_wr) pfrr_ctrl_wr_cnt <= pfrr_ctrl_wr_cnt + 8'd1;
     end
     reg [31:0] pfrr_r;
     always @(posedge clk)
-        pfrr_r <= {pfrr_last_resp, pfrr_resp_rd_cnt, pfrr_ctrl_wr_cnt};
+        pfrr_r <= {pfrr_last_resp, pfrr_last_was_fbcc,
+                   pfrr_prim_rd_cnt, pfrr_ctrl_wr_cnt};
 
     reg [15:0] pfrw_last_rest;
     reg [7:0]  pfrw_rest_wr_cnt;
@@ -1691,190 +1730,453 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pfpd (.probe(pfpd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // ==== PFBE: bomb-entry PC snapshot (build #31, bug #6) =================
-    // PFTR (build #30) was noisy — its FC=5+addr<$400 filter caught low-mem
-    // global reads (MBState @ $172, IORB ioResult @ $3B4) not just traps.
-    // The bomb dialog wait loop lives in Mac II ROM at $40002432; the FIRST
-    // IF to that address is the moment the bomb appears. PFBE captures the
-    // PC of the IF *immediately before* that — i.e., the last instruction
-    // executed by the SystemError setup code or its caller chain. Combined
-    // with PFPD/PFRR/PFST snapshots at the same time, this localizes the
-    // bomb call site.
+    // ==== PFOQ: PC of last cpGEN-class OpWord write (build #35, bug #6) ====
+    // PFBE retired — it always showed $40002430 (the SystemError dialog setup
+    // epilogue, a fixed ROM address). Replace its slot with the PC of the
+    // F-line instruction that issued the LAST write to OpWord CIR ($00022008).
+    //
+    // Approximation: the TG68's coprocessor microcode writes OpWord shortly
+    // after fetching the F-line instruction. Latch the most recent supervisor
+    // IF address (`pfoq_last_if_pc`), then snapshot it at each OpWord write.
+    // That snapshot is a few cycles off but lands within the same instruction.
+    //
+    // Combined with PFOV (OpWord values), this names exactly which F-line
+    // opcode in System 6 / System 7 was the last one before the bomb.
     //
     // Layout:
-    //   [31:0] pc_before_bomb — IF-PC of the instruction just before the
-    //                           first IF to the SysError dialog. Decode:
-    //                           ROM disassembly at this PC (or RAM if
-    //                           PC is in $00xxxxxx range) shows what
-    //                           triggered the SysError.
-    //
-    // The probe is one-shot (latches the value on the FIRST trigger), so
-    // subsequent re-entries to the dialog (e.g. if user clicks Restart and
-    // it bombs again) don't overwrite it.
-    wire pfbe_is_if = cpuAS_n_d && !cpuAS_n && cpuRW
-                   && (cpuFC == 3'b110 || cpuFC == 3'b010);  // supervisor or user IF
-    reg        pfbe_first_seen;
-    reg [31:0] pfbe_pc_before_bomb;
-    reg [31:0] pfbe_prev_if_pc;
+    //   [31:0] pfoq_opword_pc — IF-PC of the F-line instruction whose
+    //                            OpWord write was most recently captured.
+    //                            0 = no OpWord write seen yet.
+    wire pfoq_is_if_super = cpuAS_n_d && !cpuAS_n && cpuRW
+                         && (cpuFC == 3'b110);  // supervisor IF only
+    reg [31:0] pfoq_last_if_pc;
+    reg [31:0] pfoq_opword_pc;
     initial begin
-        pfbe_first_seen     = 1'b0;
-        pfbe_pc_before_bomb = 32'h0;
-        pfbe_prev_if_pc     = 32'h0;
+        pfoq_last_if_pc = 32'h0;
+        pfoq_opword_pc  = 32'h0;
     end
     always @(posedge clk) begin
-        if (pfbe_is_if) begin
-            if (!pfbe_first_seen && cpuAddr == 32'h4000_2432) begin
-                pfbe_first_seen     <= 1'b1;
-                pfbe_pc_before_bomb <= pfbe_prev_if_pc;
-            end else if (!pfbe_first_seen) begin
-                pfbe_prev_if_pc <= cpuAddr;
-            end
-        end
+        if (pfoq_is_if_super) pfoq_last_if_pc <= cpuAddr;
+        if (pfrw_opw_wr)      pfoq_opword_pc  <= pfoq_last_if_pc;
     end
-    reg [31:0] pfbe_r;
+    reg [31:0] pfoq_r;
     always @(posedge clk)
-        pfbe_r <= pfbe_pc_before_bomb;
+        pfoq_r <= pfoq_opword_pc;
 
     altsource_probe #(
-        .instance_id ("PFBE"),
+        .instance_id ("PFOQ"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pfbe (.probe(pfbe_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pfoq (.probe(pfoq_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // ==== PFCS: _SysError call-site probe (build #32, bug #6) ==============
-    // Build #31's PFBE caught $40002430, the SystemError-dialog-setup
-    // epilogue (CLR.B $0160 ext-word), not the SysError CALLER. The bomb is
-    // triggered by a _SysError A-trap ($A9C9) somewhere — but it could be
-    // in ROM, in System file RAM code, or in an Init. PFCS latches the PC
-    // of the FIRST instruction fetch whose data word is $A9C9. cpu_din at
-    // AS-rising edge during an IF cycle = the fetched opcode word; if that
-    // word is $A9C9, the PC is the instruction's address.
+    // ==== PFOV: last 2 cpGEN-class OpWord VALUES (build #35, bug #6) =======
+    // PFCS retired — build #33 confirmed only one $A9C9 fetch in entire boot
+    // (at $400011DC, an unrelated ROM dispatcher), so the bomb does NOT use
+    // the _SysError A-trap path. Repurpose its slot to capture the actual
+    // OpWord values the CPU wrote to OpWord CIR ($00022008).
     //
-    // Combined with the surrounding code at that PC, we can:
-    //   - Disassemble the previous instruction to see D0's value (= SysError
-    //     code, dsNoFPU=90).
-    //   - Trace back to find what FPU op (or check) led to this call.
+    // For TG68/68020 coprocessor protocol the OpWord written to OpWord CIR
+    // is the 1st extension word of the F-line instruction. Its encoding
+    // identifies the FPU op class:
+    //   FBcc / FNOP        — written to Condition CIR, NOT here. (FNOP =
+    //                        FBF.W with op_byte=$01, cond=$00.)
+    //   cpGEN math         — OpWord = "0000 cccc qqqq dddd" with op spec.
+    //                        Followed by Command CIR write of full instr.
+    //   cpSAVE             — OpWord = "0010 0aaa aaaa aaaa" (EA encoding).
+    //   cpRESTORE          — OpWord = "0011 0aaa aaaa aaaa" (EA encoding).
+    //
+    // The bomb path in Sys 6 (dsLineFErr) probably routes through cp_idle_resp
+    // after some OpWord. Seeing the LAST 2 OpWord values + PFOQ PC pinpoints
+    // the responsible F-line instruction.
     //
     // Layout:
-    //   [31:0] caller_pc — PC of the first _SysError ($A9C9) opcode fetch.
-    //                      0 = no _SysError ever fetched (bomb is via a
-    //                      different mechanism, e.g. direct dispatch table
-    //                      vector or trap dispatch).
-    wire pfcs_is_if_end = !cpuAS_n_d && cpuAS_n           // AS rising edge
-                       && (cpuFC == 3'b110 || cpuFC == 3'b010);  // IF cycle
-    // We need to remember cpuAddr at AS falling and check cpu_din at AS rising.
-    reg [31:0] pfcs_pending_pc;
-    reg        pfcs_pending_armed;
-    reg        pfcs_first_seen;
-    reg [31:0] pfcs_caller_pc;
+    //   [31:16] pfov_last — most recent OpWord write value
+    //   [15:0]  pfov_prev — previous OpWord write value
+    reg [15:0] pfov_last;
+    reg [15:0] pfov_prev;
     initial begin
-        pfcs_pending_pc    = 32'h0;
-        pfcs_pending_armed = 1'b0;
-        pfcs_first_seen    = 1'b0;
-        pfcs_caller_pc     = 32'h0;
+        pfov_last = 16'd0;
+        pfov_prev = 16'd0;
     end
-    wire pfcs_is_if_start = cpuAS_n_d && !cpuAS_n
-                         && cpuRW
-                         && (cpuFC == 3'b110 || cpuFC == 3'b010);
-    // Build #33: track LATEST $A9C9 fetch (overwrite always), plus a
-    // saturating count of total $A9C9 fetches. Build #32's "first only"
-    // semantics stuck at $400011DC from T+90s onward and couldn't reveal
-    // whether another _SysError fired at the bomb moment (T+5..7min).
-    reg [7:0] pfcs_count;
     always @(posedge clk) begin
-        if (pfcs_is_if_start) begin
-            pfcs_pending_pc    <= cpuAddr;
-            pfcs_pending_armed <= 1'b1;
-        end
-        if (pfcs_pending_armed && pfcs_is_if_end) begin
-            pfcs_pending_armed <= 1'b0;
-            if (cpu_din == 16'hA9C9) begin
-                pfcs_caller_pc <= pfcs_pending_pc;  // overwrite ALWAYS
-                if (pfcs_count != 8'hFF) pfcs_count <= pfcs_count + 8'd1;
-            end
+        if (pfrw_opw_wr) begin
+            pfov_prev <= pfov_last;
+            pfov_last <= cpu_dout;
         end
     end
-    // Pack count into low 8 bits of probe; keep PC in upper 24. Loses high
-    // byte of PC but that's $40 for ROM / $00 for RAM — inferable from value.
-    reg [31:0] pfcs_r;
+    reg [31:0] pfov_r;
     always @(posedge clk)
-        pfcs_r <= {pfcs_caller_pc[23:0], pfcs_count};
+        pfov_r <= {pfov_last, pfov_prev};
 
     altsource_probe #(
-        .instance_id ("PFCS"),
+        .instance_id ("PFOV"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pfcs (.probe(pfcs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pfov (.probe(pfov_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // ==== PFTR (build #30) -- kept for reference but noisy ==================
-    // Detects exception entries by watching for supervisor-data (FC=5) reads
-    // to the vector table (addr < $400 covers all 256 vectors at VBR=0).
-    // On 68020, when an exception fires, the CPU reads VBR + vec_num*4 in
-    // FC=5; we latch that read address to identify the firing vector. Also
-    // counts bus-error edges so we can tell BERR-driven traps from native
-    // F-line / coproc-protocol-violation traps.
+    // ==== PHWC: HWCfgFlags ($0B22) write tracker (build #37, bug #6) =======
+    // ROM disassembly at $4000D604 (FRESTORE guard) reveals: Mac II ROM
+    // tests bit 12 (= byte bit 4 of high byte at $0B22 — hwCbFPU) before
+    // doing FRESTORE during context-clear. Build #36 capture confirmed
+    // FRESTORE executes => hwCbFPU IS SET at that point.
+    //
+    // But the bomb still fires later. So either:
+    //   (a) hwCbFPU gets cleared by some later code (rare but possible if
+    //       an init/driver thinks FPU is broken)
+    //   (b) The bomb path uses a DIFFERENT detection than HWCfgFlags
+    //
+    // PHWC catches case (a). Tracks any byte write to $00000B22 (the high
+    // byte of HWCfgFlags word — that's where bit 12 lives). Captures the
+    // writer's IF-PC and the byte value written.
     //
     // Layout:
-    //   [31:24] pftr_last_vec       — vector number of the LAST exception
-    //                                 entry (= cpuAddr[9:2] of the vector
-    //                                 fetch). Decode reference:
-    //                                   $02 BUS_ERR  $03 ADDR_ERR
-    //                                   $04 ILL_INST $05 DIVZ
-    //                                   $0B LINE_F   $0D COPROC_PV
-    //                                   $0E FORMAT_ERR
-    //                                   $30 BSUN     $34 OPERR
-    //   [23:16] pftr_trap_cnt       — trap-entry count (wrap-8). Confirms
-    //                                 whether ANY trap fired between rounds.
-    //   [15:0]  pftr_berr_cnt       — bus-error rising-edge count (wrap-16).
-    //                                 Distinguishes BERR-triggered traps
-    //                                 from native protocol traps.
+    //   [31:24] phwc_count       — sat-8 count of writes to $0B22
+    //   [23:0]  phwc_last_pc[23:0] — writer PC (high byte $40 for ROM,
+    //                                 $00 for RAM, inferable from value)
+    //   ... but we ALSO want the value. Pack differently:
+    //   Actually: 2 reads — keep this probe focused on PC + count + bit4.
     //
-    // Decision tree:
-    //   pftr_trap_cnt grows + last_vec=$0B → F-line trap fired. Bomb is the
-    //     System file's NewFLineRoutine-style handler. The PC trail before
-    //     the trap shows the offending opcode site.
-    //   pftr_trap_cnt grows + last_vec=$0D → coprocessor protocol violation.
-    //     FPU returned a Response value the CPU rejected. Check PFRR's
-    //     last_resp shape against AN-947 primary encodings.
-    //   pftr_trap_cnt grows + last_vec=$02 → bus error. Either FPU DSACK
-    //     timed out or an address went undecoded.
-    //   pftr_berr_cnt > 0 + last_vec=$0B → BERR triggered F-line indirectly
-    //     (the bus error converts to an F-line trap in some paths).
-    //   pftr_trap_cnt unchanged → no traps fired. Bomb is not exception-
-    //     driven; look for direct _SysError call from System code.
-    wire pftr_vec_fetch = cpuAS_n_d && !cpuAS_n && cpuRW
-                       && (cpuFC == 3'b101)            // supervisor data
-                       && (cpuAddr[31:10] == 22'd0);   // addr < $400
-
-    reg [7:0]  pftr_last_vec;
-    reg [7:0]  pftr_trap_cnt;
-    reg [15:0] pftr_berr_cnt;
-    reg        pftr_berr_d;
+    // Better layout:
+    //   [31:8] phwc_last_pc[23:0] — writer PC
+    //   [7:0]  composite          — bit7=bit4 of last value (hwCbFPU),
+    //                              bits[6:0] = sat-7 count
+    wire phwc_event = cpuAS_n_d && !cpuAS_n && !cpuRW
+                   && (cpuFC == 3'b101)            // supervisor data write
+                   && (cpuAddr == 32'h0000_0B22);  // HWCfgFlags high byte
+    reg [31:0] phwc_last_pc;
+    reg [31:0] phwc_pending_pc;
+    reg        phwc_pending_armed;
+    reg [6:0]  phwc_count;
+    reg        phwc_last_bit4;
+    reg [7:0]  phwc_last_val;
     initial begin
-        pftr_last_vec = 8'd0;
-        pftr_trap_cnt = 8'd0;
-        pftr_berr_cnt = 16'd0;
-        pftr_berr_d   = 1'b0;
+        phwc_last_pc        = 32'h0;
+        phwc_pending_pc     = 32'h0;
+        phwc_pending_armed  = 1'b0;
+        phwc_count          = 7'd0;
+        phwc_last_bit4      = 1'b0;
+        phwc_last_val       = 8'd0;
     end
+    // Reuse pfoq_last_if_pc / pfoq_is_if_super for writer PC (latest super IF).
     always @(posedge clk) begin
-        pftr_berr_d <= berr;
-        if (pftr_vec_fetch) begin
-            pftr_last_vec <= cpuAddr[9:2];        // vector number = addr/4
-            pftr_trap_cnt <= pftr_trap_cnt + 8'd1;
+        if (phwc_event) begin
+            phwc_pending_pc    <= pfoq_last_if_pc;
+            phwc_pending_armed <= 1'b1;
+            if (phwc_count != 7'h7F) phwc_count <= phwc_count + 7'd1;
         end
-        if (berr && !pftr_berr_d) pftr_berr_cnt <= pftr_berr_cnt + 16'd1;
+        // Capture data at AS rising edge (when bus cycle completes)
+        if (phwc_pending_armed && !cpuAS_n_d && cpuAS_n) begin
+            phwc_last_pc       <= phwc_pending_pc;
+            // cpu_dout high byte for byte write at $0B22 — TG68 places byte
+            // on the appropriate bus lane based on UDS/LDS. For byte write
+            // to even address $0B22, the data is on UDS (cpu_dout[15:8]).
+            // Actually $0B22 = 32'b0000_..._1011_0010_0010 -> LSB of addr=0
+            // bit 0 = 0 => even byte = UDS active = upper byte
+            phwc_last_val      <= cpu_dout[15:8];
+            phwc_last_bit4     <= cpu_dout[12];  // bit 12 of WORD = bit 4 of HIGH BYTE
+            phwc_pending_armed <= 1'b0;
+        end
     end
-    reg [31:0] pftr_r;
+    reg [31:0] phwc_r;
     always @(posedge clk)
-        pftr_r <= {pftr_last_vec, pftr_trap_cnt, pftr_berr_cnt};
+        phwc_r <= {phwc_last_pc[23:0], phwc_last_bit4, phwc_count};
 
     altsource_probe #(
-        .instance_id ("PFTR"),
+        .instance_id ("PHWC"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pftr (.probe(pftr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_phwc (.probe(phwc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PSFW: FPU Save-CIR read capture (build #45, bug #6) ==============
+    // Captures fpu_data_out[15:0] every time the CPU does a bus read of the
+    // FPU Save CIR (cpuAddr[5:1]==2). This is the format word the CPU
+    // physically receives from the FPU during FSAVE. Snow trace shows Mac
+    // OS at $00014072 does CMPI.W #$1F18, D0 — so this probe should show
+    // $1F18 in [31:16] if our FPU correctly delivers the format word.
+    // Anything else (e.g., $0000, $00B4, $1FB4) explains the bomb.
+    //
+    // Layout:
+    //   [31:16] psfw_last_val   — last cpu_din[15:0] at Save CIR read (the
+    //                              actual word the CPU received from FPU)
+    //   [15:8]  psfw_last_pc[7:0] — low byte of writer PC for context (low
+    //                              byte of $1406C is $6C, of $4000D612 is $12)
+    //   [7:0]   psfw_count       — sat-8 count of Save CIR reads
+    //
+    // NOTE: capture at AS rising edge (end of bus cycle) so cpu_din has
+    // the settled read result. Capturing during cycle catches in-progress
+    // bus state which may be undefined.
+    wire psfw_in_cycle = !cpuAS_n && cpuRW && selectFPU
+                      && (cpuAddr[5:1] == 5'd2);
+    reg psfw_in_cycle_d;
+    reg [15:0] psfw_last_val;
+    reg [7:0]  psfw_last_pc_lo;
+    reg [7:0]  psfw_count;
+    initial begin
+        psfw_in_cycle_d = 1'b0;
+        psfw_last_val   = 16'h0;
+        psfw_last_pc_lo = 8'h0;
+        psfw_count      = 8'h0;
+    end
+    always @(posedge clk) begin
+        psfw_in_cycle_d <= psfw_in_cycle;
+        // Capture at FALLING edge of psfw_in_cycle (AS rising = end of
+        // bus cycle), so cpu_din has the settled value.
+        if (!psfw_in_cycle && psfw_in_cycle_d) begin
+            psfw_last_val   <= cpu_din;
+            psfw_last_pc_lo <= pfoq_last_if_pc[7:0];
+            if (psfw_count != 8'hFF) psfw_count <= psfw_count + 8'd1;
+        end
+    end
+    reg [31:0] psfw_r;
+    always @(posedge clk)
+        psfw_r <= {psfw_last_val, psfw_last_pc_lo, psfw_count};
+
+    // PSFW disabled for build #49 — FPU side confirmed correct (delivered
+    // $1F18); freeing fit budget for widened PMTY. Re-enable if needed.
+    // altsource_probe #(
+    //     .instance_id ("PSFW"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psfw (.probe(psfw_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PSFM: FPU FSAVE format-word write capture (build #46, bug #6) ====
+    // Build #45 version saturated at 65535 with any-stack-write filter.
+    // Build #46: capture WRITES whose value == $1F18 (the expected format
+    // word). This value is rare in normal traffic — if it fires, it's
+    // almost certainly the FSAVE format-word write. Captures the address
+    // of the write so we know WHERE the format word landed in memory.
+    //
+    // Also captures the LAST write address overall (sat-8 count) as a
+    // sanity check that the CPU IS doing many writes.
+    //
+    // Layout:
+    //   [31:16] psfm_1f18_addr_lo  — low 16 bits of the address where the
+    //                                most recent $1F18 write went. Snow's
+    //                                A7_post is $003FFBBC so we expect
+    //                                low16 == $FBBC if FSAVE put $1F18
+    //                                in the format-word slot.
+    //   [15:8]  psfm_1f18_count    — sat-8 count of $1F18 writes
+    //   [7:0]   psfm_writes_count  — sat-8 count of ANY stack write
+    wire psfm_any_write = !cpuAS_n && !cpuRW
+                       && (cpuAddr[31:16] == 16'h003F);
+    wire psfm_1f18_event = psfm_any_write
+                       && (cpu_dout[15:0] == 16'h1F18);
+    reg psfm_any_d, psfm_1f18_d;
+    reg [15:0] psfm_1f18_addr_lo;
+    reg [7:0]  psfm_1f18_count;
+    reg [7:0]  psfm_writes_count;
+    initial begin
+        psfm_any_d         = 1'b0;
+        psfm_1f18_d        = 1'b0;
+        psfm_1f18_addr_lo  = 16'h0;
+        psfm_1f18_count    = 8'h0;
+        psfm_writes_count  = 8'h0;
+    end
+    always @(posedge clk) begin
+        psfm_any_d  <= psfm_any_write;
+        psfm_1f18_d <= psfm_1f18_event;
+        if (psfm_1f18_event && !psfm_1f18_d) begin
+            psfm_1f18_addr_lo <= cpuAddr[15:0];
+            if (psfm_1f18_count != 8'hFF) psfm_1f18_count <= psfm_1f18_count + 8'd1;
+        end
+        if (psfm_any_write && !psfm_any_d) begin
+            if (psfm_writes_count != 8'hFF) psfm_writes_count <= psfm_writes_count + 8'd1;
+        end
+    end
+    reg [31:0] psfm_r;
+    always @(posedge clk)
+        psfm_r <= {psfm_1f18_addr_lo, psfm_1f18_count, psfm_writes_count};
+
+    // PSFM disabled for build #49 — FPU side confirmed correct (104 $1F18
+    // stack writes counted); freeing fit budget for widened PMTY.
+    // altsource_probe #(
+    //     .instance_id ("PSFM"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psfm (.probe(psfm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PMTY: $0D28 trap-pointer writer (build #57, bug #6 phase 12) =====
+    // Snow's $0D28 = $40806486 (ROM pointer). LBMacTwo's $0D28 = $00008CD8
+    // (string-area pointer). The dispatcher at $4D40 does
+    // MOVEA.L ($0D28).W, A0; JMP (A0) — wrong pointer → jump into string.
+    //
+    // Capture cpu_dout high word at last write to $0D28 + writer PC high.
+    // This tells us:
+    //   - If high word = $4080: write was correct ($4080 6486 ROM addr) →
+    //     SDRAM byte path is corrupting on read.
+    //   - If high word = $0000: write itself was bad ($0000 8CD8 was the
+    //     written value) → caller has bad data, look at disasm.
+    //
+    // Layout:
+    //   [31:16] = cpu_dout[15:0] at last write to $0D28-$0D29 (high word
+    //             of 32-bit value being written)
+    //   [15:0]  = pfoq_last_if_pc[15:0] (low 16 bits of writer PC)
+    wire pmty_d28_write = !cpuAS_n && !cpuRW
+                       && (cpuAddr == 32'h0000_0D28);
+    reg pmty_d28_d;
+    reg [15:0] pmty_d28_hword, pmty_d28_pc_lo;
+    initial begin
+        pmty_d28_d      = 1'b0;
+        pmty_d28_hword  = 16'h0;
+        pmty_d28_pc_lo  = 16'h0;
+    end
+    always @(posedge clk) begin
+        pmty_d28_d <= pmty_d28_write;
+        if (pmty_d28_write && !pmty_d28_d) begin
+            pmty_d28_hword <= cpu_dout[15:0];
+            pmty_d28_pc_lo <= pfoq_last_if_pc[15:0];
+        end
+    end
+    reg [31:0] pmty_r;
+    always @(posedge clk)
+        pmty_r <= {pmty_d28_hword, pmty_d28_pc_lo};
+
+    altsource_probe #(
+        .instance_id ("PMTY"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pmty (.probe(pmty_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PFLN: F-line vector fetch detector (build #35, bug #6) ===========
+    // RETIRED build #37 — build #36 confirmed PFLN.count = 8 (constant) across
+    // boot, so F-line trap entry is not the bomb mechanism. Freed slot for PHWC.
+    /*
+    // PFTR retired — its FC=5+addr<$400 filter caught low-mem global reads
+    // (MBState @ $172, IORB ioResult @ $3B4) too aggressively, drowning real
+    // vector fetches in noise. Replace with a TIGHT filter: only the F-line
+    // vector address ($000000B0 / $000000B2 — vector 11, the exception that
+    // System 6's dsLineFErr bomb is the unhandled form of). Plus keep berr
+    // counter (smaller — was useful at zero across all bug-#6 builds).
+    //
+    // Mechanism: 68020 with VBR=0 fetches the F-line handler address from
+    // $000000B0 (longword) on F-line exception entry. TG68 splits longword
+    // reads into two 16-bit accesses at $B0 then $B2; this fires on both
+    // and captures the LAST cpu_din (which is $B2 — low 16 of handler addr).
+    //
+    // Layout:
+    //   [31:24] pfln_count    — sat-8 count of $B0+$B2 reads. count>0 means
+    //                            the F-line exception entry path was taken.
+    //                            Compare across rounds: increment between
+    //                            T+5min and T+7min = bomb is via F-line.
+    //   [23:16] pfln_berr_cnt — sat-8 count of berr rising edges.
+    //   [15:0]  pfln_last_din — last cpu_din from $B0/$B2 (low 16 of handler
+    //                            address — usually $4xxx for ROM handler or
+    //                            $00xx for installed RAM handler).
+    wire pfln_vec_b0_rd = cpuAS_n_d && !cpuAS_n && cpuRW
+                       && (cpuFC == 3'b101)             // supervisor data
+                       && (cpuAddr[31:2] == 30'h0000002C); // $B0 or $B2
+
+    reg [7:0]  pfln_count;
+    reg [7:0]  pfln_berr_cnt;
+    reg        pfln_berr_d;
+    reg [15:0] pfln_last_din;
+    reg        pfln_pending;
+    initial begin
+        pfln_count    = 8'd0;
+        pfln_berr_cnt = 8'd0;
+        pfln_berr_d   = 1'b0;
+        pfln_last_din = 16'd0;
+        pfln_pending  = 1'b0;
+    end
+    always @(posedge clk) begin
+        pfln_berr_d <= berr;
+        if (pfln_vec_b0_rd) begin
+            pfln_pending <= 1'b1;
+            if (pfln_count != 8'hFF) pfln_count <= pfln_count + 8'd1;
+        end
+        if (pfln_pending && !cpuAS_n_d && cpuAS_n) begin
+            pfln_last_din <= cpu_din;
+            pfln_pending  <= 1'b0;
+        end
+        if (berr && !pfln_berr_d && pfln_berr_cnt != 8'hFF)
+            pfln_berr_cnt <= pfln_berr_cnt + 8'd1;
+    end
+    reg [31:0] pfln_r;
+    always @(posedge clk)
+        pfln_r <= {pfln_count, pfln_berr_cnt, pfln_last_din};
+
+    // altsource_probe #(
+    //     .instance_id ("PFLN"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfln (.probe(pfln_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    */
+
+    // ==== PD24 / PD28: low-mem longword read capture (build #58, bug #6) ====
+    // Step 1 of SDRAM-corruption diagnostic from coprocessor_missing_handoff.md.
+    //   PD28: longword at $00000D28 — known bad (reads $00008CD8, should be
+    //         Snow's $40806486). Sanity-check the bad read directly.
+    //   PD24: longword at $00000D24 — Snow says $000028FC. If we match Snow
+    //         here, the corruption is SPECIFIC to $0D28 (aliasing/coincidence).
+    //         If different, the corruption is SYSTEMIC across low-mem
+    //         longwords (likely SDRAM controller bug — addr not latched at
+    //         T=0, so column phase at T=3 uses changed addr).
+    //
+    // Each probe latches cpu_din at AS-rising (end of bus cycle) for both
+    // halves of the longword. cpuAddr+0 -> high16, cpuAddr+2 -> low16.
+    // Layout: {high16, low16} = full 32-bit longword value.
+    //
+    // Filter: cpuRW=1 (read). No FC filter — both supervisor data (FC=5)
+    // and trap-dispatcher reads through the indirect MOVEA.L (...).W path
+    // hit these low-mem globals; we want to see them all.
+
+    // PD28: longword read of $00000D28-$00000D2B
+    wire pd28_hi_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_0D28);
+    wire pd28_lo_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_0D2A);
+    reg  pd28_hi_d, pd28_lo_d;
+    reg [15:0] pd28_hi, pd28_lo;
+    initial begin
+        pd28_hi_d = 1'b0; pd28_lo_d = 1'b0;
+        pd28_hi   = 16'h0; pd28_lo   = 16'h0;
+    end
+    always @(posedge clk) begin
+        pd28_hi_d <= pd28_hi_in;
+        pd28_lo_d <= pd28_lo_in;
+        // Latch at falling edge of in_cycle (AS-rising = end of bus cycle):
+        // cpu_din has the settled read result by then.
+        if (!pd28_hi_in && pd28_hi_d) pd28_hi <= cpu_din;
+        if (!pd28_lo_in && pd28_lo_d) pd28_lo <= cpu_din;
+    end
+    reg [31:0] pd28_r;
+    always @(posedge clk) pd28_r <= {pd28_hi, pd28_lo};
+
+    altsource_probe #(
+        .instance_id ("PD28"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pd28 (.probe(pd28_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PD24: longword read of $00000D24-$00000D27
+    wire pd24_hi_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_0D24);
+    wire pd24_lo_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_0D26);
+    reg  pd24_hi_d, pd24_lo_d;
+    reg [15:0] pd24_hi, pd24_lo;
+    initial begin
+        pd24_hi_d = 1'b0; pd24_lo_d = 1'b0;
+        pd24_hi   = 16'h0; pd24_lo   = 16'h0;
+    end
+    always @(posedge clk) begin
+        pd24_hi_d <= pd24_hi_in;
+        pd24_lo_d <= pd24_lo_in;
+        if (!pd24_hi_in && pd24_hi_d) pd24_hi <= cpu_din;
+        if (!pd24_lo_in && pd24_lo_d) pd24_lo <= cpu_din;
+    end
+    reg [31:0] pd24_r;
+    always @(posedge clk) pd24_r <= {pd24_hi, pd24_lo};
+
+    altsource_probe #(
+        .instance_id ("PD24"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pd24 (.probe(pd24_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
