@@ -893,16 +893,18 @@ module dbg_min (
     reg [31:0] pir3_r;
     always @(posedge clk) pir3_r <= {ior3_last, ior3_rd_cnt};
 
-    // PIR3 disabled for build #14 to free fit budget for PFRW (FPU Restore-CIR
-    // write confirm). Build #13 reframed $22000-$2200F as FPU CIR space, not
-    // RAM IORB; the "ioRefNum" reading was meaningless data residue and not
-    // load-bearing for the FPU-FRESTORE-hang investigation.
-    // altsource_probe #(
-    //     .instance_id ("PIR3"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIR3 RE-ENABLED for IORB-completion investigation (build #66).
+    // Reads ioRefNum at (PIOA + $08) = (IORB + $18). Once PIOA captures
+    // the hung IORB's ioResult address, PIR3 tells us which DRIVER owns
+    // it via the refnum: -33 .Sony (floppy), -36 .Sound, -38 .SCSI,
+    // -39 .MPP (AppleTalk), -40 .ATP, etc. Combined with PIOA/PIOC/PIR2
+    // this gives us a complete IORB-identity picture in ONE build.
+    altsource_probe #(
+        .instance_id ("PIR3"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IRQ-delivery probe (PIPL) ========================================
     // Diagnose the post-Phase-1 busy-loop. The long-soak capture
