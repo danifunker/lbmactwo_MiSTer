@@ -736,26 +736,30 @@ module dbg_min (
         end
     end
 
-    // PIOA disabled for build #27 to free routing budget for PFPD (FPU
-    // detection probe). The Welcome-hang IOWait investigation is closed
-    // (bug #1 RESOLVED); PIOA/PIOC aren't load-bearing for bug #6 FPU
-    // detection work.
-    // altsource_probe #(
-    //     .instance_id ("PIOA"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIOA RE-ENABLED for IORB-completion investigation (build #66).
+    // Floppy ruled out as slow (build #65 PFLP: 64 KB/s peak). Mac OS
+    // is stuck in IOWait spin at PC=$40006C36 (per build #65 IF-PC
+    // bursts). PIOA captures the (A0+$10) data address fetched right
+    // after the C36 IF — that's the ioResult field of the IORB whose
+    // driver never IODone's.
+    altsource_probe #(
+        .instance_id ("PIOA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
 
     reg [31:0] pioc_r;
     always @(posedge clk) pioc_r <= {16'd0, iowait_iter_cnt};
-    // PIOC disabled for build #27 (same rationale as PIOA above).
-    // altsource_probe #(
-    //     .instance_id ("PIOC"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIOC RE-ENABLED for IORB-completion investigation. Counts every
+    // IF at $40006C36 (i.e. every IOWait poll iteration). Build #65
+    // showed Mac OS spends most boot time spinning here; PIOC quantifies.
+    altsource_probe #(
+        .instance_id ("PIOC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIR1: writes to $0000_03B4 (= IORB.ioResult at Mac low-mem "Params").
     //   [31:16] last 16-bit value the CPU wrote to $3B4
@@ -2267,12 +2271,16 @@ module dbg_min (
     always @(posedge clk)
         pfcs_r <= {pfcs_last_pc[31:8], pfcs_last_pc[7], pfcs_count};
 
-    altsource_probe #(
-        .instance_id ("PFCS"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfcs (.probe(pfcs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFCS retired for IORB-completion investigation: _SysError fetch_pc
+    // confirmed as $40001180 across builds #61/#64/#65. The bomb caller
+    // is fully characterized; PFCS adds nothing new. Freeing fit budget
+    // for PIOA/PIOC.
+    // altsource_probe #(
+    //     .instance_id ("PFCS"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfcs (.probe(pfcs_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PBCP: bomb-caller PC capture (build #60, bug #6) =================
     // Build #59 ruled out the _SysError ($A9C9) A-trap path. The bomb dialog

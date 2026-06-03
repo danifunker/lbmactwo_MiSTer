@@ -54,9 +54,11 @@ if {![info exists idx(PIWM)]} {
 }
 
 proc rd {ix} {
-    set raw [read_source_data -device_name $::dev -hardware_name $::hw \
-        -instance_index $ix -value_in_hex]
-    return [expr "0x$raw"]
+    # quartus_stp_tcl's read_probe_data doesn't take -device_name /
+    # -hardware_name; they're already set by the surrounding session
+    # via begin_memory_edit / similar. Use the same form cpu_state.tcl
+    # uses.
+    return [expr 0x[read_probe_data -instance_index $ix -value_in_hex]]
 }
 
 proc sample {} {
