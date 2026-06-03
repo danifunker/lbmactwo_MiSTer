@@ -113,6 +113,9 @@ foreach inst $info {
     if {$nm eq "PFCS"} { set idx(PFCS) $i }
     # Build #60 — bomb-caller PC (super-IF before first entry to $40002400-$400024FF)
     if {$nm eq "PBCP"} { set idx(PBCP) $i }
+    # Build #62 — F-line vector RAM read + trap-entry counter
+    if {$nm eq "PVCF"} { set idx(PVCF) $i }
+    if {$nm eq "PFLN"} { set idx(PFLN) $i }
     incr i
 }
 
@@ -840,6 +843,41 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                              controller addr-stability bug — sdram.v samples \`addr\`"
             puts "                              both at T=0 (row) and T=3 (col) without latching, so any"
             puts "                              addr change between those two states corrupts writes."
+        }
+    }
+    if {[info exists idx(PVCF)]} {
+        # Build #62 — F-line vector RAM longword read (\$0000_00B0).
+        # Latches both halves of the longword as the CPU reads them during
+        # F-line exception entry. Snow reference: the runtime F-line handler
+        # is usually patched to a ROM address in \$4000_DXXX range.
+        set vcf [rd $idx(PVCF)]
+        set vcf_hi [expr {($vcf >> 16) & 0xFFFF}]
+        set vcf_lo [expr {$vcf & 0xFFFF}]
+        set vcf_full [expr {($vcf_hi << 16) | $vcf_lo}]
+        puts [format "           FPU-VCF: F-line vector at \$0000_00B0 longword = 0x%04X%04X (handler PC)" $vcf_hi $vcf_lo]
+        if {$vcf == 0} {
+            puts "                    No vector read seen yet (CPU hasn't taken an F-line trap in observed window)."
+        } elseif {$vcf_full >= 0x40000000 && $vcf_full < 0x40100000} {
+            puts [format "                    Handler in ROM at \$%08X. Disassemble boot0.rom there to see what runs on F-line." $vcf_full]
+        } elseif {$vcf_full < 0x00400000} {
+            puts [format "                    Handler in RAM at \$%08X (System file or boot-time patch)." $vcf_full]
+        } else {
+            puts [format "                    Handler at unusual address \$%08X — verify probe wiring." $vcf_full]
+        }
+    }
+    if {[info exists idx(PFLN)]} {
+        # Build #62 — F-line vector-fetch (\$00B0/\$00B2) entry counter.
+        # Prior session noted count=8 across boot. Re-verify now that bomb
+        # mechanism is identified as F-line driven.
+        set fln [rd $idx(PFLN)]
+        set fln_count [expr {($fln >> 24) & 0xFF}]
+        set fln_din   [expr {$fln & 0xFFFF}]
+        puts [format "           FPU-FLN: F-line vector reads(sat8)=%u  last_din=0x%04X" $fln_count $fln_din]
+        if {$fln_count == 0} {
+            puts "                    No F-line vector fetch seen. F-line trap is NOT firing in this build."
+            puts "                              The bomb path uses some other mechanism (not F-line directly)."
+        } else {
+            puts [format "                    F-line trap fired %u time(s). Compare to good-boot reference (prior session: 8)." $fln_count]
         }
     }
     if {[info exists idx(PBCP)]} {

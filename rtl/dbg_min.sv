@@ -2150,12 +2150,14 @@ module dbg_min (
     reg [31:0] pd28_r;
     always @(posedge clk) pd28_r <= {pd28_hi, pd28_lo};
 
-    altsource_probe #(
-        .instance_id ("PD28"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pd28 (.probe(pd28_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PD28 retired build #62 — SDRAM corruption disproven in #58 + reconfirmed
+    // in #59-#61. Slot freed for PVCF (F-line vector RAM read).
+    // altsource_probe #(
+    //     .instance_id ("PD28"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pd28 (.probe(pd28_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PD24: longword read of $00000D24-$00000D27
     wire pd24_hi_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_0D24);
@@ -2308,11 +2310,100 @@ module dbg_min (
     reg [31:0] pbcp_r;
     always @(posedge clk) pbcp_r <= pbcp_caller_pc;
 
+    // PBCP retired build #62 — captures inside-dialog false positives
+    // (the dialog rendering routine spans both inside and outside the
+    // filter range, and sequential execution across the boundary trips
+    // the edge detector). Doesn't identify the actual JSR/JMP caller.
+    // Slot freed for PFLN (F-line trap counter, reborn from build #37).
+    // altsource_probe #(
+    //     .instance_id ("PBCP"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pbcp (.probe(pbcp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PVCF: F-line vector RAM read (build #62) ============================
+    // Build #61's PFCS catch + System.rsrc DSAT decode revealed the bomb's
+    // visible "coprocessor not installed" text comes from index 10 of DSAT 2's
+    // exception-name table — index 10 maps to 68k vector 11 = Line F. The
+    // dialog reads the exception vector from the supervisor stack frame; that
+    // frame is populated by the runtime F-line trap handler.
+    //
+    // ROM's cold vector at \$0000_002C is \$0064_0000 but Mac OS PATCHES that
+    // during boot to a runtime handler (probably in ROM around \$4000_DXXX or
+    // in System file). PVCF captures the longword the CPU currently reads at
+    // address \$0000_00B0 (which is where the 68020 with VBR=0 fetches the
+    // F-line handler address on exception entry). Latches at AS-rising for
+    // both halves of the longword.
+    //
+    // Layout: pvcf_r[31:16] = high16 = data at \$00B0, [15:0] = data at \$00B2.
+    // Together they form the installed F-line handler address.
+    wire pvcf_hi_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_00B0);
+    wire pvcf_lo_in = !cpuAS_n && cpuRW && (cpuAddr == 32'h0000_00B2);
+    reg pvcf_hi_d, pvcf_lo_d;
+    reg [15:0] pvcf_hi, pvcf_lo;
+    initial begin
+        pvcf_hi_d = 1'b0; pvcf_lo_d = 1'b0;
+        pvcf_hi = 16'h0; pvcf_lo = 16'h0;
+    end
+    always @(posedge clk) begin
+        pvcf_hi_d <= pvcf_hi_in;
+        pvcf_lo_d <= pvcf_lo_in;
+        if (!pvcf_hi_in && pvcf_hi_d) pvcf_hi <= cpu_din;
+        if (!pvcf_lo_in && pvcf_lo_d) pvcf_lo <= cpu_din;
+    end
+    reg [31:0] pvcf_r;
+    always @(posedge clk) pvcf_r <= {pvcf_hi, pvcf_lo};
+
     altsource_probe #(
-        .instance_id ("PBCP"),
+        .instance_id ("PVCF"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pbcp (.probe(pbcp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pvcf (.probe(pvcf_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PFLN: F-line trap entry counter (build #62, was retired in #37) =====
+    // Counts vector-fetch reads at \$0000_00B0 / \$0000_00B2 with cpuFC=101
+    // (supervisor data, used during 68k exception vector fetch). Prior session
+    // had this at "count = 8 across the entire boot" but with bomb mechanism
+    // now identified as F-line driven, the trap count IS load-bearing —
+    // compare delta from boot-start to bomb-time. Also tracks last cpu_din
+    // (low 16 of handler address — sanity check vs PVCF).
+    //
+    // Layout:
+    //   [31:24] pfln_count    sat-8 F-line vector reads
+    //   [23:16] reserved (=0)
+    //   [15:0]  pfln_last_din last cpu_din from \$B0/\$B2 read
+    wire pfln_vec_rd = cpuAS_n_d && !cpuAS_n && cpuRW
+                    && (cpuFC == 3'b101)
+                    && (cpuAddr[31:2] == 30'h0000002C);  // \$B0 or \$B2
+    reg pfln_pending;
+    reg [7:0]  pfln_count;
+    reg [15:0] pfln_last_din;
+    initial begin
+        pfln_pending  = 1'b0;
+        pfln_count    = 8'd0;
+        pfln_last_din = 16'd0;
+    end
+    always @(posedge clk) begin
+        if (pfln_vec_rd) begin
+            pfln_pending <= 1'b1;
+            if (pfln_count != 8'hFF) pfln_count <= pfln_count + 8'd1;
+        end
+        if (pfln_pending && !cpuAS_n_d && cpuAS_n) begin
+            pfln_last_din <= cpu_din;
+            pfln_pending  <= 1'b0;
+        end
+    end
+    reg [31:0] pfln_r;
+    always @(posedge clk)
+        pfln_r <= {pfln_count, 8'd0, pfln_last_din};
+
+    altsource_probe #(
+        .instance_id ("PFLN"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfln (.probe(pfln_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
