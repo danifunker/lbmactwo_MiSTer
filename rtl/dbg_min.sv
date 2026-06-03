@@ -650,14 +650,17 @@ module dbg_min (
     always @(posedge clk)
         pflp_r <= {flp_byte_cnt, flp_miss_cnt};
 
-    // PFLP disabled build #58 — floppy works; freeing fit budget for
-    // SDRAM-corruption read probes PD24/PD28.
-    // altsource_probe #(
-    //     .instance_id ("PFLP"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLP RE-ENABLED for floppy-slowness investigation (per
+    // scratch/floppy_slow_plan.md and scratch/snow_compare/baseline.md).
+    // Snow baseline shows 57.8 KB/s sustained; LBMacTwo's 6-min boot
+    // is ~7x slower, so PFLP's byte_cnt + miss_cnt are the primary
+    // diagnostic — see the interpretation matrix in the plan.
+    altsource_probe #(
+        .instance_id ("PFLP"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IWM latch / SDRAM-grant diagnostic (PIWM) ========================
     // Complements PFLP from the IWM side. Layout:
@@ -675,14 +678,16 @@ module dbg_min (
     always @(posedge clk)
         piwm_r <= {iwm_ack_cnt, iwm_latch, (flp_disk_data != 8'h00), iwm_arm_high};
 
-    // PIWM disabled build #58 — floppy works; freeing fit budget for
-    // SDRAM-corruption read probes PD24/PD28.
-    // altsource_probe #(
-    //     .instance_id ("PIWM"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIWM RE-ENABLED for floppy-slowness investigation. Pairs with
+    // PFLP — gives SDRAM-grant rate (iwm_ack_cnt) to distinguish
+    // "delivery layer slow" from "arbiter starving floppy". See
+    // scratch/floppy_slow_plan.md interpretation matrix.
+    altsource_probe #(
+        .instance_id ("PIWM"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IORB capture (PIOA) =============================================
     // The Welcome hang reaches IOWait at 0x40006C36-3A, which polls
@@ -1629,12 +1634,15 @@ module dbg_min (
     always @(posedge clk)
         pcak_r <= {pcak_total_cnt, pcak_ack_cnt, pcak_last_din};
 
-    altsource_probe #(
-        .instance_id ("PCAK"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pcak (.probe(pcak_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PCAK retired for floppy-slow investigation: confirmed = 0 (CPU
+    // never writes Control CIR $22002 in this boot phase). Freeing fit
+    // budget for PFLP/PIWM.
+    // altsource_probe #(
+    //     .instance_id ("PCAK"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pcak (.probe(pcak_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== FPU detection probe (PFPD) — build #27, bug #6 ===================
     // Diagnoses bug #6 "coprocessor not installed" bomb. supermario's
@@ -1723,12 +1731,15 @@ module dbg_min (
     always @(posedge clk)
         pfpd_r <= {pfpd_total, pfpd_last_low, pfpd_periph_like, pfpd_cond_wr_cnt};
 
-    altsource_probe #(
-        .instance_id ("PFPD"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfpd (.probe(pfpd_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFPD retired for floppy-slow investigation: FPU detect protocol
+    // confirmed working — Snow cross-check shows our lowmem agrees at
+    // FPU detect checkpoint. Freeing fit budget for PFLP/PIWM.
+    // altsource_probe #(
+    //     .instance_id ("PFPD"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfpd (.probe(pfpd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PFOQ: PC of last cpGEN-class OpWord write (build #35, bug #6) ====
     // PFBE retired — it always showed $40002430 (the SystemError dialog setup
@@ -1809,12 +1820,15 @@ module dbg_min (
     always @(posedge clk)
         pfov_r <= {pfov_last, pfov_prev};
 
-    altsource_probe #(
-        .instance_id ("PFOV"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfov (.probe(pfov_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFOV retired for floppy-slow investigation: opwords confirmed as
+    // $F35F/$F327 (both cpBcc.L) across builds. Freeing fit budget for
+    // PFLP/PIWM.
+    // altsource_probe #(
+    //     .instance_id ("PFOV"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfov (.probe(pfov_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PHWC: HWCfgFlags ($0B22) write tracker (build #37, bug #6) =======
     // ROM disassembly at $4000D604 (FRESTORE guard) reveals: Mac II ROM
@@ -2358,12 +2372,16 @@ module dbg_min (
     reg [31:0] pvcf_r;
     always @(posedge clk) pvcf_r <= {pvcf_hi, pvcf_lo};
 
-    altsource_probe #(
-        .instance_id ("PVCF"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvcf (.probe(pvcf_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVCF retired for floppy-slow investigation: F-line vector at $00B0
+    // reads as garbage $6DB6DB6D because Mac OS POST left a test pattern
+    // there (proven build #64). Vector value is meaningless. Freeing fit
+    // budget for PFLP/PIWM.
+    // altsource_probe #(
+    //     .instance_id ("PVCF"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvcf (.probe(pvcf_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PFLN: F-line trap entry counter (build #62, was retired in #37) =====
     // Counts vector-fetch reads at \$0000_00B0 / \$0000_00B2 with cpuFC=101
@@ -2402,12 +2420,16 @@ module dbg_min (
     always @(posedge clk)
         pfln_r <= {pfln_count, 8'd0, pfln_last_din};
 
-    altsource_probe #(
-        .instance_id ("PFLN"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfln (.probe(pfln_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLN retired for floppy-slow investigation: build #64 showed the
+    // "F-line trap reads" were Mac OS RAM scanning $00B0 and hitting
+    // the $6DB6DB6D test pattern, not real F-line exceptions. The
+    // count of 8 was a probe artifact. Freeing fit budget for PFLP/PIWM.
+    // altsource_probe #(
+    //     .instance_id ("PFLN"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfln (.probe(pfln_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PFLT: F-line trap source PC (build #63) =============================
     // Tracks the most recent supervisor IF PC continuously, and snapshots it
@@ -2448,11 +2470,15 @@ module dbg_min (
     reg [31:0] pfts_r;
     always @(posedge clk) pfts_r <= pfts_last_flt_pc;
 
-    altsource_probe #(
-        .instance_id ("PFTS"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfts (.probe(pfts_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFTS retired for floppy-slow investigation: was the F-line source PC
+    // probe but PFLN's "8 traps" turned out to be RAM-scan reads, not
+    // real F-line, so PFTS's PC ($40803788) is meaningless. Freeing
+    // fit budget for PFLP/PIWM.
+    // altsource_probe #(
+    //     .instance_id ("PFTS"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfts (.probe(pfts_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
