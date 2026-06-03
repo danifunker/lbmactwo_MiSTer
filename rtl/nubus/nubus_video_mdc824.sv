@@ -139,7 +139,11 @@ module nubus_video_mdc824 #(
     //   big-endian file -> even byte index (addr[2]==0) = high byte [15:8].
     // ========================================================================
     (* ramstyle = "M10K" *) reg [15:0] rom [0:16383];
+`ifdef SIMULATION
+    initial $readmemh("../boot2.hex", rom);
+`else
     initial $readmemh("boot2.hex", rom);
+`endif
 
     reg [15:0] rom_word;
     always @(posedge clk)

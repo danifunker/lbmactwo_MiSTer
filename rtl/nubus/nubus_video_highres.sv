@@ -127,7 +127,11 @@ module nubus_video_highres #(
     // boot1.hex = releases/boot1.rom as 4096 big-endian 16-bit words
     // (xxd -p -c 2 releases/boot1.rom > boot1.hex), stored inverted exactly as
     // the file is; the read path de-inverts (rom_byte ^ 0xFF).
+`ifdef SIMULATION
+    initial $readmemh("../boot1.hex", rom);
+`else
     initial $readmemh("boot1.hex", rom);
+`endif
 
     // ROM read — byte-lane 3 addressing
     // Each ROM byte at every 4th NuBus address (addr[1:0]==3).
