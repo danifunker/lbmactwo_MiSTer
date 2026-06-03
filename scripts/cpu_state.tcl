@@ -111,6 +111,8 @@ foreach inst $info {
     if {$nm eq "PD24"} { set idx(PD24) $i }
     # Build #59 — _SysError ($A9C9) instruction-fetch PC capture
     if {$nm eq "PFCS"} { set idx(PFCS) $i }
+    # Build #60 — bomb-caller PC (super-IF before first entry to $40002400-$400024FF)
+    if {$nm eq "PBCP"} { set idx(PBCP) $i }
     incr i
 }
 
@@ -838,6 +840,28 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                              controller addr-stability bug — sdram.v samples \`addr\`"
             puts "                              both at T=0 (row) and T=3 (col) without latching, so any"
             puts "                              addr change between those two states corrupts writes."
+        }
+    }
+    if {[info exists idx(PBCP)]} {
+        # Build #60 — bomb-caller PC capture. Sticky-locks the supervisor-IF
+        # PC immediately before the FIRST entry into the bomb-dialog range
+        # (\$40002400-\$400024FF). That's the JSR/JMP/Bxx instruction that
+        # invoked the bomb. If PC == 0, no bomb-range entry has been seen
+        # (boot still pre-bomb, or bomb path uses an addr range outside
+        # the filter).
+        set bcp [rd $idx(PBCP)]
+        puts [format "           FPU-BCP: bomb-caller_pc=0x%08X" $bcp]
+        if {$bcp == 0} {
+            puts "                    No bomb-range entry seen — either pre-bomb sample, or the bomb"
+            puts "                              dialog code lives at an addr range outside \$40002400-\$400024FF."
+        } elseif {$bcp >= 0x40000000} {
+            puts "                    ROM caller. Disassemble boot0.rom around this PC. The instruction"
+            puts "                              there should be a JSR/JMP/Bxx whose target is in the bomb"
+            puts "                              dialog range — that's how the bomb gets invoked."
+        } else {
+            puts "                    RAM caller — System file code (per project_bug6_session2 memory,"
+            puts "                              hypothesized at PC~\$00014070). Disassemble RAM at this PC"
+            puts "                              from the booted System file."
         }
     }
     if {[info exists idx(PFCS)]} {

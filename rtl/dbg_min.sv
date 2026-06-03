@@ -2175,12 +2175,15 @@ module dbg_min (
     reg [31:0] pd24_r;
     always @(posedge clk) pd24_r <= {pd24_hi, pd24_lo};
 
-    altsource_probe #(
-        .instance_id ("PD24"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pd24 (.probe(pd24_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PD24 retired build #60 — corruption hypothesis already disproven in #58;
+    // value is correct ($000028FC) and the probe re-confirms every run.
+    // Slot freed for PBCP (bomb caller PC capture).
+    // altsource_probe #(
+    //     .instance_id ("PD24"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pd24 (.probe(pd24_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PFCS: _SysError ($A9C9) instruction-fetch capture (build #59) ====
     // Build #58 invalidated the SDRAM-$0D28-corruption pivot — PD28/PD24
@@ -2252,5 +2255,59 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pfcs (.probe(pfcs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PBCP: bomb-caller PC capture (build #60, bug #6) =================
+    // Build #59 ruled out the _SysError ($A9C9) A-trap path. The bomb dialog
+    // at $40002400-$400024FF is entered by direct JSR/JMP/Bxx from
+    // somewhere — most likely ROM, possibly via a RAM trampoline.
+    //
+    // Captures the supervisor-program IF PC immediately before the FIRST
+    // entry into the bomb-dialog range. Sticky after first capture.
+    //
+    // Edge detection: tracks "currently in bomb range" across consecutive
+    // super-IFs. On the false→true transition, the *previous* super-IF PC
+    // is the caller — that's the instruction that branched/jumped into
+    // the bomb routine.
+    //
+    // Build #53 (PFBE) tried this but with the next-PC-after-entry, which
+    // captured operand fetches inside the dialog routine (false positive
+    // at $400023FE). PBCP captures the PC BEFORE entry, sticky-locked
+    // after the first edge, so subsequent in-range IFs (including the
+    // bomb wait loop's own re-fetches) don't overwrite.
+    //
+    // Layout: pbcp_r[31:0] = bomb_caller_pc (sticky, 32-bit super-IF PC).
+    wire pbcp_is_super_if = cpuAS_n_d && !cpuAS_n && cpuRW
+                         && (cpuFC == 3'b110);
+    wire pbcp_in_bomb_range = (cpuAddr[31:8] == 24'h400024);
+    reg [31:0] pbcp_prev_pc;
+    reg [31:0] pbcp_caller_pc;
+    reg        pbcp_armed;
+    reg        pbcp_in_range_prev;
+    initial begin
+        pbcp_prev_pc       = 32'h0;
+        pbcp_caller_pc     = 32'h0;
+        pbcp_armed         = 1'b0;
+        pbcp_in_range_prev = 1'b0;
+    end
+    always @(posedge clk) begin
+        if (pbcp_is_super_if) begin
+            // Detect false→true transition AND not yet armed.
+            if (pbcp_in_bomb_range && !pbcp_in_range_prev && !pbcp_armed) begin
+                pbcp_caller_pc <= pbcp_prev_pc;
+                pbcp_armed     <= 1'b1;
+            end
+            pbcp_prev_pc       <= cpuAddr;
+            pbcp_in_range_prev <= pbcp_in_bomb_range;
+        end
+    end
+    reg [31:0] pbcp_r;
+    always @(posedge clk) pbcp_r <= pbcp_caller_pc;
+
+    altsource_probe #(
+        .instance_id ("PBCP"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pbcp (.probe(pbcp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
