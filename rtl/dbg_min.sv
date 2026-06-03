@@ -2423,27 +2423,30 @@ module dbg_min (
     // that needs implementing or fixing in mc68881 / TG68 cp_idle_resp.
     //
     // Layout: pflt_r[31:0] = pfts_first_flt_pc (sticky, 32-bit super-IF PC).
+    // Build #64: PFTS is now NON-STICKY — captures the LAST F-line trap
+    // source PC (not the first). The first trap is the ROM boot's FPU-
+    // detection FNOP probe (captured at $40803778 in build #63, inside a
+    // SUBQ-BNE loop due to prefetch overshoot). The LAST trap is more
+    // likely the bomb-relevant one, since the LAST F-line exception's
+    // frame is what the bomb dialog reads to pick the second-line string.
     reg [31:0] pfts_last_super_if_pc;
-    reg [31:0] pfts_first_flt_pc;
-    reg        pflt_armed;
+    reg [31:0] pfts_last_flt_pc;
     initial begin
         pfts_last_super_if_pc = 32'h0;
-        pfts_first_flt_pc     = 32'h0;
-        pflt_armed            = 1'b0;
+        pfts_last_flt_pc      = 32'h0;
     end
     wire pflt_is_super_if = cpuAS_n_d && !cpuAS_n && cpuRW
                          && (cpuFC == 3'b110);
     always @(posedge clk) begin
         if (pflt_is_super_if) pfts_last_super_if_pc <= cpuAddr;
-        // pfln_vec_rd already defined above; reuse for the F-line vector
-        // detect event.
-        if (pfln_vec_rd && !pflt_armed) begin
-            pfts_first_flt_pc <= pfts_last_super_if_pc;
-            pflt_armed        <= 1'b1;
+        // Latch on EVERY F-line vector fetch (non-sticky) so the final
+        // sample shows the LAST trap's source PC.
+        if (pfln_vec_rd) begin
+            pfts_last_flt_pc <= pfts_last_super_if_pc;
         end
     end
     reg [31:0] pfts_r;
-    always @(posedge clk) pfts_r <= pfts_first_flt_pc;
+    always @(posedge clk) pfts_r <= pfts_last_flt_pc;
 
     altsource_probe #(
         .instance_id ("PFTS"),

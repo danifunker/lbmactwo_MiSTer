@@ -868,13 +868,13 @@ for {set s 1} {$s <= 6} {incr s} {
         }
     }
     if {[info exists idx(PFTS)]} {
-        # Build #63 — F-line trap source PC. Sticky-locks the supervisor IF
-        # PC at the moment of the FIRST F-line vector fetch — i.e., the PC
-        # of the F-line instruction that triggered the trap.
-        # Named PFTS (not PFLT) because the old retired floppy-track probe
-        # used PFLT and its reg was never cleaned up — name collision.
+        # Build #64 — F-line trap source PC, NON-STICKY: captures the LAST
+        # F-line vector fetch's preceding super-IF PC. The bomb dialog
+        # reads the LAST exception frame from the supervisor stack, so the
+        # last F-line PC is more bomb-relevant than the first (build #63
+        # captured the first at \$40803778 = FNOP detection prefetch).
         set ft [rd $idx(PFTS)]
-        puts [format "           FPU-FLT: F-line trap source PC = 0x%08X" $ft]
+        puts [format "           FPU-FLT: F-line trap source PC (last) = 0x%08X" $ft]
         if {$ft == 0} {
             puts "                    No F-line trap yet captured (PFLN count probably also 0)."
         } elseif {$ft >= 0x40000000} {
