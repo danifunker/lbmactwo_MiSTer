@@ -30,9 +30,13 @@ what's left, and why.
 | Class | Baseline (pre-fix) | After this session |
 |---|---|---|
 | **FMOVE.L Dn↔FPCR/FPSR/FPIAR** (24) | 0/24 | **24/24 PASS** |
-| FMOVE.X/.D (d16,PC),FPn (79) | 0/79 | 0/79 — needs CPU microcode |
-| FMOVEM.X FP0,-(A7);(A7)+,FP1 (16) | 0/16 | 0/16 — needs CPU microcode |
-| FSAVE/FRESTORE (8) | 0/8 | 0/8 — same class as PC-rel |
+| **FMOVE.X (d16,PC),FPn** (39) | 0/39 | **39/39 PASS** |
+| **FMOVE.D (d16,PC),FPn** (40) | 0/40 | **40/40 PASS** |
+| FMOVEM.X FP0,-(A7);(A7)+,FP1 (16) | 0/16 | 0/16 — FPU returns wrong primitive (b204 ≠ 12-byte transfer) |
+| FCMP+FDBcc (80) | ~36/80 (some conditions work) | 36/80 — FPU FPCC eval partial |
+| FSAVE/FRESTORE (8) | 0/8 | 1/8 — FPU state-frame logic |
+
+**103 tests fixed this session** (24 FPctl + 39 .X + 40 .D).
 
 Plus a known GHDL-version-drift artifact: regenerating with OSS-CAD-Suite
 GHDL produces a different `.v` than the GHDL that produced the
