@@ -1331,6 +1331,8 @@ dbg_min dbg_min_inst (
 	.berr           (berr_out),
 	.ioctl_wr       (ioctl_write),
 	.ioctl_idx      (dio_index[7:0]),
+	.ioctl_addr     (ioctl_addr),
+	.ioctl_data     (ioctl_data),
 	.dbg_adb        (dbg_adb),
 	.dbg_adb2       (dbg_adb2),
 	.dbg_adb3       (dbg_adb3),

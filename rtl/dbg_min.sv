@@ -61,6 +61,10 @@ module dbg_min (
     // boot1.rom @ index 1, actually reaches the card on hardware).
     input wire        ioctl_wr,
     input wire [7:0]  ioctl_idx,
+    // Build #69 additions for PSDH: 25-bit byte counter + 16-bit data word
+    // so we can latch the first words of the F1 floppy download.
+    input wire [24:0] ioctl_addr,
+    input wire [15:0] ioctl_data,
 
     // ADB/VIA1-SR state (diagnose the mouse-fix boot spin).
     // [31:29] acr_shift_mode [28] shift_dir [27] sr_active [26] sr_out_done
