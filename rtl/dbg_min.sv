@@ -965,12 +965,15 @@ module dbg_min (
     reg [31:0] pirh_r;
     always @(posedge clk) pirh_r <= {pir_cscode, pir_cscode_wr_cnt};
 
-    altsource_probe #(
-        .instance_id ("PIRH"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pirh (.probe(pirh_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIRH disabled build #73 — csCode confirmed stale at $0008 across all
+    // captures. The wedged op is _Read (no csCode write) per build #68 findings.
+    // Free slot for F-line opcode tracker.
+    // altsource_probe #(
+    //     .instance_id ("PIRH"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pirh (.probe(pirh_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIRB: ioBuffer (32-bit @ $3C4/$3C6, longword as 2 16-bit writes)
     reg [15:0] pir_buf_hi;
@@ -1001,12 +1004,14 @@ module dbg_min (
     reg [31:0] pirr_r;
     always @(posedge clk) pirr_r <= {pir_req_hi, pir_req_lo};
 
-    altsource_probe #(
-        .instance_id ("PIRR"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pirr (.probe(pirr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIRR disabled build #73 — ioReqCount values captured (always 512 except
+    // for one 40448 at t=60). No more info to extract; free slot for F-line probe.
+    // altsource_probe #(
+    //     .instance_id ("PIRR"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pirr (.probe(pirr_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIRP: ioPosOffset (32-bit @ $3D2/$3D4)
     reg [15:0] pir_pos_hi;
@@ -1019,12 +1024,14 @@ module dbg_min (
     reg [31:0] pirp_r;
     always @(posedge clk) pirp_r <= {pir_pos_hi, pir_pos_lo};
 
-    altsource_probe #(
-        .instance_id ("PIRP"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pirp (.probe(pirp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIRP disabled build #73 — ioPosOffset values captured across boot
+    // (wanders all over the disk, eventually stuck at sector 529). Free slot.
+    // altsource_probe #(
+    //     .instance_id ("PIRP"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pirp (.probe(pirp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PIRE: ioResult completion-write probe (build #69) ================
     // PIR2 captures every write to $3B4 (the polled ioResult). In practice the
@@ -1297,6 +1304,93 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_prsf (.probe(prsf_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PFLO / PFLA: F-line opcode tracker (build #73) ===================
+    // User-prompted CPU hypothesis 2026-06-04: TG68KdotC_Kernel.vhd:4540-4544
+    // cp_idle_resp ELSE branch raises F-line trap_1111 for any FPU response
+    // not in {NullPrim, XferSingle, ExceptPre/Mid/Post}. The "coprocessor
+    // not installed" bomb dialog matches this exactly.
+    //
+    // Detect F-line opcode INSTRUCTION FETCHES: when CPU fetches an opcode
+    // whose high nibble is 4'hF, that's an F-line instruction that the
+    // coprocessor protocol must dispatch (or trap).
+    //
+    // PFLO captures the opcode + count:
+    //   [31:16] cpu_din at last F-line IF (= the F-line opcode value)
+    //   [15:0]  wrap16 count of F-line opcode fetches
+    //
+    // PFLA captures the PC of the last F-line IF:
+    //   [31:0]  cpuAddr at the time of the last F-line opcode fetch
+    //
+    // Common F-line opcode patterns (high byte):
+    //   $F0xx-$F1xx: cpGEN math (most FPU math instructions)
+    //   $F2xx: FBcc.W (FPU conditional branch)
+    //   $F3xx: FBcc.L (long conditional branch)
+    //   $F4xx-$F7xx: cpSAVE/cpRESTORE/68040 cache ops
+    //   $F8xx-$FBxx: 68030 MMU ops
+    //
+    // Build #71 PFRR (prev. probes) showed CPU read response_prim = $0900
+    // (NULL primary, OK). But if Mac OS does an FPU op that produces a
+    // DIFFERENT primitive, the ELSE branch fires F-line trap → "coprocessor
+    // not installed" bomb dialog regardless of WHICH boot stage we're at.
+    //
+    // Trigger: IF cycle (cpuFC=2 or 6) AND mac_dout_valid AND cpu_din[15:12] = 4'hF.
+
+    wire pflo_if_event = cpuAS_n_d && !cpuAS_n && cpuRW &&
+                         (cpuFC == 3'b010 || cpuFC == 3'b110);
+
+    reg        pflo_pending;
+    reg [31:0] pflo_pending_addr;
+    reg [15:0] pflo_last_opcode;
+    reg [31:0] pflo_last_addr;
+    reg [15:0] pflo_cnt;
+    initial begin
+        pflo_pending = 1'b0;
+        pflo_pending_addr = 32'd0;
+        pflo_last_opcode = 16'd0;
+        pflo_last_addr = 32'd0;
+        pflo_cnt = 16'd0;
+    end
+
+    always @(posedge clk) begin
+        if (pflo_if_event) begin
+            pflo_pending <= 1'b1;
+            pflo_pending_addr <= cpuAddr;
+        end
+        if (pflo_pending && mac_dout_valid) begin
+            if (cpu_din[15:12] == 4'hF) begin
+                pflo_last_opcode <= cpu_din;
+                pflo_last_addr <= pflo_pending_addr;
+                pflo_cnt <= pflo_cnt + 16'd1;
+            end
+            pflo_pending <= 1'b0;
+        end
+        if (pflo_pending && !cpuAS_n_d && cpuAS_n) begin
+            // AS rising without data valid — abort
+            pflo_pending <= 1'b0;
+        end
+    end
+
+    reg [31:0] pflo_r;
+    reg [31:0] pfla_r;
+    always @(posedge clk) begin
+        pflo_r <= {pflo_last_opcode, pflo_cnt};
+        pfla_r <= pflo_last_addr;
+    end
+
+    altsource_probe #(
+        .instance_id ("PFLO"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pflo (.probe(pflo_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PFLA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfla (.probe(pfla_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature

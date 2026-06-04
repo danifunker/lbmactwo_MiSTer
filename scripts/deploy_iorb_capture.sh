@@ -50,9 +50,9 @@ capture() {
     log "  cpu_state.tcl..."
     quartus_stp_tcl -t scripts/cpu_state.tcl 2>&1 \
         | grep -vE "^Info|^    Info|^\\s*$" > "$CAPDIR/cpu_${label}.txt"
-    log "  -- IORB header probes --"
-    grep -E "IOR-ERR|HPS-DL|Mac-ResErr|Mac-ResErrFilt|Mac-DskErr|IORB-CS|IORB-BUF|IORB-REQ|IORB-POS|IORB:|IORB Iter" \
-         "$CAPDIR/cpu_${label}.txt" || echo "  (no IORB lines yet)"
+    log "  -- IORB / OS error probes --"
+    grep -E "IOR-ERR|HPS-DL|F-line|Mac-ResErr|Mac-ResErrFilt|Mac-DskErr|IORB-CS|IORB-BUF|IORB-REQ|IORB-POS|IORB:|IORB Iter" \
+         "$CAPDIR/cpu_${label}.txt" || echo "  (no probe lines yet)"
     log "  -- Floppy negative-control probes --"
     grep -E "FLP:|IWM:|FLT:|FLT-track" "$CAPDIR/cpu_${label}.txt" \
          || echo "  (no floppy lines)"
@@ -66,8 +66,9 @@ if [ "$LOCAL_MD5" = "d1285647935bfbe224879230dddb889d" ] || \
    [ "$LOCAL_MD5" = "62240d3ee11ffc582250105b618b6fde" ] || \
    [ "$LOCAL_MD5" = "58506cfcf541cfd87ad61a1dbcd1cb88" ] || \
    [ "$LOCAL_MD5" = "ecd837f5634e1f04ef77b6cf97427491" ] || \
-   [ "$LOCAL_MD5" = "920743706e08132857e6bac54c3353fb" ]; then
-    log "ERROR: rbf md5 matches prior build (#67/#68/#69/#70/#71)"
+   [ "$LOCAL_MD5" = "920743706e08132857e6bac54c3353fb" ] || \
+   [ "$LOCAL_MD5" = "e613009e5637252823cdd1ffd91fd2fc" ]; then
+    log "ERROR: rbf md5 matches prior build (#67-#72)"
     log "Possible incremental-compile drop. Run: rm -rf db incremental_db && bash scripts/auto_recompile.sh"
     exit 1
 fi

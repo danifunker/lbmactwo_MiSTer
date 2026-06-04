@@ -133,6 +133,9 @@ foreach inst $info {
     if {$nm eq "PDSE"} { set idx(PDSE) $i }
     # Build #72 — filtered ResErr (non-zero writes only)
     if {$nm eq "PRSF"} { set idx(PRSF) $i }
+    # Build #73 — F-line opcode tracker (CPU/FPU bug hypothesis)
+    if {$nm eq "PFLO"} { set idx(PFLO) $i }
+    if {$nm eq "PFLA"} { set idx(PFLA) $i }
     incr i
 }
 
@@ -653,6 +656,34 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$w0 == 0x0000 && $w1 == 0x0000} { set hint "  (all-zero — buffer empty/uninit)" }
         puts [format "           BUF-RD: ioBuffer first 4 bytes = %02X %02X %02X %02X  (word0=0x%04X word1=0x%04X)%s" \
             $b0 $b1 $b2 $b3 $w0 $w1 $hint]
+    }
+    # Build #73 — F-line opcode tracker (CPU/FPU hypothesis test)
+    if {[info exists idx(PFLO)] && [info exists idx(PFLA)]} {
+        set po [rd $idx(PFLO)]
+        set pa [rd $idx(PFLA)]
+        set op [expr {($po >> 16) & 0xFFFF}]
+        set cnt [expr {$po & 0xFFFF}]
+        # Classify F-line opcode by high byte
+        set opclass "(unknown)"
+        set hi [expr {($op >> 8) & 0xFF}]
+        if {$hi == 0xF0 || $hi == 0xF1} { set opclass "cpGEN (FPU math)" }
+        if {$hi == 0xF2} { set opclass "FBcc.W (conditional branch)" }
+        if {$hi == 0xF3} { set opclass "FBcc.L (long branch)" }
+        if {$hi >= 0xF4 && $hi <= 0xF7} { set opclass "cpSAVE/RESTORE or cache" }
+        if {$hi >= 0xF8 && $hi <= 0xFB} { set opclass "MMU op (68030)" }
+        puts [format "           F-line: op=0x%04X (%s) at PC=0x%08X  fetch_cnt(wrap16)=%u" \
+            $op $opclass $pa $cnt]
+        if {$cnt == 0} {
+            puts "                 cnt=0 => Mac OS NEVER executed an F-line opcode."
+            puts "                          CPU/FPU hypothesis REJECTED for this boot."
+        } else {
+            puts [format "                 cnt>0 => %u F-line opcodes fetched." $cnt]
+            puts "                          Each one goes through cp_idle_resp;"
+            puts "                          if its FPU response doesn't match the 4 supported"
+            puts "                          patterns, trap_1111 fires (F-line trap)."
+            puts "                          Hypothesis CONFIRMED if PRSF shows specific errors"
+            puts "                          (e.g., fnfErr/eofErr from corrupted state)."
+        }
     }
     # Build #71 — Mac OS error globals
     if {[info exists idx(PRSR)]} {
