@@ -149,6 +149,44 @@ In `TG68KdotC_Kernel.vhd`:
    process — only when `cp_mem_source = '1'`. This way the next
    loop iteration reads from the next long-word position.
 
+### Attempted (and reverted) implementation
+
+This session tried the suggested fix shape and reverted after a
+single iteration revealed an instruction-layout mismatch:
+
+- Added `cp_mem_source` signal + `cp_xfer_mem_rd_hi/lo/store/done`
+  microstates.
+- Modified the F-line cpGEN dispatch to set `ea_only/ea_build_now`
+  when `opcode(5:3) /= "000"`, mirroring the FScc memory path.
+- Routed `cp_idle_resp`'s Transfer-Single-Operand-CPU→FPU branch
+  to `cp_xfer_mem_rd_hi` when `cp_mem_source = '1'`.
+- Wired `cp_ea_addr += 2` between HIGH/LOW reads.
+
+**What broke:** The standard EA-build machinery (used by FScc) treats
+`sndOPC` AS the d16 displacement. For cpGEN, `sndOPC` is the
+**FPU command word**, not the displacement — `(d16,PC)` for an
+F-line cpGEN has the d16 in a *separate* word AFTER the FPU
+command. The EA-build read `sndOPC = 0x4800` as a brief-extension
+word, computed an absurd EA (0x5802 in the trace), then F-trapped.
+
+**Trace evidence:** `scratch/trace_pcrel.json` run shows
+`ms=4` (ld_dAn1) entered at cyc 68 with `din=0x4800` followed by
+`ms=51` (trap0) at cyc 92.
+
+**What's needed for a real fix:** A bespoke EA fetch path for
+cpGEN that:
+1. Allows the existing kernel pre-decode to fetch opword + sndOPC
+   (FPU command) as it does today.
+2. Adds a new state that does **one extra word read** to grab the
+   d16 from `tg68_PC` (after sndOPC) for mode 111 reg 010.
+3. Computes `cp_ea_addr = tg68_PC_at_d16 + sign_extend(d16)`.
+4. THEN proceeds to `cp_write_opw`.
+
+For other memory modes (mode 010 `(An)` via `reg_QA`, mode 100
+`-(An)`, mode 011 `(An)+`), the An register is in `opcode(2:0)` and
+no extra fetch is needed beyond reading the register. These could
+share the cp_xfer_mem_rd_* state path once the EA setup is right.
+
 ### Scope estimate
 
 - VHDL touchpoints: 2 files, ~80–120 lines.
