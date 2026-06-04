@@ -471,14 +471,19 @@ module dbg_min (
     always @(posedge clk)
         pvbl_r <= {card_vbl_en, card_irq_cnt[14:0], card_ack_cnt};
 
-    // PVBL disabled build #58 — audio investigation done; freeing fit budget
-    // for SDRAM-corruption read probes PD24/PD28.
-    // altsource_probe #(
-    //     .instance_id ("PVBL"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVBL RE-ENABLED for IORB-completion investigation (build #67).
+    // Build #66 confirmed boot reaches Welcome dialog then hangs 5 min
+    // before bomb. Mac OS drivers commonly schedule "I/O done" via VBL
+    // tasks; if VBL stops firing during Welcome, drivers never complete
+    // their IORBs, IOWait spins forever. PVBL counts card VBL IRQ
+    // assertions — if card_irq_cnt freezes during the hang, that's
+    // strong evidence VBL is the bottleneck.
+    altsource_probe #(
+        .instance_id ("PVBL"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PASC: ASC FIFO refill cadence — refill REQUESTS vs CPU REFILLS.
     //   {asc_irq_cnt[15:0], asc_wr_cnt[15:0]}
@@ -1207,16 +1212,18 @@ module dbg_min (
         pflt_r <= {(flp_disk_data != 8'h00), flp_track, flp_side,
                    iwm_arm_high, flp_step_cnt};
 
-    // PFLT disabled for build #16 to free fit budget for PFST (FPU CIR
-    // FSM state probe).  Floppy track / step / side info has been frozen
-    // at driveTrack=22 for many builds — Phase-2 IWM isn't load-bearing
-    // for the FRESTORE-protocol investigation.
-    // altsource_probe #(
-    //     .instance_id ("PFLT"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLT (floppy version) RE-ENABLED for IORB-completion investigation
+    // (build #67). If the .Sony floppy driver is the one not completing
+    // its IORB, it might be either: (a) seeking the same track over and
+    // over (CRC retry) — step_cnt grows; (b) stuck mid-sector searching
+    // for an address mark — step_cnt static. flp_track + step_cnt tell
+    // us which pattern.
+    altsource_probe #(
+        .instance_id ("PFLT"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
     //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND
