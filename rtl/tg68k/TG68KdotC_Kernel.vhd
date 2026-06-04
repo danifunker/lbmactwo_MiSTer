@@ -4575,6 +4575,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						-- Null Primary: CA distinguishes busy vs done.
 						IF data_in(15) = '1' THEN
 							next_micro_state <= cp_read_resp;   -- BUSY, come again
+						ELSIF cp_mem_source = '1' THEN
+							-- NULL "done" after a cpGEN memory-source xfer.
+							-- The natural prefetch consumed d16 into
+							-- last_opc_read; do a fresh instruction fetch
+							-- at TG68_PC before falling to idle so the
+							-- setopcode that fires next loads the actual
+							-- next-instruction word, not the d16 value.
+							next_micro_state <= cp_mem_refetch;
 						ELSE
 							next_micro_state <= idle;           -- NULL, done
 						END IF;
@@ -4783,6 +4791,25 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- the FPU Operand CIR without overwriting cp_xfer_data.
 					setstate <= "01";
 					next_micro_state <= cp_xfer_to_load;
+
+				WHEN cp_mem_refetch =>
+					-- First half: setstate="00" starts an instruction fetch
+					-- at TG68_PC. Transition to _wait so setopcode doesn't
+					-- fire here (its trigger requires next_state=idle).
+					setstate <= "00";
+					datatype <= "01";
+					next_micro_state <= cp_mem_refetch_wait;
+
+				WHEN cp_mem_refetch_wait =>
+					-- Second half: bus is now mid-fetch (state="00" carried
+					-- over from cp_mem_refetch). Transition to idle WITH
+					-- setstate="00" and next_state=idle so setopcode fires
+					-- with state="00" REGISTERED. The opcode <= data_read
+					-- branch then loads the freshly-fetched next-instruction
+					-- word instead of stale last_opc_read.
+					setstate <= "00";
+					datatype <= "01";
+					next_micro_state <= idle;
 
 				-- ====================================================
 				-- FPU exception primitive ACK + trap.
