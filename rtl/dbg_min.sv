@@ -1250,12 +1250,53 @@ module dbg_min (
     reg [31:0] perg2_r;
     always @(posedge clk) perg2_r <= {perg2_dskerr_last, perg2_dskerr_cnt};
 
+    // PDSE disabled build #72 — build #71 showed DskErr stuck at -65
+    // (offLinErr) from the early external-drive probe. After 8 initial
+    // writes, no further DskErr writes. No more info to extract.
+    // altsource_probe #(
+    //     .instance_id ("PDSE"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pdse (.probe(perg2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PRSF: FILTERED ResErr probe (build #72) =========================
+    // Build #71's PRSR showed Mac-ResErr last=$0000 with wr_cnt=727. So the
+    // OS writes ResErr 727 times but the LAST write is noErr. That's
+    // because Mac OS resets ResErr to 0 at the start of many Resource
+    // Manager calls — these noErr-resets overwrite any error events.
+    //
+    // PRSF filters: capture writes only when cpu_dout != 0. That catches
+    // the actual error events before they're overwritten.
+    //
+    // Same layout as PRSR:
+    //   [31:16] last non-zero value written at $A60
+    //   [15:0]  wrap16 count of such writes
+    //
+    // If PRSF.cnt = 0 across boot, ResErr never went non-zero -> Resource
+    // Manager never saw an error. Bomb path must be FSMakeFSSpec (catalog
+    // walk) failing, not HOpenResFile (resource fork open) failing.
+    //
+    // If PRSF.cnt > 0 + value = -192/-193/etc, we know exactly which
+    // resource error propagated to launchResults->LaunchError.
+    reg [15:0] prsf_last_val;
+    reg [15:0] prsf_cnt;
+    initial begin prsf_last_val = 16'd0; prsf_cnt = 16'd0; end
+    always @(posedge clk) begin
+        if (perg_aswr && cpuAddr == 32'h0000_0A60 && cpu_dout != 16'h0000) begin
+            prsf_last_val <= cpu_dout;
+            prsf_cnt      <= prsf_cnt + 16'd1;
+        end
+    end
+    reg [31:0] prsf_r;
+    always @(posedge clk) prsf_r <= {prsf_last_val, prsf_cnt};
+
     altsource_probe #(
-        .instance_id ("PDSE"),
+        .instance_id ("PRSF"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pdse (.probe(perg2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_prsf (.probe(prsf_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature

@@ -131,6 +131,8 @@ foreach inst $info {
     # Build #71 — Mac OS error globals: ResErr ($A60), DskErr ($142)
     if {$nm eq "PRSR"} { set idx(PRSR) $i }
     if {$nm eq "PDSE"} { set idx(PDSE) $i }
+    # Build #72 — filtered ResErr (non-zero writes only)
+    if {$nm eq "PRSF"} { set idx(PRSF) $i }
     incr i
 }
 
@@ -686,6 +688,43 @@ for {set s 1} {$s <= 6} {incr s} {
             $ec $ev $sigv $errname]
         if {$ec == 0} {
             puts "                 cnt=0 => OS hasn't touched ResErr; resource manager not exercised"
+        }
+    }
+    # Build #72 — filtered ResErr: captures only NON-ZERO writes (actual error events).
+    if {[info exists idx(PRSF)]} {
+        set pf [rd $idx(PRSF)]
+        set ev [expr {($pf >> 16) & 0xFFFF}]
+        set ec [expr {$pf & 0xFFFF}]
+        set sigv $ev
+        if {$sigv >= 32768} { set sigv [expr {$sigv - 65536}] }
+        set errname "(unknown)"
+        switch -- $sigv {
+            -39    {set errname "eofErr"}
+            -43    {set errname "fnfErr (file not found!)"}
+            -49    {set errname "opWrErr (file already open)"}
+            -50    {set errname "paramErr"}
+            -53    {set errname "extFSErr (external file system)"}
+            -108   {set errname "memFullErr"}
+            -109   {set errname "nilHandleErr"}
+            -110   {set errname "memAdrErr"}
+            -111   {set errname "memWZErr"}
+            -188   {set errname "resourceInMemory"}
+            -189   {set errname "writingPastEnd"}
+            -190   {set errname "inputOutOfBounds"}
+            -191   {set errname "resNotFound"}
+            -192   {set errname "resFNotFound (file not found!)"}
+            -193   {set errname "addResFailed"}
+            -197   {set errname "resAttrErr"}
+            -198   {set errname "mapReadErr"}
+            -199   {set errname "CantDecompress"}
+        }
+        puts [format "           Mac-ResErrFilt: \$A60 NON-ZERO writes wr_cnt(wrap16)=%u  last=0x%04X (%d) %s" \
+            $ec $ev $sigv $errname]
+        if {$ec == 0} {
+            puts "                 cnt=0 => ResErr NEVER went non-zero => no Resource Manager error in this run"
+            puts "                          (bomb path is NOT HOpenResFile; check FSMakeFSSpec or earlier)"
+        } else {
+            puts [format "                 cnt>0 => Resource Manager DID encounter an error (%d %s)" $sigv $errname]
         }
     }
     if {[info exists idx(PDSE)]} {
