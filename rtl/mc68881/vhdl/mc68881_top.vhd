@@ -252,6 +252,15 @@ architecture rtl of mc68881_top is
   signal cir_src_reg_idx       : natural range 0 to 7 := 0;
   signal cir_reg_to_reg        : std_logic := '0';
   signal cir_direction         : std_logic := '0';  -- Bit 13: 0=mem→reg, 1=reg→mem
+  -- FMOVE FPCR/FPSR/FPIAR (ext-word bits 15:13 = 100 write / 101 read).
+  -- Latched in the cmd-word bus-write handler so the CIR FSM can route
+  -- the transfer to fpctl regs instead of FP regs / ALU.
+  --   cir_fpctl_mask(2) = FPIAR enable, (1) = FPSR enable, (0) = FPCR enable.
+  signal cir_is_fpctl_move     : std_logic := '0';
+  signal cir_fpctl_mask        : std_logic_vector(2 downto 0) := (others => '0');
+  -- Pulse from cir_dialog_proc → bus_frame_proc to commit a CPU→FPctl
+  -- transfer. Avoids violating the single-driver rule on the FPctl regs.
+  signal cir_fpctl_commit      : std_logic := '0';
   signal cir_xfer_word_idx     : natural range 0 to 52 := 0;
   signal cir_xfer_word_count   : natural range 0 to 53 := 0;
   signal cir_response_prim     : std_logic_vector(15 downto 0) := CIR_PRIM_NULL;
@@ -2236,6 +2245,25 @@ begin
         end case;
       end if;
 
+      -- FMOVE.L Dn → FPctl commit pulse from cir_dialog_proc. The 32-bit
+      -- operand was deposited in cir_operand_staging(31:0) by the
+      -- CIR_XFER_SRC bus writes; cir_fpctl_mask selects which control
+      -- register(s) receive it. Multi-bit masks (FMOVEM-style multi-reg)
+      -- would need separate per-reg transfers per Motorola spec; the
+      -- corpus only exercises single-bit masks.
+      if cir_fpctl_commit = '1' then
+        if cir_fpctl_mask(2) = '1' then  -- FPIAR
+          fpiar_reg <= cir_operand_staging(31 downto 0);
+        end if;
+        if cir_fpctl_mask(1) = '1' then  -- FPSR
+          fpsr_reg <= cir_operand_staging(31 downto 0);
+        end if;
+        if cir_fpctl_mask(0) = '1' then  -- FPCR
+          fpcr_reg(15 downto 0) <= cir_operand_staging(15 downto 0);
+          fpcr_reg(31 downto 16) <= (others => '0');
+        end if;
+      end if;
+
       -- Exception classification is performed at operation-complete boundary
       -- (ALU valid or FMOVE conversion completion event).
       if valid = '1' or exc_event_valid_reg = '1' then
@@ -3812,11 +3840,31 @@ begin
             -- Gate on cir_mode_reg: addr 5 overlaps ADDR_OPB_H in peripheral mode.
             if cir_mode_reg = '1' then
               cir_command_reg <= d_in(15 downto 0);
-              cir_src_fmt <= d_in(12 downto 10);
-              cir_dst_reg_idx <= to_integer(unsigned(d_in(9 downto 7)));
-              cir_src_reg_idx <= to_integer(unsigned(d_in(12 downto 10)));
-              cir_reg_to_reg <= not d_in(14);  -- MC68881: R/M=0=register, R/M=1=EA/memory
-              cir_direction <= d_in(13);
+              -- MC68881 FMOVE FPCR/FPSR/FPIAR has a distinct ext-word format.
+              -- The encoder in SingleStepTests/gen/gen_fpu.c produces:
+              --   write (Dn→FPctl): ext = 0x8000 | sel_bit  → bits 15:13 = 100
+              --   read  (FPctl→Dn): ext = 0xA000 | sel_bit  → bits 15:13 = 101
+              -- bits 12:10 = control-reg mask: 12=FPIAR, 11=FPSR, 10=FPCR.
+              -- bits 6:0 = 0. We detect the class by bits 15=1, 14=0 (covers
+              -- both write and read variants) and use bit 13 as direction.
+              -- Force the FSM down the memory↔register path with a 32-bit
+              -- (Long) transfer so the CPU gets a CIR_XFER_SRC/DST primitive.
+              if d_in(15) = '1' and d_in(14) = '0' then
+                cir_src_fmt     <= "000";              -- Long (4 bytes / 1 word)
+                cir_dst_reg_idx <= 0;
+                cir_src_reg_idx <= 0;
+                cir_reg_to_reg  <= '0';                -- always go through transfer
+                cir_direction   <= d_in(13);           -- 0 = CPU→FPctl, 1 = FPctl→CPU
+                cir_is_fpctl_move <= '1';
+                cir_fpctl_mask  <= d_in(12 downto 10);
+              else
+                cir_src_fmt <= d_in(12 downto 10);
+                cir_dst_reg_idx <= to_integer(unsigned(d_in(9 downto 7)));
+                cir_src_reg_idx <= to_integer(unsigned(d_in(12 downto 10)));
+                cir_reg_to_reg <= not d_in(14);  -- MC68881: R/M=0=register, R/M=1=EA/memory
+                cir_direction <= d_in(13);
+                cir_is_fpctl_move <= '0';
+              end if;
               cir_command_written <= '1';
               -- 68882: latch command arrival during CIR_EXECUTE for pending pipeline.
               if fpu_version_g = FPU_68882 and cir_state_reg = CIR_EXECUTE then
@@ -3905,6 +3953,21 @@ begin
       -- The dialog proc transitions to CIR_XFER_DST from CIR_DECODE; we detect
       -- that transition on the next edge (CIR_XFER_DST with word_idx=0).
       if cir_state_reg = CIR_XFER_DST and cir_xfer_word_idx = 0
+         and cir_operand_read_done = '0' and cir_is_fpctl_move = '1' then
+        -- FMOVE.L FPctl → Dn: bypass the FP-to-int conversion path and
+        -- place the selected control register's value into the staging
+        -- slot the CPU is about to read. cir_fpctl_mask is one-hot for
+        -- the cases the corpus exercises (single FPctl reg).
+        if cir_fpctl_mask(2) = '1' then
+          cir_operand_staging(31 downto 0) <= fpiar_reg;
+        elsif cir_fpctl_mask(1) = '1' then
+          cir_operand_staging(31 downto 0) <= fpsr_reg;
+        elsif cir_fpctl_mask(0) = '1' then
+          cir_operand_staging(31 downto 0) <= fpcr_reg;
+        else
+          cir_operand_staging(31 downto 0) <= (others => '0');
+        end if;
+      elsif cir_state_reg = CIR_XFER_DST and cir_xfer_word_idx = 0
          and cir_operand_read_done = '0' then
         -- Convert FP register to destination format and pack into staging.
         -- cir_dst_reg_idx = source FP register (bits[9:7] of command word).
@@ -3961,6 +4024,7 @@ begin
       pending_valid_reg <= '0';
       pending_launch_reg <= '0';
       pending_skip_valid_reg <= 0;
+      cir_fpctl_commit <= '0';
     elsif rising_edge(clk) then
       cir_launch_alu <= '0';  -- default: clear one-shot pulse
       cir_flags_consumed <= '0';
@@ -3970,6 +4034,7 @@ begin
       alu_restore_wr_reg <= '0';
       packed_restore_wr <= '0';
       pending_launch_reg <= '0';  -- default: clear one-shot pulse
+      cir_fpctl_commit <= '0';    -- default: clear one-shot pulse
 
       case cir_state_reg is
 
@@ -4072,7 +4137,14 @@ begin
 
         when CIR_XFER_SRC_WAIT2 =>
           -- Second hold state: launch ALU (or F-line trap for lite-disabled ops).
-          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          if cir_is_fpctl_move = '1' then
+            -- FMOVE.L Dn → FPctl: pulse cir_fpctl_commit so bus_frame_proc
+            -- writes whichever control regs the mask selects from
+            -- cir_operand_staging(31:0). Cannot drive FPctl regs directly
+            -- here (single-driver rule).
+            cir_fpctl_commit <= '1';
+            cir_state_reg <= CIR_IDLE;
+          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
             cir_exc_vector <= CIR_VEC_FLINE;
             cir_state_reg <= CIR_EXCEPT_PRE;
           else
