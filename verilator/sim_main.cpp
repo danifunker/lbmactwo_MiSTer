@@ -68,7 +68,7 @@ int multi_step_amount = 1024;
 // Mac II only (uses TG68K 68020 mode)
 // TG68K documents cpu=2'b11 as 68020 mode. The Mac II ROM depends on it.
 int cfg_cpuType = 3;
-int cfg_memSize = 3;       // RAM size: 0=1MB, 1=2MB, 2=4MB, 3=8MB (set via --ram)
+int cfg_memSize = 1;       // RAM size: 0=1MB, 1=2MB, 2=4MB, 3=8MB (set via --ram)
 const char* rom_file_override = nullptr;  // --rom <file> overrides the boot0 ROM (e.g. the no-memtest fast-boot ROM)
 
 // CPU trace
@@ -3225,7 +3225,7 @@ void show_help() {
 	printf("  --scsi1 <file>                Mount a SCSI disk image on target 1 (ID 5)\n");
 	printf("  --floppy0 <file>              Insert a raw .dsk image in the internal floppy drive\n");
 	printf("  --floppy1 <file>              Insert a raw .dsk image in the external floppy drive\n");
-	printf("  --ram <1|2|4|8>               RAM size in MB (default 8)\n");
+	printf("  --ram <1|2|4|8>               RAM size in MB (default 2, matching MAME macii)\n");
 	printf("  --rom <file>                  Override the boot0 ROM (default ../releases/boot0.rom)\n");
 	printf("  --no-memtest                  Fast boot: load ../releases/boot0-nomemtest.rom (skips power-on RAM test)\n");
 	printf("  --send-mouse <frame>:<dx>,<dy>[,<btn>[,<dur>]]\n");
