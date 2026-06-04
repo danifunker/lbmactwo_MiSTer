@@ -149,6 +149,56 @@ In `TG68KdotC_Kernel.vhd`:
    process — only when `cp_mem_source = '1'`. This way the next
    loop iteration reads from the next long-word position.
 
+### Iteration 2 (PARTIAL — committed 89b270f)
+
+After reverting the first attempt, a second pass landed a working
+operand-fetch path with one remaining edge case.
+
+**What works (trace-verified):**
+- F-line dispatch detects `opcode(5:3)=111 reg=010` (d16,PC),
+  arms `cp_mem_source`, routes to `cp_d16_pc_rd`.
+- `cp_d16_pc_rd` fetches d16 via `set_cp_memaddr` using
+  `cp_ea_addr` seeded with `TG68_PC + 2` (compensating for the
+  half-cycle dispatch timing where TG68_PC = address of sndOPC,
+  not d16).
+- `cp_d16_pc_apply` adds sign-extended d16 to cp_ea_addr.
+- `cp_idle_resp` routes Transfer-CPU→FPU to `cp_xfer_mem_rd_hi`
+  when `cp_mem_source=1`.
+- `cp_xfer_mem_rd_hi/lo/store/done` issues two consecutive 16-bit
+  bus reads at cp_ea_addr (advancing by 2 between), assembles
+  cp_xfer_data, hands off to `cp_xfer_to_load`.
+- `cp_xfer_to_load` skips the `reg_QB` latch when `cp_mem_source=1`,
+  preserving the assembled value.
+- FPU re-asserts `0x96xx` BUSY until all bytes received, so the
+  loop iterates per long-word. cp_ea_addr advances +4 per iteration.
+- **Trace of FMOVE.X (d16,PC),FP0 confirms operand reads at
+  0x100E, 0x1012, 0x1016 — exactly the .X data layout for the
+  test program.**
+
+**What doesn't work:** the test STILL FAILs (`D2 got 0` for
+expected -49). The 12-byte operand IS delivered to the FPU
+correctly. The problem is the *next* instruction in the program
+(`FMOVE.L FP0,D2` to read the loaded FP0 back to D2) traps with
+illegal instruction. Trace shows opcode register = `0x000A` (the
+d16 value) when the next instruction's decode fires. Cause: the
+kernel's natural prefetch lookahead consumed d16 into
+`last_opc_read` during the F-line execution. When `setopcode`
+fires after the F-line completes (kernel transitions back to
+idle), `opcode <= last_opc_read` = `0x000A` → decodes as illegal
+ORI.B → trap.
+
+**Fix path for next session:** invalidate `last_opc_read` after
+the F-line completes — either:
+1. Add a microstate after `cp_xfer_mem_rd_done` (or in
+   `cp_idle_resp` NULL branch) that does `setstate="00"` to
+   re-fetch the next instruction word AT THE CORRECT PC into
+   `last_opc_read` before `setopcode` fires.
+2. Or extend `last_opc_read`'s driver process (line ~1529) with
+   a new condition that re-fetches when transitioning out of
+   F-line cpGEN with memory EA.
+
+Path (1) is cleaner. Estimated 10-30 lines of VHDL.
+
 ### Attempted (and reverted) implementation
 
 This session tried the suggested fix shape and reverted after a
