@@ -37,6 +37,16 @@ package TG68K_Pack is
 					  cp_xfer_to_load, cp_xfer_to_hi, cp_xfer_to_lo,
 					  cp_xfer_from_hi, cp_xfer_from_lo, cp_xfer_from_store,
 					  cp_xfer_from_done,
+					  -- cpGEN F-line (d16,PC) memory-source EA fetch.
+					  -- cp_d16_pc_rd reads d16 from tg68_PC via cp_ea_addr
+					  -- (seeded with tmp_TG68_PC in the registered process).
+					  -- cp_d16_pc_apply adds sign-extended d16 to cp_ea_addr.
+					  cp_d16_pc_rd, cp_d16_pc_apply,
+					  -- cpGEN memory-source operand transfer (4-state bus
+					  -- pipeline; mirror of cp_xfer_from_* but reading from
+					  -- memory at cp_ea_addr instead of FPU CIR Operand).
+					  cp_xfer_mem_rd_hi, cp_xfer_mem_rd_lo,
+					  cp_xfer_mem_rd_store, cp_xfer_mem_rd_done,
 					  cp_save_rd_fmt, cp_save_decode, cp_save_wr_mem, cp_save_rd_cir, cp_save_idle,
 					  cp_restore_rd_mem, cp_restore_idle, cp_restore_wr_fmt, cp_restore_decode, cp_restore_wr_data,
 				  cp_cond_write, cp_cond_resp, cp_cond_eval, cp_cond_skip, cp_fscc_wr,

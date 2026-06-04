@@ -384,6 +384,12 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_save_fmt		: std_logic_vector(15 downto 0);
 	signal cp_frame_cnt		: std_logic_vector(6 downto 0);
 	signal set_cp_memaddr	: std_logic;
+	-- cpGEN F-line with memory-source EA: routes the
+	-- Transfer-Single-Operand-CPU→FPU response down the
+	-- cp_xfer_mem_rd_* path (operand from memory at cp_ea_addr)
+	-- instead of cp_xfer_to_load (operand from reg_QB / Dn).
+	signal cp_mem_source		: std_logic;
+	signal cp_mem_source_set	: std_logic;  -- pulse from F-line dispatch
 	signal cp_an_writeback	: std_logic;
 	signal cp_branch_target	: std_logic_vector(31 downto 0);
 	signal cp_do_branch		: std_logic;
@@ -824,6 +830,7 @@ PROCESS (clk)
 				cp_fc_override <= '0';
 				cp_xfer_cnt <= "000";
 				cp_ea_addr <= (others => '0');
+				cp_mem_source <= '0';
 				cp_save_fmt <= (others => '0');
 				cp_frame_cnt <= (others => '0');
 				cp_branch_target <= (others => '0');
@@ -857,10 +864,38 @@ PROCESS (clk)
 				ELSIF micro_state = cp_restore_rd_mem THEN
 					-- cpRESTORE: postincrement by 2 after each memory read
 					cp_ea_addr <= cp_ea_addr + 2;
+				ELSIF next_micro_state = cp_d16_pc_rd THEN
+					-- cpGEN (d16,PC): seed cp_ea_addr with PC of d16 word.
+					-- TG68_PC at F-line dispatch = address of sndOPC. The
+					-- d16 word lives at sndOPC+2, hence the +2.
+					cp_ea_addr <= TG68_PC + 2;
+				ELSIF micro_state = cp_d16_pc_apply THEN
+					-- d16 just landed in last_data_read after cp_d16_pc_rd's
+					-- bus access. Add sign-extended d16 to cp_ea_addr to
+					-- form the PC-relative EA.
+					cp_ea_addr <= cp_ea_addr +
+						(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15 downto 0));
+				ELSIF micro_state = cp_xfer_mem_rd_lo
+				   OR micro_state = cp_xfer_mem_rd_store THEN
+					-- cpGEN memory source: +2 between HIGH/LOW reads, again
+					-- before next iteration's HIGH read. Net +4 per long-word.
+					cp_ea_addr <= cp_ea_addr + 2;
 				END IF;
 				-- FScc memory: capture EA from addr when ea_only resolves
 				IF exec(get_ea_now)='1' AND ea_only='1' THEN
 					cp_ea_addr <= addr;
+				END IF;
+
+				-- cp_mem_source latching: set by combinational pulse from
+				-- F-line dispatch (cpGEN with memory EA). Cleared on idle.
+				IF cp_mem_source_set = '1' THEN
+					cp_mem_source <= '1';
+				ELSIF micro_state = idle THEN
+					cp_mem_source <= '0';
 				END IF;
 				-- FBcc branch target computation (save before CIR accesses corrupt tmp_TG68_PC)
 				IF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "010" THEN
@@ -964,10 +999,22 @@ PROCESS (clk)
 				--          last_data_read which can be clobbered by
 				--          intervening prefetch cycles.
 				IF micro_state = cp_xfer_to_load THEN
-					cp_xfer_data <= reg_QB;
+					-- Reg-source FMOVE.L Dn,FPn: latch reg_QB. For
+					-- memory-source FMOVE EA,FPn (cp_mem_source='1'),
+					-- cp_xfer_data was already assembled by the
+					-- cp_xfer_mem_rd_* pipeline -- keep it untouched.
+					IF cp_mem_source = '0' THEN
+						cp_xfer_data <= reg_QB;
+					END IF;
 				ELSIF micro_state = cp_xfer_from_lo THEN
 					cp_xfer_data(31 downto 16) <= data_in;
 				ELSIF micro_state = cp_xfer_from_store THEN
+					cp_xfer_data(15 downto 0) <= data_in;
+				ELSIF micro_state = cp_xfer_mem_rd_store THEN
+					-- HIGH word from cp_xfer_mem_rd_lo's bus read.
+					cp_xfer_data(31 downto 16) <= data_in;
+				ELSIF micro_state = cp_xfer_mem_rd_done THEN
+					-- LOW word from cp_xfer_mem_rd_store's bus read.
 					cp_xfer_data(15 downto 0) <= data_in;
 				END IF;
 				-- Latch FPU exception vector from response primitive low byte.
@@ -1828,6 +1875,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		set_vectoraddr <='0';
 		set_cpaddr <= '0';
 		set_cp_memaddr <= '0';
+		cp_mem_source_set <= '0';
 		cp_cir_reg <= "00000";
 		cp_an_writeback <= '0';
 		cp_do_branch <= '0';
@@ -3484,9 +3532,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- Valid coprocessor ID (non-zero)
 					datatype <= "01"; -- word for CIR access
 					IF opcode(8 downto 6)="000" THEN
-						-- cpGEN: general coprocessor instruction
+						-- cpGEN: general coprocessor instruction.
+						-- Dn EA (mode 000): existing direct path, source from reg_QB.
+						-- An EA (mode 001): illegal for FMOVE EA<->FPn, FPU will trap.
+						-- (d16,PC) (mode 111, reg 010): fetch d16 first, compute
+						--   PC-relative EA, then enter CIR dialog with
+						--   cp_mem_source='1' so cp_xfer_mem_rd_* fires.
+						-- Other memory modes (010,011,100,101,110,111/other):
+						--   not implemented yet; would need their own EA fetch.
 						set(opcCPopw) <= '1';
-						next_micro_state <= cp_write_opw;
+						IF opcode(5 downto 3) = "111" AND opcode(2 downto 0) = "010" THEN
+							cp_mem_source_set <= '1';
+							next_micro_state <= cp_d16_pc_rd;
+						ELSE
+							next_micro_state <= cp_write_opw;
+						END IF;
 					ELSIF opcode(8 downto 6)="100" THEN
 						-- cpSAVE: save coprocessor state
 						IF SVmode='1' THEN
@@ -4520,13 +4580,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						END IF;
 					ELSIF data_in(12) = '1' THEN
 						-- Transfer Single Operand primary. Direction in bit 13.
-						-- CPU→FPU: latch operand source register into cp_xfer_data,
-						-- then write high word, then low word.
+						-- CPU→FPU: source is either Dn (reg_QB → cp_xfer_data via
+						--   cp_xfer_to_load) or memory at cp_ea_addr (cp_xfer_mem_rd_*
+						--   fetches 2 words then hands off to cp_xfer_to_load).
+						--   cp_mem_source selects.
 						-- FPU→CPU: read high word, then low word, then write to Dn.
-						-- Each per-word state is one clean bus access; no cnt
-						-- looping (which had mid-cycle muxin update problems).
 						IF data_in(13) = '0' THEN
-							next_micro_state <= cp_xfer_to_load;
+							IF cp_mem_source = '1' THEN
+								next_micro_state <= cp_xfer_mem_rd_hi;
+							ELSE
+								next_micro_state <= cp_xfer_to_load;
+							END IF;
 						ELSE
 							next_micro_state <= cp_xfer_from_hi;
 						END IF;
@@ -4640,6 +4704,85 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- Never entered by current dispatch; safe fallback.
 					setstate <= "01";
 					next_micro_state <= cp_read_resp;
+
+				-- ====================================================
+				-- cpGEN F-line (d16,PC) d16 fetch + EA compute.
+				-- ====================================================
+				-- The kernel's standard EA-build machinery for mode 111
+				-- reg 010 treats sndOPC as the d16 displacement. For
+				-- cpGEN F-line that's wrong — sndOPC is the FPU command
+				-- word; the real d16 is in a *separate* third word. So
+				-- we do a bespoke read here at tg68_PC.
+				--
+				-- cp_ea_addr was seeded with tmp_TG68_PC at entry to
+				-- this state via the registered process above. After
+				-- the bus access fires, cp_ea_addr += sign_extend(d16)
+				-- in cp_d16_pc_apply.
+
+				WHEN cp_d16_pc_rd =>
+					-- Bus read d16 from cp_ea_addr (= PC of d16 word,
+					-- seeded with TG68_PC + 2 in the registered process).
+					set_cp_memaddr <= '1';
+					setstate <= "10";   -- data read
+					datatype <= "01";   -- word
+					set(update_ld) <= '1';
+					next_micro_state <= cp_d16_pc_apply;
+
+				WHEN cp_d16_pc_apply =>
+					-- d16 just landed in last_data_read. The registered
+					-- process adds sign_extend(d16) to cp_ea_addr.
+					setstate <= "01";
+					next_micro_state <= cp_write_opw;
+
+				-- ====================================================
+				-- cpGEN memory-source operand fetch.
+				-- Mirror of cp_xfer_from_* but reading from memory at
+				-- cp_ea_addr instead of FPU CIR Operand. After 2 words
+				-- assemble into cp_xfer_data, hand off to cp_xfer_to_load
+				-- (which sees cp_mem_source='1' and skips the reg_QB
+				-- latch) → cp_xfer_to_hi/lo writes the long to FPU.
+				-- cp_ea_addr advances by 4 per iteration (registered).
+				-- ====================================================
+
+				WHEN cp_xfer_mem_rd_hi =>
+					-- Setup: queue setstate=10 so NEXT cycle starts the
+					-- bus read at cp_ea_addr. set_cp_memaddr routes it.
+					set_cp_memaddr <= '1';
+					setstate <= "10";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_mem_rd_lo;
+
+				WHEN cp_xfer_mem_rd_lo =>
+					-- state=10 this cycle: bus runs HIGH word READ at
+					-- cp_ea_addr. cp_ea_addr advances by 2 at the same
+					-- clkena edge (registered process) so the NEXT bus
+					-- read goes to cp_ea_addr+2.
+					set_cp_memaddr <= '1';
+					setstate <= "10";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_mem_rd_store;
+
+				WHEN cp_xfer_mem_rd_store =>
+					-- state=10 (continued): bus runs LOW word READ.
+					-- HIGH word from cp_xfer_mem_rd_lo's access lands in
+					-- last_data_read; cp_xfer_data(31:16) captured by
+					-- the cp_xfer_data driver process.
+					set_cp_memaddr <= '1';
+					setstate <= "01";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_mem_rd_done;
+
+				WHEN cp_xfer_mem_rd_done =>
+					-- state=01 (idle). LOW word from the cp_xfer_mem_rd_store
+					-- access landed in last_data_read; cp_xfer_data(15:0)
+					-- captured. Hand off to cp_xfer_to_load, which sees
+					-- cp_mem_source='1' and routes the assembled long to
+					-- the FPU Operand CIR without overwriting cp_xfer_data.
+					setstate <= "01";
+					next_micro_state <= cp_xfer_to_load;
 
 				-- ====================================================
 				-- FPU exception primitive ACK + trap.
