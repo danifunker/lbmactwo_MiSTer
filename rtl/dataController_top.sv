@@ -205,7 +205,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
-	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
+	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(0)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
