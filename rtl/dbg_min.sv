@@ -837,12 +837,17 @@ module dbg_min (
     reg [31:0] pir2_r;
     always @(posedge clk) pir2_r <= {ior2_last, ior2_wr_cnt};
 
-    altsource_probe #(
-        .instance_id ("PIR2"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pir2 (.probe(pir2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIR2 disabled build #70 — PIRE (added build #69) captures the same
+    // address with a more useful filter (non-$0001 writes = actual driver
+    // completions, instead of every write = mostly OS dispatches). Frees a
+    // probe slot for PIRD (ioBuffer snoop) to verify the bytes Mac OS
+    // actually receives match the disk-image content.
+    // altsource_probe #(
+    //     .instance_id ("PIR2"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pir2 (.probe(pir2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIR3: CPU READS at (iowait_data_addr + 0x08) = (IORB + 0x18) = ioRefNum.
     // The Mac IO Manager looks up the driver via IORB.ioRefNum at dispatch
@@ -1100,13 +1105,17 @@ module dbg_min (
         if (ioctl_wr && (ioctl_idx == 8'd1)) begin
             // ioctl_data is little-endian (HPS pack convention); we byte-swap
             // to match dio_data's storage in SDRAM (MSByte = even file byte).
-            case (ioctl_addr[3:1])
-                3'd0: psdh_w0 <= {ioctl_data[7:0], ioctl_data[15:8]};
-                3'd1: psdh_w1 <= {ioctl_data[7:0], ioctl_data[15:8]};
-                3'd2: psdh_w2 <= {ioctl_data[7:0], ioctl_data[15:8]};
-                3'd3: psdh_w3 <= {ioctl_data[7:0], ioctl_data[15:8]};
-                default: ;
-            endcase
+            //
+            // BUILD #70 FIX: build #69 used case(ioctl_addr[3:1]) which wraps
+            // every 16 bytes — every 16-byte boundary in the 800K download
+            // overwrites psdh_w0..w3, so the FINAL 16 bytes (which are 0x00
+            // for Boot712.dsk) won, producing all-zero captures. Compare the
+            // FULL byte address now so each w-reg latches exactly once at
+            // its target offset.
+            if (ioctl_addr == 25'h00_00000) psdh_w0 <= {ioctl_data[7:0], ioctl_data[15:8]};
+            if (ioctl_addr == 25'h00_00002) psdh_w1 <= {ioctl_data[7:0], ioctl_data[15:8]};
+            if (ioctl_addr == 25'h00_00004) psdh_w2 <= {ioctl_data[7:0], ioctl_data[15:8]};
+            if (ioctl_addr == 25'h00_00006) psdh_w3 <= {ioctl_data[7:0], ioctl_data[15:8]};
         end
     end
     reg [31:0] psdh_r;
@@ -1122,6 +1131,64 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_psdh (.probe(psdh_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PIRD: ioBuffer-write snoop (build #70) =========================
+    // Build #69 PIRE confirmed driver completes reads with noErr (301
+    // successful ops across 6-min boot). So the wedge isn't sector-level
+    // decode — it's at the HFS layer. Hypothesis: the BYTES Mac OS receives
+    // for a successfully-decoded sector don't match what Mac OS expects.
+    //
+    // PIRD snoops writes to the LAST captured ioBuffer address (from PIRB).
+    // Each successful _Read populates ioBuffer..(ioBuffer+ioReqCount-1) with
+    // the sector data. We capture the FIRST 4 16-bit words at the buffer
+    // address = bytes 0..7 of the most-recently-completed read.
+    //
+    // For the t=360s wedge at ioPosOffset=$42200 (sector 529) with ioBuffer
+    // =$6610: expected file bytes at $42200 are 5F 22 52 08 E9 00 02 00
+    // (per scratch/build68_sector529_inspection.md).
+    //
+    // PIRD layout: [31:16] = word_1 at buffer+2 (bytes 2,3)
+    //              [15:0]  = word_0 at buffer+0 (bytes 0,1)
+    // PIRJ layout: [31:16] = word_3 at buffer+6 (bytes 6,7)
+    //              [15:0]  = word_2 at buffer+4 (bytes 4,5)
+    // (PIRJ omitted for now — fit budget; PIRD alone gives the first
+    // distinguishing bytes.)
+    //
+    // The buffer address comes from the most-recently captured ioBuffer via
+    // PIRB. pir_buf_hi+pir_buf_lo is the 32-bit address.
+    wire [31:0] pird_target = {pir_buf_hi, pir_buf_lo};
+    // Only snoop when pird_target is non-zero AND looks like a heap address
+    // (low 24 bits, NOT high RAM/ROM area). Sanity guard against capturing
+    // wild writes when ioBuffer has just been initialised.
+    wire pird_valid_target = (pird_target != 32'h0) &&
+                              (pird_target[31:24] == 8'h00) &&
+                              (pird_target[23:20] != 4'hF);
+    // Word-aligned match: cpuAddr in [pird_target, pird_target+8) AND
+    // cpuAddr is word-aligned (cpuAddr[0]=0; word writes on 68020).
+    wire pird_match = cpuAS_n_d && !cpuAS_n && !cpuRW &&
+                      (cpuFC != 3'b111) && pird_valid_target &&
+                      (cpuAddr[31:3] == pird_target[31:3]) &&
+                      !cpuAddr[0];
+    reg [15:0] pird_w0, pird_w1;
+    initial begin pird_w0 = 16'd0; pird_w1 = 16'd0; end
+    always @(posedge clk) begin
+        if (pird_match) begin
+            case (cpuAddr[2:1])
+                2'd0: pird_w0 <= cpu_dout;   // bytes target+0..1
+                2'd1: pird_w1 <= cpu_dout;   // bytes target+2..3
+                default: ;                    // target+4..7 — bytes 4-7
+            endcase
+        end
+    end
+    reg [31:0] pird_r;
+    always @(posedge clk) pird_r <= {pird_w1, pird_w0};
+
+    altsource_probe #(
+        .instance_id ("PIRD"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pird (.probe(pird_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature

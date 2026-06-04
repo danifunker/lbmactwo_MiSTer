@@ -126,6 +126,8 @@ foreach inst $info {
     # Build #69 — driver completion-write trap + HPS-download verifier
     if {$nm eq "PIRE"} { set idx(PIRE) $i }
     if {$nm eq "PSDH"} { set idx(PSDH) $i }
+    # Build #70 — ioBuffer write snoop (bytes Mac OS receives for the last read)
+    if {$nm eq "PIRD"} { set idx(PIRD) $i }
     incr i
 }
 
@@ -626,6 +628,26 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$ec == 0} {
             puts "                 cnt=0 => driver NEVER completes (writes only \$0001 = in-progress)"
         }
+    }
+    # Build #70 — ioBuffer write snoop: first 4 bytes of last completed read
+    # land in the buffer at PIRB's captured address. For Boot712.dsk sector
+    # 529 (the t=360s wedge target) the expected bytes are 5F 22 52 08.
+    if {[info exists idx(PIRD)]} {
+        set pd [rd $idx(PIRD)]
+        set w0 [expr {$pd & 0xFFFF}]
+        set w1 [expr {($pd >> 16) & 0xFFFF}]
+        set b0 [expr {($w0 >> 8) & 0xFF}]
+        set b1 [expr {$w0 & 0xFF}]
+        set b2 [expr {($w1 >> 8) & 0xFF}]
+        set b3 [expr {$w1 & 0xFF}]
+        set hint ""
+        # Boot712.dsk byte 0..3 (boot block) = 4C 4B 60 00 ("LK" + offset)
+        if {$w0 == 0x4C4B} { set hint "  (LK = boot signature - reading sector 0)" }
+        # Boot712.dsk bytes at sector 529 ($42200) = 5F 22 52 08
+        if {$w0 == 0x5F22 && $w1 == 0x5208} { set hint "  (matches sector 529 expected)" }
+        if {$w0 == 0x0000 && $w1 == 0x0000} { set hint "  (all-zero — buffer empty/uninit)" }
+        puts [format "           BUF-RD: ioBuffer first 4 bytes = %02X %02X %02X %02X  (word0=0x%04X word1=0x%04X)%s" \
+            $b0 $b1 $b2 $b3 $w0 $w1 $hint]
     }
     # Build #69 — HPS download verifier: first 4 bytes of F1 floppy download
     if {[info exists idx(PSDH)]} {
