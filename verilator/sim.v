@@ -285,17 +285,20 @@ module emu
 		end
 	end
 
-	// VPA: assert for FC=7 autovector cycles, except FPU coprocessor cycles.
+	// VPA: assert for FC=7 autovector cycles and VIA cycles.  Mac II 32-bit
+	// I/O lives at $50Fxxxxx; using the old low-24-bit $E/$F VPA test here
+	// accidentally routes SCC/SCSI/ASC/IWM through the slow 6800 handshake.
 	wire viaAccess = selectVIA | selectVIA2;
 	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
-	                      viaAccess ? ~!_cpuAS :
-	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
+	                      viaAccess ? _cpuAS :
+	                      1'b1;
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
 	assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
-	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+	                        (cpuFC == 3'b111) ? 1'b1 :
+	                        (~(!_cpuAS) | (status_turbo & !turbo_dtack_en));
 
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
 	reg [8:0] berr_counter;

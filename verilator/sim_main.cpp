@@ -135,6 +135,7 @@ bool iwm_debug_enable = false;
 bool wait_debug_enable = false;
 bool calib_debug_enable = false;
 bool calib_loop_debug_enable = false;
+bool calib_cpu_debug_enable = false;
 bool ramtest_debug_enable = false;
 bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
@@ -273,6 +274,9 @@ uint32_t calib_debug_last_lowmem_tick = 0xFFFFFFFF;
 uint32_t calib_loop_hits[3] = {0, 0, 0};
 int calib_loop_debug_count = 0;
 const int calib_loop_debug_max = 160;
+int calib_cpu_debug_count = 0;
+const int calib_cpu_debug_max = 700;
+uint8_t calib_cpu_debug_prev_key = 0xFF;
 int ramtest_debug_count = 0;
 const int ramtest_debug_max = 260;
 uint32_t ramtest_debug_last_pc = 0xFFFFFFFF;
@@ -1685,6 +1689,59 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask);
 					calib_loop_debug_count++;
 				}
+			}
+
+			if (calib_cpu_debug_enable && !*bus.ioctl_download &&
+			    calib_cpu_debug_count < calib_cpu_debug_max) {
+				uint32_t pc = VERTOPINTERN->debug_pc;
+				uint8_t ms = VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__n10756;
+				uint8_t ns = VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__next_micro_state;
+				bool in_calib_pc = pc == 0x4080059C || pc == 0x408005D6 || pc == 0x40800612;
+				bool in_dbcc_state = ms == 25 || ns == 25;
+				bool cpu_edge = VERTOPINTERN->emu__DOT__cpu_en_p || VERTOPINTERN->emu__DOT__cpu_en_n ||
+				                VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__clkena_in ||
+				                VERTOPINTERN->debug_fetch_valid;
+				uint8_t key = (uint8_t)((VERTOPINTERN->emu__DOT__cpu_en_p ? 0x01 : 0) |
+				                        (VERTOPINTERN->emu__DOT__cpu_en_n ? 0x02 : 0) |
+				                        (VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__clkena_in ? 0x04 : 0) |
+				                        (VERTOPINTERN->debug_fetch_valid ? 0x08 : 0) |
+				                        (VERTOPINTERN->debug_cpuBusControl ? 0x10 : 0) |
+				                        ((VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__busstate & 0x03) << 5));
+				bool state_edge = key != calib_cpu_debug_prev_key;
+				if (in_calib_pc && (cpu_edge || in_dbcc_state) && (state_edge || in_dbcc_state)) {
+					fprintf(stderr,
+						"CALIB_CPU hit=%d frame=%d time=%llu pc=%08X op=%04X "
+						"D0=%08X ms=%02X ns=%02X bs=%u ss=%u ws=%u "
+						"phi1=%u phi2=%u clken=%u aluen=%u fetch=%u busctl=%u "
+						"AS=%u DTACK=%u RW=%u addr=%08X din=%04X dout=%04X T2c=%04X ifr=%02X\n",
+						calib_cpu_debug_count,
+						video.count_frame,
+						(unsigned long long)main_time,
+						pc,
+						VERTOPINTERN->debug_opcode,
+						tg68_reg(0),
+						ms,
+						ns,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__busstate,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__setstate,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__s_state,
+						VERTOPINTERN->emu__DOT__cpu_en_p ? 1 : 0,
+						VERTOPINTERN->emu__DOT__cpu_en_n ? 1 : 0,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__clkena_in ? 1 : 0,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__alu__DOT__clkena_lw ? 1 : 0,
+						VERTOPINTERN->debug_fetch_valid ? 1 : 0,
+						VERTOPINTERN->debug_cpuBusControl ? 1 : 0,
+						VERTOPINTERN->debug_cpuAS ? 0 : 1,
+						VERTOPINTERN->debug_cpuDTACK ? 0 : 1,
+						VERTOPINTERN->debug_cpuRW ? 1 : 0,
+						VERTOPINTERN->debug_cpuAddr,
+						VERTOPINTERN->debug_cpuDataIn,
+						VERTOPINTERN->debug_cpuDataOut,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_count,
+						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags);
+					calib_cpu_debug_count++;
+				}
+				calib_cpu_debug_prev_key = key;
 			}
 
 			if (ramtest_debug_enable && !*bus.ioctl_download &&
@@ -3223,6 +3280,7 @@ void show_help() {
 	printf("  --wait-debug-min-frame <n>    Delay wait-helper tracing until frame n\n");
 	printf("  --calib-debug                 Trace VIA timers and low-memory delay calibration\n");
 	printf("  --calib-loop-debug            Trace delay calibration DBF loop counts and VIA1 T2 state\n");
+	printf("  --calib-cpu-debug             Trace TG68K clock enables inside calibration DBF loops\n");
 	printf("  --force-mame-calib            Force MAME delay words $0D00/$0DA6 for timing diagnosis\n");
 	printf("  --force-calib <0d00> <0da6>   Force custom delay words for timing diagnosis\n");
 	printf("  --force-calib-min-frame <n>   Delay forced calibration writes until frame n\n");
@@ -3493,6 +3551,8 @@ int main(int argc, char** argv, char** env) {
 			calib_debug_enable = true;
 		} else if (strcmp(argv[i], "--calib-loop-debug") == 0) {
 			calib_loop_debug_enable = true;
+		} else if (strcmp(argv[i], "--calib-cpu-debug") == 0) {
+			calib_cpu_debug_enable = true;
 		} else if (strcmp(argv[i], "--force-mame-calib") == 0) {
 			force_calib_enable = true;
 			force_calib_0d00 = 0x0A3B;
