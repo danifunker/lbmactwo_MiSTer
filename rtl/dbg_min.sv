@@ -911,6 +911,114 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ==== IORB header probes (PIRH / PIRB / PIRR / PIRP) -- build #68 =======
+    // Capture the OS-set fields of the .Sony IORB at the fixed low-memory
+    // Params region anchored at $3A4. IORB layout (Mac IOParam):
+    //   $00..$0F : queue, trap, completion, ...
+    //   $10      : ioResult (16-bit)              <- IOWait poll at $3B4
+    //   $18      : ioRefNum (16-bit)              <- -33 = .Sony
+    //   $1A      : csCode   (16-bit)              <- WHAT operation?
+    //   $20      : ioBuffer (32-bit)              <- WHERE to put data
+    //   $24      : ioReqCount (32-bit)            <- HOW MUCH data
+    //   $2E      : ioPosOffset (32-bit)           <- WHERE on disk
+    //
+    // The OS writes these fields BEFORE invoking the driver (so before the
+    // IOWait spin starts and PIOA captures iowait_data_addr). Triggering on
+    // writes to the STATIC $3A4-relative addresses catches the setup write
+    // and latches it through the wedge. The probes hold the LATEST values,
+    // which during the wedge are exactly the wedged operation's parameters.
+    //
+    // csCode meaning (Mac OS File Manager codes):
+    //   $0001 = cmdRead   (.Sony asynchronous read)
+    //   $0002 = cmdWrite  (.Sony asynchronous write)
+    //   $0044 ($FF44 hex unsigned) = Reset / format-verify
+    //   $0058 = DriveStatus
+    //   $0001..0010 = generic Device Manager calls
+    //
+    // 32-bit fields (ioBuffer / ioReqCount / ioPosOffset) on a 16-bit data
+    // port arrive as TWO consecutive 16-bit writes: HI at address+0, LO at
+    // address+2. Each probe latches both halves separately and combines.
+    //
+    // Trigger: cpuAS_n falling edge AND !cpuRW AND cpuAddr matches.
+    // Filter to RAM accesses (cpuFC != 3'b111 to exclude CPU/IACK space).
+
+    wire pir_iorb_is_ram = (cpuFC != 3'b111);
+    wire pir_aswr        = cpuAS_n_d && !cpuAS_n && !cpuRW && pir_iorb_is_ram;
+
+    // PIRH: csCode (16-bit @ $3BE) + write count
+    reg [15:0] pir_cscode;
+    reg [15:0] pir_cscode_wr_cnt;
+    initial begin pir_cscode = 16'd0; pir_cscode_wr_cnt = 16'd0; end
+    always @(posedge clk) begin
+        if (pir_aswr && cpuAddr == 32'h0000_03BE) begin
+            pir_cscode        <= cpu_dout;
+            pir_cscode_wr_cnt <= pir_cscode_wr_cnt + 16'd1;
+        end
+    end
+    reg [31:0] pirh_r;
+    always @(posedge clk) pirh_r <= {pir_cscode, pir_cscode_wr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PIRH"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pirh (.probe(pirh_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PIRB: ioBuffer (32-bit @ $3C4/$3C6, longword as 2 16-bit writes)
+    reg [15:0] pir_buf_hi;
+    reg [15:0] pir_buf_lo;
+    initial begin pir_buf_hi = 16'd0; pir_buf_lo = 16'd0; end
+    always @(posedge clk) begin
+        if (pir_aswr && cpuAddr == 32'h0000_03C4) pir_buf_hi <= cpu_dout;
+        if (pir_aswr && cpuAddr == 32'h0000_03C6) pir_buf_lo <= cpu_dout;
+    end
+    reg [31:0] pirb_r;
+    always @(posedge clk) pirb_r <= {pir_buf_hi, pir_buf_lo};
+
+    altsource_probe #(
+        .instance_id ("PIRB"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pirb (.probe(pirb_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PIRR: ioReqCount (32-bit @ $3C8/$3CA)
+    reg [15:0] pir_req_hi;
+    reg [15:0] pir_req_lo;
+    initial begin pir_req_hi = 16'd0; pir_req_lo = 16'd0; end
+    always @(posedge clk) begin
+        if (pir_aswr && cpuAddr == 32'h0000_03C8) pir_req_hi <= cpu_dout;
+        if (pir_aswr && cpuAddr == 32'h0000_03CA) pir_req_lo <= cpu_dout;
+    end
+    reg [31:0] pirr_r;
+    always @(posedge clk) pirr_r <= {pir_req_hi, pir_req_lo};
+
+    altsource_probe #(
+        .instance_id ("PIRR"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pirr (.probe(pirr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PIRP: ioPosOffset (32-bit @ $3D2/$3D4)
+    reg [15:0] pir_pos_hi;
+    reg [15:0] pir_pos_lo;
+    initial begin pir_pos_hi = 16'd0; pir_pos_lo = 16'd0; end
+    always @(posedge clk) begin
+        if (pir_aswr && cpuAddr == 32'h0000_03D2) pir_pos_hi <= cpu_dout;
+        if (pir_aswr && cpuAddr == 32'h0000_03D4) pir_pos_lo <= cpu_dout;
+    end
+    reg [31:0] pirp_r;
+    always @(posedge clk) pirp_r <= {pir_pos_hi, pir_pos_lo};
+
+    altsource_probe #(
+        .instance_id ("PIRP"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pirp (.probe(pirp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
     // ==== IRQ-delivery probe (PIPL) ========================================
     // Diagnose the post-Phase-1 busy-loop. The long-soak capture
     // (scratch/build6_pir2_longsoak_findings.md) showed the CPU spends 24%
@@ -1558,19 +1666,23 @@ module dbg_min (
     always @(posedge clk)
         pfrw_r <= {pfrw_last_rest, pfrw_rest_wr_cnt, pfrw_opw_wr_cnt};
 
-    altsource_probe #(
-        .instance_id ("PFRR"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfrr (.probe(pfrr_r), .source(), .source_clk(clk), .source_ena(1'b1));
-
-    altsource_probe #(
-        .instance_id ("PFRW"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfrw (.probe(pfrw_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFRR / PFRW disabled for build #68 — FPU confirmed healthy by Snow
+    // checkpoint cross-check (bug #6 floppy pivot). Frees fit budget for the
+    // IORB-header probes (PIRH/PIRB/PIRR/PIRP) that pin down what the .Sony
+    // driver is actually doing during the Welcome hang.
+    // altsource_probe #(
+    //     .instance_id ("PFRR"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfrr (.probe(pfrr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    //
+    // altsource_probe #(
+    //     .instance_id ("PFRW"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfrw (.probe(pfrw_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== FPU CIR FSM state probe (PFST) -- build #16 =====================
     // Pass-through of the packed dbg_cir_state vector from mc68881_top:
@@ -1787,12 +1899,13 @@ module dbg_min (
     always @(posedge clk)
         pfoq_r <= pfoq_opword_pc;
 
-    altsource_probe #(
-        .instance_id ("PFOQ"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfoq (.probe(pfoq_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFOQ disabled for build #68 — same rationale as PFRR/PFRW above.
+    // altsource_probe #(
+    //     .instance_id ("PFOQ"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfoq (.probe(pfoq_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PFOV: last 2 cpGEN-class OpWord VALUES (build #35, bug #6) =======
     // PFCS retired — build #33 confirmed only one $A9C9 fetch in entire boot

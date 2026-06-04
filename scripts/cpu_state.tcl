@@ -118,6 +118,11 @@ foreach inst $info {
     if {$nm eq "PFLN"} { set idx(PFLN) $i }
     # Build #63 — F-line trap source PC (which F-line instruction triggered)
     if {$nm eq "PFTS"} { set idx(PFTS) $i }
+    # Build #68 — IORB header at fixed $3A4: csCode, ioBuffer, ioReqCount, ioPosOffset
+    if {$nm eq "PIRH"} { set idx(PIRH) $i }
+    if {$nm eq "PIRB"} { set idx(PIRB) $i }
+    if {$nm eq "PIRR"} { set idx(PIRR) $i }
+    if {$nm eq "PIRP"} { set idx(PIRP) $i }
     incr i
 }
 
@@ -522,6 +527,76 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$rcnt == 0} {
             puts "                 cnt=0 => OS hasn't re-fetched ioRefNum within current iowait_data_addr window"
         }
+    }
+    # Build #68 — IORB header at the fixed $3A4 Params region (.Sony IORB).
+    # PIRH=csCode, PIRB=ioBuffer, PIRR=ioReqCount, PIRP=ioPosOffset.
+    # These probes capture OS WRITES to the IORB fields, so they hold the
+    # parameters of the LATEST _Read/_Write request at $3A4 — which during
+    # the Welcome hang IS the wedged operation's parameters.
+    if {[info exists idx(PIRH)]} {
+        set ph [rd $idx(PIRH)]
+        set cs [expr {($ph >> 16) & 0xFFFF}]
+        set cn [expr {$ph & 0xFFFF}]
+        set csname "(unknown)"
+        switch -- $cs {
+            0      {set csname "(no write yet)"}
+            1      {set csname "cmdRead (.Sony async read)"}
+            2      {set csname "cmdWrite (.Sony async write)"}
+            5      {set csname "KillIO"}
+            6      {set csname "Verify"}
+            7      {set csname "Format/Eject"}
+            8      {set csname "DriveStatus"}
+            21     {set csname "DriveInfo"}
+            23     {set csname "TrackCacheControl"}
+            68     {set csname "FormatVerify"}
+            88     {set csname "DriveStatus (0x58)"}
+        }
+        puts [format "           IORB-CS: \$3BE csCode=0x%04X (%d) %s  wr_cnt(wrap16)=%u" \
+            $cs $cs $csname $cn]
+    }
+    if {[info exists idx(PIRB)]} {
+        set pb [rd $idx(PIRB)]
+        set hi [expr {($pb >> 16) & 0xFFFF}]
+        set lo [expr {$pb & 0xFFFF}]
+        set full [expr {($hi << 16) | $lo}]
+        puts [format "           IORB-BUF: \$3C4 ioBuffer = 0x%08X (hi=0x%04X lo=0x%04X)" \
+            $full $hi $lo]
+    }
+    if {[info exists idx(PIRR)]} {
+        set pr [rd $idx(PIRR)]
+        set hi [expr {($pr >> 16) & 0xFFFF}]
+        set lo [expr {$pr & 0xFFFF}]
+        set full [expr {($hi << 16) | $lo}]
+        # ioReqCount is a longword byte count; typical floppy reads = 512 bytes/sector
+        set hint ""
+        if {$full == 512}      { set hint "  (= one sector)" }
+        if {$full == 1024}     { set hint "  (= two sectors)" }
+        if {$full == 0x200}    { set hint "  (= 512 = one sector)" }
+        if {$full > 0 && $full <= 0x10000} { set hint "  (small read)" }
+        puts [format "           IORB-REQ: \$3C8 ioReqCount = 0x%08X (%u bytes)%s" \
+            $full $full $hint]
+    }
+    if {[info exists idx(PIRP)]} {
+        set pp [rd $idx(PIRP)]
+        set hi [expr {($pp >> 16) & 0xFFFF}]
+        set lo [expr {$pp & 0xFFFF}]
+        set full [expr {($hi << 16) | $lo}]
+        # For 800K Sony floppy: total bytes = 819200 = 0xC8000
+        # Track/side/sector decomposition assumes 12 sectors/track on tracks 0-15.
+        set total 819200
+        set hint ""
+        if {$full == 0}                 { set hint "  (boot block / track 0 sector 0)" }
+        if {$full >= 0 && $full < 0x400}{ set hint [format "  (boot blocks, byte %d)" $full] }
+        if {$full > $total}             { set hint "  (BEYOND 800K disk size!)" }
+        # Sector-block estimate (just for orientation, assumes side-interleaved layout)
+        if {$full > 0 && $full <= $total} {
+            set sec_no [expr {$full / 512}]
+            set sec_off [expr {$full % 512}]
+            set hint [format "%s  (sector %u offset %u, ~%.1f%% of disk)" \
+                $hint $sec_no $sec_off [expr {100.0 * $full / $total}]]
+        }
+        puts [format "           IORB-POS: \$3D2 ioPosOffset = 0x%08X (%u)%s" \
+            $full $full $hint]
     }
     if {[info exists idx(PIPL)]} {
         set pi  [rd $idx(PIPL)]
