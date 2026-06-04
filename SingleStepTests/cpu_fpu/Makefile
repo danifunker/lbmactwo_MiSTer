@@ -13,7 +13,7 @@ V_DEFINE = +define+SIMULATION=1 \
            -Wno-PINMISSING -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT \
            -Wno-CASEINCOMPLETE -Wno-UNSIGNED -Wno-CMPCONST \
            -Wno-LATCH -Wno-UNDRIVEN -Wno-MISINDENT -Wno-COMBDLY \
-           -Wno-INITIALDLY -Wno-SYNCASYNCNET -Wno-ALWNEVER \
+           -Wno-INITIALDLY -Wno-SYNCASYNCNET \
            -Wno-PROCASSWIRE -Wno-BLKANDNBLK -Wno-MULTIDRIVEN
 
 # FPU selector — default to the real mc68881 lite variant (for full FPU

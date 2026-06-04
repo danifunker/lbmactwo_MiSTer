@@ -223,8 +223,41 @@ static int run_corpus(const std::string& fname, bool trace) {
             for (int i = 0; i < 32; ++i) tick();
             top->reset = 0;
             uint32_t prev_state_sig = 0xFFFFFFFFu;
+            uint8_t prev_as = 1;
+            uint32_t bus_addr_at_fall = 0;
+            uint8_t  bus_rw_at_fall = 1;
+            uint8_t  bus_fpu_at_fall = 0;
+            uint8_t  bus_fc_at_fall = 0;
+            int      bus_cyc_at_fall = 0;
+            uint16_t bus_wr_data = 0;
             for (int cyc = 0; cyc < 5000; ++cyc) {
                 tick();
+                // Bus AS-falling: record context. AS-rising: log access with
+                // the data that actually settled on the bus this cycle.
+                if (prev_as && !top->as_n) {
+                    bus_addr_at_fall = top->addr_out;
+                    bus_rw_at_fall   = top->rw_n;
+                    bus_fpu_at_fall  = top->fpu_select;
+                    bus_fc_at_fall   = top->fc;
+                    bus_cyc_at_fall  = cyc;
+                    bus_wr_data      = top->data_write;
+                }
+                if (!prev_as && top->as_n) {
+                    uint16_t rd_data = bus_fpu_at_fall
+                        ? (top->fpu_d_out_obs & 0xFFFF)
+                        : ram_read16(bus_addr_at_fall);
+                    std::cerr << "  BUS cyc " << std::setw(5) << bus_cyc_at_fall
+                              << "-" << std::setw(5) << cyc
+                              << " fc=" << int(bus_fc_at_fall)
+                              << (bus_rw_at_fall ? " RD" : " WR")
+                              << " addr=0x" << std::hex << std::setw(8)
+                              << std::setfill('0') << bus_addr_at_fall
+                              << " data=0x" << std::setw(4)
+                              << (bus_rw_at_fall ? rd_data : bus_wr_data)
+                              << std::dec << std::setfill(' ')
+                              << (bus_fpu_at_fall ? " [FPU]" : "") << "\n";
+                }
+                prev_as = top->as_n;
                 uint8_t cur_micro = top->dbg_micro_state;
                 uint32_t cur_state_sig = (uint32_t(cur_micro) << 16)
                     | (uint32_t(top->dbg_cir_state) << 8)
