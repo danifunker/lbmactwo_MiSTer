@@ -51,7 +51,7 @@ capture() {
     quartus_stp_tcl -t scripts/cpu_state.tcl 2>&1 \
         | grep -vE "^Info|^    Info|^\\s*$" > "$CAPDIR/cpu_${label}.txt"
     log "  -- IORB header probes --"
-    grep -E "IOR3|IORB-CS|IORB-BUF|IORB-REQ|IORB-POS|IORB:|IORB Iter" \
+    grep -E "IOR3|IOR-ERR|HPS-DL|IORB-CS|IORB-BUF|IORB-REQ|IORB-POS|IORB:|IORB Iter" \
          "$CAPDIR/cpu_${label}.txt" || echo "  (no IORB lines yet)"
     log "  -- Floppy negative-control probes --"
     grep -E "FLP:|IWM:|FLT:|FLT-track" "$CAPDIR/cpu_${label}.txt" \
@@ -62,8 +62,9 @@ log "=== Verify build artifact ==="
 LOCAL_MD5=$(md5sum output_files/LBMacTwo.rbf | awk '{print $1}')
 log "local rbf md5 = $LOCAL_MD5"
 
-if [ "$LOCAL_MD5" = "d1285647935bfbe224879230dddb889d" ]; then
-    log "ERROR: rbf md5 matches build #67 — build #68 didn't pick up changes!"
+if [ "$LOCAL_MD5" = "d1285647935bfbe224879230dddb889d" ] || \
+   [ "$LOCAL_MD5" = "62240d3ee11ffc582250105b618b6fde" ]; then
+    log "ERROR: rbf md5 matches a known prior build (#67=d1285647 or #68=62240d3e)"
     log "Possible incremental-compile drop. Run: rm -rf db incremental_db && bash scripts/auto_recompile.sh"
     exit 1
 fi

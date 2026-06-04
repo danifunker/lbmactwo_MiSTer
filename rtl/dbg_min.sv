@@ -683,16 +683,15 @@ module dbg_min (
     always @(posedge clk)
         piwm_r <= {iwm_ack_cnt, iwm_latch, (flp_disk_data != 8'h00), iwm_arm_high};
 
-    // PIWM RE-ENABLED for floppy-slowness investigation. Pairs with
-    // PFLP — gives SDRAM-grant rate (iwm_ack_cnt) to distinguish
-    // "delivery layer slow" from "arbiter starving floppy". See
-    // scratch/floppy_slow_plan.md interpretation matrix.
-    altsource_probe #(
-        .instance_id ("PIWM"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIWM disabled build #69 — confirmed healthy in builds #65-#68 (SDRAM
+    // grants ~38k, byte deliveries growing). Frees budget for PIRE + PSDH.
+    // PFLP still active as floppy sanity check.
+    // altsource_probe #(
+    //     .instance_id ("PIWM"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_piwm (.probe(piwm_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IORB capture (PIOA) =============================================
     // The Welcome hang reaches IOWait at 0x40006C36-3A, which polls
@@ -1018,6 +1017,119 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pirp (.probe(pirp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PIRE: ioResult completion-write probe (build #69) ================
+    // PIR2 captures every write to $3B4 (the polled ioResult). In practice the
+    // LAST write is always the OS's $0001 = "in progress" dispatch — so PIR2's
+    // last_value is useless for diagnosing what the driver actually returns.
+    //
+    // PIRE filters: capture writes only when value != $0001. That value is
+    // either the driver's COMPLETION (0 = noErr, or negative = error code) or
+    // some other intermediate state. Layout:
+    //   [31:16] last non-$0001 value seen at $3B4
+    //   [15:0]  wrap16 count of such writes
+    //
+    // Sony driver error-code semantics (from SysErr.a):
+    //   0          noErr
+    //   -36 $FFDC  ioErr
+    //   -66 $FFBE  noNybErr     (no transitions found)
+    //   -67 $FFBD  noAdrMkErr   (no addr mark found)
+    //   -68 $FFBC  dataVerErr   (read-verify compare failed)
+    //   -69 $FFBB  badCksmErr   (addr mark checksum wrong)
+    //   -70 $FFBA  badBtSlpErr  (bit-slip trailer wrong)
+    //   -80 $FFB0  seekErr      (track number wrong)
+    //   -81 $FFAF  sectNFErr    (sector not found)
+    //
+    // Filter to non-IACK cycles (cpuFC != 3'b111) for safety, same as PIRH/B/R/P.
+    reg [15:0] pire_last_val;
+    reg [15:0] pire_cnt;
+    initial begin pire_last_val = 16'd0; pire_cnt = 16'd0; end
+    always @(posedge clk) begin
+        if (cpuAS_n_d && !cpuAS_n && !cpuRW && (cpuFC != 3'b111) &&
+            cpuAddr == 32'h0000_03B4 && cpu_dout != 16'h0001) begin
+            pire_last_val <= cpu_dout;
+            pire_cnt      <= pire_cnt + 16'd1;
+        end
+    end
+    reg [31:0] pire_r;
+    always @(posedge clk) pire_r <= {pire_last_val, pire_cnt};
+
+    altsource_probe #(
+        .instance_id ("PIRE"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pire (.probe(pire_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PSDH / PSDI: HPS-download sanity check (build #69) ==============
+    // The static audit confirmed the source-address mapping is correct on
+    // paper (floppy.v's dskReadAddrInt=0 → SDRAM word 0x480000 = HPS F1
+    // download word 0). PSDH captures the first 4 16-bit words actually
+    // written by the HPS during F1 download — if they don't match the first
+    // 8 bytes of Boot712.dsk (LK boot signature etc.), the HPS path is
+    // corrupting bytes mid-download.
+    //
+    // dio_data has byte-swap: dio_data = {ioctl_data[7:0], ioctl_data[15:8]}.
+    // So dio_data[15:8] = MSByte = file byte at even offset.
+    //    dio_data[7:0]  = LSByte = file byte at odd offset.
+    //
+    // F1 (dio_index=1) → dio_a == {2'b01, dio_addr[18:0]} = 0x80000 + word_off
+    // First 4 words → dio_addr[18:0] == 0, 1, 2, 3 → bytes 0..7 of Boot712.dsk
+    //
+    // PSDH layout: [31:16]=word_1 (bytes 2,3), [15:0]=word_0 (bytes 0,1)
+    // PSDI layout: [31:16]=word_3 (bytes 6,7), [15:0]=word_2 (bytes 4,5)
+    //
+    // For HFS volumes:
+    //   bytes 0..1 = boot signature ("LK" = 0x4C4B) if bootable
+    //   bytes 2..3 = entry point offset
+    //   bytes 4..5 = padding / version
+    //   bytes 6..7 = padding
+    // Boot712.dsk should show 0x4C4B in PSDH bytes 0..1.
+    reg [15:0] psdh_w0, psdh_w1, psdh_w2, psdh_w3;
+    initial begin psdh_w0=16'd0; psdh_w1=16'd0; psdh_w2=16'd0; psdh_w3=16'd0; end
+    // ioctl_addr is the byte counter (25-bit). ioctl_addr[24:1] = word counter.
+    // For F1 download (dio_index = 1), we want to latch words 0..3 of the file
+    // (ignoring the dio_a base offset which is the SDRAM placement, not file
+    // position). Since dio_addr[24:1] is monotonic across the download and
+    // starts at 0 for each download instance, we use it directly.
+    always @(posedge clk) begin
+        if (ioctl_wr && (ioctl_idx == 8'd1)) begin
+            // ioctl_data is little-endian (HPS pack convention); we byte-swap
+            // to match dio_data's storage in SDRAM (MSByte = even file byte).
+            case (ioctl_addr[3:1])
+                3'd0: psdh_w0 <= {ioctl_data[7:0], ioctl_data[15:8]};
+                3'd1: psdh_w1 <= {ioctl_data[7:0], ioctl_data[15:8]};
+                3'd2: psdh_w2 <= {ioctl_data[7:0], ioctl_data[15:8]};
+                3'd3: psdh_w3 <= {ioctl_data[7:0], ioctl_data[15:8]};
+                default: ;
+            endcase
+        end
+    end
+    reg [31:0] psdh_r;
+    reg [31:0] psdi_r;
+    always @(posedge clk) begin
+        psdh_r <= {psdh_w1, psdh_w0};
+        psdi_r <= {psdh_w3, psdh_w2};
+    end
+
+    altsource_probe #(
+        .instance_id ("PSDH"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psdh (.probe(psdh_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
+    // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature
+    // mismatch case, which is sufficient for first-pass HPS-download sanity.
+    // Re-enable if PSDH shows correct bytes but we still suspect later-file
+    // corruption.
+    // altsource_probe #(
+    //     .instance_id ("PSDI"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psdi (.probe(psdi_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IRQ-delivery probe (PIPL) ========================================
     // Diagnose the post-Phase-1 busy-loop. The long-soak capture
@@ -1704,12 +1816,14 @@ module dbg_min (
     reg [31:0] pfst_r;
     always @(posedge clk) pfst_r <= fpu_dbg_cir_state;
 
-    altsource_probe #(
-        .instance_id ("PFST"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFST disabled build #69 — FPU CIR FSM confirmed healthy by Snow
+    // checkpoint cross-check. Frees budget for PIRE + PSDH.
+    // altsource_probe #(
+    //     .instance_id ("PFST"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== Coprocessor Control CIR ACK probe (PCAK) -- build #22 ===========
     // Diagnoses whether the bug-#3 fix (cp_except_ack/cp_except_trap path

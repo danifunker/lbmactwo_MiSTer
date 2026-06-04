@@ -123,6 +123,9 @@ foreach inst $info {
     if {$nm eq "PIRB"} { set idx(PIRB) $i }
     if {$nm eq "PIRR"} { set idx(PIRR) $i }
     if {$nm eq "PIRP"} { set idx(PIRP) $i }
+    # Build #69 — driver completion-write trap + HPS-download verifier
+    if {$nm eq "PIRE"} { set idx(PIRE) $i }
+    if {$nm eq "PSDH"} { set idx(PSDH) $i }
     incr i
 }
 
@@ -586,7 +589,7 @@ for {set s 1} {$s <= 6} {incr s} {
         set total 819200
         set hint ""
         if {$full == 0}                 { set hint "  (boot block / track 0 sector 0)" }
-        if {$full >= 0 && $full < 0x400}{ set hint [format "  (boot blocks, byte %d)" $full] }
+        if {$full >= 0 && $full < 0x400} { set hint [format "  (boot blocks, byte %d)" $full] }
         if {$full > $total}             { set hint "  (BEYOND 800K disk size!)" }
         # Sector-block estimate (just for orientation, assumes side-interleaved layout)
         if {$full > 0 && $full <= $total} {
@@ -597,6 +600,47 @@ for {set s 1} {$s <= 6} {incr s} {
         }
         puts [format "           IORB-POS: \$3D2 ioPosOffset = 0x%08X (%u)%s" \
             $full $full $hint]
+    }
+    # Build #69 — driver completion-write capture (non-$0001 writes to ioResult)
+    if {[info exists idx(PIRE)]} {
+        set pe [rd $idx(PIRE)]
+        set ev [expr {($pe >> 16) & 0xFFFF}]
+        set ec [expr {$pe & 0xFFFF}]
+        set sigv $ev
+        if {$sigv >= 32768} { set sigv [expr {$sigv - 65536}] }
+        set errname "(unknown)"
+        switch -- $sigv {
+            0      {set errname "noErr (success)"}
+            -36    {set errname "ioErr (generic I/O)"}
+            -50    {set errname "paramErr"}
+            -66    {set errname "noNybErr (no GCR transitions)"}
+            -67    {set errname "noAdrMkErr (no addr mark)"}
+            -68    {set errname "dataVerErr (read-verify failed)"}
+            -69    {set errname "badCksmErr (addr mark checksum wrong)"}
+            -70    {set errname "badBtSlpErr (trailer bytes wrong)"}
+            -80    {set errname "seekErr (track mismatch)"}
+            -81    {set errname "sectNFErr (sector not found)"}
+        }
+        puts [format "           IOR-ERR: completion @ \$3B4: non-\$0001 wr_cnt(wrap16)=%u  last=0x%04X (%d) %s" \
+            $ec $ev $sigv $errname]
+        if {$ec == 0} {
+            puts "                 cnt=0 => driver NEVER completes (writes only \$0001 = in-progress)"
+        }
+    }
+    # Build #69 — HPS download verifier: first 4 bytes of F1 floppy download
+    if {[info exists idx(PSDH)]} {
+        set ph [rd $idx(PSDH)]
+        set w0 [expr {$ph & 0xFFFF}]
+        set w1 [expr {($ph >> 16) & 0xFFFF}]
+        set b0 [expr {($w0 >> 8) & 0xFF}]
+        set b1 [expr {$w0 & 0xFF}]
+        set b2 [expr {($w1 >> 8) & 0xFF}]
+        set b3 [expr {$w1 & 0xFF}]
+        set hint ""
+        if {$w0 == 0x4C4B} { set hint "  (\"LK\" boot signature = HFS bootable)" }
+        if {$w0 == 0x0000 && $w1 == 0x0000} { set hint "  (all-zero — download likely never started)" }
+        puts [format "           HPS-DL: F1 bytes 0..3 = %02X %02X %02X %02X  (word0=0x%04X word1=0x%04X)%s" \
+            $b0 $b1 $b2 $b3 $w0 $w1 $hint]
     }
     if {[info exists idx(PIPL)]} {
         set pi  [rd $idx(PIPL)]
