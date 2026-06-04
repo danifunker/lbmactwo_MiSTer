@@ -279,6 +279,13 @@ static int run_corpus(const std::string& fname, bool trace) {
                               << " fpsr=0x" << std::setw(8) << top->dbg_fpsr
                               << " resp=0x" << std::setw(8) << top->dbg_cir_response_reg
                               << " din=0x" << std::setw(4) << top->dbg_data_in
+                              << " fmt=0x" << std::setw(4) << top->dbg_cp_save_fmt
+                              << " dwt=0x" << std::setw(8) << top->dbg_data_write_tmp
+                              << " widx=" << std::dec << int(top->dbg_cir_xfer_word_idx)
+                              << std::hex
+                              << " d1=0x" << std::setw(8) << top->dbg_d1
+                              << " xd=0x" << std::setw(8) << top->dbg_cp_xfer_data
+                              << " ldr=0x" << std::setw(8) << top->dbg_last_data_read
                               << " t1111=" << std::dec << int(top->dbg_trap_1111)
                               << " br=" << int(top->dbg_cp_do_branch)
                               << " btgt=0x" << std::hex << std::setw(8) << top->dbg_cp_branch_target

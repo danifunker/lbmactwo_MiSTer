@@ -45,6 +45,7 @@ module cpu_fpu_tests
    output [31:0] dbg_d1,
    output [31:0] dbg_data_write_muxin,
    output [15:0] dbg_data_in,
+   output [15:0] dbg_cp_save_fmt,
    output [31:0] dbg_last_data_read,
    output [31:0] dbg_data_read,
    output [1:0]  dbg_state,
@@ -87,6 +88,7 @@ module cpu_fpu_tests
    assign dbg_d1 = ({cpu.tg68k.regfile_n2[1], 8'h00} | {24'h0, cpu.tg68k.regfile_n1[1]});
    assign dbg_data_write_muxin = cpu.tg68k.data_write_muxin;
    assign dbg_data_in = cpu.tg68k.data_in;
+   assign dbg_cp_save_fmt = cpu.tg68k.cp_save_fmt;
    assign dbg_last_data_read = cpu.tg68k.last_data_read;
    assign dbg_data_read = cpu.tg68k.data_read;
    assign dbg_state = cpu.tg68k.state;
@@ -188,9 +190,22 @@ module cpu_fpu_tests
    reg [31:0] fpu_rd_latch;
    reg        prev_as_for_phase;
    // Aggregation only applies to the Operand CIR register (addr 8, after
-   // the remap above). Response (remap → 13), Command (5), OpWord (4) etc.
-   // are single 16-bit transfers; pass them straight through to the FPU.
-   wire       fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
+   // the remap above) AND only for long-word transfers (FMOVE.L etc.).
+   // For FSAVE/FRESTORE frame data the FPU emits/consumes one 16-bit word
+   // per cir_save_word_idx — matches the real MC68881 word-by-word frame
+   // protocol — so the split must be disabled to keep the FPU's word
+   // counter in sync with the CPU's bus cycles. Without this, the FPU
+   // gets stuck in CIR_SAVE_FRAME (only half the reads land on the
+   // active phase).
+   // CIR enum: CIR_SAVE_FRAME=17, CIR_RESTORE_FRAME=19 (see mc68881_pkg.vhd).
+`ifdef USE_FPU_STUB
+   wire       fpu_in_frame_xfer = 1'b0;
+`else
+   wire       fpu_in_frame_xfer = (fpu.cir_state_reg == 5'd17)
+                                || (fpu.cir_state_reg == 5'd19);
+`endif
+   wire       fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8)
+                                     && !fpu_in_frame_xfer;
    // Flip phase on the END of each FPU operand bus cycle (AS-rising edge
    // while addressed at operand). This way phase is stable throughout each
    // bus cycle: first access sees phase=0, second access sees phase=1.

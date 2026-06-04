@@ -846,7 +846,8 @@ PROCESS (clk)
 				   OR next_micro_state = cp_xfer_to_hi OR next_micro_state = cp_xfer_to_lo
 				   OR next_micro_state = cp_xfer_from_hi OR next_micro_state = cp_xfer_from_lo
 				   OR next_micro_state = cp_xfer_from_store
-				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_rd_cir
+				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_wait
+				   OR next_micro_state = cp_save_rd_cir
 				   OR next_micro_state = cp_restore_wr_fmt OR next_micro_state = cp_restore_wr_data
 				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp
 				   OR next_micro_state = cp_except_ack OR next_micro_state = cp_except_trap THEN
@@ -931,16 +932,13 @@ PROCESS (clk)
 				-- Bus-state pipeline: cp_write_opw's setstate=11 queues the
 				-- OpWord write to run DURING cp_save_rd_fmt. cp_save_rd_fmt's
 				-- setstate=10 queues the Save-CIR read to run DURING
-				-- cp_save_decode. So the Save-CIR read result on data_in is
-				-- only valid at the clkena edge ENDING cp_save_decode, not
-				-- cp_save_rd_fmt. Latching during cp_save_rd_fmt grabbed
-				-- whatever data_in held at the end of the prior OpWord WRITE
-				-- (typically stale 0x0000), and every downstream consumer of
-				-- cp_save_fmt (frame-count loader + decode null check) ran on
-				-- garbage. That made every non-null frame look NULL and the
-				-- FPU stayed in CIR_SAVE_FRAME waiting for Operand reads
-				-- (tracker bug #1, build #23 wedge).
-				IF micro_state = cp_save_decode THEN
+				-- cp_save_wait, where data_in carries $1F18/$1FB4/$0000
+				-- from the FPU's Save CIR (fpu_select is still asserted).
+				-- Capture data_in directly during cp_save_wait so the
+				-- format word is reliably latched without depending on
+				-- last_data_read's edge-vs-comb timing — the same pattern
+				-- as cp_xfer_from_lo (line 1011) and cp_xfer_mem_rd_lo.
+				IF micro_state = cp_save_wait THEN
 					cp_save_fmt <= data_in(15 downto 0);
 				END IF;
 				-- cpSAVE/cpRESTORE frame word counter
@@ -959,34 +957,30 @@ PROCESS (clk)
 				-- Operand CIR reads, and the FPU sat in CIR_SAVE_FRAME
 				-- waiting for them forever (tracker bug #1).
 				IF micro_state = cp_save_decode THEN
-					-- Read data_in live (it carries the Save-CIR read result
-					-- during cp_save_decode) — cp_save_fmt is being LATCHED
-					-- at this same edge from data_in, so cp_save_fmt holds
-					-- the PRIOR (garbage) value within this same clkena
-					-- cycle. Reading data_in directly matches the latch
-					-- input.
+					-- Source: cp_save_fmt (latched at cp_save_wait above).
+					-- This avoids the last_data_read edge-update race that
+					-- masked the format word in earlier corpus runs.
 					--
-					-- Build #39 fix (bug #6): Mac II ROM bomb root cause.
-					-- 881 IDLE frame is 28 bytes (14 16-bit words), NOT 24
-					-- bytes. 881 BUSY is 184 bytes (92 words), NOT 180.
-					-- Our prior counts (12/90 words) left A7 4 bytes short
-					-- of where real 881 would land. Mac OS context-save
-					-- layout assumed 28-byte 881 frame; mismatched A7 ate
-					-- 4 bytes off return PC / register save area, eventual
-					-- bomb path. Per M68881 User's Manual §6.6.1.1 + AN-947
-					-- frame identifier table.
-					IF data_in(7 downto 0) = X"18" THEN
-						cp_frame_cnt <= "0001110"; -- 14 words (28 bytes) — was 12
-					ELSIF data_in(7 downto 0) = X"B4" THEN
-						cp_frame_cnt <= "1011100"; -- 92 words (184 bytes) — was 90
+					-- Counts are DATA words only; the format word itself is
+					-- the FINAL write (cnt=0 path in cp_save_wr_mem). 881
+					-- IDLE: 28 bytes / 14 words total = 13 data + 1 format.
+					-- 881 BUSY: 184 bytes / 92 words = 91 data + 1 format.
+					-- Build #39 (bug #6) over-corrected from 12/90 to 14/92,
+					-- which pushed A7 4 bytes past where Snow/real 881 land
+					-- (30/186 bytes); the corpus bench caught it via the
+					-- save_restore round-trip tests that need FP regs intact.
+					IF cp_save_fmt(7 downto 0) = X"18" THEN
+						cp_frame_cnt <= "0001101"; -- 13 data words (+1 format = 28 bytes)
+					ELSIF cp_save_fmt(7 downto 0) = X"B4" THEN
+						cp_frame_cnt <= "1011011"; -- 91 data words (+1 format = 184 bytes)
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null: 0 data words
 					END IF;
 				ELSIF micro_state = cp_restore_decode THEN
 					IF last_data_read(7 downto 0) = X"18" THEN
-						cp_frame_cnt <= "0001110"; -- 14 words (28 bytes) — was 12
+						cp_frame_cnt <= "0001101"; -- 13 data words (+1 format already read = 28 bytes)
 					ELSIF last_data_read(7 downto 0) = X"B4" THEN
-						cp_frame_cnt <= "1011100"; -- 92 words (184 bytes) — was 90
+						cp_frame_cnt <= "1011011"; -- 91 data words (+1 format = 184 bytes)
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null
 					END IF;
@@ -1121,13 +1115,27 @@ PROCESS (clk)
 					-- so the ACK never reached the FPU.
 					data_write_tmp(15 downto 0) <= x"0001";
 				ELSIF micro_state = cp_save_idle THEN
-					-- Forward CIR read data or format word for memory write
+					-- Forward operand or format for memory write.
+					-- Source: last_data_read (settled by cp_save_rd_cir's
+					-- set(update_ld)='1' which forces last_data_read to
+					-- update each operand bus-read completion edge).
 					IF cp_frame_cnt = "0000000" THEN
 						-- All data words written; load format word for final write
 						data_write_tmp(15 downto 0) <= cp_save_fmt;
 					ELSE
 						data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
 					END IF;
+				ELSIF micro_state = cp_save_wr_mem THEN
+					-- Hold data_write_tmp across the wr_mem edge: the bus
+					-- actually transfers DURING the next micro_state (1-cycle
+					-- bus pipeline lag), and the default ELSE branch below
+					-- would otherwise clobber data_write_tmp with OP2out at
+					-- the edge ending wr_mem. For data words this was masked
+					-- because the FPU returns $0000 for an IDLE-frame
+					-- operand AND OP2out happens to be $0000 in this path;
+					-- for the format word ($1F18) the clobber dropped it to
+					-- $0000 and FRESTORE then saw a NULL frame.
+					data_write_tmp <= data_write_tmp;
 				ELSIF micro_state = cp_restore_idle THEN
 					-- Forward memory read data for CIR write
 					data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
@@ -4878,22 +4886,38 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				-- cpSAVE states: read format from FPU, write frame to memory -(An)
 				WHEN cp_save_rd_fmt =>
-					-- Read Save CIR to get format word
+					-- Queue Save-CIR read. setstate=10 takes effect on the
+					-- NEXT state (cp_save_wait), where the bus access
+					-- actually runs (1-cycle pipeline lag).
+					-- set(update_ld) chains so last_data_read captures the
+					-- read result at the bus-completion edge.
 					set_cpaddr <= '1';
 					cp_cir_reg <= "00010"; -- Save CIR (register 2)
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					set(update_ld) <= '1';
+					next_micro_state <= cp_save_wait;
+
+				WHEN cp_save_wait =>
+					-- Bus read runs DURING this state. set(update_ld) keeps
+					-- last_data_read updating. At the edge ending this
+					-- state, last_data_read(15:0) holds the format word —
+					-- ready for cp_save_decode's comb to read.
+					-- Keep FPU addressed and state=10 so the bus cycle
+					-- completes cleanly.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00010";
+					setstate <= "01";
+					datatype <= "01";
+					set(update_ld) <= '1';
 					next_micro_state <= cp_save_decode;
 
 				WHEN cp_save_decode =>
-					-- The Save-CIR read result is live on data_in this cycle
-					-- (state=10 carried over from cp_save_rd_fmt's setstate).
-					-- cp_save_fmt is being latched at this same clkena edge,
-					-- so the combinational decision must read data_in
-					-- directly — same pattern as cp_idle_resp. Identifier
-					-- byte ($00 NULL / $18 IDLE / $B4 BUSY) is in bits[7:0].
+					-- Decode using cp_save_fmt (latched during cp_save_wait
+					-- above). Identifier byte ($00 NULL / $18 IDLE / $B4
+					-- BUSY) is in bits[7:0].
 					setstate <= "01";      -- idle
-					IF data_in(7 downto 0) = X"00" THEN
+					IF cp_save_fmt(7 downto 0) = X"00" THEN
 						-- Null frame: go to idle to decrement EA, then write format
 						next_micro_state <= cp_save_idle;
 					ELSE
@@ -4920,11 +4944,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					END IF;
 
 				WHEN cp_save_rd_cir =>
-					-- Read next data word from Operand CIR
+					-- Read next data word from Operand CIR.
+					-- set(update_ld) forces last_data_read to capture each
+					-- operand read; otherwise state never passes through
+					-- "00" during the cpSAVE loop and last_data_read stays
+					-- frozen at the prior Save-CIR value, so cp_save_idle
+					-- would forward that stale value into every data word.
 					set_cpaddr <= '1';
 					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					set(update_ld) <= '1';
 					next_micro_state <= cp_save_idle;
 
 				WHEN cp_save_idle =>
