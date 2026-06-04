@@ -1596,7 +1596,7 @@ int verilate() {
 				    (VERTOPINTERN->debug_selectVIA || VERTOPINTERN->debug_selectVIA2)) {
 					uint32_t addr = VERTOPINTERN->debug_cpuAddr;
 					uint8_t reg = (addr >> 9) & 0x0F;
-					bool interesting_reg = (reg >= 4 && reg <= 7) || reg == 0x0B ||
+					bool interesting_reg = (reg >= 4 && reg <= 9) || reg == 0x0B ||
 					                       reg == 0x0D || reg == 0x0E;
 					if (interesting_reg) {
 						fprintf(stderr,
@@ -1637,6 +1637,7 @@ int verilate() {
 						fprintf(stderr,
 							"CALIB_LOOP[%d] hit=%u frame=%d time=%llu pc=%08X op=%04X "
 							"D0=%08X D1=%08X A0=%08X A1=%08X "
+							"ms=%02X ns=%02X bs=%u ss=%u ws=%u "
 							"T2c=%04X T2l=%04X ifr=%02X ier=%02X tick=%u acc=%u\n",
 							loop_idx,
 							hits,
@@ -1648,6 +1649,11 @@ int verilate() {
 							tg68_reg(1),
 							tg68_reg(8),
 							tg68_reg(9),
+							VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__n10756,
+							VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__next_micro_state,
+							VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__busstate,
+							VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__setstate,
+							VERTOPINTERN->emu__DOT__tg68k_inst__DOT__s_state,
 							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_count,
 							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_latch,
 							VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
@@ -1659,7 +1665,8 @@ int verilate() {
 				} else if (pc == 0x408005A4 || pc == 0x408005DE || pc == 0x4080061A) {
 					fprintf(stderr,
 						"CALIB_LOOP_EXIT frame=%d time=%llu pc=%08X op=%04X "
-						"D0=%08X loops=%u/%u/%u T2c=%04X ifr=%02X ier=%02X\n",
+						"D0=%08X loops=%u/%u/%u ms=%02X ns=%02X bs=%u ss=%u ws=%u "
+						"T2c=%04X ifr=%02X ier=%02X\n",
 						video.count_frame,
 						(unsigned long long)main_time,
 						pc,
@@ -1668,6 +1675,11 @@ int verilate() {
 						calib_loop_hits[0],
 						calib_loop_hits[1],
 						calib_loop_hits[2],
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__n10756,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__next_micro_state,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__busstate,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__tg68k__DOT__setstate,
+						VERTOPINTERN->emu__DOT__tg68k_inst__DOT__s_state,
 						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__timer_b_count,
 						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_flags,
 						VERTOPINTERN->emu__DOT__dc0__DOT__via__DOT__irq_mask);

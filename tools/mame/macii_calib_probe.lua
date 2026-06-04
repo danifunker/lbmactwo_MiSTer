@@ -72,7 +72,7 @@ local function log_via(kind, addr, data, mask)
 	end
 
 	local r = via_reg(addr)
-	if not ((r >= 4 and r <= 7) or r == 0x0b or r == 0x0d or r == 0x0e) then
+	if not ((r >= 4 and r <= 9) or r == 0x0b or r == 0x0d or r == 0x0e) then
 		return
 	end
 
