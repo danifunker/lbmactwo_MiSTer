@@ -879,11 +879,13 @@ PROCESS (clk)
 						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
 						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
 						 last_data_read(15 downto 0));
-				ELSIF micro_state = cp_xfer_mem_rd_lo
-				   OR micro_state = cp_xfer_mem_rd_store THEN
-					-- cpGEN memory source: +2 between HIGH/LOW reads, again
-					-- before next iteration's HIGH read. Net +4 per long-word.
-					cp_ea_addr <= cp_ea_addr + 2;
+				ELSIF micro_state = cp_xfer_mem_rd_store THEN
+					-- cpGEN memory source: advance by 4 (one long-word)
+					-- per iteration. The HIGH read at cp_ea_addr+0 and
+					-- LOW read at cp_ea_addr+2 are sourced via the
+					-- memaddr_delta_rega override above; the registered
+					-- cp_ea_addr only needs to step between iterations.
+					cp_ea_addr <= cp_ea_addr + 4;
 				END IF;
 				-- FScc memory: capture EA from addr when ea_only resolves
 				IF exec(get_ea_now)='1' AND ea_only='1' THEN
@@ -1010,11 +1012,14 @@ PROCESS (clk)
 					cp_xfer_data(31 downto 16) <= data_in;
 				ELSIF micro_state = cp_xfer_from_store THEN
 					cp_xfer_data(15 downto 0) <= data_in;
-				ELSIF micro_state = cp_xfer_mem_rd_store THEN
-					-- HIGH word from cp_xfer_mem_rd_lo's bus read.
+				ELSIF micro_state = cp_xfer_mem_rd_lo THEN
+					-- HIGH word from cp_xfer_mem_rd_lo's bus read at cp_ea_addr.
+					-- Mirrors the cp_xfer_from_lo capture: data_in stable at
+					-- clkena end after the bus cycle this state covers.
 					cp_xfer_data(31 downto 16) <= data_in;
-				ELSIF micro_state = cp_xfer_mem_rd_done THEN
-					-- LOW word from cp_xfer_mem_rd_store's bus read.
+				ELSIF micro_state = cp_xfer_mem_rd_store THEN
+					-- LOW word from cp_xfer_mem_rd_store's bus read at
+					-- cp_ea_addr+2 (memaddr_delta_rega override above).
 					cp_xfer_data(15 downto 0) <= data_in;
 				END IF;
 				-- Latch FPU exception vector from response primitive low byte.
@@ -1315,7 +1320,16 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 					memaddr_delta_rega <= ea_data;
 					memaddr_delta_regb <= memaddr_a;
 				ELSIF set_cp_memaddr='1' THEN
-					memaddr_delta_rega <= cp_ea_addr;
+					-- For the LOW-word read of a cpGEN memory operand
+					-- (cp_xfer_mem_rd_store's bus cycle), use cp_ea_addr+2
+					-- since the registered cp_ea_addr only advances after
+					-- the clkena that ends the current state — too late
+					-- for the bus cycle that starts at the SAME edge.
+					IF next_micro_state = cp_xfer_mem_rd_store THEN
+						memaddr_delta_rega <= cp_ea_addr + 2;
+					ELSE
+						memaddr_delta_rega <= cp_ea_addr;
+					END IF;
 				ELSIF set_cpaddr='1' THEN
 					memaddr_delta_rega <= X"0002" & opcode(11 downto 9) & "0000000" & cp_cir_reg & '0';
 				ELSIF set_vectoraddr='1' THEN

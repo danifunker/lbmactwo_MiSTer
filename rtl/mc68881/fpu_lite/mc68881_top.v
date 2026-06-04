@@ -32722,22 +32722,21 @@ module mc68881_top
   wire n22096;
   wire n22098;
   wire [2:0] n22100;
-  wire [2:0] n22104;
-  wire [2:0] n22108;
-  wire n22112;
-  wire [5:0] n22113;
-  wire [15:0] n22114;
+  wire [2:0] n22105;
+  wire [2:0] n22109;
+  wire n22113;
+  wire [5:0] n22114;
   wire [15:0] n22115;
   wire [15:0] n22116;
   wire [15:0] n22117;
   wire [15:0] n22118;
-  reg [15:0] n22120;
-  wire [15:0] n22121;
+  wire [15:0] n22119;
+  reg [15:0] n22121;
   wire [15:0] n22122;
   wire [15:0] n22123;
   wire [15:0] n22124;
   wire [15:0] n22125;
-  wire [15:0] n22127;
+  wire [15:0] n22126;
   reg [15:0] n22128;
   wire [31:0] n22129;
   wire [31:0] n22131;
@@ -34945,17 +34944,17 @@ module mc68881_top
     packed_pending_reg = n23769; // (isignal)
   initial
     packed_pending_reg = 1'b0;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @*
     packed_req_mode_reg = n23770; // (isignal)
   initial
     packed_req_mode_reg = 2'b00;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @*
     packed_req_fp_reg = n23771; // (isignal)
   initial
     packed_req_fp_reg = 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @*
     packed_req_dst_idx_reg = n23772; // (isignal)
   initial
@@ -34970,7 +34969,7 @@ module mc68881_top
     packed_result_word_reg = 96'b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000; // (isignal)
   initial
     packed_result_word_reg = 96'b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   always @*
     packed_result_fp_reg = 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000; // (isignal)
   initial
@@ -42974,19 +42973,19 @@ module mc68881_top
   assign n6194 = n5768 ? n6158 : n6182;
   /*# mc68881_top.vhd:2152:15 */
   assign n6212 = cir_src_fmt == 3'b001;
-  /*# mc68881_top.vhd:2156:54 */
-  assign n6213 = cir_operand_staging[15:0]; // extract
-  /*# mc68881_top.vhd:2157:54 */
+  /*# mc68881_top.vhd:2162:54 */
+  assign n6213 = cir_operand_staging[31:16]; // extract
+  /*# mc68881_top.vhd:2163:54 */
   assign n6214 = cir_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:2156:68 */
+  /*# mc68881_top.vhd:2162:69 */
   assign n6215 = {n6213, n6214};
-  /*# mc68881_top.vhd:2158:54 */
+  /*# mc68881_top.vhd:2164:54 */
   assign n6216 = cir_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:2157:69 */
+  /*# mc68881_top.vhd:2163:69 */
   assign n6217 = {n6215, n6216};
   /*# mc68881_top.vhd:2155:15 */
   assign n6219 = cir_src_fmt == 3'b010;
-  /*# mc68881_top.vhd:2161:58 */
+  /*# mc68881_top.vhd:2167:58 */
   assign n6222 = cir_operand_staging[15:0]; // extract
   /*# mc68881_top.vhd:476:12 */
   assign n6228 = cir_operand_staging[15]; // extract
@@ -43640,13 +43639,13 @@ module mc68881_top
   assign n6801 = {n6794, n6798, n6800};
   /*# mc68881_pkg.vhd:1723:5 */
   assign n6806 = n6771 ? n6801 : n6272;
-  /*# mc68881_top.vhd:2159:15 */
+  /*# mc68881_top.vhd:2165:15 */
   assign n6808 = cir_src_fmt == 3'b100;
-  /*# mc68881_top.vhd:2164:38 */
+  /*# mc68881_top.vhd:2170:38 */
   assign n6810 = cir_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:2165:38 */
+  /*# mc68881_top.vhd:2171:38 */
   assign n6811 = cir_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:2164:52 */
+  /*# mc68881_top.vhd:2170:52 */
   assign n6812 = {n6810, n6811};
   /*# mc68881_top.vhd:1284:60 */
   assign n6818 = n6812[62:52]; // extract
@@ -44666,9 +44665,9 @@ module mc68881_top
   assign n7675 = n7654 ? n7663 : n7674;
   /*# mc68881_top.vhd:1291:5 */
   assign n7687 = n6828 ? n7652 : n7675;
-  /*# mc68881_top.vhd:2162:15 */
+  /*# mc68881_top.vhd:2168:15 */
   assign n7705 = cir_src_fmt == 3'b101;
-  /*# mc68881_top.vhd:2168:57 */
+  /*# mc68881_top.vhd:2174:57 */
   assign n7708 = cir_operand_staging[7:0]; // extract
   /*# mc68881_top.vhd:447:12 */
   assign n7713 = {{24{n7708[7]}}, n7708}; // sext
@@ -45296,19 +45295,19 @@ module mc68881_top
   assign n8265 = {n8258, n8262, n8264};
   /*# mc68881_pkg.vhd:1723:5 */
   assign n8270 = n8235 ? n8265 : n7736;
-  /*# mc68881_top.vhd:2166:15 */
+  /*# mc68881_top.vhd:2172:15 */
   assign n8272 = cir_src_fmt == 3'b110;
-  /*# mc68881_top.vhd:2171:38 */
+  /*# mc68881_top.vhd:2177:38 */
   assign n8274 = cir_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:2172:38 */
+  /*# mc68881_top.vhd:2178:38 */
   assign n8275 = cir_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:2171:52 */
+  /*# mc68881_top.vhd:2177:52 */
   assign n8276 = {n8274, n8275};
-  /*# mc68881_top.vhd:2173:38 */
+  /*# mc68881_top.vhd:2179:38 */
   assign n8277 = cir_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:2172:53 */
+  /*# mc68881_top.vhd:2178:53 */
   assign n8278 = {n8276, n8277};
-  /*# mc68881_top.vhd:2174:35 */
+  /*# mc68881_top.vhd:2180:35 */
   assign n8280 = 3'b111 - cir_dst_reg_idx;
   /*# mc68881_top.vhd:771:21 */
   assign n8297 = n8278[95]; // extract
@@ -46570,7 +46569,7 @@ module mc68881_top
   assign n9409 = {n9407, n9408};
   /*# mc68881_top.vhd:817:5 */
   assign n9414 = n8838 ? n9409 : n8507;
-  /*# mc68881_top.vhd:2169:15 */
+  /*# mc68881_top.vhd:2175:15 */
   assign n9416 = cir_src_fmt == 3'b011;
   /*# mc68881_top.vhd:2148:13 */
   assign n9417 = {n9416, n8272, n7705, n6808, n6219, n6212, n5750};
@@ -46700,9 +46699,9 @@ module mc68881_top
       1'b1: n9508 = 1'b1;
       default: n9508 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2185:47 */
+  /*# mc68881_top.vhd:2191:47 */
   assign n9510 = 3'b111 - cir_dst_reg_idx;
-  /*# mc68881_top.vhd:2182:11 */
+  /*# mc68881_top.vhd:2188:11 */
   assign n9513 = n9508 ? n9420 : n23805;
   /*# mc68881_top.vhd:2136:9 */
   assign n9514 = n5157 ? n5120 : cir_decoded_op;
@@ -46726,17 +46725,17 @@ module mc68881_top
   assign n9524 = {n9521, n9519};
   /*# mc68881_top.vhd:2135:7 */
   assign n9525 = cir_launch_alu ? n9524 : n5122;
-  /*# mc68881_top.vhd:2239:56 */
+  /*# mc68881_top.vhd:2247:56 */
   assign n9527 = ctrl_move_data_reg[15:0]; // extract
-  /*# mc68881_top.vhd:2238:11 */
+  /*# mc68881_top.vhd:2246:11 */
   assign n9530 = ctrl_move_sel_reg == 2'b00;
-  /*# mc68881_top.vhd:2241:11 */
+  /*# mc68881_top.vhd:2249:11 */
   assign n9532 = ctrl_move_sel_reg == 2'b01;
-  /*# mc68881_top.vhd:2237:9 */
+  /*# mc68881_top.vhd:2245:9 */
   assign n9533 = {n9532, n9530};
   /*# mc68881_top.vhd:99:10 */
   assign n9534 = n5126[15:0]; // extract
-  /*# mc68881_top.vhd:2237:9 */
+  /*# mc68881_top.vhd:2245:9 */
   always @*
     case (n9533)
       2'b10: n9535 = n9534;
@@ -46745,86 +46744,86 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:99:10 */
   assign n9536 = n5126[31:16]; // extract
-  /*# mc68881_top.vhd:2237:9 */
+  /*# mc68881_top.vhd:2245:9 */
   always @*
     case (n9533)
       2'b10: n9537 = n9536;
       2'b01: n9537 = 16'b0000000000000000;
       default: n9537 = n9536;
     endcase
-  /*# mc68881_top.vhd:2237:9 */
+  /*# mc68881_top.vhd:2245:9 */
   always @*
     case (n9533)
       2'b10: n9538 = ctrl_move_data_reg;
       2'b01: n9538 = n5127;
       default: n9538 = n5127;
     endcase
-  /*# mc68881_top.vhd:2237:9 */
+  /*# mc68881_top.vhd:2245:9 */
   always @*
     case (n9533)
       2'b10: n9539 = n5128;
       2'b01: n9539 = n5128;
       default: n9539 = ctrl_move_data_reg;
     endcase
-  /*# mc68881_top.vhd:2236:7 */
+  /*# mc68881_top.vhd:2244:7 */
   assign n9540 = {n9537, n9535};
-  /*# mc68881_top.vhd:2236:7 */
+  /*# mc68881_top.vhd:2244:7 */
   assign n9541 = ctrl_move_write_req_reg ? n9540 : n5126;
-  /*# mc68881_top.vhd:2236:7 */
+  /*# mc68881_top.vhd:2244:7 */
   assign n9542 = ctrl_move_write_req_reg ? n9538 : n5127;
-  /*# mc68881_top.vhd:2236:7 */
+  /*# mc68881_top.vhd:2244:7 */
   assign n9543 = ctrl_move_write_req_reg ? n9539 : n5128;
-  /*# mc68881_top.vhd:2255:26 */
+  /*# mc68881_top.vhd:2263:26 */
   assign n9544 = cir_fpctl_mask[2]; // extract
-  /*# mc68881_top.vhd:2256:43 */
+  /*# mc68881_top.vhd:2264:43 */
   assign n9545 = cir_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:2254:7 */
+  /*# mc68881_top.vhd:2262:7 */
   assign n9546 = n9557 ? n9545 : n9543;
-  /*# mc68881_top.vhd:2258:26 */
+  /*# mc68881_top.vhd:2266:26 */
   assign n9547 = cir_fpctl_mask[1]; // extract
-  /*# mc68881_top.vhd:2259:42 */
+  /*# mc68881_top.vhd:2267:42 */
   assign n9548 = cir_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:2254:7 */
+  /*# mc68881_top.vhd:2262:7 */
   assign n9549 = n9556 ? n9548 : n9542;
-  /*# mc68881_top.vhd:2261:26 */
+  /*# mc68881_top.vhd:2269:26 */
   assign n9550 = cir_fpctl_mask[0]; // extract
-  /*# mc68881_top.vhd:2262:55 */
+  /*# mc68881_top.vhd:2270:55 */
   assign n9551 = cir_operand_staging[15:0]; // extract
-  /*# mc68881_top.vhd:2261:9 */
+  /*# mc68881_top.vhd:2269:9 */
   assign n9553 = {16'b0000000000000000, n9551};
-  /*# mc68881_top.vhd:2254:7 */
+  /*# mc68881_top.vhd:2262:7 */
   assign n9554 = n9555 ? n9553 : n9541;
-  /*# mc68881_top.vhd:2254:7 */
+  /*# mc68881_top.vhd:2262:7 */
   assign n9555 = n9550 & cir_fpctl_commit;
-  /*# mc68881_top.vhd:2254:7 */
+  /*# mc68881_top.vhd:2262:7 */
   assign n9556 = n9547 & cir_fpctl_commit;
-  /*# mc68881_top.vhd:2254:7 */
+  /*# mc68881_top.vhd:2262:7 */
   assign n9557 = n9544 & cir_fpctl_commit;
-  /*# mc68881_top.vhd:2269:22 */
+  /*# mc68881_top.vhd:2277:22 */
   assign n9558 = valid | exc_event_valid_reg;
   /*# mc68881_pkg.vhd:1358:27 */
   assign n9565 = 6'b101110 - last_op_sel_reg;
-  /*# mc68881_top.vhd:2273:35 */
+  /*# mc68881_top.vhd:2281:35 */
   assign n9568 = operand_reg[159:80]; // extract
-  /*# mc68881_top.vhd:2274:35 */
+  /*# mc68881_top.vhd:2282:35 */
   assign n9569 = operand_reg[79:0]; // extract
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9570 = valid ? n9568 : exc_event_opa_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9571 = valid ? n9569 : exc_event_opb_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9572 = valid ? result : exc_event_result_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9573 = valid ? alu_flag_divzero : exc_event_divzero_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9575 = valid ? 1'b0 : exc_event_force_overflow_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9577 = valid ? 1'b0 : exc_event_force_underflow_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9579 = valid ? 1'b0 : exc_event_force_inexact_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9581 = valid ? 1'b0 : exc_event_force_invalid_reg;
-  /*# mc68881_top.vhd:2272:9 */
+  /*# mc68881_top.vhd:2280:9 */
   assign n9583 = valid ? 1'b0 : exc_event_force_bsun_reg;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n9595 = n9570[79]; // extract
@@ -47114,7 +47113,7 @@ module mc68881_top
   assign n9944 = n9938 != 64'b0000000000000000000000000000000000000000000000000000000000000000;
   /*# mc68881_top.vhd:1733:25 */
   assign n9945 = n9944 & n9942;
-  /*# mc68881_top.vhd:2305:23 */
+  /*# mc68881_top.vhd:2313:23 */
   assign n9946 = n23810[4]; // extract
   /*# mc68881_pkg.vhd:1603:25 */
   assign n9958 = n9570[79]; // extract
@@ -47164,235 +47163,235 @@ module mc68881_top
   assign n10001 = n9999 != 63'b000000000000000000000000000000000000000000000000000000000000000;
   /*# mc68881_pkg.vhd:2177:48 */
   assign n10002 = n10001 & n9998;
-  /*# mc68881_top.vhd:2306:37 */
+  /*# mc68881_top.vhd:2314:37 */
   assign n10003 = n9974 | n10002;
-  /*# mc68881_top.vhd:2305:45 */
+  /*# mc68881_top.vhd:2313:45 */
   assign n10004 = n10003 & n9946;
-  /*# mc68881_top.vhd:2305:9 */
+  /*# mc68881_top.vhd:2313:9 */
   assign n10007 = n10004 ? 1'b1 : 1'b0;
   /*# mc68881_top.vhd:1975:14 */
   assign n10009 = n10008[7]; // extract
-  /*# mc68881_top.vhd:2311:23 */
+  /*# mc68881_top.vhd:2319:23 */
   assign n10011 = n23810[5]; // extract
-  /*# mc68881_top.vhd:2311:45 */
+  /*# mc68881_top.vhd:2319:45 */
   assign n10012 = n9928 & n10011;
-  /*# mc68881_top.vhd:2311:61 */
+  /*# mc68881_top.vhd:2319:61 */
   assign n10013 = ~n9757;
-  /*# mc68881_top.vhd:2311:57 */
+  /*# mc68881_top.vhd:2319:57 */
   assign n10014 = n10013 & n10012;
-  /*# mc68881_top.vhd:2311:75 */
+  /*# mc68881_top.vhd:2319:75 */
   assign n10015 = ~n9813;
-  /*# mc68881_top.vhd:2311:71 */
+  /*# mc68881_top.vhd:2319:71 */
   assign n10016 = n10015 & n10014;
   /*# mc68881_top.vhd:1975:14 */
   assign n10018 = n10008[5]; // extract
-  /*# mc68881_top.vhd:2311:9 */
+  /*# mc68881_top.vhd:2319:9 */
   assign n10019 = n10016 ? 1'b1 : n10018;
-  /*# mc68881_top.vhd:2315:23 */
+  /*# mc68881_top.vhd:2323:23 */
   assign n10021 = n23810[0]; // extract
-  /*# mc68881_top.vhd:2316:25 */
+  /*# mc68881_top.vhd:2324:25 */
   assign n10022 = ~n9609;
-  /*# mc68881_top.vhd:2316:21 */
+  /*# mc68881_top.vhd:2324:21 */
   assign n10023 = n10022 & n9635;
   /*# mc68881_top.vhd:1975:14 */
   assign n10025 = n10008[2]; // extract
-  /*# mc68881_top.vhd:2315:9 */
+  /*# mc68881_top.vhd:2323:9 */
   assign n10026 = n10028 ? 1'b1 : n10025;
-  /*# mc68881_top.vhd:2315:9 */
+  /*# mc68881_top.vhd:2323:9 */
   assign n10028 = n10023 & n10021;
   /*# mc68881_top.vhd:1975:14 */
   assign n10029 = n10008[4:3]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10030 = n10008[1:0]; // extract
-  /*# mc68881_top.vhd:2322:23 */
+  /*# mc68881_top.vhd:2330:23 */
   assign n10031 = n23810[12]; // extract
-  /*# mc68881_top.vhd:2322:45 */
+  /*# mc68881_top.vhd:2330:45 */
   assign n10032 = n9609 & n10031;
-  /*# mc68881_top.vhd:2322:9 */
+  /*# mc68881_top.vhd:2330:9 */
   assign n10034 = n10032 ? 1'b1 : n10026;
-  /*# mc68881_top.vhd:2327:9 */
+  /*# mc68881_top.vhd:2335:9 */
   assign n10036 = n9573 ? 1'b1 : n10034;
-  /*# mc68881_top.vhd:2332:23 */
-  assign n10037 = n23810[1]; // extract
-  /*# mc68881_top.vhd:2332:46 */
-  assign n10038 = n9609 & n10037;
-  /*# mc68881_top.vhd:2332:57 */
-  assign n10039 = n9635 & n10038;
-  /*# mc68881_top.vhd:2332:9 */
-  assign n10041 = n10039 ? 1'b1 : n10019;
-  /*# mc68881_top.vhd:2336:23 */
-  assign n10042 = n23810[2]; // extract
-  /*# mc68881_top.vhd:2336:44 */
-  assign n10043 = n9668 & n10042;
-  /*# mc68881_top.vhd:2336:54 */
-  assign n10044 = n9701 & n10043;
-  /*# mc68881_top.vhd:2336:9 */
-  assign n10046 = n10044 ? 1'b1 : n10041;
   /*# mc68881_top.vhd:2340:23 */
+  assign n10037 = n23810[1]; // extract
+  /*# mc68881_top.vhd:2340:46 */
+  assign n10038 = n9609 & n10037;
+  /*# mc68881_top.vhd:2340:57 */
+  assign n10039 = n9635 & n10038;
+  /*# mc68881_top.vhd:2340:9 */
+  assign n10041 = n10039 ? 1'b1 : n10019;
+  /*# mc68881_top.vhd:2344:23 */
+  assign n10042 = n23810[2]; // extract
+  /*# mc68881_top.vhd:2344:44 */
+  assign n10043 = n9668 & n10042;
+  /*# mc68881_top.vhd:2344:54 */
+  assign n10044 = n9701 & n10043;
+  /*# mc68881_top.vhd:2344:9 */
+  assign n10046 = n10044 ? 1'b1 : n10041;
+  /*# mc68881_top.vhd:2348:23 */
   assign n10047 = n23810[3]; // extract
-  /*# mc68881_top.vhd:2340:9 */
+  /*# mc68881_top.vhd:2348:9 */
   assign n10049 = n10050 ? 1'b1 : n10046;
-  /*# mc68881_top.vhd:2340:9 */
+  /*# mc68881_top.vhd:2348:9 */
   assign n10050 = n9635 & n10047;
-  /*# mc68881_top.vhd:2346:23 */
+  /*# mc68881_top.vhd:2354:23 */
   assign n10051 = n23810[10]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10053 = n10008[4]; // extract
-  /*# mc68881_top.vhd:2347:11 */
+  /*# mc68881_top.vhd:2355:11 */
   assign n10054 = n9575 ? 1'b1 : n10053;
   /*# mc68881_top.vhd:1975:14 */
   assign n10056 = n10008[3]; // extract
-  /*# mc68881_top.vhd:2351:11 */
+  /*# mc68881_top.vhd:2359:11 */
   assign n10057 = n9577 ? 1'b1 : n10056;
-  /*# mc68881_top.vhd:2355:26 */
+  /*# mc68881_top.vhd:2363:26 */
   assign n10058 = ~n9668;
-  /*# mc68881_top.vhd:2355:22 */
+  /*# mc68881_top.vhd:2363:22 */
   assign n10059 = n10058 & n9872;
-  /*# mc68881_top.vhd:2355:40 */
+  /*# mc68881_top.vhd:2363:40 */
   assign n10060 = ~n9701;
-  /*# mc68881_top.vhd:2355:36 */
+  /*# mc68881_top.vhd:2363:36 */
   assign n10061 = n10060 & n10059;
-  /*# mc68881_top.vhd:2355:54 */
+  /*# mc68881_top.vhd:2363:54 */
   assign n10062 = ~n9928;
-  /*# mc68881_top.vhd:2355:50 */
+  /*# mc68881_top.vhd:2363:50 */
   assign n10063 = n10062 & n10061;
   /*# mc68881_top.vhd:1975:14 */
   assign n10064 = {n10009, n10007, n10049, n10054, n10057, n10036, n10030};
-  /*# mc68881_top.vhd:2356:23 */
+  /*# mc68881_top.vhd:2364:23 */
   assign n10065 = n10064[2]; // extract
-  /*# mc68881_top.vhd:2356:37 */
+  /*# mc68881_top.vhd:2364:37 */
   assign n10066 = ~n10065;
-  /*# mc68881_top.vhd:2355:66 */
+  /*# mc68881_top.vhd:2363:66 */
   assign n10067 = n10066 & n10063;
-  /*# mc68881_top.vhd:2355:11 */
+  /*# mc68881_top.vhd:2363:11 */
   assign n10069 = n10067 ? 1'b1 : n10054;
-  /*# mc68881_top.vhd:2360:24 */
+  /*# mc68881_top.vhd:2368:24 */
   assign n10070 = n9839 | n9945;
-  /*# mc68881_top.vhd:2360:46 */
+  /*# mc68881_top.vhd:2368:46 */
   assign n10071 = ~n9609;
-  /*# mc68881_top.vhd:2360:42 */
+  /*# mc68881_top.vhd:2368:42 */
   assign n10072 = n10071 & n10070;
-  /*# mc68881_top.vhd:2360:61 */
+  /*# mc68881_top.vhd:2368:61 */
   assign n10073 = ~n9635;
-  /*# mc68881_top.vhd:2360:57 */
+  /*# mc68881_top.vhd:2368:57 */
   assign n10074 = n10073 & n10072;
-  /*# mc68881_top.vhd:2360:76 */
+  /*# mc68881_top.vhd:2368:76 */
   assign n10075 = ~n9928;
-  /*# mc68881_top.vhd:2360:72 */
+  /*# mc68881_top.vhd:2368:72 */
   assign n10076 = n10075 & n10074;
-  /*# mc68881_top.vhd:2360:92 */
+  /*# mc68881_top.vhd:2368:92 */
   assign n10077 = ~n9872;
-  /*# mc68881_top.vhd:2360:88 */
+  /*# mc68881_top.vhd:2368:88 */
   assign n10078 = n10077 & n10076;
-  /*# mc68881_top.vhd:2360:11 */
+  /*# mc68881_top.vhd:2368:11 */
   assign n10080 = n10078 ? 1'b1 : n10057;
   /*# mc68881_top.vhd:1975:14 */
   assign n10081 = {n10009, n10007, n10049, n10069, n10080, n10036, n10030};
-  /*# mc68881_top.vhd:2364:23 */
+  /*# mc68881_top.vhd:2372:23 */
   assign n10082 = n10081[4]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10083 = {n10009, n10007, n10049, n10069, n10080, n10036, n10030};
-  /*# mc68881_top.vhd:2364:57 */
+  /*# mc68881_top.vhd:2372:57 */
   assign n10084 = n10083[3]; // extract
-  /*# mc68881_top.vhd:2364:45 */
+  /*# mc68881_top.vhd:2372:45 */
   assign n10085 = n10082 | n10084;
-  /*# mc68881_top.vhd:2365:14 */
+  /*# mc68881_top.vhd:2373:14 */
   assign n10086 = n10085 | n9579;
   /*# mc68881_top.vhd:1975:14 */
   assign n10088 = n10008[1]; // extract
-  /*# mc68881_top.vhd:2346:9 */
+  /*# mc68881_top.vhd:2354:9 */
   assign n10089 = n10092 ? 1'b1 : n10088;
-  /*# mc68881_top.vhd:2346:9 */
+  /*# mc68881_top.vhd:2354:9 */
   assign n10090 = {n10069, n10080};
-  /*# mc68881_top.vhd:2346:9 */
+  /*# mc68881_top.vhd:2354:9 */
   assign n10092 = n10086 & n10051;
-  /*# mc68881_top.vhd:2346:9 */
+  /*# mc68881_top.vhd:2354:9 */
   assign n10093 = n10051 ? n10090 : n10029;
   /*# mc68881_top.vhd:1975:14 */
   assign n10094 = n10008[0]; // extract
-  /*# mc68881_top.vhd:2371:9 */
+  /*# mc68881_top.vhd:2379:9 */
   assign n10096 = n9581 ? 1'b1 : n10049;
-  /*# mc68881_top.vhd:2375:9 */
+  /*# mc68881_top.vhd:2383:9 */
   assign n10098 = n9583 ? 1'b1 : n10009;
-  /*# mc68881_top.vhd:2379:23 */
+  /*# mc68881_top.vhd:2387:23 */
   assign n10099 = n23810[6]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10100 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
   /*# mc68881_top.vhd:100:10 */
   assign n10101 = n9549[15:8]; // extract
-  /*# mc68881_top.vhd:2379:9 */
+  /*# mc68881_top.vhd:2387:9 */
   assign n10102 = n10099 ? n10100 : n10101;
-  /*# mc68881_top.vhd:2385:23 */
+  /*# mc68881_top.vhd:2393:23 */
   assign n10104 = n23810[7]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10105 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2389:53 */
+  /*# mc68881_top.vhd:2397:53 */
   assign n10106 = n10105[6]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10107 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2389:81 */
+  /*# mc68881_top.vhd:2397:81 */
   assign n10108 = n10107[5]; // extract
-  /*# mc68881_top.vhd:2389:69 */
+  /*# mc68881_top.vhd:2397:69 */
   assign n10109 = n10106 | n10108;
   /*# mc68881_top.vhd:1990:14 */
   assign n10111 = n10110[7:5]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10113 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2390:53 */
+  /*# mc68881_top.vhd:2398:53 */
   assign n10114 = n10113[4]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10116 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2391:53 */
+  /*# mc68881_top.vhd:2399:53 */
   assign n10117 = n10116[3]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10118 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2392:55 */
+  /*# mc68881_top.vhd:2400:55 */
   assign n10119 = n10118[1]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10120 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2392:84 */
+  /*# mc68881_top.vhd:2400:84 */
   assign n10121 = n10120[0]; // extract
-  /*# mc68881_top.vhd:2392:72 */
+  /*# mc68881_top.vhd:2400:72 */
   assign n10122 = n10119 | n10121;
-  /*# mc68881_top.vhd:2391:69 */
+  /*# mc68881_top.vhd:2399:69 */
   assign n10123 = n10117 & n10122;
   /*# mc68881_top.vhd:1975:14 */
   assign n10125 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2393:53 */
+  /*# mc68881_top.vhd:2401:53 */
   assign n10126 = n10125[2]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10128 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2394:53 */
+  /*# mc68881_top.vhd:2402:53 */
   assign n10129 = n10128[1]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10130 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2394:82 */
+  /*# mc68881_top.vhd:2402:82 */
   assign n10131 = n10130[0]; // extract
-  /*# mc68881_top.vhd:2394:70 */
+  /*# mc68881_top.vhd:2402:70 */
   assign n10132 = n10129 | n10131;
   /*# mc68881_top.vhd:1975:14 */
   assign n10133 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2395:54 */
+  /*# mc68881_top.vhd:2403:54 */
   assign n10134 = n10133[4]; // extract
-  /*# mc68881_top.vhd:2394:99 */
+  /*# mc68881_top.vhd:2402:99 */
   assign n10135 = n10132 | n10134;
-  /*# mc68881_top.vhd:2396:39 */
+  /*# mc68881_top.vhd:2404:39 */
   assign n10136 = fpsr_reg[7:0]; // extract
   /*# mc68881_top.vhd:1990:14 */
   assign n10137 = {n10111, n10109, n10114, n10123, n10126, n10135};
-  /*# mc68881_top.vhd:2397:48 */
+  /*# mc68881_top.vhd:2405:48 */
   assign n10138 = n10136 | n10137;
   /*# mc68881_top.vhd:100:10 */
   assign n10139 = n9549[7:0]; // extract
-  /*# mc68881_top.vhd:2385:9 */
+  /*# mc68881_top.vhd:2393:9 */
   assign n10140 = n10104 ? n10138 : n10139;
   /*# mc68881_top.vhd:100:10 */
   assign n10145 = n10102[7]; // extract
-  /*# mc68881_top.vhd:2404:9 */
+  /*# mc68881_top.vhd:2412:9 */
   assign n10146 = n9583 ? 1'b1 : n10145;
   /*# mc68881_top.vhd:100:10 */
   assign n10147 = n10102[6:0]; // extract
-  /*# mc68881_top.vhd:2408:23 */
+  /*# mc68881_top.vhd:2416:23 */
   assign n10148 = n23810[9]; // extract
   /*# mc68881_pkg.vhd:1603:25 */
   assign n10167 = n9570[79]; // extract
@@ -47652,17 +47651,17 @@ module mc68881_top
   assign n10457 = {n10455, n10456, n10282};
   /*# mc68881_top.vhd:1751:5 */
   assign n10462 = n10274 ? n10457 : n10280;
-  /*# mc68881_top.vhd:2411:26 */
+  /*# mc68881_top.vhd:2419:26 */
   assign n10463 = n23810[8]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10464 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2412:23 */
+  /*# mc68881_top.vhd:2420:23 */
   assign n10465 = n10464[6]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10466 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2412:57 */
+  /*# mc68881_top.vhd:2420:57 */
   assign n10467 = n10466[5]; // extract
-  /*# mc68881_top.vhd:2412:45 */
+  /*# mc68881_top.vhd:2420:45 */
   assign n10468 = n10465 | n10467;
   /*# mc68881_top.vhd:1978:14 */
   assign n10471 = n10470[3:1]; // extract
@@ -47774,373 +47773,373 @@ module mc68881_top
   assign n10610 = n9572[79]; // extract
   /*# mc68881_top.vhd:1712:14 */
   assign n10611 = {n10610, n10606, n10604};
-  /*# mc68881_top.vhd:2412:11 */
+  /*# mc68881_top.vhd:2420:11 */
   assign n10612 = {n10471, 1'b1};
-  /*# mc68881_top.vhd:2412:11 */
+  /*# mc68881_top.vhd:2420:11 */
   assign n10613 = n10468 ? n10612 : n10611;
   /*# mc68881_top.vhd:100:10 */
   assign n10614 = n9549[27:24]; // extract
-  /*# mc68881_top.vhd:2411:9 */
+  /*# mc68881_top.vhd:2419:9 */
   assign n10615 = n10463 ? n10613 : n10614;
-  /*# mc68881_top.vhd:2408:9 */
+  /*# mc68881_top.vhd:2416:9 */
   assign n10617 = n10148 ? n10462 : n10615;
-  /*# mc68881_top.vhd:2421:23 */
+  /*# mc68881_top.vhd:2429:23 */
   assign n10619 = n23810[11]; // extract
   /*# mc68881_top.vhd:1975:14 */
   assign n10621 = {n10098, n10007, n10096, n10093, n10036, n10089, n10094};
-  /*# mc68881_top.vhd:2421:64 */
+  /*# mc68881_top.vhd:2429:64 */
   assign n10622 = n10621 != 8'b00000000;
-  /*# mc68881_top.vhd:2421:50 */
+  /*# mc68881_top.vhd:2429:50 */
   assign n10623 = n10622 & n10619;
-  /*# mc68881_top.vhd:2269:7 */
+  /*# mc68881_top.vhd:2277:7 */
   assign n10624 = n10632 ? fpiar_issue_snapshot_reg : n9546;
-  /*# mc68881_top.vhd:2425:24 */
+  /*# mc68881_top.vhd:2433:24 */
   assign n10625 = quotient_valid & valid;
   /*# mc68881_top.vhd:100:10 */
   assign n10626 = n9549[23:16]; // extract
-  /*# mc68881_top.vhd:2425:9 */
+  /*# mc68881_top.vhd:2433:9 */
   assign n10627 = n10625 ? quotient_byte : n10626;
-  /*# mc68881_top.vhd:2269:7 */
+  /*# mc68881_top.vhd:2277:7 */
   assign n10628 = {n10617, n10627, n10146, n10147, n10140};
   /*# mc68881_top.vhd:100:10 */
   assign n10629 = n9549[27:0]; // extract
-  /*# mc68881_top.vhd:2269:7 */
+  /*# mc68881_top.vhd:2277:7 */
   assign n10630 = n9558 ? n10628 : n10629;
   /*# mc68881_top.vhd:100:10 */
   assign n10631 = n9549[31:28]; // extract
-  /*# mc68881_top.vhd:2269:7 */
+  /*# mc68881_top.vhd:2277:7 */
   assign n10632 = n10623 & n9558;
-  /*# mc68881_top.vhd:2430:7 */
+  /*# mc68881_top.vhd:2438:7 */
   assign n10660 = op_issue_pulse ? 1'b1 : fpu_initialized_reg;
-  /*# mc68881_top.vhd:2435:32 */
+  /*# mc68881_top.vhd:2443:32 */
   assign n10661 = {1'b0, frame_remaining_reg};  // uext
-  /*# mc68881_top.vhd:2435:32 */
+  /*# mc68881_top.vhd:2443:32 */
   assign n10663 = n10661 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:2438:29 */
+  /*# mc68881_top.vhd:2446:29 */
   assign n10664 = frame_mem_reg[127:96]; // extract
-  /*# mc68881_top.vhd:2438:33 */
+  /*# mc68881_top.vhd:2446:33 */
   assign n10666 = n10664 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:2448:40 */
+  /*# mc68881_top.vhd:2456:40 */
   assign n10667 = frame_mem_reg[95:64]; // extract
-  /*# mc68881_top.vhd:2449:40 */
+  /*# mc68881_top.vhd:2457:40 */
   assign n10668 = frame_mem_reg[63:32]; // extract
-  /*# mc68881_top.vhd:2438:13 */
+  /*# mc68881_top.vhd:2446:13 */
   assign n10670 = n10666 ? 32'b00000000000000000000000000000000 : n10667;
-  /*# mc68881_top.vhd:2438:13 */
+  /*# mc68881_top.vhd:2446:13 */
   assign n10672 = n10666 ? 32'b00000000000000000000000000000000 : n10668;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10674 = n10704 ? 32'b00000000000000000000000000000000 : n10624;
-  /*# mc68881_top.vhd:2438:13 */
+  /*# mc68881_top.vhd:2446:13 */
   assign n10676 = n10666 ? n10660 : 1'b1;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10677 = n10701 ? n10670 : n9554;
   /*# mc68881_top.vhd:100:10 */
   assign n10678 = {n10631, n10630};
-  /*# mc68881_top.vhd:2437:11 */
+  /*# mc68881_top.vhd:2445:11 */
   assign n10679 = frame_restore_pending_reg ? n10672 : n10678;
-  /*# mc68881_top.vhd:2437:11 */
+  /*# mc68881_top.vhd:2445:11 */
   assign n10680 = n10666 & frame_restore_pending_reg;
-  /*# mc68881_top.vhd:2437:11 */
+  /*# mc68881_top.vhd:2445:11 */
   assign n10683 = frame_restore_pending_reg ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10685 = n10708 ? 1'b0 : frame_restore_pending_reg;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10686 = n10709 ? n10676 : n10660;
-  /*# mc68881_top.vhd:2458:54 */
+  /*# mc68881_top.vhd:2466:54 */
   assign n10687 = {1'b0, frame_remaining_reg};  // uext
-  /*# mc68881_top.vhd:2458:54 */
+  /*# mc68881_top.vhd:2466:54 */
   assign n10689 = n10687 - 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:2458:34 */
+  /*# mc68881_top.vhd:2466:34 */
   assign n10690 = n10689[30:0];  // trunc
-  /*# mc68881_top.vhd:2435:9 */
+  /*# mc68881_top.vhd:2443:9 */
   assign n10691 = frame_restore_pending_reg & n10663;
   /*# mc68881_top.vhd:100:10 */
   assign n10692 = {n10631, n10630};
-  /*# mc68881_top.vhd:2435:9 */
+  /*# mc68881_top.vhd:2443:9 */
   assign n10693 = n10663 ? n10679 : n10692;
-  /*# mc68881_top.vhd:2435:9 */
+  /*# mc68881_top.vhd:2443:9 */
   assign n10694 = n10680 & n10663;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10696 = n10705 ? 1'b0 : frame_busy_reg;
-  /*# mc68881_top.vhd:2435:9 */
+  /*# mc68881_top.vhd:2443:9 */
   assign n10697 = n10663 ? frame_remaining_reg : n10690;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10698 = n10707 ? n10683 : n5139;
-  /*# mc68881_top.vhd:2435:9 */
+  /*# mc68881_top.vhd:2443:9 */
   assign n10699 = frame_restore_pending_reg & n10663;
-  /*# mc68881_top.vhd:2435:9 */
+  /*# mc68881_top.vhd:2443:9 */
   assign n10700 = frame_restore_pending_reg & n10663;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10701 = n10691 & frame_busy_reg;
   /*# mc68881_top.vhd:100:10 */
   assign n10702 = {n10631, n10630};
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10703 = frame_busy_reg ? n10693 : n10702;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10704 = n10694 & frame_busy_reg;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10705 = n10663 & frame_busy_reg;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10706 = frame_busy_reg ? n10697 : frame_remaining_reg;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10707 = n10663 & frame_busy_reg;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10708 = n10699 & frame_busy_reg;
-  /*# mc68881_top.vhd:2434:7 */
+  /*# mc68881_top.vhd:2442:7 */
   assign n10709 = n10700 & frame_busy_reg;
-  /*# mc68881_top.vhd:2462:56 */
+  /*# mc68881_top.vhd:2470:56 */
   assign n10710 = ~frame_busy_reg;
-  /*# mc68881_top.vhd:2462:37 */
+  /*# mc68881_top.vhd:2470:37 */
   assign n10711 = n10710 & frame_start_save_reg;
-  /*# mc68881_top.vhd:2462:83 */
+  /*# mc68881_top.vhd:2470:83 */
   assign n10712 = ~micro_active_reg;
-  /*# mc68881_top.vhd:2462:62 */
+  /*# mc68881_top.vhd:2470:62 */
   assign n10713 = n10712 & n10711;
   /*# mc68881_top.vhd:1974:14 */
   assign n10718 = n10714[31:4]; // extract
-  /*# mc68881_top.vhd:2468:32 */
+  /*# mc68881_top.vhd:2476:32 */
   assign n10719 = ~fpu_initialized_reg;
   /*# mc68881_top.vhd:1974:14 */
   assign n10725 = {n10718, frame_busy_reg, frame_valid_reg, status_busy_reg, status_valid_reg};
-  /*# mc68881_top.vhd:2468:9 */
+  /*# mc68881_top.vhd:2476:9 */
   assign n10726 = {32'b00000000000000000001111100011000, fpcr_reg, fpsr_reg, n10725};
-  /*# mc68881_top.vhd:2468:9 */
+  /*# mc68881_top.vhd:2476:9 */
   assign n10727 = {32'b00000000000000000000000000000000, 32'b00000000000000000000000000000000, 32'b00000000000000000000000000000000, 32'b00000000000000000000000000000000};
-  /*# mc68881_top.vhd:2468:9 */
+  /*# mc68881_top.vhd:2476:9 */
   assign n10728 = n10719 ? n10727 : n10726;
-  /*# mc68881_top.vhd:2483:60 */
+  /*# mc68881_top.vhd:2491:60 */
   assign n10729 = ~frame_busy_reg;
-  /*# mc68881_top.vhd:2483:41 */
+  /*# mc68881_top.vhd:2491:41 */
   assign n10730 = n10729 & sys_ctrl_save_req_reg;
   /*# mc68881_top.vhd:1974:14 */
   assign n10735 = n10731[31:4]; // extract
-  /*# mc68881_top.vhd:2490:32 */
+  /*# mc68881_top.vhd:2498:32 */
   assign n10736 = ~fpu_initialized_reg;
   /*# mc68881_top.vhd:1974:14 */
   assign n10742 = {n10735, frame_busy_reg, frame_valid_reg, status_busy_reg, status_valid_reg};
-  /*# mc68881_top.vhd:2490:9 */
+  /*# mc68881_top.vhd:2498:9 */
   assign n10743 = {32'b00000000000000000001111100011000, fpcr_reg, fpsr_reg, n10742};
-  /*# mc68881_top.vhd:2490:9 */
+  /*# mc68881_top.vhd:2498:9 */
   assign n10744 = {32'b00000000000000000000000000000000, 32'b00000000000000000000000000000000, 32'b00000000000000000000000000000000, 32'b00000000000000000000000000000000};
-  /*# mc68881_top.vhd:2490:9 */
+  /*# mc68881_top.vhd:2498:9 */
   assign n10745 = n10736 ? n10744 : n10743;
-  /*# mc68881_top.vhd:2505:62 */
+  /*# mc68881_top.vhd:2513:62 */
   assign n10746 = ~frame_busy_reg;
-  /*# mc68881_top.vhd:2505:43 */
+  /*# mc68881_top.vhd:2513:43 */
   assign n10747 = n10746 & frame_start_restore_reg;
-  /*# mc68881_top.vhd:2505:89 */
+  /*# mc68881_top.vhd:2513:89 */
   assign n10748 = ~micro_active_reg;
-  /*# mc68881_top.vhd:2505:68 */
+  /*# mc68881_top.vhd:2513:68 */
   assign n10749 = n10748 & n10747;
-  /*# mc68881_top.vhd:2509:63 */
+  /*# mc68881_top.vhd:2517:63 */
   assign n10750 = ~frame_busy_reg;
-  /*# mc68881_top.vhd:2509:44 */
+  /*# mc68881_top.vhd:2517:44 */
   assign n10751 = n10750 & sys_ctrl_restore_req_reg;
-  /*# mc68881_top.vhd:2509:7 */
+  /*# mc68881_top.vhd:2517:7 */
   assign n10753 = n10751 ? 1'b1 : n10696;
-  /*# mc68881_top.vhd:2509:7 */
+  /*# mc68881_top.vhd:2517:7 */
   assign n10755 = n10751 ? 31'b0000000000000000000000000000101 : n10706;
-  /*# mc68881_top.vhd:2509:7 */
+  /*# mc68881_top.vhd:2517:7 */
   assign n10757 = n10751 ? 1'b1 : n10685;
-  /*# mc68881_top.vhd:2505:7 */
+  /*# mc68881_top.vhd:2513:7 */
   assign n10759 = n10749 ? 1'b1 : n10753;
-  /*# mc68881_top.vhd:2505:7 */
+  /*# mc68881_top.vhd:2513:7 */
   assign n10761 = n10749 ? 31'b0000000000000000000000000000101 : n10755;
-  /*# mc68881_top.vhd:2505:7 */
+  /*# mc68881_top.vhd:2513:7 */
   assign n10763 = n10749 ? 1'b1 : n10757;
-  /*# mc68881_top.vhd:2483:7 */
+  /*# mc68881_top.vhd:2491:7 */
   assign n10764 = n10730 ? n10745 : n5138;
-  /*# mc68881_top.vhd:2483:7 */
+  /*# mc68881_top.vhd:2491:7 */
   assign n10766 = n10730 ? 1'b1 : n10759;
-  /*# mc68881_top.vhd:2483:7 */
+  /*# mc68881_top.vhd:2491:7 */
   assign n10768 = n10730 ? 31'b0000000000000000000000000000101 : n10761;
-  /*# mc68881_top.vhd:2483:7 */
+  /*# mc68881_top.vhd:2491:7 */
   assign n10770 = n10730 ? 1'b0 : n10698;
-  /*# mc68881_top.vhd:2483:7 */
+  /*# mc68881_top.vhd:2491:7 */
   assign n10772 = n10730 ? 1'b0 : n10763;
-  /*# mc68881_top.vhd:2462:7 */
+  /*# mc68881_top.vhd:2470:7 */
   assign n10775 = n10713 ? n10728 : n10764;
-  /*# mc68881_top.vhd:2462:7 */
+  /*# mc68881_top.vhd:2470:7 */
   assign n10777 = n10713 ? 1'b1 : n10766;
-  /*# mc68881_top.vhd:2462:7 */
+  /*# mc68881_top.vhd:2470:7 */
   assign n10779 = n10713 ? 31'b0000000000000000000000000000101 : n10768;
-  /*# mc68881_top.vhd:2462:7 */
+  /*# mc68881_top.vhd:2470:7 */
   assign n10781 = n10713 ? 1'b0 : n10770;
-  /*# mc68881_top.vhd:2462:7 */
+  /*# mc68881_top.vhd:2470:7 */
   assign n10783 = n10713 ? 1'b0 : n10772;
-  /*# mc68881_top.vhd:2539:32 */
+  /*# mc68881_top.vhd:2547:32 */
   assign n10786 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:2539:32 */
+  /*# mc68881_top.vhd:2547:32 */
   assign n10788 = n10786 == 32'b00000000000000000000000000101101;
-  /*# mc68881_top.vhd:2540:35 */
+  /*# mc68881_top.vhd:2548:35 */
   assign n10789 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:2540:35 */
+  /*# mc68881_top.vhd:2548:35 */
   assign n10791 = n10789 == 32'b00000000000000000000000000110101;
-  /*# mc68881_top.vhd:2540:12 */
+  /*# mc68881_top.vhd:2548:12 */
   assign n10792 = n10788 | n10791;
-  /*# mc68881_top.vhd:2541:41 */
+  /*# mc68881_top.vhd:2549:41 */
   assign n10793 = cir_frame_data_reg[319:288]; // extract
-  /*# mc68881_top.vhd:2542:61 */
+  /*# mc68881_top.vhd:2550:61 */
   assign n10794 = cir_frame_data_reg[191:160]; // extract
-  /*# mc68881_top.vhd:2543:61 */
+  /*# mc68881_top.vhd:2551:61 */
   assign n10795 = cir_frame_data_reg[63:32]; // extract
-  /*# mc68881_top.vhd:2544:64 */
+  /*# mc68881_top.vhd:2552:64 */
   assign n10796 = cir_frame_data_reg[159:144]; // extract
-  /*# mc68881_top.vhd:2545:61 */
+  /*# mc68881_top.vhd:2553:61 */
   assign n10797 = cir_frame_data_reg[127:96]; // extract
-  /*# mc68881_top.vhd:2546:61 */
+  /*# mc68881_top.vhd:2554:61 */
   assign n10798 = cir_frame_data_reg[31:0]; // extract
-  /*# mc68881_top.vhd:2547:64 */
+  /*# mc68881_top.vhd:2555:64 */
   assign n10799 = cir_frame_data_reg[95:80]; // extract
-  /*# mc68881_top.vhd:2539:9 */
+  /*# mc68881_top.vhd:2547:9 */
   assign n10800 = {n10796, n10795, n10794, n10799, n10798, n10797};
-  /*# mc68881_top.vhd:2534:7 */
+  /*# mc68881_top.vhd:2542:7 */
   assign n10801 = n10803 ? n10800 : n9525;
-  /*# mc68881_top.vhd:2534:7 */
+  /*# mc68881_top.vhd:2542:7 */
   assign n10802 = n10804 ? n10793 : n10703;
-  /*# mc68881_top.vhd:2534:7 */
+  /*# mc68881_top.vhd:2542:7 */
   assign n10803 = n10792 & cir_restore_commit_req;
-  /*# mc68881_top.vhd:2534:7 */
+  /*# mc68881_top.vhd:2542:7 */
   assign n10804 = n10792 & cir_restore_commit_req;
-  /*# mc68881_top.vhd:2534:7 */
+  /*# mc68881_top.vhd:2542:7 */
   assign n10806 = cir_restore_commit_req ? 1'b1 : n10686;
-  /*# mc68881_top.vhd:2660:16 */
+  /*# mc68881_top.vhd:2668:16 */
   assign n11000 = ~reset_n;
-  /*# mc68881_top.vhd:2730:35 */
+  /*# mc68881_top.vhd:2738:35 */
   assign n11002 = ~cir_response_pending_reg;
-  /*# mc68881_top.vhd:2731:37 */
+  /*# mc68881_top.vhd:2739:37 */
   assign n11004 = {16'b0000000000000000, cir_response_prim};
-  /*# mc68881_top.vhd:2730:7 */
+  /*# mc68881_top.vhd:2738:7 */
   assign n11005 = n11002 ? n11004 : cir_response_reg;
-  /*# mc68881_top.vhd:2734:40 */
+  /*# mc68881_top.vhd:2742:40 */
   assign n11006 = packed_pending_reg & packed_result_valid_reg;
-  /*# mc68881_top.vhd:2735:32 */
+  /*# mc68881_top.vhd:2743:32 */
   assign n11008 = packed_req_mode_reg == 2'b10;
-  /*# mc68881_top.vhd:2736:27 */
+  /*# mc68881_top.vhd:2744:27 */
   assign n11010 = 3'b111 - packed_req_dst_idx_reg;
-  /*# mc68881_top.vhd:2737:48 */
+  /*# mc68881_top.vhd:2745:48 */
   assign n11013 = packed_result_fp_reg[31:0]; // extract
-  /*# mc68881_top.vhd:2738:48 */
+  /*# mc68881_top.vhd:2746:48 */
   assign n11014 = packed_result_fp_reg[63:32]; // extract
-  /*# mc68881_top.vhd:2739:48 */
+  /*# mc68881_top.vhd:2747:48 */
   assign n11015 = packed_result_fp_reg[79:64]; // extract
-  /*# mc68881_top.vhd:2748:50 */
+  /*# mc68881_top.vhd:2756:50 */
   assign n11016 = packed_result_word_reg[31:0]; // extract
-  /*# mc68881_top.vhd:2749:50 */
+  /*# mc68881_top.vhd:2757:50 */
   assign n11017 = packed_result_word_reg[63:32]; // extract
-  /*# mc68881_top.vhd:2750:50 */
+  /*# mc68881_top.vhd:2758:50 */
   assign n11018 = packed_result_word_reg[79:64]; // extract
-  /*# mc68881_top.vhd:2751:53 */
+  /*# mc68881_top.vhd:2759:53 */
   assign n11019 = packed_result_word_reg[95:80]; // extract
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11020 = n11008 ? n11013 : n11016;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11021 = n11008 ? n11014 : n11017;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11022 = n11008 ? n11015 : n11018;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11024 = n11008 ? 16'b0000000000000000 : n11019;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11025 = n11037 ? n23845 : fp_reg_file_reg;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11026 = n11008 ? packed_result_fp_reg : packed_req_fp_reg;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11028 = n11008 ? 1'b0 : packed_result_inexact_reg;
-  /*# mc68881_top.vhd:2735:9 */
+  /*# mc68881_top.vhd:2743:9 */
   assign n11030 = n11008 ? packed_result_invalid_reg : 1'b0;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11031 = n11006 ? n11020 : result_lo_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11032 = n11006 ? n11021 : result_hi_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11033 = n11006 ? n11022 : result_ex_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11034 = n11006 ? n11024 : result_ex_hi_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11036 = n11006 ? 1'b1 : result_ready_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11037 = n11008 & n11006;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11040 = n11006 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11042 = n11006 ? packed_result_fp_reg : exc_event_result_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11043 = n11006 ? n11026 : exc_event_opa_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11045 = n11006 ? 80'b00111111111111111000000000000000000000000000000000000000000000000000000000000000 : exc_event_opb_reg;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11047 = n11006 ? n11028 : 1'b0;
-  /*# mc68881_top.vhd:2734:7 */
+  /*# mc68881_top.vhd:2742:7 */
   assign n11050 = n11006 ? n11030 : 1'b0;
-  /*# mc68881_top.vhd:2762:34 */
+  /*# mc68881_top.vhd:2770:34 */
   assign n11055 = addr == 5'b01101;
-  /*# mc68881_top.vhd:2762:25 */
+  /*# mc68881_top.vhd:2770:25 */
   assign n11056 = n11055 & bus_read;
-  /*# mc68881_top.vhd:2767:26 */
+  /*# mc68881_top.vhd:2775:26 */
   assign n11058 = cir_state_reg != 5'b01010;
-  /*# mc68881_top.vhd:2767:61 */
+  /*# mc68881_top.vhd:2775:61 */
   assign n11060 = cir_state_reg != 5'b01011;
-  /*# mc68881_top.vhd:2767:43 */
+  /*# mc68881_top.vhd:2775:43 */
   assign n11061 = n11060 & n11058;
-  /*# mc68881_top.vhd:2762:7 */
+  /*# mc68881_top.vhd:2770:7 */
   assign n11063 = n11066 ? 1'b0 : cir_trap_pending_reg;
-  /*# mc68881_top.vhd:2762:7 */
+  /*# mc68881_top.vhd:2770:7 */
   assign n11065 = n11056 ? 1'b0 : cir_response_pending_reg;
-  /*# mc68881_top.vhd:2762:7 */
+  /*# mc68881_top.vhd:2770:7 */
   assign n11066 = n11061 & n11056;
-  /*# mc68881_top.vhd:2762:7 */
+  /*# mc68881_top.vhd:2770:7 */
   assign n11068 = n11056 ? 1'b0 : cir_protocol_violation_reg;
-  /*# mc68881_top.vhd:2784:35 */
+  /*# mc68881_top.vhd:2792:35 */
   assign n11070 = addr == 5'b00000;
-  /*# mc68881_top.vhd:2784:26 */
+  /*# mc68881_top.vhd:2792:26 */
   assign n11071 = n11070 & bus_write;
-  /*# mc68881_top.vhd:2785:31 */
+  /*# mc68881_top.vhd:2793:31 */
   assign n11072 = ~opsel_write_prev_reg;
-  /*# mc68881_top.vhd:2784:48 */
+  /*# mc68881_top.vhd:2792:48 */
   assign n11073 = n11072 & n11071;
-  /*# mc68881_top.vhd:2785:37 */
+  /*# mc68881_top.vhd:2793:37 */
   assign n11074 = cir_response_pending_reg & n11073;
-  /*# mc68881_top.vhd:2784:7 */
+  /*# mc68881_top.vhd:2792:7 */
   assign n11076 = n11074 ? 1'b0 : n11065;
-  /*# mc68881_top.vhd:2784:7 */
+  /*# mc68881_top.vhd:2792:7 */
   assign n11078 = n11074 ? 1'b1 : n11068;
-  /*# mc68881_top.vhd:2798:9 */
+  /*# mc68881_top.vhd:2806:9 */
   assign n11079 = pending_launch_reg ? pending_instaddr_reg : fpiar_reg;
-  /*# mc68881_top.vhd:2796:9 */
+  /*# mc68881_top.vhd:2804:9 */
   assign n11080 = cir_launch_alu ? cir_instaddr_reg : n11079;
-  /*# mc68881_top.vhd:2807:29 */
+  /*# mc68881_top.vhd:2815:29 */
   assign n11082 = cir_instr_type == 3'b001;
-  /*# mc68881_top.vhd:2810:32 */
+  /*# mc68881_top.vhd:2818:32 */
   assign n11084 = cir_instr_type == 3'b010;
-  /*# mc68881_top.vhd:2811:32 */
+  /*# mc68881_top.vhd:2819:32 */
   assign n11086 = cir_instr_type == 3'b011;
-  /*# mc68881_top.vhd:2810:51 */
+  /*# mc68881_top.vhd:2818:51 */
   assign n11087 = n11084 | n11086;
   /*# mc68881_pkg.vhd:1323:27 */
   assign n11094 = 6'b101110 - cir_decoded_op;
-  /*# mc68881_top.vhd:2810:11 */
+  /*# mc68881_top.vhd:2818:11 */
   assign n11098 = n11087 ? 3'b011 : n23850;
-  /*# mc68881_top.vhd:2810:11 */
+  /*# mc68881_top.vhd:2818:11 */
   assign n11100 = n11087 ? 6'b101001 : cir_decoded_op;
-  /*# mc68881_top.vhd:2807:11 */
+  /*# mc68881_top.vhd:2815:11 */
   assign n11102 = n11082 ? 3'b011 : n11098;
-  /*# mc68881_top.vhd:2807:11 */
+  /*# mc68881_top.vhd:2815:11 */
   assign n11104 = n11082 ? 6'b101000 : n11100;
   /*# mc68881_pkg.vhd:1323:27 */
   assign n11111 = 6'b101110 - pending_decoded_op;
-  /*# mc68881_top.vhd:2818:9 */
+  /*# mc68881_top.vhd:2826:9 */
   assign n11114 = pending_launch_reg ? n23855 : op_class_write_decoded;
-  /*# mc68881_top.vhd:2818:9 */
+  /*# mc68881_top.vhd:2826:9 */
   assign n11115 = pending_launch_reg ? pending_decoded_op : op_sel_write_decoded;
-  /*# mc68881_top.vhd:2806:9 */
+  /*# mc68881_top.vhd:2814:9 */
   assign n11116 = cir_launch_alu ? n11102 : n11114;
-  /*# mc68881_top.vhd:2828:9 */
+  /*# mc68881_top.vhd:2836:9 */
   assign n11117 = cir_launch_alu ? n11104 : n11115;
-  /*# mc68881_top.vhd:2828:33 */
+  /*# mc68881_top.vhd:2836:33 */
   assign n11118 = cir_launch_alu | pending_launch_reg;
-  /*# mc68881_top.vhd:2833:11 */
+  /*# mc68881_top.vhd:2841:11 */
   assign n11119 = pending_launch_reg ? pending_dst_reg_idx_reg : cir_dst_reg_idx;
-  /*# mc68881_top.vhd:2839:27 */
+  /*# mc68881_top.vhd:2847:27 */
   assign n11121 = n11116 == 3'b011;
   /*# mc68881_pkg.vhd:1353:27 */
   assign n11133 = 6'b101110 - n11117;
@@ -48184,13 +48183,13 @@ module mc68881_top
       3'b001: n11189 = n11162;
       default: n11189 = 31'bX;
     endcase
-  /*# mc68881_top.vhd:2855:29 */
+  /*# mc68881_top.vhd:2863:29 */
   assign n11191 = n11116 != 3'b010;
-  /*# mc68881_top.vhd:2855:13 */
+  /*# mc68881_top.vhd:2863:13 */
   assign n11193 = n11191 ? 1'b1 : cir_arith_active_reg;
-  /*# mc68881_top.vhd:2839:11 */
+  /*# mc68881_top.vhd:2847:11 */
   assign n11194 = n11121 ? cir_arith_active_reg : n11193;
-  /*# mc68881_top.vhd:2839:11 */
+  /*# mc68881_top.vhd:2847:11 */
   assign n11196 = n11121 ? 31'b0000000000000000000000000000000 : n11189;
   /*# mc68881_pkg.vhd:1353:27 */
   assign n11208 = 6'b101110 - n11117;
@@ -48300,71 +48299,71 @@ module mc68881_top
       3'b001: n11329 = n11278;
       default: n11329 = 31'bX;
     endcase
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n11332 = n20220 ? n11194 : cir_arith_active_reg;
-  /*# mc68881_top.vhd:2828:9 */
+  /*# mc68881_top.vhd:2836:9 */
   assign n11333 = n11118 ? n11196 : n11329;
-  /*# mc68881_top.vhd:2872:45 */
+  /*# mc68881_top.vhd:2880:45 */
   assign n11334 = {1'b0, n11333};  // uext
-  /*# mc68881_top.vhd:2873:25 */
+  /*# mc68881_top.vhd:2881:25 */
   assign n11335 = {1'b0, n11333};  // uext
-  /*# mc68881_top.vhd:2873:25 */
+  /*# mc68881_top.vhd:2881:25 */
   assign n11337 = n11335 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:2876:47 */
+  /*# mc68881_top.vhd:2884:47 */
   assign n11338 = {1'b0, n11333};  // uext
-  /*# mc68881_top.vhd:2876:47 */
+  /*# mc68881_top.vhd:2884:47 */
   assign n11340 = n11338 - 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:2876:34 */
+  /*# mc68881_top.vhd:2884:34 */
   assign n11341 = n11340[30:0];  // trunc
-  /*# mc68881_top.vhd:2873:9 */
+  /*# mc68881_top.vhd:2881:9 */
   assign n11343 = n11337 ? 31'b0000000000000000000000000000000 : n11341;
-  /*# mc68881_top.vhd:2880:34 */
+  /*# mc68881_top.vhd:2888:34 */
   assign n11344 = cir_launch_alu | pending_launch_reg;
-  /*# mc68881_top.vhd:2880:80 */
+  /*# mc68881_top.vhd:2888:80 */
   assign n11346 = n11116 != 3'b011;
-  /*# mc68881_top.vhd:2880:63 */
+  /*# mc68881_top.vhd:2888:63 */
   assign n11347 = n11346 & n11344;
-  /*# mc68881_top.vhd:2883:27 */
+  /*# mc68881_top.vhd:2891:27 */
   assign n11349 = n11116 == 3'b010;
-  /*# mc68881_top.vhd:2883:11 */
-  assign n11352 = n11349 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:2791:7 */
-  assign n11354 = n20221 ? 1'b1 : cir_move_pending_reg;
   /*# mc68881_top.vhd:2891:11 */
+  assign n11352 = n11349 ? 1'b0 : 1'b1;
+  /*# mc68881_top.vhd:2799:7 */
+  assign n11354 = n20221 ? 1'b1 : cir_move_pending_reg;
+  /*# mc68881_top.vhd:2899:11 */
   assign n11356 = n11116 == 3'b001;
-  /*# mc68881_top.vhd:2894:27 */
+  /*# mc68881_top.vhd:2902:27 */
   assign n11358 = n11117 == 6'b100110;
-  /*# mc68881_top.vhd:2896:35 */
+  /*# mc68881_top.vhd:2904:35 */
   assign n11359 = move_cfg_decoded_reg[2:0]; // extract
-  /*# mc68881_top.vhd:2897:35 */
+  /*# mc68881_top.vhd:2905:35 */
   assign n11360 = move_cfg_decoded_reg[4:3]; // extract
-  /*# mc68881_top.vhd:2898:32 */
+  /*# mc68881_top.vhd:2906:32 */
   assign n11361 = move_cfg_decoded_reg[6:5]; // extract
-  /*# mc68881_top.vhd:2899:35 */
+  /*# mc68881_top.vhd:2907:35 */
   assign n11362 = move_cfg_decoded_reg[10:8]; // extract
-  /*# mc68881_top.vhd:2900:36 */
+  /*# mc68881_top.vhd:2908:36 */
   assign n11363 = move_cfg_decoded_reg[12:11]; // extract
-  /*# mc68881_top.vhd:2912:27 */
+  /*# mc68881_top.vhd:2920:27 */
   assign n11364 = move_cfg_decoded_reg[25]; // extract
-  /*# mc68881_top.vhd:2913:63 */
+  /*# mc68881_top.vhd:2921:63 */
   assign n11366 = operand_reg[86:80]; // extract
-  /*# mc68881_top.vhd:2917:33 */
+  /*# mc68881_top.vhd:2925:33 */
   assign n11380 = 3'b111 - n11362;
-  /*# mc68881_top.vhd:2921:52 */
+  /*# mc68881_top.vhd:2929:52 */
   assign n11384 = 3'b111 - n11359;
-  /*# mc68881_top.vhd:2925:37 */
+  /*# mc68881_top.vhd:2933:37 */
   assign n11388 = 3'b111 - n11362;
-  /*# mc68881_top.vhd:2920:19 */
+  /*# mc68881_top.vhd:2928:19 */
   assign n11392 = n11361 == 2'b00;
-  /*# mc68881_top.vhd:2927:33 */
+  /*# mc68881_top.vhd:2935:33 */
   assign n11393 = move_cfg_decoded_reg[23]; // extract
-  /*# mc68881_top.vhd:2930:73 */
+  /*# mc68881_top.vhd:2938:73 */
   assign n11395 = operand_reg[87:80]; // extract
   /*# mc68881_top.vhd:447:12 */
   assign n11400 = {{24{n11395[7]}}, n11395}; // sext
-  /*# mc68881_top.vhd:2929:25 */
+  /*# mc68881_top.vhd:2937:25 */
   assign n11402 = n11360 == 2'b00;
-  /*# mc68881_top.vhd:2932:74 */
+  /*# mc68881_top.vhd:2940:74 */
   assign n11404 = operand_reg[95:80]; // extract
   /*# mc68881_top.vhd:476:12 */
   assign n11410 = operand_reg[95]; // extract
@@ -48394,9 +48393,9 @@ module mc68881_top
   assign n11425 = n11416 ? 32'b11111111111111111000000000000000 : n11424;
   /*# mc68881_top.vhd:476:5 */
   assign n11428 = n11411 ? n11414 : n11425;
-  /*# mc68881_top.vhd:2931:25 */
+  /*# mc68881_top.vhd:2939:25 */
   assign n11433 = n11360 == 2'b01;
-  /*# mc68881_top.vhd:2934:74 */
+  /*# mc68881_top.vhd:2942:74 */
   assign n11435 = operand_reg[111:80]; // extract
   /*# mc68881_top.vhd:489:12 */
   assign n11441 = operand_reg[111]; // extract
@@ -48422,9 +48421,9 @@ module mc68881_top
   assign n11454 = n11446 ? 32'b10000000000000000000000000000000 : n11453;
   /*# mc68881_top.vhd:489:5 */
   assign n11457 = n11442 ? n11444 : n11454;
-  /*# mc68881_top.vhd:2928:23 */
+  /*# mc68881_top.vhd:2936:23 */
   assign n11461 = {n11433, n11402};
-  /*# mc68881_top.vhd:2928:23 */
+  /*# mc68881_top.vhd:2936:23 */
   always @*
     case (n11461)
       2'b10: n11462 = n11428;
@@ -49555,7 +49554,7 @@ module mc68881_top
   assign n12452 = n12430 ? n12440 : n12451;
   /*# mc68881_top.vhd:1250:5 */
   assign n12464 = n12038 ? n12428 : n12452;
-  /*# mc68881_top.vhd:2942:25 */
+  /*# mc68881_top.vhd:2950:25 */
   assign n12482 = n11360 == 2'b01;
   /*# mc68881_top.vhd:1284:60 */
   assign n12490 = operand_reg[142:132]; // extract
@@ -50575,13 +50574,13 @@ module mc68881_top
   assign n13347 = n13326 ? n13335 : n13346;
   /*# mc68881_top.vhd:1291:5 */
   assign n13359 = n12500 ? n13324 : n13347;
-  /*# mc68881_top.vhd:2947:25 */
+  /*# mc68881_top.vhd:2955:25 */
   assign n13377 = n11360 == 2'b10;
-  /*# mc68881_top.vhd:2953:58 */
+  /*# mc68881_top.vhd:2961:58 */
   assign n13378 = operand_hi16_reg[31:16]; // extract
-  /*# mc68881_top.vhd:2953:75 */
+  /*# mc68881_top.vhd:2961:75 */
   assign n13379 = operand_reg[159:80]; // extract
-  /*# mc68881_top.vhd:2953:62 */
+  /*# mc68881_top.vhd:2961:62 */
   assign n13380 = {n13378, n13379};
   /*# mc68881_top.vhd:1223:14 */
   assign n13386 = n13380[93:92]; // extract
@@ -51391,9 +51390,9 @@ module mc68881_top
   assign n14325 = n13609 ? n14316 : n13612;
   /*# mc68881_top.vhd:1238:5 */
   assign n14331 = n14323 ? 1'b0 : n14325;
-  /*# mc68881_top.vhd:2963:29 */
+  /*# mc68881_top.vhd:2971:29 */
   assign n14334 = n14331 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:2966:90 */
+  /*# mc68881_top.vhd:2974:90 */
   assign n14336 = operand_reg[159:80]; // extract
   /*# mc68881_top.vhd:771:21 */
   assign n14351 = n13380[95]; // extract
@@ -52655,13 +52654,13 @@ module mc68881_top
   assign n15463 = {n15461, n15462};
   /*# mc68881_top.vhd:817:5 */
   assign n15468 = n14892 ? n15463 : n14561;
-  /*# mc68881_top.vhd:2952:25 */
+  /*# mc68881_top.vhd:2960:25 */
   assign n15470 = n11360 == 2'b11;
-  /*# mc68881_top.vhd:2972:53 */
+  /*# mc68881_top.vhd:2980:53 */
   assign n15471 = operand_reg[159:80]; // extract
-  /*# mc68881_top.vhd:2941:23 */
+  /*# mc68881_top.vhd:2949:23 */
   assign n15472 = {n15470, n13377, n12482};
-  /*# mc68881_top.vhd:2941:23 */
+  /*# mc68881_top.vhd:2949:23 */
   always @*
     case (n15472)
       3'b100: n15473 = n15468;
@@ -52669,7 +52668,7 @@ module mc68881_top
       3'b001: n15473 = n12464;
       default: n15473 = n15471;
     endcase
-  /*# mc68881_top.vhd:2941:23 */
+  /*# mc68881_top.vhd:2949:23 */
   always @*
     case (n15472)
       3'b100: n15475 = n15468;
@@ -52677,7 +52676,7 @@ module mc68881_top
       3'b001: n15475 = n12464;
       default: n15475 = n15471;
     endcase
-  /*# mc68881_top.vhd:2941:23 */
+  /*# mc68881_top.vhd:2949:23 */
   always @*
     case (n15472)
       3'b100: n15476 = n15468;
@@ -52685,7 +52684,7 @@ module mc68881_top
       3'b001: n15476 = n12464;
       default: n15476 = n15471;
     endcase
-  /*# mc68881_top.vhd:2941:23 */
+  /*# mc68881_top.vhd:2949:23 */
   always @*
     case (n15472)
       3'b100: n15478 = n14334;
@@ -52693,21 +52692,21 @@ module mc68881_top
       3'b001: n15478 = 1'b0;
       default: n15478 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2927:21 */
+  /*# mc68881_top.vhd:2935:21 */
   assign n15479 = n11393 ? n12020 : n15473;
-  /*# mc68881_top.vhd:2927:21 */
+  /*# mc68881_top.vhd:2935:21 */
   assign n15482 = n11393 ? n12020 : n15475;
-  /*# mc68881_top.vhd:2927:21 */
+  /*# mc68881_top.vhd:2935:21 */
   assign n15483 = n11393 ? n12020 : n15476;
-  /*# mc68881_top.vhd:2927:21 */
+  /*# mc68881_top.vhd:2935:21 */
   assign n15485 = n11393 ? 1'b0 : n15478;
-  /*# mc68881_top.vhd:2979:39 */
+  /*# mc68881_top.vhd:2987:39 */
   assign n15487 = 3'b111 - n11362;
-  /*# mc68881_top.vhd:2926:19 */
+  /*# mc68881_top.vhd:2934:19 */
   assign n15491 = n11361 == 2'b01;
-  /*# mc68881_top.vhd:2982:52 */
+  /*# mc68881_top.vhd:2990:52 */
   assign n15493 = 3'b111 - n11359;
-  /*# mc68881_top.vhd:2984:33 */
+  /*# mc68881_top.vhd:2992:33 */
   assign n15496 = move_cfg_decoded_reg[24]; // extract
   /*# mc68881_top.vhd:696:24 */
   assign n15511 = n23998[79]; // extract
@@ -53595,13 +53594,13 @@ module mc68881_top
   assign n16272 = {n15511, n16138, n16141, n16163, n16188, n16213, n16237, n16242, n16267, n16268};
   /*# mc68881_top.vhd:754:5 */
   assign n16277 = n16098 ? n16272 : n15899;
-  /*# mc68881_top.vhd:3002:53 */
+  /*# mc68881_top.vhd:3010:53 */
   assign n16278 = n16277[31:0]; // extract
-  /*# mc68881_top.vhd:3003:53 */
+  /*# mc68881_top.vhd:3011:53 */
   assign n16279 = n16277[63:32]; // extract
-  /*# mc68881_top.vhd:3004:53 */
+  /*# mc68881_top.vhd:3012:53 */
   assign n16280 = n16277[79:64]; // extract
-  /*# mc68881_top.vhd:3005:56 */
+  /*# mc68881_top.vhd:3013:56 */
   assign n16281 = n16277[95:80]; // extract
   /*# mc68881_top.vhd:1243:59 */
   assign n16288 = conv_single_out[30:23]; // extract
@@ -54147,7 +54146,7 @@ module mc68881_top
   assign n16795 = ~n16794;
   /*# mc68881_pkg.vhd:2169:42 */
   assign n16796 = n16795 & n16761;
-  /*# mc68881_top.vhd:3013:30 */
+  /*# mc68881_top.vhd:3021:30 */
   assign n16797 = ~n16796;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n16809 = n23998[79]; // extract
@@ -54177,9 +54176,9 @@ module mc68881_top
   assign n16829 = n16825 | n16828;
   /*# mc68881_pkg.vhd:2162:42 */
   assign n16830 = n16829 & n16822;
-  /*# mc68881_top.vhd:3013:63 */
+  /*# mc68881_top.vhd:3021:63 */
   assign n16831 = ~n16830;
-  /*# mc68881_top.vhd:3013:59 */
+  /*# mc68881_top.vhd:3021:59 */
   assign n16832 = n16831 & n16797;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n16844 = n23998[79]; // extract
@@ -54201,49 +54200,49 @@ module mc68881_top
   assign n16857 = n16855 == 64'b0000000000000000000000000000000000000000000000000000000000000000;
   /*# mc68881_pkg.vhd:2154:28 */
   assign n16858 = n16857 & n16854;
-  /*# mc68881_top.vhd:3013:96 */
+  /*# mc68881_top.vhd:3021:96 */
   assign n16859 = ~n16858;
-  /*# mc68881_top.vhd:3013:92 */
+  /*# mc68881_top.vhd:3021:92 */
   assign n16860 = n16859 & n16832;
-  /*# mc68881_top.vhd:3014:48 */
+  /*# mc68881_top.vhd:3022:48 */
   assign n16861 = n16724 != n23998;
-  /*# mc68881_top.vhd:3014:29 */
+  /*# mc68881_top.vhd:3022:29 */
   assign n16864 = n16861 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3017:43 */
+  /*# mc68881_top.vhd:3025:43 */
   assign n16865 = conv_single_out[30:23]; // extract
-  /*# mc68881_top.vhd:3017:58 */
+  /*# mc68881_top.vhd:3025:58 */
   assign n16867 = n16865 == 8'b00000000;
-  /*# mc68881_top.vhd:3017:29 */
+  /*# mc68881_top.vhd:3025:29 */
   assign n16870 = n16867 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16872 = n23998[78:0]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16879 = {1'b0, n16872};
   /*# mc68881_top.vhd:1669:37 */
   assign n16880 = n16879[79]; // extract
   /*# mc68881_top.vhd:1670:37 */
   assign n16882 = n16881[79]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16888 = {1'b0, n16872};
   /*# mc68881_top.vhd:1677:24 */
   assign n16889 = n16888[78:64]; // extract
   /*# mc68881_top.vhd:1678:24 */
   assign n16892 = n16891[78:64]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16894 = {1'b0, n16872};
   /*# mc68881_top.vhd:1679:25 */
   assign n16895 = n16894[63:0]; // extract
   /*# mc68881_top.vhd:1680:25 */
   assign n16898 = n16897[63:0]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16911 = {1'b0, n16872};
   /*# mc68881_pkg.vhd:1603:25 */
   assign n16912 = n16911[79]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16915 = {1'b0, n16872};
   /*# mc68881_pkg.vhd:1604:34 */
   assign n16916 = n16915[78:64]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n16918 = {1'b0, n16872};
   /*# mc68881_pkg.vhd:1605:34 */
   assign n16919 = n16918[63:0]; // extract
@@ -54355,17 +54354,17 @@ module mc68881_top
   assign n17029 = n17026 & n16988;
   /*# mc68881_top.vhd:1708:5 */
   assign n17034 = n17020 ? n17016 : n17023;
-  /*# mc68881_top.vhd:3023:83 */
+  /*# mc68881_top.vhd:3031:83 */
   assign n17036 = $signed(n17034) > $signed(32'b00000000000000000000000000000000);
-  /*# mc68881_top.vhd:3023:29 */
+  /*# mc68881_top.vhd:3031:29 */
   assign n17039 = n17036 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3013:27 */
+  /*# mc68881_top.vhd:3021:27 */
   assign n17041 = n16860 ? n17039 : 1'b0;
-  /*# mc68881_top.vhd:3013:27 */
+  /*# mc68881_top.vhd:3021:27 */
   assign n17043 = n16860 ? n16870 : 1'b0;
-  /*# mc68881_top.vhd:3013:27 */
+  /*# mc68881_top.vhd:3021:27 */
   assign n17045 = n16860 ? n16864 : 1'b0;
-  /*# mc68881_top.vhd:3009:25 */
+  /*# mc68881_top.vhd:3017:25 */
   assign n17051 = n11360 == 2'b01;
   /*# mc68881_top.vhd:1284:60 */
   assign n17058 = conv_double_out[62:52]; // extract
@@ -55429,7 +55428,7 @@ module mc68881_top
   assign n17998 = ~n17997;
   /*# mc68881_pkg.vhd:2169:42 */
   assign n17999 = n17998 & n17964;
-  /*# mc68881_top.vhd:3035:30 */
+  /*# mc68881_top.vhd:3043:30 */
   assign n18000 = ~n17999;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n18012 = n23998[79]; // extract
@@ -55459,9 +55458,9 @@ module mc68881_top
   assign n18032 = n18028 | n18031;
   /*# mc68881_pkg.vhd:2162:42 */
   assign n18033 = n18032 & n18025;
-  /*# mc68881_top.vhd:3035:63 */
+  /*# mc68881_top.vhd:3043:63 */
   assign n18034 = ~n18033;
-  /*# mc68881_top.vhd:3035:59 */
+  /*# mc68881_top.vhd:3043:59 */
   assign n18035 = n18034 & n18000;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n18047 = n23998[79]; // extract
@@ -55483,49 +55482,49 @@ module mc68881_top
   assign n18060 = n18058 == 64'b0000000000000000000000000000000000000000000000000000000000000000;
   /*# mc68881_pkg.vhd:2154:28 */
   assign n18061 = n18060 & n18057;
-  /*# mc68881_top.vhd:3035:96 */
+  /*# mc68881_top.vhd:3043:96 */
   assign n18062 = ~n18061;
-  /*# mc68881_top.vhd:3035:92 */
+  /*# mc68881_top.vhd:3043:92 */
   assign n18063 = n18062 & n18035;
-  /*# mc68881_top.vhd:3036:48 */
+  /*# mc68881_top.vhd:3044:48 */
   assign n18064 = n17927 != n23998;
-  /*# mc68881_top.vhd:3036:29 */
+  /*# mc68881_top.vhd:3044:29 */
   assign n18067 = n18064 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3039:43 */
+  /*# mc68881_top.vhd:3047:43 */
   assign n18068 = conv_double_out[62:52]; // extract
-  /*# mc68881_top.vhd:3039:58 */
+  /*# mc68881_top.vhd:3047:58 */
   assign n18070 = n18068 == 11'b00000000000;
-  /*# mc68881_top.vhd:3039:29 */
+  /*# mc68881_top.vhd:3047:29 */
   assign n18073 = n18070 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18075 = n23998[78:0]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18082 = {1'b0, n18075};
   /*# mc68881_top.vhd:1669:37 */
   assign n18083 = n18082[79]; // extract
   /*# mc68881_top.vhd:1670:37 */
   assign n18085 = n18084[79]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18091 = {1'b0, n18075};
   /*# mc68881_top.vhd:1677:24 */
   assign n18092 = n18091[78:64]; // extract
   /*# mc68881_top.vhd:1678:24 */
   assign n18095 = n18094[78:64]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18097 = {1'b0, n18075};
   /*# mc68881_top.vhd:1679:25 */
   assign n18098 = n18097[63:0]; // extract
   /*# mc68881_top.vhd:1680:25 */
   assign n18101 = n18100[63:0]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18114 = {1'b0, n18075};
   /*# mc68881_pkg.vhd:1603:25 */
   assign n18115 = n18114[79]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18118 = {1'b0, n18075};
   /*# mc68881_pkg.vhd:1604:34 */
   assign n18119 = n18118[78:64]; // extract
-  /*# mc68881_top.vhd:2640:14 */
+  /*# mc68881_top.vhd:2648:14 */
   assign n18121 = {1'b0, n18075};
   /*# mc68881_pkg.vhd:1605:34 */
   assign n18122 = n18121[63:0]; // extract
@@ -55637,158 +55636,158 @@ module mc68881_top
   assign n18232 = n18229 & n18191;
   /*# mc68881_top.vhd:1708:5 */
   assign n18237 = n18223 ? n18219 : n18226;
-  /*# mc68881_top.vhd:3045:83 */
+  /*# mc68881_top.vhd:3053:83 */
   assign n18239 = $signed(n18237) > $signed(32'b00000000000000000000000000000000);
-  /*# mc68881_top.vhd:3045:29 */
+  /*# mc68881_top.vhd:3053:29 */
   assign n18242 = n18239 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3035:27 */
+  /*# mc68881_top.vhd:3043:27 */
   assign n18244 = n18063 ? n18242 : 1'b0;
-  /*# mc68881_top.vhd:3035:27 */
+  /*# mc68881_top.vhd:3043:27 */
   assign n18246 = n18063 ? n18073 : 1'b0;
-  /*# mc68881_top.vhd:3035:27 */
+  /*# mc68881_top.vhd:3043:27 */
   assign n18248 = n18063 ? n18067 : 1'b0;
-  /*# mc68881_top.vhd:3049:55 */
+  /*# mc68881_top.vhd:3057:55 */
   assign n18253 = conv_double_out[31:0]; // extract
-  /*# mc68881_top.vhd:3050:55 */
+  /*# mc68881_top.vhd:3058:55 */
   assign n18254 = conv_double_out[63:32]; // extract
-  /*# mc68881_top.vhd:3031:25 */
+  /*# mc68881_top.vhd:3039:25 */
   assign n18256 = n11360 == 2'b10;
-  /*# mc68881_top.vhd:3054:55 */
+  /*# mc68881_top.vhd:3062:55 */
   assign n18257 = n23998[31:0]; // extract
-  /*# mc68881_top.vhd:3055:55 */
+  /*# mc68881_top.vhd:3063:55 */
   assign n18258 = n23998[63:32]; // extract
-  /*# mc68881_top.vhd:3056:55 */
+  /*# mc68881_top.vhd:3064:55 */
   assign n18259 = n23998[79:64]; // extract
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   assign n18260 = {n18256, n17051};
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18261 = n18253;
       2'b01: n18261 = conv_single_out;
       default: n18261 = n18257;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18263 = n18254;
       2'b01: n18263 = 32'b00000000000000000000000000000000;
       default: n18263 = n18258;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18266 = 16'b0000000000000000;
       2'b01: n18266 = 16'b0000000000000000;
       default: n18266 = n18259;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18270 = n17927;
       2'b01: n18270 = n16724;
       default: n18270 = 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18274 = 1'b1;
       2'b01: n18274 = 1'b1;
       default: n18274 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18276 = n18244;
       2'b01: n18276 = n17041;
       default: n18276 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18278 = n18246;
       2'b01: n18278 = n17043;
       default: n18278 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:3008:23 */
+  /*# mc68881_top.vhd:3016:23 */
   always @*
     case (n18260)
       2'b10: n18280 = n18248;
       2'b01: n18280 = n17045;
       default: n18280 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18284 = n15496 ? n16278 : n18261;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18285 = n15496 ? n16279 : n18263;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18286 = n15496 ? n16280 : n18266;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18288 = n15496 ? n16281 : 16'b0000000000000000;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18293 = n15496 ? 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000 : n18270;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18295 = n15496 ? 1'b0 : n18274;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18297 = n15496 ? 1'b0 : n18276;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18299 = n15496 ? 1'b0 : n18278;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18301 = n15496 ? 1'b0 : n18280;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18306 = n15496 ? n16167 : 1'b0;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18308 = n15496 ? n16192 : 1'b0;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18310 = n15496 ? n16217 : 1'b0;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18312 = n15496 ? n16240 : 1'b0;
-  /*# mc68881_top.vhd:2984:21 */
+  /*# mc68881_top.vhd:2992:21 */
   assign n18314 = n15496 ? n16271 : 1'b0;
-  /*# mc68881_top.vhd:2981:19 */
+  /*# mc68881_top.vhd:2989:19 */
   assign n18316 = n11361 == 2'b10;
-  /*# mc68881_top.vhd:3061:33 */
+  /*# mc68881_top.vhd:3069:33 */
   assign n18317 = move_cfg_decoded_reg[7]; // extract
-  /*# mc68881_top.vhd:3063:25 */
+  /*# mc68881_top.vhd:3071:25 */
   assign n18319 = n11363 == 2'b00;
-  /*# mc68881_top.vhd:3064:25 */
+  /*# mc68881_top.vhd:3072:25 */
   assign n18321 = n11363 == 2'b01;
-  /*# mc68881_top.vhd:3062:23 */
+  /*# mc68881_top.vhd:3070:23 */
   assign n18322 = {n18321, n18319};
-  /*# mc68881_top.vhd:3062:23 */
+  /*# mc68881_top.vhd:3070:23 */
   always @*
     case (n18322)
       2'b10: n18323 = fpsr_reg;
       2'b01: n18323 = fpcr_reg;
       default: n18323 = fpiar_reg;
     endcase
-  /*# mc68881_top.vhd:2618:14 */
+  /*# mc68881_top.vhd:2626:14 */
   assign n18325 = n18324[79:32]; // extract
-  /*# mc68881_top.vhd:3069:39 */
+  /*# mc68881_top.vhd:3077:39 */
   assign n18327 = 3'b111 - n11362;
-  /*# mc68881_top.vhd:2618:14 */
+  /*# mc68881_top.vhd:2626:14 */
   assign n18329 = {n18325, n18323};
-  /*# mc68881_top.vhd:3073:61 */
+  /*# mc68881_top.vhd:3081:61 */
   assign n18332 = 3'b111 - n11359;
-  /*# mc68881_top.vhd:3074:54 */
+  /*# mc68881_top.vhd:3082:54 */
   assign n18336 = 3'b111 - n11359;
-  /*# mc68881_top.vhd:3061:21 */
+  /*# mc68881_top.vhd:3069:21 */
   assign n18339 = n18317 ? n24033 : n11025;
-  /*# mc68881_top.vhd:3061:21 */
+  /*# mc68881_top.vhd:3069:21 */
   assign n18342 = n18317 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:3061:21 */
+  /*# mc68881_top.vhd:3069:21 */
   assign n18343 = n18317 ? ctrl_move_sel_reg : n11363;
-  /*# mc68881_top.vhd:3061:21 */
+  /*# mc68881_top.vhd:3069:21 */
   assign n18344 = n18317 ? ctrl_move_data_reg : n24035;
-  /*# mc68881_top.vhd:3061:21 */
+  /*# mc68881_top.vhd:3069:21 */
   assign n18345 = {n18325, n18323};
-  /*# mc68881_top.vhd:3061:21 */
+  /*# mc68881_top.vhd:3069:21 */
   assign n18346 = n18317 ? n18345 : n24036;
-  /*# mc68881_top.vhd:3060:19 */
+  /*# mc68881_top.vhd:3068:19 */
   assign n18349 = n11361 == 2'b11;
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   assign n18350 = {n18349, n18316, n15491, n11392};
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18352 = n11031;
@@ -55797,7 +55796,7 @@ module mc68881_top
       4'b0001: n18352 = n11031;
       default: n18352 = 32'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18354 = n11032;
@@ -55806,7 +55805,7 @@ module mc68881_top
       4'b0001: n18354 = n11032;
       default: n18354 = 32'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18356 = n11033;
@@ -55815,7 +55814,7 @@ module mc68881_top
       4'b0001: n18356 = n11033;
       default: n18356 = 16'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18359 = 16'b0000000000000000;
@@ -55824,7 +55823,7 @@ module mc68881_top
       4'b0001: n18359 = 16'b0000000000000000;
       default: n18359 = 16'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18361 = n18339;
@@ -55833,7 +55832,7 @@ module mc68881_top
       4'b0001: n18361 = n23962;
       default: n18361 = 640'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18364 = n18342;
@@ -55842,7 +55841,7 @@ module mc68881_top
       4'b0001: n18364 = 1'b0;
       default: n18364 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18366 = n18343;
@@ -55851,7 +55850,7 @@ module mc68881_top
       4'b0001: n18366 = ctrl_move_sel_reg;
       default: n18366 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18368 = n18344;
@@ -55860,7 +55859,7 @@ module mc68881_top
       4'b0001: n18368 = ctrl_move_data_reg;
       default: n18368 = 32'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18370 = n18346;
@@ -55869,7 +55868,7 @@ module mc68881_top
       4'b0001: n18370 = n23927;
       default: n18370 = 80'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18383 = 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
@@ -55878,7 +55877,7 @@ module mc68881_top
       4'b0001: n18383 = n23927;
       default: n18383 = 80'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18386 = 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
@@ -55887,7 +55886,7 @@ module mc68881_top
       4'b0001: n18386 = n23927;
       default: n18386 = 80'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18391 = 1'b0;
@@ -55896,7 +55895,7 @@ module mc68881_top
       4'b0001: n18391 = 1'b1;
       default: n18391 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18394 = 1'b0;
@@ -55905,7 +55904,7 @@ module mc68881_top
       4'b0001: n18394 = 1'b0;
       default: n18394 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18397 = 1'b0;
@@ -55914,7 +55913,7 @@ module mc68881_top
       4'b0001: n18397 = 1'b0;
       default: n18397 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18400 = 1'b0;
@@ -55923,7 +55922,7 @@ module mc68881_top
       4'b0001: n18400 = 1'b0;
       default: n18400 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18403 = 1'b0;
@@ -55932,7 +55931,7 @@ module mc68881_top
       4'b0001: n18403 = 1'b0;
       default: n18403 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18412 = 1'b0;
@@ -55941,7 +55940,7 @@ module mc68881_top
       4'b0001: n18412 = 1'b0;
       default: n18412 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18415 = 1'b0;
@@ -55950,7 +55949,7 @@ module mc68881_top
       4'b0001: n18415 = 1'b0;
       default: n18415 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18418 = 1'b0;
@@ -55959,7 +55958,7 @@ module mc68881_top
       4'b0001: n18418 = 1'b0;
       default: n18418 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18421 = 1'b0;
@@ -55968,7 +55967,7 @@ module mc68881_top
       4'b0001: n18421 = 1'b0;
       default: n18421 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2919:17 */
+  /*# mc68881_top.vhd:2927:17 */
   always @*
     case (n18350)
       4'b1000: n18424 = 1'b0;
@@ -55977,415 +55976,415 @@ module mc68881_top
       4'b0001: n18424 = 1'b0;
       default: n18424 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18425 = n11364 ? n11031 : n18352;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18426 = n11364 ? n11032 : n18354;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18427 = n11364 ? n11033 : n18356;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18429 = n11364 ? 16'b0000000000000000 : n18359;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18430 = n11364 ? n23926 : n18361;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18432 = n11364 ? 1'b0 : n18364;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18433 = n11364 ? ctrl_move_sel_reg : n18366;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18434 = n11364 ? ctrl_move_data_reg : n18368;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18435 = n11364 ? n23793 : n18370;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18442 = n11364 ? n23793 : n18383;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18444 = n11364 ? n23793 : n18386;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18447 = n11364 ? 1'b1 : n18391;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18450 = n11364 ? 1'b0 : n18394;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18453 = n11364 ? 1'b0 : n18397;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18456 = n11364 ? 1'b0 : n18400;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18459 = n11364 ? 1'b0 : n18403;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18465 = n11364 ? 1'b0 : n18412;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18467 = n11364 ? 1'b0 : n18415;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18469 = n11364 ? 1'b0 : n18418;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18471 = n11364 ? 1'b0 : n18421;
-  /*# mc68881_top.vhd:2912:15 */
+  /*# mc68881_top.vhd:2920:15 */
   assign n18473 = n11364 ? 1'b0 : n18424;
-  /*# mc68881_top.vhd:3079:23 */
+  /*# mc68881_top.vhd:3087:23 */
   assign n18475 = n11361 != 2'b10;
-  /*# mc68881_top.vhd:3079:51 */
+  /*# mc68881_top.vhd:3087:51 */
   assign n18477 = 1'b1 & n18475;
-  /*# mc68881_top.vhd:3080:45 */
+  /*# mc68881_top.vhd:3088:45 */
   assign n18478 = n18435[31:0]; // extract
-  /*# mc68881_top.vhd:3081:45 */
+  /*# mc68881_top.vhd:3089:45 */
   assign n18479 = n18435[63:32]; // extract
-  /*# mc68881_top.vhd:3082:45 */
+  /*# mc68881_top.vhd:3090:45 */
   assign n18480 = n18435[79:64]; // extract
-  /*# mc68881_top.vhd:3079:15 */
+  /*# mc68881_top.vhd:3087:15 */
   assign n18481 = n18477 ? n18478 : n18425;
-  /*# mc68881_top.vhd:3079:15 */
+  /*# mc68881_top.vhd:3087:15 */
   assign n18482 = n18477 ? n18479 : n18426;
-  /*# mc68881_top.vhd:3079:15 */
+  /*# mc68881_top.vhd:3087:15 */
   assign n18483 = n18477 ? n18480 : n18427;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18486 = n18720 ? 1'b1 : n11040;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18487 = n18721 ? n18442 : n11042;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18488 = n18722 ? n18444 : n11043;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18489 = n18723 ? 80'b00111111111111111000000000000000000000000000000000000000000000000000000000000000 : n11045;
-  /*# mc68881_top.vhd:3084:15 */
+  /*# mc68881_top.vhd:3092:15 */
   assign n18491 = n18447 ? n18450 : 1'b0;
-  /*# mc68881_top.vhd:3084:15 */
+  /*# mc68881_top.vhd:3092:15 */
   assign n18493 = n18447 ? n18453 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18494 = n18728 ? n18456 : n11047;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18495 = n18729 ? n18459 : n11050;
-  /*# mc68881_top.vhd:3097:30 */
+  /*# mc68881_top.vhd:3105:30 */
   assign n18497 = n11117 == 6'b100111;
-  /*# mc68881_top.vhd:3099:27 */
+  /*# mc68881_top.vhd:3107:27 */
   assign n18498 = move_cfg_decoded_reg[26]; // extract
-  /*# mc68881_top.vhd:3100:39 */
+  /*# mc68881_top.vhd:3108:39 */
   assign n18499 = operand_reg[87:80]; // extract
-  /*# mc68881_top.vhd:3102:34 */
+  /*# mc68881_top.vhd:3110:34 */
   assign n18500 = move_cfg_decoded_reg[20:13]; // extract
-  /*# mc68881_top.vhd:3099:15 */
+  /*# mc68881_top.vhd:3107:15 */
   assign n18501 = n18498 ? n18499 : n18500;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18502 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18505 = n18502 ? 3'b000 : 3'b111;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18508 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18509 = fp_movem_shadow_reg[639:560]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18510 = fp_reg_file_reg[639:560]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18511 = n11025[639:560]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18512 = n18516 ? n18509 : n18511;
   /*# mc68881_top.vhd:186:10 */
   assign n18513 = fp_movem_shadow_reg[639:560]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18514 = n18508 ? n18513 : n18510;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18516 = n18508 & n24037;
   /*# mc68881_top.vhd:186:10 */
   assign n18517 = fp_movem_shadow_reg[639:560]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18518 = n24037 ? n18514 : n18517;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18521 = n24037 ? 32'b00000000000000000000000000000000 : 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18523 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18526 = n18523 ? 3'b001 : 3'b110;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18530 = n18521 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18532 = n18544 ? 32'b00000000000000000000000000000001 : n18521;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18533 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18534 = fp_movem_shadow_reg[559:480]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18535 = fp_reg_file_reg[559:480]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18536 = n11025[559:480]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18537 = n18541 ? n18534 : n18536;
   /*# mc68881_top.vhd:186:10 */
   assign n18538 = fp_movem_shadow_reg[559:480]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18539 = n18533 ? n18538 : n18535;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18541 = n18533 & n24038;
   /*# mc68881_top.vhd:186:10 */
   assign n18542 = fp_movem_shadow_reg[559:480]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18543 = n24038 ? n18539 : n18542;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18544 = n18530 & n24038;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18545 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18548 = n18545 ? 3'b010 : 3'b101;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18552 = n18532 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18554 = n18566 ? 32'b00000000000000000000000000000010 : n18532;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18555 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18556 = fp_movem_shadow_reg[479:400]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18557 = fp_reg_file_reg[479:400]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18558 = n11025[479:400]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18559 = n18563 ? n18556 : n18558;
   /*# mc68881_top.vhd:186:10 */
   assign n18560 = fp_movem_shadow_reg[479:400]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18561 = n18555 ? n18560 : n18557;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18563 = n18555 & n24039;
   /*# mc68881_top.vhd:186:10 */
   assign n18564 = fp_movem_shadow_reg[479:400]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18565 = n24039 ? n18561 : n18564;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18566 = n18552 & n24039;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18567 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18570 = n18567 ? 3'b011 : 3'b100;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18574 = n18554 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18576 = n18588 ? 32'b00000000000000000000000000000011 : n18554;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18577 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18578 = fp_movem_shadow_reg[399:320]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18579 = fp_reg_file_reg[399:320]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18580 = n11025[399:320]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18581 = n18585 ? n18578 : n18580;
   /*# mc68881_top.vhd:186:10 */
   assign n18582 = fp_movem_shadow_reg[399:320]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18583 = n18577 ? n18582 : n18579;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18585 = n18577 & n24040;
   /*# mc68881_top.vhd:186:10 */
   assign n18586 = fp_movem_shadow_reg[399:320]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18587 = n24040 ? n18583 : n18586;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18588 = n18574 & n24040;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18589 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18592 = n18589 ? 3'b100 : 3'b011;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18596 = n18576 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18598 = n18610 ? 32'b00000000000000000000000000000100 : n18576;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18599 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18600 = fp_movem_shadow_reg[319:240]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18601 = fp_reg_file_reg[319:240]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18602 = n11025[319:240]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18603 = n18607 ? n18600 : n18602;
   /*# mc68881_top.vhd:186:10 */
   assign n18604 = fp_movem_shadow_reg[319:240]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18605 = n18599 ? n18604 : n18601;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18607 = n18599 & n24041;
   /*# mc68881_top.vhd:186:10 */
   assign n18608 = fp_movem_shadow_reg[319:240]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18609 = n24041 ? n18605 : n18608;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18610 = n18596 & n24041;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18611 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18614 = n18611 ? 3'b101 : 3'b010;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18618 = n18598 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18620 = n18632 ? 32'b00000000000000000000000000000101 : n18598;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18621 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18622 = fp_movem_shadow_reg[239:160]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18623 = fp_reg_file_reg[239:160]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18624 = n11025[239:160]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18625 = n18629 ? n18622 : n18624;
   /*# mc68881_top.vhd:186:10 */
   assign n18626 = fp_movem_shadow_reg[239:160]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18627 = n18621 ? n18626 : n18623;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18629 = n18621 & n24042;
   /*# mc68881_top.vhd:186:10 */
   assign n18630 = fp_movem_shadow_reg[239:160]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18631 = n24042 ? n18627 : n18630;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18632 = n18618 & n24042;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18633 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18636 = n18633 ? 3'b110 : 3'b001;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18640 = n18620 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18642 = n18654 ? 32'b00000000000000000000000000000110 : n18620;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18643 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18644 = fp_movem_shadow_reg[159:80]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18645 = fp_reg_file_reg[159:80]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18646 = n11025[159:80]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18647 = n18651 ? n18644 : n18646;
   /*# mc68881_top.vhd:186:10 */
   assign n18648 = fp_movem_shadow_reg[159:80]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18649 = n18643 ? n18648 : n18645;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18651 = n18643 & n24043;
   /*# mc68881_top.vhd:186:10 */
   assign n18652 = fp_movem_shadow_reg[159:80]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18653 = n24043 ? n18649 : n18652;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18654 = n18640 & n24043;
-  /*# mc68881_top.vhd:3106:29 */
+  /*# mc68881_top.vhd:3114:29 */
   assign n18655 = move_cfg_decoded_reg[27]; // extract
-  /*# mc68881_top.vhd:3106:17 */
+  /*# mc68881_top.vhd:3114:17 */
   assign n18658 = n18655 ? 3'b111 : 3'b000;
-  /*# mc68881_top.vhd:3112:32 */
+  /*# mc68881_top.vhd:3120:32 */
   assign n18662 = n18642 == 32'b11111111111111111111111111111111;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18664 = n18676 ? 32'b00000000000000000000000000000111 : n18642;
-  /*# mc68881_top.vhd:3115:31 */
+  /*# mc68881_top.vhd:3123:31 */
   assign n18665 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3116:64 */
+  /*# mc68881_top.vhd:3124:64 */
   assign n18666 = fp_movem_shadow_reg[79:0]; // extract
-  /*# mc68881_top.vhd:3118:64 */
+  /*# mc68881_top.vhd:3126:64 */
   assign n18667 = fp_reg_file_reg[79:0]; // extract
   /*# mc68881_top.vhd:185:10 */
   assign n18668 = n11025[79:0]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18669 = n18673 ? n18666 : n18668;
   /*# mc68881_top.vhd:186:10 */
   assign n18670 = fp_movem_shadow_reg[79:0]; // extract
-  /*# mc68881_top.vhd:3115:19 */
+  /*# mc68881_top.vhd:3123:19 */
   assign n18671 = n18665 ? n18670 : n18667;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18673 = n18665 & n24044;
   /*# mc68881_top.vhd:186:10 */
   assign n18674 = fp_movem_shadow_reg[79:0]; // extract
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18675 = n24044 ? n18671 : n18674;
-  /*# mc68881_top.vhd:3111:17 */
+  /*# mc68881_top.vhd:3119:17 */
   assign n18676 = n18662 & n24044;
-  /*# mc68881_top.vhd:3124:28 */
+  /*# mc68881_top.vhd:3132:28 */
   assign n18678 = $signed(n18664) >= $signed(32'b00000000000000000000000000000000);
-  /*# mc68881_top.vhd:3125:29 */
+  /*# mc68881_top.vhd:3133:29 */
   assign n18679 = move_cfg_decoded_reg[21]; // extract
-  /*# mc68881_top.vhd:3126:54 */
+  /*# mc68881_top.vhd:3134:54 */
   assign n18680 = n18664[2:0];  // trunc
-  /*# mc68881_top.vhd:3126:54 */
+  /*# mc68881_top.vhd:3134:54 */
   assign n18682 = 3'b111 - n18680;
-  /*# mc68881_top.vhd:3128:50 */
+  /*# mc68881_top.vhd:3136:50 */
   assign n18685 = n18664[2:0];  // trunc
-  /*# mc68881_top.vhd:3128:50 */
+  /*# mc68881_top.vhd:3136:50 */
   assign n18687 = 3'b111 - n18685;
-  /*# mc68881_top.vhd:3125:17 */
+  /*# mc68881_top.vhd:3133:17 */
   assign n18690 = n18679 ? n24045 : n24046;
-  /*# mc68881_top.vhd:3124:15 */
+  /*# mc68881_top.vhd:3132:15 */
   assign n18692 = n18678 ? n18690 : 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
-  /*# mc68881_top.vhd:3131:43 */
+  /*# mc68881_top.vhd:3139:43 */
   assign n18694 = n18692[31:0]; // extract
-  /*# mc68881_top.vhd:3132:43 */
+  /*# mc68881_top.vhd:3140:43 */
   assign n18695 = n18692[63:32]; // extract
-  /*# mc68881_top.vhd:3133:43 */
+  /*# mc68881_top.vhd:3141:43 */
   assign n18696 = n18692[79:64]; // extract
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18697 = n18497 ? n18694 : n11031;
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18698 = n18497 ? n18695 : n11032;
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18699 = n18497 ? n18696 : n11033;
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18700 = {n18512, n18537, n18559, n18581, n18603, n18625, n18647, n18669};
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18701 = n18497 ? n18700 : n11025;
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18702 = {n18518, n18543, n18565, n18587, n18609, n18631, n18653, n18675};
-  /*# mc68881_top.vhd:3097:13 */
+  /*# mc68881_top.vhd:3105:13 */
   assign n18703 = n18497 ? n18702 : fp_movem_shadow_reg;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18709 = n11358 ? n18481 : n18697;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18710 = n11358 ? n18482 : n18698;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18711 = n11358 ? n18483 : n18699;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18713 = n11358 ? n18429 : 16'b0000000000000000;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18714 = n11358 ? n18430 : n18701;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18715 = n11358 ? fp_movem_shadow_reg : n18703;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18717 = n11358 ? n18432 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18718 = n11358 ? n18433 : ctrl_move_sel_reg;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18719 = n11358 ? n18434 : ctrl_move_data_reg;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18720 = n18447 & n11358;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18721 = n18447 & n11358;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18722 = n18447 & n11358;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18723 = n18447 & n11358;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18725 = n11358 ? n18491 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18727 = n11358 ? n18493 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18728 = n18447 & n11358;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18729 = n18447 & n11358;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18760 = n11358 ? n18465 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18762 = n11358 ? n18467 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18764 = n11358 ? n18469 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18766 = n11358 ? n18471 : 1'b0;
-  /*# mc68881_top.vhd:2894:13 */
+  /*# mc68881_top.vhd:2902:13 */
   assign n18768 = n11358 ? n18473 : 1'b0;
-  /*# mc68881_top.vhd:2893:11 */
+  /*# mc68881_top.vhd:2901:11 */
   assign n18770 = n11116 == 3'b010;
-  /*# mc68881_top.vhd:3158:37 */
+  /*# mc68881_top.vhd:3166:37 */
   assign n18771 = cir_launch_alu | pending_launch_reg;
-  /*# mc68881_top.vhd:3161:46 */
+  /*# mc68881_top.vhd:3169:46 */
   assign n18772 = operand_reg[85:80]; // extract
-  /*# mc68881_top.vhd:3158:13 */
+  /*# mc68881_top.vhd:3166:13 */
   assign n18773 = n18771 ? cir_condition_reg : n18772;
-  /*# mc68881_top.vhd:3164:27 */
+  /*# mc68881_top.vhd:3172:27 */
   assign n18775 = n11117 == 6'b101000;
   /*# mc68881_top.vhd:1759:31 */
   assign n18789 = n18773[4:0]; // extract
@@ -56625,21 +56624,21 @@ module mc68881_top
       31'b0000000000000000000000000000001: n19018 = 1'b0;
       default: n19018 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:3168:45 */
+  /*# mc68881_top.vhd:3176:45 */
   assign n19019 = fpsr_reg[24]; // extract
-  /*# mc68881_top.vhd:3168:33 */
+  /*# mc68881_top.vhd:3176:33 */
   assign n19020 = n19019 & n18794;
-  /*# mc68881_top.vhd:3168:15 */
+  /*# mc68881_top.vhd:3176:15 */
   assign n19022 = n19020 ? 1'b0 : n19018;
-  /*# mc68881_top.vhd:3168:15 */
+  /*# mc68881_top.vhd:3176:15 */
   assign n19025 = n19020 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3172:49 */
+  /*# mc68881_top.vhd:3180:49 */
   assign n19026 = ~n19025;
-  /*# mc68881_top.vhd:3172:34 */
+  /*# mc68881_top.vhd:3180:34 */
   assign n19027 = n19026 & n19022;
-  /*# mc68881_top.vhd:3172:15 */
+  /*# mc68881_top.vhd:3180:15 */
   assign n19030 = n19027 ? 8'b11111111 : 8'b00000000;
-  /*# mc68881_top.vhd:3177:30 */
+  /*# mc68881_top.vhd:3185:30 */
   assign n19032 = n11117 == 6'b101001;
   /*# mc68881_top.vhd:1759:31 */
   assign n19046 = n18773[4:0]; // extract
@@ -56879,17 +56878,17 @@ module mc68881_top
       31'b0000000000000000000000000000001: n19275 = 1'b0;
       default: n19275 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:3181:45 */
+  /*# mc68881_top.vhd:3189:45 */
   assign n19276 = fpsr_reg[24]; // extract
-  /*# mc68881_top.vhd:3181:33 */
+  /*# mc68881_top.vhd:3189:33 */
   assign n19277 = n19276 & n19051;
-  /*# mc68881_top.vhd:3181:15 */
+  /*# mc68881_top.vhd:3189:15 */
   assign n19279 = n19277 ? 1'b0 : n19275;
-  /*# mc68881_top.vhd:3181:15 */
+  /*# mc68881_top.vhd:3189:15 */
   assign n19282 = n19277 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:2644:14 */
+  /*# mc68881_top.vhd:2652:14 */
   assign n19285 = {27'b000000000000000000000000000, n19282, 2'b00, n19279, n19279};
-  /*# mc68881_top.vhd:3190:30 */
+  /*# mc68881_top.vhd:3198:30 */
   assign n19287 = n11117 == 6'b101010;
   /*# mc68881_top.vhd:1759:31 */
   assign n19301 = n18773[4:0]; // extract
@@ -57129,41 +57128,41 @@ module mc68881_top
       31'b0000000000000000000000000000001: n19530 = 1'b0;
       default: n19530 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:3194:45 */
+  /*# mc68881_top.vhd:3202:45 */
   assign n19531 = fpsr_reg[24]; // extract
-  /*# mc68881_top.vhd:3194:33 */
+  /*# mc68881_top.vhd:3202:33 */
   assign n19532 = n19531 & n19306;
-  /*# mc68881_top.vhd:3194:15 */
+  /*# mc68881_top.vhd:3202:15 */
   assign n19534 = n19532 ? 1'b0 : n19530;
-  /*# mc68881_top.vhd:3194:15 */
+  /*# mc68881_top.vhd:3202:15 */
   assign n19537 = n19532 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3198:58 */
+  /*# mc68881_top.vhd:3206:58 */
   assign n19538 = operand_reg[15:0]; // extract
-  /*# mc68881_top.vhd:3201:28 */
+  /*# mc68881_top.vhd:3209:28 */
   assign n19539 = ~n19534;
-  /*# mc68881_top.vhd:3201:49 */
+  /*# mc68881_top.vhd:3209:49 */
   assign n19540 = ~n19537;
-  /*# mc68881_top.vhd:3201:34 */
+  /*# mc68881_top.vhd:3209:34 */
   assign n19541 = n19540 & n19539;
-  /*# mc68881_top.vhd:3203:53 */
+  /*# mc68881_top.vhd:3211:53 */
   assign n19543 = n19538 - 16'b0000000000000001;
-  /*# mc68881_top.vhd:3204:36 */
+  /*# mc68881_top.vhd:3212:36 */
   assign n19545 = n19543 != 16'b1111111111111111;
-  /*# mc68881_top.vhd:3204:17 */
+  /*# mc68881_top.vhd:3212:17 */
   assign n19548 = n19545 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3204:17 */
+  /*# mc68881_top.vhd:3212:17 */
   assign n19551 = n19545 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:3201:15 */
+  /*# mc68881_top.vhd:3209:15 */
   assign n19553 = n19541 ? n19548 : 1'b0;
-  /*# mc68881_top.vhd:3201:15 */
+  /*# mc68881_top.vhd:3209:15 */
   assign n19556 = n19541 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3201:15 */
+  /*# mc68881_top.vhd:3209:15 */
   assign n19558 = n19541 ? n19551 : 1'b0;
-  /*# mc68881_top.vhd:3201:15 */
+  /*# mc68881_top.vhd:3209:15 */
   assign n19559 = n19541 ? n19543 : n19538;
-  /*# mc68881_top.vhd:2644:14 */
+  /*# mc68881_top.vhd:2652:14 */
   assign n19561 = {n19559, 11'b00000000000, n19537, n19558, n19556, n19553, n19534};
-  /*# mc68881_top.vhd:3219:30 */
+  /*# mc68881_top.vhd:3227:30 */
   assign n19563 = n11117 == 6'b101100;
   /*# mc68881_top.vhd:1759:31 */
   assign n19577 = n18773[4:0]; // extract
@@ -57403,179 +57402,179 @@ module mc68881_top
       31'b0000000000000000000000000000001: n19806 = 1'b0;
       default: n19806 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:3223:45 */
+  /*# mc68881_top.vhd:3231:45 */
   assign n19807 = fpsr_reg[24]; // extract
-  /*# mc68881_top.vhd:3223:33 */
+  /*# mc68881_top.vhd:3231:33 */
   assign n19808 = n19807 & n19582;
-  /*# mc68881_top.vhd:3223:15 */
+  /*# mc68881_top.vhd:3231:15 */
   assign n19810 = n19808 ? 1'b0 : n19806;
-  /*# mc68881_top.vhd:3223:15 */
+  /*# mc68881_top.vhd:3231:15 */
   assign n19813 = n19808 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3228:15 */
+  /*# mc68881_top.vhd:3236:15 */
   assign n19816 = n19810 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3219:13 */
+  /*# mc68881_top.vhd:3227:13 */
   assign n19818 = n19563 ? n19810 : 1'b0;
-  /*# mc68881_top.vhd:3219:13 */
+  /*# mc68881_top.vhd:3227:13 */
   assign n19820 = n19563 ? n19813 : 1'b0;
-  /*# mc68881_top.vhd:3219:13 */
+  /*# mc68881_top.vhd:3227:13 */
   assign n19825 = n19563 ? n19813 : 1'b0;
-  /*# mc68881_top.vhd:3219:13 */
+  /*# mc68881_top.vhd:3227:13 */
   assign n19827 = n19563 ? n19816 : 1'b0;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19829 = n19287 ? n19561 : 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19830 = {n19537, n19558, n19556, n19553, n19534};
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19831 = n19830[0]; // extract
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19832 = n19287 ? n19831 : n19818;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19833 = n19830[3:1]; // extract
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19835 = n19287 ? n19833 : 3'b000;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19836 = n19830[4]; // extract
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19837 = n19287 ? n19836 : n19820;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19839 = n19287 ? n19559 : 16'b0000000000000000;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19843 = n19287 ? n19537 : n19825;
-  /*# mc68881_top.vhd:3190:13 */
+  /*# mc68881_top.vhd:3198:13 */
   assign n19845 = n19287 ? 1'b0 : n19827;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19854 = n19032 ? n19285 : n19829;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19855 = {n19837, n19835, n19832};
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19856 = {n19279, n19279};
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19857 = n19855[1:0]; // extract
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19858 = n19032 ? n19856 : n19857;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19859 = n19855[3:2]; // extract
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19861 = n19032 ? 2'b00 : n19859;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19862 = n19855[4]; // extract
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19863 = n19032 ? n19282 : n19862;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19865 = n19032 ? 16'b0000000000000000 : n19839;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19869 = n19032 ? n19282 : n19843;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19871 = n19032 ? 1'b0 : n19845;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19879 = n19854[7:0]; // extract
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19880 = n18775 ? n19030 : n19879;
-  /*# mc68881_top.vhd:3177:13 */
+  /*# mc68881_top.vhd:3185:13 */
   assign n19881 = n19854[31:8]; // extract
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19883 = n18775 ? 24'b000000000000000000000000 : n19881;
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19886 = {n19863, n19861, n19858};
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19887 = n19886[0]; // extract
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19888 = n18775 ? n19022 : n19887;
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19889 = n19886[3:1]; // extract
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19891 = n18775 ? 3'b000 : n19889;
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19892 = n19886[4]; // extract
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19893 = n18775 ? n19025 : n19892;
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19895 = n18775 ? 16'b0000000000000000 : n19865;
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19904 = n18775 ? n19025 : n19869;
-  /*# mc68881_top.vhd:3164:13 */
+  /*# mc68881_top.vhd:3172:13 */
   assign n19907 = n18775 ? 1'b0 : n19871;
-  /*# mc68881_top.vhd:3235:27 */
+  /*# mc68881_top.vhd:3243:27 */
   assign n19921 = n11117 == 6'b101000;
-  /*# mc68881_top.vhd:3236:27 */
+  /*# mc68881_top.vhd:3244:27 */
   assign n19923 = n11117 == 6'b101001;
-  /*# mc68881_top.vhd:3235:41 */
+  /*# mc68881_top.vhd:3243:41 */
   assign n19924 = n19921 | n19923;
-  /*# mc68881_top.vhd:3237:27 */
+  /*# mc68881_top.vhd:3245:27 */
   assign n19926 = n11117 == 6'b101010;
-  /*# mc68881_top.vhd:3236:41 */
+  /*# mc68881_top.vhd:3244:41 */
   assign n19927 = n19924 | n19926;
-  /*# mc68881_top.vhd:3238:27 */
+  /*# mc68881_top.vhd:3246:27 */
   assign n19929 = n11117 == 6'b101100;
-  /*# mc68881_top.vhd:3237:42 */
+  /*# mc68881_top.vhd:3245:42 */
   assign n19930 = n19927 | n19929;
-  /*# mc68881_top.vhd:3239:47 */
+  /*# mc68881_top.vhd:3247:47 */
   assign n19931 = fpcr_reg[15]; // extract
-  /*# mc68881_top.vhd:3239:35 */
+  /*# mc68881_top.vhd:3247:35 */
   assign n19932 = n19931 & n19904;
-  /*# mc68881_top.vhd:3239:15 */
+  /*# mc68881_top.vhd:3247:15 */
   assign n19934 = n19932 ? 1'b1 : n19907;
-  /*# mc68881_top.vhd:3243:29 */
+  /*# mc68881_top.vhd:3251:29 */
   assign n19936 = n11117 != 6'b101000;
-  /*# mc68881_top.vhd:2644:14 */
+  /*# mc68881_top.vhd:2652:14 */
   assign n19937 = n19896[15:6]; // extract
-  /*# mc68881_top.vhd:2644:14 */
+  /*# mc68881_top.vhd:2652:14 */
   assign n19938 = {n19895, n19937, n19934, n19893, n19891, n19888};
-  /*# mc68881_top.vhd:2643:14 */
+  /*# mc68881_top.vhd:2651:14 */
   assign n19939 = {n19883, n19880};
-  /*# mc68881_top.vhd:3243:15 */
+  /*# mc68881_top.vhd:3251:15 */
   assign n19940 = n19936 ? n19938 : n19939;
-  /*# mc68881_top.vhd:2644:14 */
+  /*# mc68881_top.vhd:2652:14 */
   assign n19941 = n19896[15:6]; // extract
-  /*# mc68881_top.vhd:2644:14 */
+  /*# mc68881_top.vhd:2652:14 */
   assign n19942 = {n19895, n19941, n19934, n19893, n19891, n19888};
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19943 = n19930 ? n19942 : n11005;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19945 = n19930 ? 1'b1 : n11076;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19946 = n19930 ? n19934 : n11063;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19948 = n19930 ? 1'b0 : n11078;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19950 = n19930 ? 1'b1 : n11040;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19952 = n19930 ? 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000 : n11042;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19954 = n19930 ? 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000 : n11043;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19956 = n19930 ? 80'b00111111111111111000000000000000000000000000000000000000000000000000000000000000 : n11045;
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19958 = n19930 ? n19904 : 1'b0;
-  /*# mc68881_top.vhd:2643:14 */
+  /*# mc68881_top.vhd:2651:14 */
   assign n19959 = {n19883, n19880};
-  /*# mc68881_top.vhd:3235:13 */
+  /*# mc68881_top.vhd:3243:13 */
   assign n19960 = n19930 ? n19940 : n19959;
-  /*# mc68881_top.vhd:3138:11 */
+  /*# mc68881_top.vhd:3146:11 */
   assign n19967 = n11116 == 3'b011;
-  /*# mc68881_top.vhd:3263:27 */
+  /*# mc68881_top.vhd:3271:27 */
   assign n19969 = n11117 == 6'b101101;
-  /*# mc68881_top.vhd:3266:30 */
+  /*# mc68881_top.vhd:3274:30 */
   assign n19971 = n11117 == 6'b101110;
-  /*# mc68881_top.vhd:3266:13 */
+  /*# mc68881_top.vhd:3274:13 */
   assign n19974 = n19971 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:3266:13 */
+  /*# mc68881_top.vhd:3274:13 */
   assign n19977 = n19971 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3266:13 */
+  /*# mc68881_top.vhd:3274:13 */
   assign n19979 = n19971 ? 1'b1 : frame_op_waiting_reg;
-  /*# mc68881_top.vhd:3263:13 */
+  /*# mc68881_top.vhd:3271:13 */
   assign n19981 = n19969 ? 1'b0 : n19974;
-  /*# mc68881_top.vhd:3263:13 */
+  /*# mc68881_top.vhd:3271:13 */
   assign n19984 = n19969 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3263:13 */
+  /*# mc68881_top.vhd:3271:13 */
   assign n19986 = n19969 ? 1'b0 : n19977;
-  /*# mc68881_top.vhd:3263:13 */
+  /*# mc68881_top.vhd:3271:13 */
   assign n19988 = n19969 ? 1'b1 : n19979;
-  /*# mc68881_top.vhd:3262:11 */
+  /*# mc68881_top.vhd:3270:11 */
   assign n19990 = n11116 == 3'b100;
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   assign n19991 = {n19990, n19967, n18770, n11356};
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n19992 = n11031;
@@ -57584,7 +57583,7 @@ module mc68881_top
       4'b0001: n19992 = n11031;
       default: n19992 = n11031;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n19994 = n11032;
@@ -57593,7 +57592,7 @@ module mc68881_top
       4'b0001: n19994 = n11032;
       default: n19994 = n11032;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n19996 = n11033;
@@ -57602,7 +57601,7 @@ module mc68881_top
       4'b0001: n19996 = n11033;
       default: n19996 = n11033;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n19998 = 16'b0000000000000000;
@@ -57611,7 +57610,7 @@ module mc68881_top
       4'b0001: n19998 = 16'b0000000000000000;
       default: n19998 = 16'b0000000000000000;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20001 = 1'b0;
@@ -57620,7 +57619,7 @@ module mc68881_top
       4'b0001: n20001 = 1'b1;
       default: n20001 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20006 = n19981;
@@ -57629,7 +57628,7 @@ module mc68881_top
       4'b0001: n20006 = 1'b0;
       default: n20006 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20007 = n11025;
@@ -57638,7 +57637,7 @@ module mc68881_top
       4'b0001: n20007 = n11025;
       default: n20007 = n11025;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20008 = fp_movem_shadow_reg;
@@ -57647,7 +57646,7 @@ module mc68881_top
       4'b0001: n20008 = fp_movem_shadow_reg;
       default: n20008 = fp_movem_shadow_reg;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20010 = n19984;
@@ -57656,7 +57655,7 @@ module mc68881_top
       4'b0001: n20010 = 1'b0;
       default: n20010 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20012 = n19986;
@@ -57665,7 +57664,7 @@ module mc68881_top
       4'b0001: n20012 = 1'b0;
       default: n20012 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20013 = n19988;
@@ -57674,7 +57673,7 @@ module mc68881_top
       4'b0001: n20013 = frame_op_waiting_reg;
       default: n20013 = frame_op_waiting_reg;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20015 = 1'b0;
@@ -57683,7 +57682,7 @@ module mc68881_top
       4'b0001: n20015 = 1'b0;
       default: n20015 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20016 = ctrl_move_sel_reg;
@@ -57692,7 +57691,7 @@ module mc68881_top
       4'b0001: n20016 = ctrl_move_sel_reg;
       default: n20016 = ctrl_move_sel_reg;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20017 = ctrl_move_data_reg;
@@ -57701,7 +57700,7 @@ module mc68881_top
       4'b0001: n20017 = ctrl_move_data_reg;
       default: n20017 = ctrl_move_data_reg;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20018 = n11005;
@@ -57710,7 +57709,7 @@ module mc68881_top
       4'b0001: n20018 = n11005;
       default: n20018 = n11005;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20019 = n11076;
@@ -57719,7 +57718,7 @@ module mc68881_top
       4'b0001: n20019 = n11076;
       default: n20019 = n11076;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20020 = n11063;
@@ -57728,7 +57727,7 @@ module mc68881_top
       4'b0001: n20020 = n11063;
       default: n20020 = n11063;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20021 = n11078;
@@ -57737,7 +57736,7 @@ module mc68881_top
       4'b0001: n20021 = n11078;
       default: n20021 = n11078;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20022 = n11040;
@@ -57746,7 +57745,7 @@ module mc68881_top
       4'b0001: n20022 = n11040;
       default: n20022 = n11040;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20023 = n11042;
@@ -57755,7 +57754,7 @@ module mc68881_top
       4'b0001: n20023 = n11042;
       default: n20023 = n11042;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20024 = n11043;
@@ -57764,7 +57763,7 @@ module mc68881_top
       4'b0001: n20024 = n11043;
       default: n20024 = n11043;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20025 = n11045;
@@ -57773,7 +57772,7 @@ module mc68881_top
       4'b0001: n20025 = n11045;
       default: n20025 = n11045;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20027 = 1'b0;
@@ -57782,7 +57781,7 @@ module mc68881_top
       4'b0001: n20027 = 1'b0;
       default: n20027 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20029 = 1'b0;
@@ -57791,7 +57790,7 @@ module mc68881_top
       4'b0001: n20029 = 1'b0;
       default: n20029 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20030 = n11047;
@@ -57800,7 +57799,7 @@ module mc68881_top
       4'b0001: n20030 = n11047;
       default: n20030 = n11047;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20031 = n11050;
@@ -57809,7 +57808,7 @@ module mc68881_top
       4'b0001: n20031 = n11050;
       default: n20031 = n11050;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20033 = 1'b0;
@@ -57818,7 +57817,7 @@ module mc68881_top
       4'b0001: n20033 = 1'b0;
       default: n20033 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20086 = 1'b0;
@@ -57827,7 +57826,7 @@ module mc68881_top
       4'b0001: n20086 = 1'b0;
       default: n20086 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20088 = 1'b0;
@@ -57836,7 +57835,7 @@ module mc68881_top
       4'b0001: n20088 = 1'b0;
       default: n20088 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20090 = 1'b0;
@@ -57845,7 +57844,7 @@ module mc68881_top
       4'b0001: n20090 = 1'b0;
       default: n20090 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20092 = 1'b0;
@@ -57854,7 +57853,7 @@ module mc68881_top
       4'b0001: n20092 = 1'b0;
       default: n20092 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2890:9 */
+  /*# mc68881_top.vhd:2898:9 */
   always @*
     case (n19991)
       4'b1000: n20094 = 1'b0;
@@ -57863,339 +57862,339 @@ module mc68881_top
       4'b0001: n20094 = 1'b0;
       default: n20094 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20095 = n11347 ? n11031 : n19992;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20096 = n11347 ? n11032 : n19994;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20097 = n11347 ? n11033 : n19996;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20099 = n11347 ? 16'b0000000000000000 : n19998;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20101 = n11347 ? n11352 : n20001;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20103 = n11347 ? 1'b0 : n20006;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20105 = n11347 ? n11025 : n20007;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20106 = n11347 ? fp_movem_shadow_reg : n20008;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20108 = n11347 ? 1'b0 : n20010;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20110 = n11347 ? 1'b0 : n20012;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20111 = n11347 ? frame_op_waiting_reg : n20013;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20113 = n11347 ? 1'b0 : n20015;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20114 = n11347 ? ctrl_move_sel_reg : n20016;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20115 = n11347 ? ctrl_move_data_reg : n20017;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20116 = n11347 ? n11005 : n20018;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20117 = n11347 ? n11076 : n20019;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20118 = n11347 ? n11063 : n20020;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20119 = n11347 ? n11078 : n20021;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20120 = n11349 & n11347;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20121 = n11347 ? n11040 : n20022;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20122 = n11347 ? n11042 : n20023;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20123 = n11347 ? n11043 : n20024;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20124 = n11347 ? n11045 : n20025;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20126 = n11347 ? 1'b0 : n20027;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20128 = n11347 ? 1'b0 : n20029;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20129 = n11347 ? n11047 : n20030;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20130 = n11347 ? n11050 : n20031;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20132 = n11347 ? 1'b0 : n20033;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20175 = n11347 ? 1'b0 : n20086;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20177 = n11347 ? 1'b0 : n20088;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20179 = n11347 ? 1'b0 : n20090;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20181 = n11347 ? 1'b0 : n20092;
-  /*# mc68881_top.vhd:2880:9 */
+  /*# mc68881_top.vhd:2888:9 */
   assign n20183 = n11347 ? 1'b0 : n20094;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20184 = op_issue_pulse ? n20095 : n11031;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20185 = op_issue_pulse ? n20096 : n11032;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20186 = op_issue_pulse ? n20097 : n11033;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20187 = op_issue_pulse ? n20099 : n11034;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20191 = op_issue_pulse ? n20101 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20194 = op_issue_pulse ? 1'b1 : micro_active_reg;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20195 = op_issue_pulse ? n11343 : micro_remaining_reg;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20197 = op_issue_pulse ? n20103 : n11036;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20199 = n11118 & op_issue_pulse;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20202 = op_issue_pulse ? n20105 : n11025;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20205 = op_issue_pulse ? n20108 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20208 = op_issue_pulse ? n20110 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20210 = op_issue_pulse ? n20111 : frame_op_waiting_reg;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20212 = op_issue_pulse ? n20113 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20216 = op_issue_pulse ? n20116 : n11005;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20217 = op_issue_pulse ? n20117 : n11076;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20218 = op_issue_pulse ? n20118 : n11063;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20219 = op_issue_pulse ? n20119 : n11078;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20220 = n11118 & op_issue_pulse;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20221 = n20120 & op_issue_pulse;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20222 = op_issue_pulse ? n20121 : n11040;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20223 = op_issue_pulse ? n20122 : n11042;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20224 = op_issue_pulse ? n20123 : n11043;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20225 = op_issue_pulse ? n20124 : n11045;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20227 = op_issue_pulse ? n20126 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20230 = op_issue_pulse ? n20128 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20232 = op_issue_pulse ? n20129 : n11047;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20233 = op_issue_pulse ? n20130 : n11050;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20235 = op_issue_pulse ? n20132 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20281 = op_issue_pulse ? n20175 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20283 = op_issue_pulse ? n20177 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20285 = op_issue_pulse ? n20179 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20287 = op_issue_pulse ? n20181 : 1'b0;
-  /*# mc68881_top.vhd:2791:7 */
+  /*# mc68881_top.vhd:2799:7 */
   assign n20289 = op_issue_pulse ? n20183 : 1'b0;
-  /*# mc68881_top.vhd:3279:32 */
+  /*# mc68881_top.vhd:3287:32 */
   assign n20290 = result[31:0]; // extract
-  /*# mc68881_top.vhd:3280:32 */
+  /*# mc68881_top.vhd:3288:32 */
   assign n20291 = result[63:32]; // extract
-  /*# mc68881_top.vhd:3281:32 */
+  /*# mc68881_top.vhd:3289:32 */
   assign n20292 = result[79:64]; // extract
-  /*# mc68881_top.vhd:3285:30 */
+  /*# mc68881_top.vhd:3293:30 */
   assign n20294 = last_op_sel_reg != 6'b000110;
-  /*# mc68881_top.vhd:3285:64 */
+  /*# mc68881_top.vhd:3293:64 */
   assign n20296 = last_op_sel_reg != 6'b100101;
-  /*# mc68881_top.vhd:3285:44 */
+  /*# mc68881_top.vhd:3293:44 */
   assign n20297 = n20296 & n20294;
-  /*# mc68881_top.vhd:3287:29 */
+  /*# mc68881_top.vhd:3295:29 */
   assign n20299 = 3'b111 - launch_dst_reg_idx_reg;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20302 = n20324 ? n24081 : n20202;
-  /*# mc68881_top.vhd:3290:33 */
+  /*# mc68881_top.vhd:3298:33 */
   assign n20303 = ~pending_launch_reg;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20305 = n20325 ? 1'b0 : n11332;
-  /*# mc68881_top.vhd:3284:9 */
+  /*# mc68881_top.vhd:3292:9 */
   assign n20306 = n20297 & cir_arith_active_reg;
-  /*# mc68881_top.vhd:3284:9 */
+  /*# mc68881_top.vhd:3292:9 */
   assign n20307 = n20303 & cir_arith_active_reg;
-  /*# mc68881_top.vhd:3298:42 */
+  /*# mc68881_top.vhd:3306:42 */
   assign n20308 = aux_result[31:0]; // extract
-  /*# mc68881_top.vhd:3299:42 */
+  /*# mc68881_top.vhd:3307:42 */
   assign n20309 = aux_result[63:32]; // extract
-  /*# mc68881_top.vhd:3300:42 */
+  /*# mc68881_top.vhd:3308:42 */
   assign n20310 = aux_result[79:64]; // extract
-  /*# mc68881_top.vhd:3304:31 */
+  /*# mc68881_top.vhd:3312:31 */
   assign n20314 = ~pending_launch_reg;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20316 = n20323 ? 1'b1 : n20197;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20317 = valid ? n20290 : n20184;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20318 = valid ? n20291 : n20185;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20319 = valid ? n20292 : n20186;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20320 = aux_valid & valid;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20321 = aux_valid & valid;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20322 = aux_valid & valid;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20323 = n20314 & valid;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20324 = n20306 & valid;
-  /*# mc68881_top.vhd:3278:7 */
+  /*# mc68881_top.vhd:3286:7 */
   assign n20325 = n20307 & valid;
-  /*# mc68881_top.vhd:3313:25 */
+  /*# mc68881_top.vhd:3321:25 */
   assign n20327 = 3'b111 - cir_dst_reg_idx;
-  /*# mc68881_top.vhd:3313:56 */
+  /*# mc68881_top.vhd:3321:56 */
   assign n20329 = operand_reg[79:0]; // extract
-  /*# mc68881_top.vhd:3314:40 */
+  /*# mc68881_top.vhd:3322:40 */
   assign n20331 = operand_reg[31:0]; // extract
-  /*# mc68881_top.vhd:3315:40 */
+  /*# mc68881_top.vhd:3323:40 */
   assign n20332 = operand_reg[63:32]; // extract
-  /*# mc68881_top.vhd:3317:40 */
+  /*# mc68881_top.vhd:3325:40 */
   assign n20333 = operand_reg[79:64]; // extract
-  /*# mc68881_top.vhd:3321:44 */
+  /*# mc68881_top.vhd:3329:44 */
   assign n20334 = operand_reg[79:0]; // extract
-  /*# mc68881_top.vhd:3322:41 */
+  /*# mc68881_top.vhd:3330:41 */
   assign n20335 = operand_reg[79:0]; // extract
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20336 = cir_move_pending_reg ? n20331 : n20317;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20337 = cir_move_pending_reg ? n20332 : n20318;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20338 = cir_move_pending_reg ? n20333 : n20319;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20340 = cir_move_pending_reg ? 1'b1 : n20316;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20341 = cir_move_pending_reg ? n24116 : n20302;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20343 = cir_move_pending_reg ? 1'b0 : n11354;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20345 = cir_move_pending_reg ? 1'b1 : n20222;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20346 = cir_move_pending_reg ? n20334 : n20223;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20347 = cir_move_pending_reg ? n20335 : n20224;
-  /*# mc68881_top.vhd:3312:7 */
+  /*# mc68881_top.vhd:3320:7 */
   assign n20349 = cir_move_pending_reg ? 80'b00111111111111111000000000000000000000000000000000000000000000000000000000000000 : n20225;
-  /*# mc68881_top.vhd:3331:29 */
+  /*# mc68881_top.vhd:3339:29 */
   assign n20350 = ~frame_busy_reg;
-  /*# mc68881_top.vhd:3331:10 */
+  /*# mc68881_top.vhd:3339:10 */
   assign n20351 = n20350 & frame_op_waiting_reg;
-  /*# mc68881_top.vhd:3332:36 */
+  /*# mc68881_top.vhd:3340:36 */
   assign n20352 = ~sys_ctrl_save_req_reg;
-  /*# mc68881_top.vhd:3332:10 */
+  /*# mc68881_top.vhd:3340:10 */
   assign n20353 = n20352 & n20351;
-  /*# mc68881_top.vhd:3333:39 */
+  /*# mc68881_top.vhd:3341:39 */
   assign n20354 = ~sys_ctrl_restore_req_reg;
-  /*# mc68881_top.vhd:3333:10 */
+  /*# mc68881_top.vhd:3341:10 */
   assign n20355 = n20354 & n20353;
-  /*# mc68881_top.vhd:3330:7 */
+  /*# mc68881_top.vhd:3338:7 */
   assign n20357 = n20355 ? 1'b1 : n20340;
-  /*# mc68881_top.vhd:3330:7 */
+  /*# mc68881_top.vhd:3338:7 */
   assign n20359 = n20355 ? 1'b0 : n20210;
-  /*# mc68881_top.vhd:3339:32 */
+  /*# mc68881_top.vhd:3347:32 */
   assign n20360 = {1'b0, micro_remaining_reg};  // uext
-  /*# mc68881_top.vhd:3339:32 */
+  /*# mc68881_top.vhd:3347:32 */
   assign n20362 = n20360 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3338:7 */
+  /*# mc68881_top.vhd:3346:7 */
   assign n20364 = n20371 ? 1'b0 : n20194;
-  /*# mc68881_top.vhd:3344:54 */
+  /*# mc68881_top.vhd:3352:54 */
   assign n20365 = {1'b0, micro_remaining_reg};  // uext
-  /*# mc68881_top.vhd:3344:54 */
+  /*# mc68881_top.vhd:3352:54 */
   assign n20367 = n20365 - 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:3344:34 */
+  /*# mc68881_top.vhd:3352:34 */
   assign n20368 = n20367[30:0];  // trunc
-  /*# mc68881_top.vhd:3339:9 */
+  /*# mc68881_top.vhd:3347:9 */
   assign n20369 = result_ready_reg & n20362;
-  /*# mc68881_top.vhd:3339:9 */
+  /*# mc68881_top.vhd:3347:9 */
   assign n20370 = n20362 ? n20195 : n20368;
-  /*# mc68881_top.vhd:3338:7 */
+  /*# mc68881_top.vhd:3346:7 */
   assign n20371 = n20369 & micro_active_reg;
-  /*# mc68881_top.vhd:3338:7 */
+  /*# mc68881_top.vhd:3346:7 */
   assign n20372 = micro_active_reg ? n20370 : n20195;
-  /*# mc68881_top.vhd:2614:3 */
+  /*# mc68881_top.vhd:2622:3 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n20627 <= 1'b1;
     else
       n20627 <= n16154;
-  /*# mc68881_top.vhd:2614:3 */
+  /*# mc68881_top.vhd:2622:3 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n20629 <= 1'b1;
     else
       n20629 <= n16179;
-  /*# mc68881_top.vhd:2614:3 */
+  /*# mc68881_top.vhd:2622:3 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n20631 <= 1'b1;
     else
       n20631 <= n16204;
-  /*# mc68881_top.vhd:2614:3 */
+  /*# mc68881_top.vhd:2622:3 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n20633 <= 1'b1;
     else
       n20633 <= n16229;
-  /*# mc68881_top.vhd:2614:3 */
+  /*# mc68881_top.vhd:2622:3 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n20635 <= 1'b1;
     else
       n20635 <= n16258;
-  /*# mc68881_top.vhd:3353:16 */
+  /*# mc68881_top.vhd:3361:16 */
   assign n20637 = ~reset_n;
-  /*# mc68881_top.vhd:3359:48 */
+  /*# mc68881_top.vhd:3367:48 */
   assign n20640 = cir_state_reg == 5'b00001;
-  /*# mc68881_top.vhd:3359:31 */
+  /*# mc68881_top.vhd:3367:31 */
   assign n20641 = op_issue_pulse | n20640;
-  /*# mc68881_top.vhd:3361:60 */
+  /*# mc68881_top.vhd:3369:60 */
   assign n20642 = {1'b0, micro_remaining_reg};  // uext
-  /*# mc68881_top.vhd:3361:60 */
+  /*# mc68881_top.vhd:3369:60 */
   assign n20644 = n20642 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3361:36 */
+  /*# mc68881_top.vhd:3369:36 */
   assign n20645 = n20644 & micro_active_reg;
-  /*# mc68881_top.vhd:3361:64 */
+  /*# mc68881_top.vhd:3369:64 */
   assign n20646 = result_ready_reg & n20645;
-  /*# mc68881_top.vhd:3361:7 */
+  /*# mc68881_top.vhd:3369:7 */
   assign n20648 = n20646 ? 1'b1 : status_valid_reg;
-  /*# mc68881_top.vhd:3359:7 */
+  /*# mc68881_top.vhd:3367:7 */
   assign n20650 = n20641 ? 1'b0 : n20648;
-  /*# mc68881_top.vhd:3365:43 */
+  /*# mc68881_top.vhd:3373:43 */
   assign n20651 = micro_active_reg | frame_busy_reg;
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n20675 = n20671[31:8]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n20682 = n20678[31:5]; // extract
-  /*# mc68881_top.vhd:3433:9 */
+  /*# mc68881_top.vhd:3441:9 */
   assign n20684 = addr == 5'b00111;
-  /*# mc68881_top.vhd:3435:28 */
+  /*# mc68881_top.vhd:3443:28 */
   assign n20686 = cir_state_reg == 5'b00111;
-  /*# mc68881_top.vhd:3435:60 */
+  /*# mc68881_top.vhd:3443:60 */
   assign n20688 = cir_state_reg == 5'b01000;
-  /*# mc68881_top.vhd:3435:43 */
+  /*# mc68881_top.vhd:3443:43 */
   assign n20689 = n20686 | n20688;
-  /*# mc68881_top.vhd:3438:58 */
+  /*# mc68881_top.vhd:3446:58 */
   assign n20690 = cir_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:3438:15 */
+  /*# mc68881_top.vhd:3446:15 */
   assign n20692 = cir_xfer_word_idx == 6'b000000;
-  /*# mc68881_top.vhd:3439:58 */
+  /*# mc68881_top.vhd:3447:58 */
   assign n20693 = cir_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:3439:15 */
+  /*# mc68881_top.vhd:3447:15 */
   assign n20695 = cir_xfer_word_idx == 6'b000001;
-  /*# mc68881_top.vhd:3440:58 */
+  /*# mc68881_top.vhd:3448:58 */
   assign n20696 = cir_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:3440:15 */
+  /*# mc68881_top.vhd:3448:15 */
   assign n20698 = cir_xfer_word_idx == 6'b000010;
-  /*# mc68881_top.vhd:3437:13 */
+  /*# mc68881_top.vhd:3445:13 */
   assign n20699 = {n20698, n20695, n20692};
-  /*# mc68881_top.vhd:3437:13 */
+  /*# mc68881_top.vhd:3445:13 */
   always @*
     case (n20699)
       3'b100: n20701 = n20696;
@@ -58203,23 +58202,23 @@ module mc68881_top
       3'b001: n20701 = n20690;
       default: n20701 = 32'b00000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:3443:31 */
+  /*# mc68881_top.vhd:3451:31 */
   assign n20703 = cir_state_reg == 5'b10001;
-  /*# mc68881_top.vhd:3455:42 */
+  /*# mc68881_top.vhd:3463:42 */
   assign n20705 = frame_format_word_reg == 16'b0001111100011000;
-  /*# mc68881_top.vhd:3455:16 */
+  /*# mc68881_top.vhd:3463:16 */
   assign n20707 = n20705 & 1'b1;
-  /*# mc68881_top.vhd:3459:15 */
+  /*# mc68881_top.vhd:3467:15 */
   assign n20709 = cir_save_word_idx == 6'b000000;
-  /*# mc68881_top.vhd:3460:15 */
+  /*# mc68881_top.vhd:3468:15 */
   assign n20711 = cir_save_word_idx == 6'b000001;
-  /*# mc68881_top.vhd:3461:15 */
+  /*# mc68881_top.vhd:3469:15 */
   assign n20713 = cir_save_word_idx == 6'b000010;
-  /*# mc68881_top.vhd:3462:15 */
+  /*# mc68881_top.vhd:3470:15 */
   assign n20715 = cir_save_word_idx == 6'b000011;
-  /*# mc68881_top.vhd:3463:15 */
+  /*# mc68881_top.vhd:3471:15 */
   assign n20717 = cir_save_word_idx == 6'b000100;
-  /*# mc68881_top.vhd:3464:15 */
+  /*# mc68881_top.vhd:3472:15 */
   assign n20719 = cir_save_word_idx == 6'b000101;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20726 = frame_format_word_reg == 16'b0001111100011000;
@@ -58235,15 +58234,15 @@ module mc68881_top
   assign n20734 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20735 = n20732 | n20734;
-  /*# mc68881_top.vhd:3469:51 */
+  /*# mc68881_top.vhd:3477:51 */
   assign n20737 = {pending_valid_reg, 15'b000000000000000};
-  /*# mc68881_top.vhd:3469:71 */
+  /*# mc68881_top.vhd:3477:71 */
   assign n20738 = {n20737, pending_opword_reg};
-  /*# mc68881_top.vhd:3472:64 */
+  /*# mc68881_top.vhd:3480:64 */
   assign n20739 = operand_reg[111:80]; // extract
-  /*# mc68881_top.vhd:3467:17 */
+  /*# mc68881_top.vhd:3475:17 */
   assign n20740 = n20735 ? n20738 : n20739;
-  /*# mc68881_top.vhd:3466:15 */
+  /*# mc68881_top.vhd:3474:15 */
   assign n20742 = cir_save_word_idx == 6'b000110;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20749 = frame_format_word_reg == 16'b0001111100011000;
@@ -58259,25 +58258,25 @@ module mc68881_top
   assign n20757 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20758 = n20755 | n20757;
-  /*# mc68881_top.vhd:3476:53 */
+  /*# mc68881_top.vhd:3484:53 */
   assign n20760 = {pending_command_reg, 8'b00000000};
-  /*# mc68881_top.vhd:3476:66 */
+  /*# mc68881_top.vhd:3484:66 */
   assign n20761 = {n20760, pending_src_fmt_reg};
-  /*# mc68881_top.vhd:3477:53 */
+  /*# mc68881_top.vhd:3485:53 */
   assign n20762 = {n20761, pending_instr_type};
-  /*# mc68881_top.vhd:3477:74 */
+  /*# mc68881_top.vhd:3485:74 */
   assign n20763 = {n20762, pending_direction};
-  /*# mc68881_top.vhd:3477:94 */
+  /*# mc68881_top.vhd:3485:94 */
   assign n20764 = {n20763, pending_reg_to_reg};
-  /*# mc68881_top.vhd:3480:64 */
+  /*# mc68881_top.vhd:3488:64 */
   assign n20765 = operand_reg[159:144]; // extract
-  /*# mc68881_top.vhd:3481:64 */
+  /*# mc68881_top.vhd:3489:64 */
   assign n20766 = operand_reg[143:128]; // extract
-  /*# mc68881_top.vhd:3480:80 */
+  /*# mc68881_top.vhd:3488:80 */
   assign n20767 = {n20765, n20766};
-  /*# mc68881_top.vhd:3475:17 */
+  /*# mc68881_top.vhd:3483:17 */
   assign n20768 = n20758 ? n20764 : n20767;
-  /*# mc68881_top.vhd:3474:15 */
+  /*# mc68881_top.vhd:3482:15 */
   assign n20770 = cir_save_word_idx == 6'b000111;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20777 = frame_format_word_reg == 16'b0001111100011000;
@@ -58293,13 +58292,13 @@ module mc68881_top
   assign n20785 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20786 = n20783 | n20785;
-  /*# mc68881_top.vhd:3485:56 */
+  /*# mc68881_top.vhd:3493:56 */
   assign n20787 = pending_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:3487:64 */
+  /*# mc68881_top.vhd:3495:64 */
   assign n20788 = operand_reg[31:0]; // extract
-  /*# mc68881_top.vhd:3484:17 */
+  /*# mc68881_top.vhd:3492:17 */
   assign n20789 = n20786 ? n20787 : n20788;
-  /*# mc68881_top.vhd:3483:15 */
+  /*# mc68881_top.vhd:3491:15 */
   assign n20791 = cir_save_word_idx == 6'b001000;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20798 = frame_format_word_reg == 16'b0001111100011000;
@@ -58315,17 +58314,17 @@ module mc68881_top
   assign n20806 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20807 = n20804 | n20806;
-  /*# mc68881_top.vhd:3491:56 */
+  /*# mc68881_top.vhd:3499:56 */
   assign n20808 = pending_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:3493:64 */
+  /*# mc68881_top.vhd:3501:64 */
   assign n20809 = operand_reg[79:64]; // extract
-  /*# mc68881_top.vhd:3494:64 */
+  /*# mc68881_top.vhd:3502:64 */
   assign n20810 = operand_reg[63:48]; // extract
-  /*# mc68881_top.vhd:3493:80 */
+  /*# mc68881_top.vhd:3501:80 */
   assign n20811 = {n20809, n20810};
-  /*# mc68881_top.vhd:3490:17 */
+  /*# mc68881_top.vhd:3498:17 */
   assign n20812 = n20807 ? n20808 : n20811;
-  /*# mc68881_top.vhd:3489:15 */
+  /*# mc68881_top.vhd:3497:15 */
   assign n20814 = cir_save_word_idx == 6'b001001;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20821 = frame_format_word_reg == 16'b0001111100011000;
@@ -58341,13 +58340,13 @@ module mc68881_top
   assign n20829 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20830 = n20827 | n20829;
-  /*# mc68881_top.vhd:3498:56 */
+  /*# mc68881_top.vhd:3506:56 */
   assign n20831 = pending_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:3500:64 */
+  /*# mc68881_top.vhd:3508:64 */
   assign n20832 = operand_reg[143:112]; // extract
-  /*# mc68881_top.vhd:3497:17 */
+  /*# mc68881_top.vhd:3505:17 */
   assign n20833 = n20830 ? n20831 : n20832;
-  /*# mc68881_top.vhd:3496:15 */
+  /*# mc68881_top.vhd:3504:15 */
   assign n20835 = cir_save_word_idx == 6'b001010;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20842 = frame_format_word_reg == 16'b0001111100011000;
@@ -58363,11 +58362,11 @@ module mc68881_top
   assign n20850 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20851 = n20848 | n20850;
-  /*# mc68881_top.vhd:3506:64 */
+  /*# mc68881_top.vhd:3514:64 */
   assign n20852 = operand_reg[63:32]; // extract
-  /*# mc68881_top.vhd:3503:17 */
+  /*# mc68881_top.vhd:3511:17 */
   assign n20853 = n20851 ? pending_instaddr_reg : n20852;
-  /*# mc68881_top.vhd:3502:15 */
+  /*# mc68881_top.vhd:3510:15 */
   assign n20855 = cir_save_word_idx == 6'b001011;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n20862 = frame_format_word_reg == 16'b0001111100011000;
@@ -58383,115 +58382,115 @@ module mc68881_top
   assign n20870 = frame_format_word_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n20871 = n20868 | n20870;
-  /*# mc68881_top.vhd:3511:40 */
+  /*# mc68881_top.vhd:3519:40 */
   assign n20872 = {26'b0, cir_save_word_idx};  // uext
-  /*# mc68881_top.vhd:3511:40 */
+  /*# mc68881_top.vhd:3519:40 */
   assign n20874 = n20872 == 32'b00000000000000000000000000001100;
-  /*# mc68881_top.vhd:3512:52 */
+  /*# mc68881_top.vhd:3520:52 */
   assign n20876 = {1'b0, pending_dst_reg_idx_reg};  // uext
-  /*# mc68881_top.vhd:3513:52 */
+  /*# mc68881_top.vhd:3521:52 */
   assign n20878 = {1'b0, pending_src_reg_idx_reg};  // uext
-  /*# mc68881_top.vhd:3512:93 */
+  /*# mc68881_top.vhd:3520:93 */
   assign n20879 = {n20876, n20878};
-  /*# mc68881_top.vhd:3514:52 */
+  /*# mc68881_top.vhd:3522:52 */
   assign n20882 = {2'b0, pending_decoded_op};  // uext
-  /*# mc68881_top.vhd:3513:93 */
+  /*# mc68881_top.vhd:3521:93 */
   assign n20883 = {n20879, n20882};
-  /*# mc68881_top.vhd:3515:52 */
+  /*# mc68881_top.vhd:3523:52 */
   assign n20885 = {2'b0, pending_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:3514:102 */
+  /*# mc68881_top.vhd:3522:102 */
   assign n20886 = {n20883, n20885};
-  /*# mc68881_top.vhd:3516:52 */
+  /*# mc68881_top.vhd:3524:52 */
   assign n20888 = {2'b0, pending_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:3515:93 */
+  /*# mc68881_top.vhd:3523:93 */
   assign n20889 = {n20886, n20888};
-  /*# mc68881_top.vhd:3516:91 */
+  /*# mc68881_top.vhd:3524:91 */
   assign n20891 = {n20889, 8'b00000000};
-  /*# mc68881_top.vhd:3511:19 */
+  /*# mc68881_top.vhd:3519:19 */
   assign n20893 = n20874 ? n20891 : 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3509:17 */
+  /*# mc68881_top.vhd:3517:17 */
   assign n20894 = n20871 ? n20893 : alu_save_data;
-  /*# mc68881_top.vhd:3508:15 */
+  /*# mc68881_top.vhd:3516:15 */
   assign n20897 = $unsigned(cir_save_word_idx) >= $unsigned(6'b001100);
-  /*# mc68881_top.vhd:3508:15 */
+  /*# mc68881_top.vhd:3516:15 */
   assign n20898 = $unsigned(cir_save_word_idx) <= $unsigned(6'b001101);
-  /*# mc68881_top.vhd:3508:15 */
+  /*# mc68881_top.vhd:3516:15 */
   assign n20899 = n20897 & n20898;
-  /*# mc68881_top.vhd:3525:15 */
+  /*# mc68881_top.vhd:3533:15 */
   assign n20902 = $unsigned(cir_save_word_idx) >= $unsigned(6'b001110);
-  /*# mc68881_top.vhd:3525:15 */
+  /*# mc68881_top.vhd:3533:15 */
   assign n20903 = $unsigned(cir_save_word_idx) <= $unsigned(6'b100101);
-  /*# mc68881_top.vhd:3525:15 */
+  /*# mc68881_top.vhd:3533:15 */
   assign n20904 = n20902 & n20903;
-  /*# mc68881_top.vhd:3528:15 */
+  /*# mc68881_top.vhd:3536:15 */
   assign n20907 = $unsigned(cir_save_word_idx) >= $unsigned(6'b100110);
-  /*# mc68881_top.vhd:3528:15 */
+  /*# mc68881_top.vhd:3536:15 */
   assign n20908 = $unsigned(cir_save_word_idx) <= $unsigned(6'b101000);
-  /*# mc68881_top.vhd:3528:15 */
+  /*# mc68881_top.vhd:3536:15 */
   assign n20909 = n20907 & n20908;
-  /*# mc68881_top.vhd:3531:15 */
-  assign n20912 = $unsigned(cir_save_word_idx) >= $unsigned(6'b101001);
-  /*# mc68881_top.vhd:3531:15 */
-  assign n20913 = $unsigned(cir_save_word_idx) <= $unsigned(6'b101100);
-  /*# mc68881_top.vhd:3531:15 */
-  assign n20914 = n20912 & n20913;
-  /*# mc68881_top.vhd:3538:49 */
-  assign n20916 = {pending_valid_reg, 15'b000000000000000};
-  /*# mc68881_top.vhd:3538:69 */
-  assign n20917 = {n20916, pending_opword_reg};
-  /*# mc68881_top.vhd:3537:15 */
-  assign n20919 = cir_save_word_idx == 6'b101101;
-  /*# mc68881_top.vhd:3540:51 */
-  assign n20921 = {pending_command_reg, 8'b00000000};
-  /*# mc68881_top.vhd:3540:64 */
-  assign n20922 = {n20921, pending_src_fmt_reg};
-  /*# mc68881_top.vhd:3541:51 */
-  assign n20923 = {n20922, pending_instr_type};
-  /*# mc68881_top.vhd:3541:72 */
-  assign n20924 = {n20923, pending_direction};
-  /*# mc68881_top.vhd:3541:92 */
-  assign n20925 = {n20924, pending_reg_to_reg};
   /*# mc68881_top.vhd:3539:15 */
+  assign n20912 = $unsigned(cir_save_word_idx) >= $unsigned(6'b101001);
+  /*# mc68881_top.vhd:3539:15 */
+  assign n20913 = $unsigned(cir_save_word_idx) <= $unsigned(6'b101100);
+  /*# mc68881_top.vhd:3539:15 */
+  assign n20914 = n20912 & n20913;
+  /*# mc68881_top.vhd:3546:49 */
+  assign n20916 = {pending_valid_reg, 15'b000000000000000};
+  /*# mc68881_top.vhd:3546:69 */
+  assign n20917 = {n20916, pending_opword_reg};
+  /*# mc68881_top.vhd:3545:15 */
+  assign n20919 = cir_save_word_idx == 6'b101101;
+  /*# mc68881_top.vhd:3548:51 */
+  assign n20921 = {pending_command_reg, 8'b00000000};
+  /*# mc68881_top.vhd:3548:64 */
+  assign n20922 = {n20921, pending_src_fmt_reg};
+  /*# mc68881_top.vhd:3549:51 */
+  assign n20923 = {n20922, pending_instr_type};
+  /*# mc68881_top.vhd:3549:72 */
+  assign n20924 = {n20923, pending_direction};
+  /*# mc68881_top.vhd:3549:92 */
+  assign n20925 = {n20924, pending_reg_to_reg};
+  /*# mc68881_top.vhd:3547:15 */
   assign n20927 = cir_save_word_idx == 6'b101110;
-  /*# mc68881_top.vhd:3543:54 */
+  /*# mc68881_top.vhd:3551:54 */
   assign n20928 = pending_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:3542:15 */
-  assign n20930 = cir_save_word_idx == 6'b101111;
-  /*# mc68881_top.vhd:3545:54 */
-  assign n20931 = pending_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:3544:15 */
-  assign n20933 = cir_save_word_idx == 6'b110000;
-  /*# mc68881_top.vhd:3547:54 */
-  assign n20934 = pending_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:3546:15 */
-  assign n20936 = cir_save_word_idx == 6'b110001;
-  /*# mc68881_top.vhd:3548:15 */
-  assign n20938 = cir_save_word_idx == 6'b110010;
-  /*# mc68881_top.vhd:3551:48 */
-  assign n20940 = {1'b0, pending_dst_reg_idx_reg};  // uext
-  /*# mc68881_top.vhd:3552:48 */
-  assign n20942 = {1'b0, pending_src_reg_idx_reg};  // uext
-  /*# mc68881_top.vhd:3551:89 */
-  assign n20943 = {n20940, n20942};
-  /*# mc68881_top.vhd:3553:48 */
-  assign n20946 = {2'b0, pending_decoded_op};  // uext
-  /*# mc68881_top.vhd:3552:89 */
-  assign n20947 = {n20943, n20946};
-  /*# mc68881_top.vhd:3554:48 */
-  assign n20949 = {2'b0, pending_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:3553:98 */
-  assign n20950 = {n20947, n20949};
-  /*# mc68881_top.vhd:3555:48 */
-  assign n20952 = {2'b0, pending_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:3554:89 */
-  assign n20953 = {n20950, n20952};
-  /*# mc68881_top.vhd:3555:87 */
-  assign n20955 = {n20953, 8'b00000000};
   /*# mc68881_top.vhd:3550:15 */
+  assign n20930 = cir_save_word_idx == 6'b101111;
+  /*# mc68881_top.vhd:3553:54 */
+  assign n20931 = pending_operand_staging[63:32]; // extract
+  /*# mc68881_top.vhd:3552:15 */
+  assign n20933 = cir_save_word_idx == 6'b110000;
+  /*# mc68881_top.vhd:3555:54 */
+  assign n20934 = pending_operand_staging[95:64]; // extract
+  /*# mc68881_top.vhd:3554:15 */
+  assign n20936 = cir_save_word_idx == 6'b110001;
+  /*# mc68881_top.vhd:3556:15 */
+  assign n20938 = cir_save_word_idx == 6'b110010;
+  /*# mc68881_top.vhd:3559:48 */
+  assign n20940 = {1'b0, pending_dst_reg_idx_reg};  // uext
+  /*# mc68881_top.vhd:3560:48 */
+  assign n20942 = {1'b0, pending_src_reg_idx_reg};  // uext
+  /*# mc68881_top.vhd:3559:89 */
+  assign n20943 = {n20940, n20942};
+  /*# mc68881_top.vhd:3561:48 */
+  assign n20946 = {2'b0, pending_decoded_op};  // uext
+  /*# mc68881_top.vhd:3560:89 */
+  assign n20947 = {n20943, n20946};
+  /*# mc68881_top.vhd:3562:48 */
+  assign n20949 = {2'b0, pending_xfer_word_count};  // uext
+  /*# mc68881_top.vhd:3561:98 */
+  assign n20950 = {n20947, n20949};
+  /*# mc68881_top.vhd:3563:48 */
+  assign n20952 = {2'b0, pending_xfer_word_idx};  // uext
+  /*# mc68881_top.vhd:3562:89 */
+  assign n20953 = {n20950, n20952};
+  /*# mc68881_top.vhd:3563:87 */
+  assign n20955 = {n20953, 8'b00000000};
+  /*# mc68881_top.vhd:3558:15 */
   assign n20957 = cir_save_word_idx == 6'b110011;
-  /*# mc68881_top.vhd:3458:13 */
+  /*# mc68881_top.vhd:3466:13 */
   assign n20958 = {n20957, n20938, n20936, n20933, n20930, n20927, n20919, n20914, n20909, n20904, n20899, n20855, n20835, n20814, n20791, n20770, n20742, n20719, n20717, n20715, n20713, n20711, n20709};
-  /*# mc68881_top.vhd:3458:13 */
+  /*# mc68881_top.vhd:3466:13 */
   always @*
     case (n20958)
       23'b10000000000000000000000: n20967 = n20955;
@@ -58519,69 +58518,69 @@ module mc68881_top
       23'b00000000000000000000001: n20967 = 32'b00000000000000000000000000000000;
       default: n20967 = 32'b00000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:3454:13 */
+  /*# mc68881_top.vhd:3462:13 */
   assign n20969 = n20707 ? 32'b00000000000000000000000000000000 : n20967;
-  /*# mc68881_top.vhd:3443:11 */
+  /*# mc68881_top.vhd:3451:11 */
   assign n20970 = n20703 ? n20969 : result_hi_reg;
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n20971 = n20689 ? n20701 : n20970;
-  /*# mc68881_top.vhd:3434:9 */
+  /*# mc68881_top.vhd:3442:9 */
   assign n20973 = addr == 5'b01000;
-  /*# mc68881_top.vhd:3565:9 */
-  assign n20975 = addr == 5'b01001;
-  /*# mc68881_top.vhd:3568:9 */
-  assign n20977 = addr == 5'b11001;
-  /*# mc68881_top.vhd:3569:9 */
-  assign n20979 = addr == 5'b11010;
-  /*# mc68881_top.vhd:3570:9 */
-  assign n20981 = addr == 5'b11011;
   /*# mc68881_top.vhd:3573:9 */
+  assign n20975 = addr == 5'b01001;
+  /*# mc68881_top.vhd:3576:9 */
+  assign n20977 = addr == 5'b11001;
+  /*# mc68881_top.vhd:3577:9 */
+  assign n20979 = addr == 5'b11010;
+  /*# mc68881_top.vhd:3578:9 */
+  assign n20981 = addr == 5'b11011;
+  /*# mc68881_top.vhd:3581:9 */
   assign n20983 = addr == 5'b01010;
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n20985 = {16'b0000000000000000, frame_format_word_reg};
-  /*# mc68881_top.vhd:3589:9 */
+  /*# mc68881_top.vhd:3597:9 */
   assign n20987 = addr == 5'b01100;
-  /*# mc68881_top.vhd:3592:9 */
-  assign n20989 = addr == 5'b01101;
-  /*# mc68881_top.vhd:3594:9 */
-  assign n20991 = addr == 5'b01011;
-  /*# mc68881_top.vhd:3596:9 */
-  assign n20993 = addr == 5'b01110;
-  /*# mc68881_top.vhd:3598:9 */
-  assign n20995 = addr == 5'b11000;
   /*# mc68881_top.vhd:3600:9 */
-  assign n20997 = addr == 5'b10111;
-  /*# mc68881_top.vhd:3418:14 */
-  assign n20998 = {n20675, ea_mode_reg, src_kind_reg};
+  assign n20989 = addr == 5'b01101;
   /*# mc68881_top.vhd:3602:9 */
-  assign n21000 = addr == 5'b01111;
-  /*# mc68881_top.vhd:3419:14 */
-  assign n21001 = {n20682, packed_dynamic_k_reg, mc68020_dst_reg, mc68020_src_reg, cycle_case_reg};
+  assign n20991 = addr == 5'b01011;
   /*# mc68881_top.vhd:3604:9 */
-  assign n21003 = addr == 5'b10000;
+  assign n20993 = addr == 5'b01110;
   /*# mc68881_top.vhd:3606:9 */
-  assign n21005 = addr == 5'b10110;
-  /*# mc68881_top.vhd:3609:38 */
-  assign n21006 = frame_mem_reg[127:96]; // extract
+  assign n20995 = addr == 5'b11000;
   /*# mc68881_top.vhd:3608:9 */
-  assign n21008 = addr == 5'b10010;
-  /*# mc68881_top.vhd:3611:38 */
-  assign n21009 = frame_mem_reg[95:64]; // extract
+  assign n20997 = addr == 5'b10111;
+  /*# mc68881_top.vhd:3426:14 */
+  assign n20998 = {n20675, ea_mode_reg, src_kind_reg};
   /*# mc68881_top.vhd:3610:9 */
-  assign n21011 = addr == 5'b10011;
-  /*# mc68881_top.vhd:3613:38 */
-  assign n21012 = frame_mem_reg[63:32]; // extract
+  assign n21000 = addr == 5'b01111;
+  /*# mc68881_top.vhd:3427:14 */
+  assign n21001 = {n20682, packed_dynamic_k_reg, mc68020_dst_reg, mc68020_src_reg, cycle_case_reg};
   /*# mc68881_top.vhd:3612:9 */
-  assign n21014 = addr == 5'b10100;
-  /*# mc68881_top.vhd:3615:38 */
-  assign n21015 = frame_mem_reg[31:0]; // extract
+  assign n21003 = addr == 5'b10000;
   /*# mc68881_top.vhd:3614:9 */
+  assign n21005 = addr == 5'b10110;
+  /*# mc68881_top.vhd:3617:38 */
+  assign n21006 = frame_mem_reg[127:96]; // extract
+  /*# mc68881_top.vhd:3616:9 */
+  assign n21008 = addr == 5'b10010;
+  /*# mc68881_top.vhd:3619:38 */
+  assign n21009 = frame_mem_reg[95:64]; // extract
+  /*# mc68881_top.vhd:3618:9 */
+  assign n21011 = addr == 5'b10011;
+  /*# mc68881_top.vhd:3621:38 */
+  assign n21012 = frame_mem_reg[63:32]; // extract
+  /*# mc68881_top.vhd:3620:9 */
+  assign n21014 = addr == 5'b10100;
+  /*# mc68881_top.vhd:3623:38 */
+  assign n21015 = frame_mem_reg[31:0]; // extract
+  /*# mc68881_top.vhd:3622:9 */
   assign n21017 = addr == 5'b10101;
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   assign n21018 = {n21017, n21014, n21011, n21008, n21005, n21003, n21000, n20997, n20995, n20993, n20991, n20989, n20987, n20983, n20981, n20979, n20977, n20975, n20973, n20684};
   /*# mc68881_top.vhd:79:10 */
   assign n21019 = result_lo_reg[0]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21020 = n20971[0]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21021 = result_ex_reg[0]; // extract
@@ -58591,7 +58590,7 @@ module mc68881_top
   assign n21023 = aux_result_hi_reg[0]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21024 = aux_result_ex_reg[0]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21025 = n20985[0]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21026 = cir_response_reg[0]; // extract
@@ -58603,21 +58602,21 @@ module mc68881_top
   assign n21029 = fpiar_reg[0]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21030 = move_cfg_reg[0]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21031 = n20998[0]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21032 = n21001[0]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21033 = micro_total_reg[0]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21034 = n21006[0]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21035 = n21009[0]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21036 = n21012[0]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21037 = n21015[0]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21039 = n21037;
@@ -58644,7 +58643,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21040 = result_lo_reg[1]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21041 = n20971[1]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21042 = result_ex_reg[1]; // extract
@@ -58654,7 +58653,7 @@ module mc68881_top
   assign n21044 = aux_result_hi_reg[1]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21045 = aux_result_ex_reg[1]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21046 = n20985[1]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21047 = cir_response_reg[1]; // extract
@@ -58666,21 +58665,21 @@ module mc68881_top
   assign n21050 = fpiar_reg[1]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21051 = move_cfg_reg[1]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21052 = n20998[1]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21053 = n21001[1]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21054 = micro_total_reg[1]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21055 = n21006[1]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21056 = n21009[1]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21057 = n21012[1]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21058 = n21015[1]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21060 = n21058;
@@ -58707,7 +58706,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21061 = result_lo_reg[2]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21062 = n20971[2]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21063 = result_ex_reg[2]; // extract
@@ -58717,7 +58716,7 @@ module mc68881_top
   assign n21065 = aux_result_hi_reg[2]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21066 = aux_result_ex_reg[2]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21067 = n20985[2]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21068 = cir_response_reg[2]; // extract
@@ -58729,21 +58728,21 @@ module mc68881_top
   assign n21071 = fpiar_reg[2]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21072 = move_cfg_reg[2]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21073 = n20998[2]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21074 = n21001[2]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21075 = micro_total_reg[2]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21076 = n21006[2]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21077 = n21009[2]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21078 = n21012[2]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21079 = n21015[2]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21081 = n21079;
@@ -58770,7 +58769,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21082 = result_lo_reg[3]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21083 = n20971[3]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21084 = result_ex_reg[3]; // extract
@@ -58780,7 +58779,7 @@ module mc68881_top
   assign n21086 = aux_result_hi_reg[3]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21087 = aux_result_ex_reg[3]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21088 = n20985[3]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21089 = cir_response_reg[3]; // extract
@@ -58792,21 +58791,21 @@ module mc68881_top
   assign n21092 = fpiar_reg[3]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21093 = move_cfg_reg[3]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21094 = n20998[3]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21095 = n21001[3]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21096 = micro_total_reg[3]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21097 = n21006[3]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21098 = n21009[3]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21099 = n21012[3]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21100 = n21015[3]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21102 = n21100;
@@ -58833,7 +58832,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21103 = result_lo_reg[4]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21104 = n20971[4]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21105 = result_ex_reg[4]; // extract
@@ -58843,7 +58842,7 @@ module mc68881_top
   assign n21107 = aux_result_hi_reg[4]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21108 = aux_result_ex_reg[4]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21109 = n20985[4]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21110 = cir_response_reg[4]; // extract
@@ -58855,21 +58854,21 @@ module mc68881_top
   assign n21113 = fpiar_reg[4]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21114 = move_cfg_reg[4]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21115 = n20998[4]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21116 = n21001[4]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21117 = micro_total_reg[4]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21118 = n21006[4]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21119 = n21009[4]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21120 = n21012[4]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21121 = n21015[4]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21123 = n21121;
@@ -58896,7 +58895,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21124 = result_lo_reg[5]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21125 = n20971[5]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21126 = result_ex_reg[5]; // extract
@@ -58906,7 +58905,7 @@ module mc68881_top
   assign n21128 = aux_result_hi_reg[5]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21129 = aux_result_ex_reg[5]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21130 = n20985[5]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21131 = cir_response_reg[5]; // extract
@@ -58918,21 +58917,21 @@ module mc68881_top
   assign n21134 = fpiar_reg[5]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21135 = move_cfg_reg[5]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21136 = n20998[5]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21137 = n21001[5]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21138 = micro_total_reg[5]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21139 = n21006[5]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21140 = n21009[5]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21141 = n21012[5]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21142 = n21015[5]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21144 = n21142;
@@ -58959,7 +58958,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21145 = result_lo_reg[6]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21146 = n20971[6]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21147 = result_ex_reg[6]; // extract
@@ -58969,7 +58968,7 @@ module mc68881_top
   assign n21149 = aux_result_hi_reg[6]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21150 = aux_result_ex_reg[6]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21151 = n20985[6]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21152 = cir_response_reg[6]; // extract
@@ -58981,21 +58980,21 @@ module mc68881_top
   assign n21155 = fpiar_reg[6]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21156 = move_cfg_reg[6]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21157 = n20998[6]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21158 = n21001[6]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21159 = micro_total_reg[6]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21160 = n21006[6]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21161 = n21009[6]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21162 = n21012[6]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21163 = n21015[6]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21165 = n21163;
@@ -59022,7 +59021,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21166 = result_lo_reg[15:7]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21167 = n20971[15:7]; // extract
   /*# mc68881_top.vhd:81:10 */
   assign n21168 = result_ex_reg[15:7]; // extract
@@ -59032,7 +59031,7 @@ module mc68881_top
   assign n21170 = aux_result_hi_reg[15:7]; // extract
   /*# mc68881_top.vhd:85:10 */
   assign n21171 = aux_result_ex_reg[15:7]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21172 = n20985[15:7]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21173 = cir_response_reg[15:7]; // extract
@@ -59044,21 +59043,21 @@ module mc68881_top
   assign n21176 = fpiar_reg[15:7]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21177 = move_cfg_reg[15:7]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21178 = n20998[15:7]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21179 = n21001[15:7]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21180 = micro_total_reg[15:7]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21181 = n21006[15:7]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21182 = n21009[15:7]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21183 = n21012[15:7]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21184 = n21015[15:7]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21187 = n21184;
@@ -59085,13 +59084,13 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:79:10 */
   assign n21188 = result_lo_reg[31:16]; // extract
-  /*# mc68881_top.vhd:3435:11 */
+  /*# mc68881_top.vhd:3443:11 */
   assign n21189 = n20971[31:16]; // extract
   /*# mc68881_top.vhd:83:10 */
   assign n21190 = aux_result_lo_reg[31:16]; // extract
   /*# mc68881_top.vhd:84:10 */
   assign n21191 = aux_result_hi_reg[31:16]; // extract
-  /*# mc68881_top.vhd:3591:33 */
+  /*# mc68881_top.vhd:3599:33 */
   assign n21192 = n20985[31:16]; // extract
   /*# mc68881_top.vhd:239:10 */
   assign n21193 = cir_response_reg[31:16]; // extract
@@ -59103,21 +59102,21 @@ module mc68881_top
   assign n21196 = fpiar_reg[31:16]; // extract
   /*# mc68881_top.vhd:102:10 */
   assign n21197 = move_cfg_reg[31:16]; // extract
-  /*# mc68881_top.vhd:3418:14 */
+  /*# mc68881_top.vhd:3426:14 */
   assign n21198 = n20998[31:16]; // extract
-  /*# mc68881_top.vhd:3419:14 */
+  /*# mc68881_top.vhd:3427:14 */
   assign n21199 = n21001[31:16]; // extract
   /*# mc68881_top.vhd:178:10 */
   assign n21200 = micro_total_reg[31:16]; // extract
-  /*# mc68881_top.vhd:3609:38 */
+  /*# mc68881_top.vhd:3617:38 */
   assign n21201 = n21006[31:16]; // extract
-  /*# mc68881_top.vhd:3611:38 */
+  /*# mc68881_top.vhd:3619:38 */
   assign n21202 = n21009[31:16]; // extract
-  /*# mc68881_top.vhd:3613:38 */
+  /*# mc68881_top.vhd:3621:38 */
   assign n21203 = n21012[31:16]; // extract
-  /*# mc68881_top.vhd:3615:38 */
+  /*# mc68881_top.vhd:3623:38 */
   assign n21204 = n21015[31:16]; // extract
-  /*# mc68881_top.vhd:3432:7 */
+  /*# mc68881_top.vhd:3440:7 */
   always @*
     case (n21018)
       20'b10000000000000000000: n21207 = n21204;
@@ -59142,81 +59141,81 @@ module mc68881_top
       20'b00000000000000000001: n21207 = n21188;
       default: n21207 = 16'b0000000000000000;
     endcase
-  /*# mc68881_top.vhd:3431:5 */
+  /*# mc68881_top.vhd:3439:5 */
   assign n21208 = {n21207, n21187, n21165, n21144, n21123, n21102, n21081, n21060, n21039};
-  /*# mc68881_top.vhd:3431:5 */
+  /*# mc68881_top.vhd:3439:5 */
   assign n21210 = bus_read ? n21208 : 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3627:16 */
+  /*# mc68881_top.vhd:3635:16 */
   assign n21220 = ~reset_n;
-  /*# mc68881_top.vhd:3636:26 */
+  /*# mc68881_top.vhd:3644:26 */
   assign n21222 = start_access & sync_read;
-  /*# mc68881_top.vhd:3636:65 */
+  /*# mc68881_top.vhd:3644:65 */
   assign n21224 = dsack_state == 2'b00;
-  /*# mc68881_top.vhd:3636:49 */
+  /*# mc68881_top.vhd:3644:49 */
   assign n21225 = n21224 & n21222;
-  /*# mc68881_top.vhd:3639:26 */
-  assign n21226 = ~start_access;
-  /*# mc68881_top.vhd:3639:7 */
-  assign n21228 = n21226 ? 1'b0 : sync_read_latched;
-  /*# mc68881_top.vhd:3636:7 */
-  assign n21230 = n21225 ? 1'b1 : n21228;
   /*# mc68881_top.vhd:3647:26 */
+  assign n21226 = ~start_access;
+  /*# mc68881_top.vhd:3647:7 */
+  assign n21228 = n21226 ? 1'b0 : sync_read_latched;
+  /*# mc68881_top.vhd:3644:7 */
+  assign n21230 = n21225 ? 1'b1 : n21228;
+  /*# mc68881_top.vhd:3655:26 */
   assign n21232 = ~size_n;
-  /*# mc68881_top.vhd:3649:33 */
+  /*# mc68881_top.vhd:3657:33 */
   assign n21233 = a_in[4]; // extract
-  /*# mc68881_top.vhd:3650:38 */
+  /*# mc68881_top.vhd:3658:38 */
   assign n21235 = n21232 == 2'b11;
-  /*# mc68881_top.vhd:3656:13 */
+  /*# mc68881_top.vhd:3664:13 */
   assign n21238 = n21235 ? 2'b00 : 2'b01;
-  /*# mc68881_top.vhd:3656:13 */
+  /*# mc68881_top.vhd:3664:13 */
   assign n21240 = n21235 ? dsack_count : 2'b00;
-  /*# mc68881_top.vhd:3646:11 */
+  /*# mc68881_top.vhd:3654:11 */
   assign n21241 = start_access ? n21238 : dsack_state;
-  /*# mc68881_top.vhd:3646:11 */
+  /*# mc68881_top.vhd:3654:11 */
   assign n21242 = start_access ? n21240 : dsack_count;
-  /*# mc68881_top.vhd:3646:11 */
+  /*# mc68881_top.vhd:3654:11 */
   assign n21243 = start_access ? n21232 : latched_size;
-  /*# mc68881_top.vhd:3646:11 */
+  /*# mc68881_top.vhd:3654:11 */
   assign n21244 = start_access ? n21233 : latched_a4;
-  /*# mc68881_top.vhd:3644:9 */
+  /*# mc68881_top.vhd:3652:9 */
   assign n21250 = dsack_state == 2'b00;
-  /*# mc68881_top.vhd:3667:27 */
+  /*# mc68881_top.vhd:3675:27 */
   assign n21251 = ~start_access;
-  /*# mc68881_top.vhd:3670:29 */
+  /*# mc68881_top.vhd:3678:29 */
   assign n21252 = {30'b0, dsack_count};  // uext
-  /*# mc68881_top.vhd:3670:29 */
+  /*# mc68881_top.vhd:3678:29 */
   assign n21254 = n21252 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3674:40 */
+  /*# mc68881_top.vhd:3682:40 */
   assign n21255 = {30'b0, dsack_count};  // uext
-  /*# mc68881_top.vhd:3674:40 */
+  /*# mc68881_top.vhd:3682:40 */
   assign n21257 = n21255 - 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:3674:28 */
+  /*# mc68881_top.vhd:3682:28 */
   assign n21258 = n21257[1:0];  // trunc
-  /*# mc68881_top.vhd:3670:11 */
+  /*# mc68881_top.vhd:3678:11 */
   assign n21260 = n21254 ? 2'b10 : dsack_state;
-  /*# mc68881_top.vhd:3670:11 */
+  /*# mc68881_top.vhd:3678:11 */
   assign n21261 = n21254 ? dsack_count : n21258;
-  /*# mc68881_top.vhd:3670:11 */
+  /*# mc68881_top.vhd:3678:11 */
   assign n21263 = n21254 ? 1'b1 : dsack_active;
-  /*# mc68881_top.vhd:3667:11 */
+  /*# mc68881_top.vhd:3675:11 */
   assign n21265 = n21251 ? 2'b00 : n21260;
-  /*# mc68881_top.vhd:3667:11 */
+  /*# mc68881_top.vhd:3675:11 */
   assign n21266 = n21251 ? dsack_count : n21261;
-  /*# mc68881_top.vhd:3667:11 */
+  /*# mc68881_top.vhd:3675:11 */
   assign n21268 = n21251 ? 1'b0 : n21263;
-  /*# mc68881_top.vhd:3666:9 */
+  /*# mc68881_top.vhd:3674:9 */
   assign n21270 = dsack_state == 2'b01;
-  /*# mc68881_top.vhd:3678:27 */
+  /*# mc68881_top.vhd:3686:27 */
   assign n21271 = ~start_access;
-  /*# mc68881_top.vhd:3678:11 */
+  /*# mc68881_top.vhd:3686:11 */
   assign n21273 = n21271 ? 2'b00 : dsack_state;
-  /*# mc68881_top.vhd:3678:11 */
+  /*# mc68881_top.vhd:3686:11 */
   assign n21276 = n21271 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:3676:9 */
+  /*# mc68881_top.vhd:3684:9 */
   assign n21279 = dsack_state == 2'b10;
-  /*# mc68881_top.vhd:3643:7 */
+  /*# mc68881_top.vhd:3651:7 */
   assign n21280 = {n21279, n21270, n21250};
-  /*# mc68881_top.vhd:3643:7 */
+  /*# mc68881_top.vhd:3651:7 */
   always @*
     case (n21280)
       3'b100: n21282 = n21273;
@@ -59224,7 +59223,7 @@ module mc68881_top
       3'b001: n21282 = n21241;
       default: n21282 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:3643:7 */
+  /*# mc68881_top.vhd:3651:7 */
   always @*
     case (n21280)
       3'b100: n21284 = dsack_count;
@@ -59232,7 +59231,7 @@ module mc68881_top
       3'b001: n21284 = n21242;
       default: n21284 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:3643:7 */
+  /*# mc68881_top.vhd:3651:7 */
   always @*
     case (n21280)
       3'b100: n21287 = n21276;
@@ -59240,7 +59239,7 @@ module mc68881_top
       3'b001: n21287 = 1'b0;
       default: n21287 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:3643:7 */
+  /*# mc68881_top.vhd:3651:7 */
   always @*
     case (n21280)
       3'b100: n21289 = latched_size;
@@ -59248,7 +59247,7 @@ module mc68881_top
       3'b001: n21289 = n21243;
       default: n21289 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:3643:7 */
+  /*# mc68881_top.vhd:3651:7 */
   always @*
     case (n21280)
       3'b100: n21291 = latched_a4;
@@ -59256,17 +59255,17 @@ module mc68881_top
       3'b001: n21291 = n21244;
       default: n21291 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:3694:11 */
+  /*# mc68881_top.vhd:3702:11 */
   assign n21330 = latched_a4 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:3693:9 */
-  assign n21332 = latched_size == 2'b00;
   /*# mc68881_top.vhd:3701:9 */
+  assign n21332 = latched_size == 2'b00;
+  /*# mc68881_top.vhd:3709:9 */
   assign n21334 = latched_size == 2'b01;
-  /*# mc68881_top.vhd:3704:9 */
+  /*# mc68881_top.vhd:3712:9 */
   assign n21336 = latched_size == 2'b10;
-  /*# mc68881_top.vhd:3692:7 */
+  /*# mc68881_top.vhd:3700:7 */
   assign n21337 = {n21336, n21334, n21332};
-  /*# mc68881_top.vhd:3692:7 */
+  /*# mc68881_top.vhd:3700:7 */
   always @*
     case (n21337)
       3'b100: n21341 = 1'b0;
@@ -59274,7 +59273,7 @@ module mc68881_top
       3'b001: n21341 = n21330;
       default: n21341 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:3692:7 */
+  /*# mc68881_top.vhd:3700:7 */
   always @*
     case (n21337)
       3'b100: n21346 = 1'b1;
@@ -59282,177 +59281,177 @@ module mc68881_top
       3'b001: n21346 = 1'b0;
       default: n21346 = 1'b1;
     endcase
-  /*# mc68881_top.vhd:3691:5 */
+  /*# mc68881_top.vhd:3699:5 */
   assign n21348 = dsack_active ? n21341 : 1'b1;
-  /*# mc68881_top.vhd:3691:5 */
+  /*# mc68881_top.vhd:3699:5 */
   assign n21351 = dsack_active ? n21346 : 1'b1;
-  /*# mc68881_top.vhd:3721:16 */
+  /*# mc68881_top.vhd:3729:16 */
   assign n21355 = ~reset_n;
-  /*# mc68881_top.vhd:3755:35 */
+  /*# mc68881_top.vhd:3763:35 */
   assign n21358 = addr == 5'b01101;
-  /*# mc68881_top.vhd:3755:26 */
+  /*# mc68881_top.vhd:3763:26 */
   assign n21359 = n21358 & bus_write;
-  /*# mc68881_top.vhd:3756:29 */
+  /*# mc68881_top.vhd:3764:29 */
   assign n21360 = d_in[0]; // extract
-  /*# mc68881_top.vhd:3761:24 */
+  /*# mc68881_top.vhd:3769:24 */
   assign n21363 = cir_state_reg != 5'b00000;
-  /*# mc68881_top.vhd:3761:36 */
+  /*# mc68881_top.vhd:3769:36 */
   assign n21364 = n21363 | cir_flags_consumed;
-  /*# mc68881_top.vhd:3761:7 */
+  /*# mc68881_top.vhd:3769:7 */
   assign n21366 = n21364 ? 1'b0 : cir_opword_written;
-  /*# mc68881_top.vhd:3761:7 */
+  /*# mc68881_top.vhd:3769:7 */
   assign n21368 = n21364 ? 1'b0 : cir_command_written;
-  /*# mc68881_top.vhd:3761:7 */
+  /*# mc68881_top.vhd:3769:7 */
   assign n21370 = n21364 ? 1'b0 : cir_condition_written;
-  /*# mc68881_top.vhd:3780:35 */
-  assign n21372 = addr == 5'b01000;
-  /*# mc68881_top.vhd:3780:26 */
-  assign n21373 = n21372 & bus_write;
-  /*# mc68881_top.vhd:3780:7 */
-  assign n21376 = n21373 ? 1'b1 : 1'b0;
   /*# mc68881_top.vhd:3788:35 */
-  assign n21378 = addr == 5'b11100;
+  assign n21372 = addr == 5'b01000;
   /*# mc68881_top.vhd:3788:26 */
-  assign n21379 = n21378 & bus_write;
+  assign n21373 = n21372 & bus_write;
   /*# mc68881_top.vhd:3788:7 */
+  assign n21376 = n21373 ? 1'b1 : 1'b0;
+  /*# mc68881_top.vhd:3796:35 */
+  assign n21378 = addr == 5'b11100;
+  /*# mc68881_top.vhd:3796:26 */
+  assign n21379 = n21378 & bus_write;
+  /*# mc68881_top.vhd:3796:7 */
   assign n21382 = n21379 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3798:34 */
+  /*# mc68881_top.vhd:3806:34 */
   assign n21384 = addr == 5'b01100;
-  /*# mc68881_top.vhd:3798:25 */
+  /*# mc68881_top.vhd:3806:25 */
   assign n21385 = n21384 & bus_read;
-  /*# mc68881_top.vhd:3798:7 */
+  /*# mc68881_top.vhd:3806:7 */
   assign n21388 = n21385 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3805:34 */
+  /*# mc68881_top.vhd:3813:34 */
   assign n21390 = addr == 5'b01100;
-  /*# mc68881_top.vhd:3805:25 */
+  /*# mc68881_top.vhd:3813:25 */
   assign n21391 = n21390 & bus_read;
-  /*# mc68881_top.vhd:3806:33 */
+  /*# mc68881_top.vhd:3814:33 */
   assign n21392 = ~cir_save_read_prev;
-  /*# mc68881_top.vhd:3806:10 */
+  /*# mc68881_top.vhd:3814:10 */
   assign n21393 = n21392 & n21391;
-  /*# mc68881_top.vhd:3807:28 */
+  /*# mc68881_top.vhd:3815:28 */
   assign n21395 = cir_state_reg == 5'b10000;
-  /*# mc68881_top.vhd:3807:10 */
+  /*# mc68881_top.vhd:3815:10 */
   assign n21396 = n21395 & n21393;
-  /*# mc68881_top.vhd:3805:7 */
+  /*# mc68881_top.vhd:3813:7 */
   assign n21399 = n21396 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3812:34 */
+  /*# mc68881_top.vhd:3820:34 */
   assign n21402 = addr == 5'b01000;
-  /*# mc68881_top.vhd:3812:25 */
+  /*# mc68881_top.vhd:3820:25 */
   assign n21403 = n21402 & bus_read;
-  /*# mc68881_top.vhd:3812:7 */
+  /*# mc68881_top.vhd:3820:7 */
   assign n21406 = n21403 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3819:34 */
+  /*# mc68881_top.vhd:3827:34 */
   assign n21408 = addr == 5'b01000;
-  /*# mc68881_top.vhd:3819:25 */
+  /*# mc68881_top.vhd:3827:25 */
   assign n21409 = n21408 & bus_read;
-  /*# mc68881_top.vhd:3820:36 */
+  /*# mc68881_top.vhd:3828:36 */
   assign n21410 = ~cir_operand_read_prev;
-  /*# mc68881_top.vhd:3820:10 */
+  /*# mc68881_top.vhd:3828:10 */
   assign n21411 = n21410 & n21409;
-  /*# mc68881_top.vhd:3821:29 */
+  /*# mc68881_top.vhd:3829:29 */
   assign n21413 = cir_state_reg == 5'b00111;
-  /*# mc68881_top.vhd:3821:61 */
+  /*# mc68881_top.vhd:3829:61 */
   assign n21415 = cir_state_reg == 5'b10001;
-  /*# mc68881_top.vhd:3821:44 */
+  /*# mc68881_top.vhd:3829:44 */
   assign n21416 = n21413 | n21415;
-  /*# mc68881_top.vhd:3821:10 */
+  /*# mc68881_top.vhd:3829:10 */
   assign n21417 = n21416 & n21411;
-  /*# mc68881_top.vhd:3819:7 */
+  /*# mc68881_top.vhd:3827:7 */
   assign n21420 = n21417 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3831:37 */
+  /*# mc68881_top.vhd:3839:37 */
   assign n21423 = d_in[8:6]; // extract
-  /*# mc68881_top.vhd:3829:13 */
+  /*# mc68881_top.vhd:3837:13 */
   assign n21425 = cir_mode_reg ? n21423 : cir_instr_type;
-  /*# mc68881_top.vhd:3829:13 */
+  /*# mc68881_top.vhd:3837:13 */
   assign n21427 = cir_mode_reg ? 1'b1 : n21366;
-  /*# mc68881_top.vhd:3827:11 */
+  /*# mc68881_top.vhd:3835:11 */
   assign n21429 = addr == 5'b00100;
-  /*# mc68881_top.vhd:3842:38 */
+  /*# mc68881_top.vhd:3850:38 */
   assign n21430 = d_in[15:0]; // extract
-  /*# mc68881_top.vhd:3852:22 */
+  /*# mc68881_top.vhd:3860:22 */
   assign n21431 = d_in[15]; // extract
-  /*# mc68881_top.vhd:3852:41 */
+  /*# mc68881_top.vhd:3860:41 */
   assign n21432 = d_in[14]; // extract
-  /*# mc68881_top.vhd:3852:46 */
+  /*# mc68881_top.vhd:3860:46 */
   assign n21433 = ~n21432;
-  /*# mc68881_top.vhd:3852:33 */
+  /*# mc68881_top.vhd:3860:33 */
   assign n21434 = n21433 & n21431;
-  /*# mc68881_top.vhd:3857:40 */
+  /*# mc68881_top.vhd:3865:40 */
   assign n21435 = d_in[13]; // extract
-  /*# mc68881_top.vhd:3859:40 */
+  /*# mc68881_top.vhd:3867:40 */
   assign n21436 = d_in[12:10]; // extract
-  /*# mc68881_top.vhd:3861:36 */
+  /*# mc68881_top.vhd:3869:36 */
   assign n21437 = d_in[12:10]; // extract
-  /*# mc68881_top.vhd:3862:60 */
+  /*# mc68881_top.vhd:3870:60 */
   assign n21438 = d_in[9:7]; // extract
-  /*# mc68881_top.vhd:3863:60 */
+  /*# mc68881_top.vhd:3871:60 */
   assign n21440 = d_in[12:10]; // extract
-  /*# mc68881_top.vhd:3864:43 */
+  /*# mc68881_top.vhd:3872:43 */
   assign n21442 = d_in[14]; // extract
-  /*# mc68881_top.vhd:3864:35 */
+  /*# mc68881_top.vhd:3872:35 */
   assign n21443 = ~n21442;
-  /*# mc68881_top.vhd:3865:38 */
+  /*# mc68881_top.vhd:3873:38 */
   assign n21444 = d_in[13]; // extract
-  /*# mc68881_top.vhd:3852:15 */
+  /*# mc68881_top.vhd:3860:15 */
   assign n21446 = n21434 ? 3'b000 : n21437;
-  /*# mc68881_top.vhd:3852:15 */
+  /*# mc68881_top.vhd:3860:15 */
   assign n21448 = n21434 ? 3'b000 : n21438;
-  /*# mc68881_top.vhd:3852:15 */
+  /*# mc68881_top.vhd:3860:15 */
   assign n21450 = n21434 ? 3'b000 : n21440;
-  /*# mc68881_top.vhd:3852:15 */
+  /*# mc68881_top.vhd:3860:15 */
   assign n21452 = n21434 ? 1'b0 : n21443;
-  /*# mc68881_top.vhd:3852:15 */
+  /*# mc68881_top.vhd:3860:15 */
   assign n21453 = n21434 ? n21435 : n21444;
-  /*# mc68881_top.vhd:3852:15 */
+  /*# mc68881_top.vhd:3860:15 */
   assign n21456 = n21434 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21457 = n21465 ? n21436 : cir_fpctl_mask;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21458 = cir_mode_reg ? n21430 : cir_command_reg;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21459 = cir_mode_reg ? n21446 : cir_src_fmt;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21460 = cir_mode_reg ? n21448 : cir_dst_reg_idx;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21461 = cir_mode_reg ? n21450 : cir_src_reg_idx;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21462 = cir_mode_reg ? n21452 : cir_reg_to_reg;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21463 = cir_mode_reg ? n21453 : cir_direction;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21464 = cir_mode_reg ? n21456 : cir_is_fpctl_move;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21465 = n21434 & cir_mode_reg;
-  /*# mc68881_top.vhd:3841:13 */
+  /*# mc68881_top.vhd:3849:13 */
   assign n21467 = cir_mode_reg ? 1'b1 : n21368;
-  /*# mc68881_top.vhd:3839:11 */
+  /*# mc68881_top.vhd:3847:11 */
   assign n21469 = addr == 5'b00101;
-  /*# mc68881_top.vhd:3878:40 */
+  /*# mc68881_top.vhd:3886:40 */
   assign n21470 = d_in[5:0]; // extract
-  /*# mc68881_top.vhd:3877:13 */
+  /*# mc68881_top.vhd:3885:13 */
   assign n21471 = cir_mode_reg ? n21470 : cir_condition_reg;
-  /*# mc68881_top.vhd:3877:13 */
+  /*# mc68881_top.vhd:3885:13 */
   assign n21473 = cir_mode_reg ? 1'b1 : n21370;
-  /*# mc68881_top.vhd:3875:11 */
+  /*# mc68881_top.vhd:3883:11 */
   assign n21475 = addr == 5'b00111;
-  /*# mc68881_top.vhd:3886:30 */
+  /*# mc68881_top.vhd:3894:30 */
   assign n21477 = cir_state_reg == 5'b00010;
-  /*# mc68881_top.vhd:3886:72 */
+  /*# mc68881_top.vhd:3894:72 */
   assign n21478 = ~cir_operand_write_prev;
-  /*# mc68881_top.vhd:3886:45 */
+  /*# mc68881_top.vhd:3894:45 */
   assign n21479 = n21478 & n21477;
-  /*# mc68881_top.vhd:3888:17 */
+  /*# mc68881_top.vhd:3896:17 */
   assign n21481 = cir_xfer_word_idx == 6'b000000;
-  /*# mc68881_top.vhd:3889:17 */
+  /*# mc68881_top.vhd:3897:17 */
   assign n21483 = cir_xfer_word_idx == 6'b000001;
-  /*# mc68881_top.vhd:3890:17 */
+  /*# mc68881_top.vhd:3898:17 */
   assign n21485 = cir_xfer_word_idx == 6'b000010;
-  /*# mc68881_top.vhd:3887:15 */
+  /*# mc68881_top.vhd:3895:15 */
   assign n21486 = {n21485, n21483, n21481};
   /*# mc68881_top.vhd:307:10 */
   assign n21487 = cir_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:3887:15 */
+  /*# mc68881_top.vhd:3895:15 */
   always @*
     case (n21486)
       3'b100: n21488 = n21487;
@@ -59462,7 +59461,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:307:10 */
   assign n21489 = cir_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:3887:15 */
+  /*# mc68881_top.vhd:3895:15 */
   always @*
     case (n21486)
       3'b100: n21490 = n21489;
@@ -59472,7 +59471,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:307:10 */
   assign n21491 = cir_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:3887:15 */
+  /*# mc68881_top.vhd:3895:15 */
   always @*
     case (n21486)
       3'b100: n21492 = d_in;
@@ -59480,79 +59479,79 @@ module mc68881_top
       3'b001: n21492 = n21491;
       default: n21492 = n21491;
     endcase
-  /*# mc68881_top.vhd:3886:13 */
+  /*# mc68881_top.vhd:3894:13 */
   assign n21493 = {n21492, n21490, n21488};
-  /*# mc68881_top.vhd:3886:13 */
+  /*# mc68881_top.vhd:3894:13 */
   assign n21494 = n21479 ? n21493 : cir_operand_staging;
-  /*# mc68881_top.vhd:3886:13 */
+  /*# mc68881_top.vhd:3894:13 */
   assign n21497 = n21479 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3896:30 */
+  /*# mc68881_top.vhd:3904:30 */
   assign n21499 = cir_state_reg == 5'b10101;
-  /*# mc68881_top.vhd:3896:80 */
+  /*# mc68881_top.vhd:3904:80 */
   assign n21500 = ~cir_operand_write_prev;
-  /*# mc68881_top.vhd:3896:53 */
+  /*# mc68881_top.vhd:3904:53 */
   assign n21501 = n21500 & n21499;
-  /*# mc68881_top.vhd:3896:13 */
+  /*# mc68881_top.vhd:3904:13 */
   assign n21503 = n21501 ? 1'b1 : n21497;
-  /*# mc68881_top.vhd:3900:30 */
+  /*# mc68881_top.vhd:3908:30 */
   assign n21505 = cir_state_reg == 5'b10011;
-  /*# mc68881_top.vhd:3900:77 */
+  /*# mc68881_top.vhd:3908:77 */
   assign n21506 = ~cir_operand_write_prev;
-  /*# mc68881_top.vhd:3900:50 */
+  /*# mc68881_top.vhd:3908:50 */
   assign n21507 = n21506 & n21505;
-  /*# mc68881_top.vhd:3901:39 */
+  /*# mc68881_top.vhd:3909:39 */
   assign n21508 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:3901:39 */
+  /*# mc68881_top.vhd:3909:39 */
   assign n21510 = $signed(n21508) < $signed(32'b00000000000000000000000000001100);
-  /*# mc68881_top.vhd:3902:36 */
+  /*# mc68881_top.vhd:3910:36 */
   assign n21511 = cir_restore_word_idx[3:0];  // trunc
-  /*# mc68881_top.vhd:3902:36 */
+  /*# mc68881_top.vhd:3910:36 */
   assign n21513 = 4'b1011 - n21511;
-  /*# mc68881_top.vhd:3900:13 */
+  /*# mc68881_top.vhd:3908:13 */
   assign n21516 = n21519 ? n24170 : cir_frame_data_reg;
-  /*# mc68881_top.vhd:3900:13 */
+  /*# mc68881_top.vhd:3908:13 */
   assign n21518 = n21507 ? 1'b1 : n21503;
-  /*# mc68881_top.vhd:3900:13 */
+  /*# mc68881_top.vhd:3908:13 */
   assign n21519 = n21510 & n21507;
-  /*# mc68881_top.vhd:3900:13 */
+  /*# mc68881_top.vhd:3908:13 */
   assign n21520 = n21507 ? d_in : cir_restore_word_data;
-  /*# mc68881_top.vhd:3882:11 */
+  /*# mc68881_top.vhd:3890:11 */
   assign n21522 = addr == 5'b01000;
-  /*# mc68881_top.vhd:3927:30 */
+  /*# mc68881_top.vhd:3935:30 */
   assign n21524 = cir_state_reg == 5'b10011;
-  /*# mc68881_top.vhd:3927:77 */
+  /*# mc68881_top.vhd:3935:77 */
   assign n21525 = ~cir_restore_write_prev;
-  /*# mc68881_top.vhd:3927:50 */
+  /*# mc68881_top.vhd:3935:50 */
   assign n21526 = n21525 & n21524;
-  /*# mc68881_top.vhd:3928:39 */
+  /*# mc68881_top.vhd:3936:39 */
   assign n21527 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:3928:39 */
+  /*# mc68881_top.vhd:3936:39 */
   assign n21529 = $signed(n21527) < $signed(32'b00000000000000000000000000001100);
-  /*# mc68881_top.vhd:3929:36 */
+  /*# mc68881_top.vhd:3937:36 */
   assign n21530 = cir_restore_word_idx[3:0];  // trunc
-  /*# mc68881_top.vhd:3929:36 */
+  /*# mc68881_top.vhd:3937:36 */
   assign n21532 = 4'b1011 - n21530;
-  /*# mc68881_top.vhd:3927:13 */
+  /*# mc68881_top.vhd:3935:13 */
   assign n21535 = n21539 ? n24224 : cir_frame_data_reg;
-  /*# mc68881_top.vhd:3927:13 */
+  /*# mc68881_top.vhd:3935:13 */
   assign n21538 = n21526 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:3927:13 */
+  /*# mc68881_top.vhd:3935:13 */
   assign n21539 = n21529 & n21526;
-  /*# mc68881_top.vhd:3927:13 */
+  /*# mc68881_top.vhd:3935:13 */
   assign n21540 = n21526 ? d_in : cir_restore_word_data;
-  /*# mc68881_top.vhd:3909:11 */
+  /*# mc68881_top.vhd:3917:11 */
   assign n21542 = addr == 5'b11100;
-  /*# mc68881_top.vhd:3935:11 */
+  /*# mc68881_top.vhd:3943:11 */
   assign n21544 = addr == 5'b01100;
-  /*# mc68881_top.vhd:3942:38 */
+  /*# mc68881_top.vhd:3950:38 */
   assign n21545 = d_in[0]; // extract
-  /*# mc68881_top.vhd:3941:13 */
+  /*# mc68881_top.vhd:3949:13 */
   assign n21547 = cir_mode_reg ? n21545 : 1'b0;
-  /*# mc68881_top.vhd:3939:11 */
+  /*# mc68881_top.vhd:3947:11 */
   assign n21549 = addr == 5'b00001;
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   assign n21550 = {n21549, n21544, n21542, n21522, n21475, n21469, n21429};
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21552 = cir_command_reg;
@@ -59564,7 +59563,7 @@ module mc68881_top
       7'b0000001: n21552 = cir_command_reg;
       default: n21552 = cir_command_reg;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21553 = cir_condition_reg;
@@ -59576,7 +59575,7 @@ module mc68881_top
       7'b0000001: n21553 = cir_condition_reg;
       default: n21553 = cir_condition_reg;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21554 = cir_instr_type;
@@ -59588,7 +59587,7 @@ module mc68881_top
       7'b0000001: n21554 = n21425;
       default: n21554 = cir_instr_type;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21555 = cir_src_fmt;
@@ -59600,7 +59599,7 @@ module mc68881_top
       7'b0000001: n21555 = cir_src_fmt;
       default: n21555 = cir_src_fmt;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21556 = cir_dst_reg_idx;
@@ -59612,7 +59611,7 @@ module mc68881_top
       7'b0000001: n21556 = cir_dst_reg_idx;
       default: n21556 = cir_dst_reg_idx;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21557 = cir_src_reg_idx;
@@ -59624,7 +59623,7 @@ module mc68881_top
       7'b0000001: n21557 = cir_src_reg_idx;
       default: n21557 = cir_src_reg_idx;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21558 = cir_reg_to_reg;
@@ -59636,7 +59635,7 @@ module mc68881_top
       7'b0000001: n21558 = cir_reg_to_reg;
       default: n21558 = cir_reg_to_reg;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21559 = cir_direction;
@@ -59648,7 +59647,7 @@ module mc68881_top
       7'b0000001: n21559 = cir_direction;
       default: n21559 = cir_direction;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21560 = cir_is_fpctl_move;
@@ -59660,7 +59659,7 @@ module mc68881_top
       7'b0000001: n21560 = cir_is_fpctl_move;
       default: n21560 = cir_is_fpctl_move;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21561 = cir_fpctl_mask;
@@ -59672,7 +59671,7 @@ module mc68881_top
       7'b0000001: n21561 = cir_fpctl_mask;
       default: n21561 = cir_fpctl_mask;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21562 = n21366;
@@ -59684,7 +59683,7 @@ module mc68881_top
       7'b0000001: n21562 = n21427;
       default: n21562 = n21366;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21563 = n21368;
@@ -59696,7 +59695,7 @@ module mc68881_top
       7'b0000001: n21563 = n21368;
       default: n21563 = n21368;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21564 = n21370;
@@ -59708,7 +59707,7 @@ module mc68881_top
       7'b0000001: n21564 = n21370;
       default: n21564 = n21370;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21566 = n21547;
@@ -59720,7 +59719,7 @@ module mc68881_top
       7'b0000001: n21566 = 1'b0;
       default: n21566 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21567 = cir_instaddr_reg;
@@ -59732,7 +59731,7 @@ module mc68881_top
       7'b0000001: n21567 = cir_instaddr_reg;
       default: n21567 = cir_instaddr_reg;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21568 = cir_operand_staging;
@@ -59744,7 +59743,7 @@ module mc68881_top
       7'b0000001: n21568 = cir_operand_staging;
       default: n21568 = cir_operand_staging;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21570 = 1'b0;
@@ -59756,7 +59755,7 @@ module mc68881_top
       7'b0000001: n21570 = 1'b0;
       default: n21570 = 1'b0;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21571 = cir_frame_data_reg;
@@ -59768,7 +59767,7 @@ module mc68881_top
       7'b0000001: n21571 = cir_frame_data_reg;
       default: n21571 = cir_frame_data_reg;
     endcase
-  /*# mc68881_top.vhd:3826:9 */
+  /*# mc68881_top.vhd:3834:9 */
   always @*
     case (n21550)
       7'b1000000: n21572 = cir_restore_word_data;
@@ -59780,59 +59779,59 @@ module mc68881_top
       7'b0000001: n21572 = cir_restore_word_data;
       default: n21572 = cir_restore_word_data;
     endcase
-  /*# mc68881_top.vhd:3825:7 */
+  /*# mc68881_top.vhd:3833:7 */
   assign n21584 = bus_write ? n21562 : n21366;
-  /*# mc68881_top.vhd:3825:7 */
+  /*# mc68881_top.vhd:3833:7 */
   assign n21585 = bus_write ? n21563 : n21368;
-  /*# mc68881_top.vhd:3825:7 */
+  /*# mc68881_top.vhd:3833:7 */
   assign n21586 = bus_write ? n21564 : n21370;
-  /*# mc68881_top.vhd:3825:7 */
+  /*# mc68881_top.vhd:3833:7 */
   assign n21588 = bus_write ? n21566 : 1'b0;
-  /*# mc68881_top.vhd:3825:7 */
+  /*# mc68881_top.vhd:3833:7 */
   assign n21591 = bus_write ? n21568 : cir_operand_staging;
-  /*# mc68881_top.vhd:3825:7 */
+  /*# mc68881_top.vhd:3833:7 */
   assign n21593 = bus_write ? n21570 : 1'b0;
-  /*# mc68881_top.vhd:3955:24 */
+  /*# mc68881_top.vhd:3963:24 */
   assign n21598 = cir_state_reg == 5'b00111;
-  /*# mc68881_top.vhd:3955:61 */
+  /*# mc68881_top.vhd:3963:61 */
   assign n21599 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:3955:61 */
+  /*# mc68881_top.vhd:3963:61 */
   assign n21601 = n21599 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3955:39 */
+  /*# mc68881_top.vhd:3963:39 */
   assign n21602 = n21601 & n21598;
-  /*# mc68881_top.vhd:3956:36 */
+  /*# mc68881_top.vhd:3964:36 */
   assign n21603 = ~cir_operand_read_done;
-  /*# mc68881_top.vhd:3956:10 */
+  /*# mc68881_top.vhd:3964:10 */
   assign n21604 = n21603 & n21602;
-  /*# mc68881_top.vhd:3956:42 */
+  /*# mc68881_top.vhd:3964:42 */
   assign n21605 = cir_is_fpctl_move & n21604;
-  /*# mc68881_top.vhd:3961:26 */
+  /*# mc68881_top.vhd:3969:26 */
   assign n21606 = cir_fpctl_mask[2]; // extract
-  /*# mc68881_top.vhd:3963:29 */
+  /*# mc68881_top.vhd:3971:29 */
   assign n21607 = cir_fpctl_mask[1]; // extract
-  /*# mc68881_top.vhd:3965:29 */
+  /*# mc68881_top.vhd:3973:29 */
   assign n21608 = cir_fpctl_mask[0]; // extract
-  /*# mc68881_top.vhd:3965:9 */
+  /*# mc68881_top.vhd:3973:9 */
   assign n21610 = n21608 ? fpcr_reg : 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3963:9 */
+  /*# mc68881_top.vhd:3971:9 */
   assign n21611 = n21607 ? fpsr_reg : n21610;
-  /*# mc68881_top.vhd:3961:9 */
+  /*# mc68881_top.vhd:3969:9 */
   assign n21612 = n21606 ? fpiar_reg : n21611;
-  /*# mc68881_top.vhd:3970:27 */
+  /*# mc68881_top.vhd:3978:27 */
   assign n21614 = cir_state_reg == 5'b00111;
-  /*# mc68881_top.vhd:3970:64 */
+  /*# mc68881_top.vhd:3978:64 */
   assign n21615 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:3970:64 */
+  /*# mc68881_top.vhd:3978:64 */
   assign n21617 = n21615 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:3970:42 */
+  /*# mc68881_top.vhd:3978:42 */
   assign n21618 = n21617 & n21614;
-  /*# mc68881_top.vhd:3971:36 */
+  /*# mc68881_top.vhd:3979:36 */
   assign n21619 = ~cir_operand_read_done;
-  /*# mc68881_top.vhd:3971:10 */
+  /*# mc68881_top.vhd:3979:10 */
   assign n21620 = n21619 & n21618;
-  /*# mc68881_top.vhd:3976:11 */
+  /*# mc68881_top.vhd:3984:11 */
   assign n21622 = cir_src_fmt == 3'b001;
-  /*# mc68881_top.vhd:3981:51 */
+  /*# mc68881_top.vhd:3989:51 */
   assign n21625 = 3'b111 - cir_dst_reg_idx;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n21638 = n24225[79]; // extract
@@ -59974,9 +59973,9 @@ module mc68881_top
   assign n21771 = n21768 & n21748;
   /*# mc68881_pkg.vhd:2326:5 */
   assign n21776 = n21762 ? n21757 : n21765;
-  /*# mc68881_top.vhd:3978:11 */
+  /*# mc68881_top.vhd:3986:11 */
   assign n21778 = cir_src_fmt == 3'b000;
-  /*# mc68881_top.vhd:3985:51 */
+  /*# mc68881_top.vhd:3993:51 */
   assign n21781 = 3'b111 - cir_dst_reg_idx;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n21794 = n24226[79]; // extract
@@ -60118,13 +60117,13 @@ module mc68881_top
   assign n21927 = n21924 & n21904;
   /*# mc68881_pkg.vhd:2326:5 */
   assign n21932 = n21918 ? n21913 : n21921;
-  /*# mc68881_top.vhd:3984:32 */
+  /*# mc68881_top.vhd:3992:32 */
   assign n21933 = n21932[15:0];  // trunc
-  /*# mc68881_top.vhd:3983:57 */
+  /*# mc68881_top.vhd:3991:57 */
   assign n21935 = {16'b0000000000000000, n21933};
-  /*# mc68881_top.vhd:3982:11 */
+  /*# mc68881_top.vhd:3990:11 */
   assign n21937 = cir_src_fmt == 3'b100;
-  /*# mc68881_top.vhd:3989:51 */
+  /*# mc68881_top.vhd:3997:51 */
   assign n21940 = 3'b111 - cir_dst_reg_idx;
   /*# mc68881_pkg.vhd:1603:25 */
   assign n21953 = n24227[79]; // extract
@@ -60266,75 +60265,73 @@ module mc68881_top
   assign n22086 = n22083 & n22063;
   /*# mc68881_pkg.vhd:2326:5 */
   assign n22091 = n22077 ? n22072 : n22080;
-  /*# mc68881_top.vhd:3988:32 */
+  /*# mc68881_top.vhd:3996:32 */
   assign n22092 = n22091[7:0];  // trunc
-  /*# mc68881_top.vhd:3987:59 */
+  /*# mc68881_top.vhd:3995:59 */
   assign n22094 = {24'b000000000000000000000000, n22092};
-  /*# mc68881_top.vhd:3986:11 */
+  /*# mc68881_top.vhd:3994:11 */
   assign n22096 = cir_src_fmt == 3'b110;
-  /*# mc68881_top.vhd:3990:11 */
+  /*# mc68881_top.vhd:3998:11 */
   assign n22098 = cir_src_fmt == 3'b101;
-  /*# mc68881_top.vhd:3996:31 */
+  /*# mc68881_top.vhd:4008:31 */
   assign n22100 = 3'b111 - cir_dst_reg_idx;
-  /*# mc68881_top.vhd:3998:31 */
-  assign n22104 = 3'b111 - cir_dst_reg_idx;
-  /*# mc68881_top.vhd:4000:31 */
-  assign n22108 = 3'b111 - cir_dst_reg_idx;
-  /*# mc68881_top.vhd:3993:11 */
-  assign n22112 = cir_src_fmt == 3'b010;
-  /*# mc68881_top.vhd:3975:9 */
-  assign n22113 = {n22112, n22098, n22096, n21937, n21778, n21622};
+  /*# mc68881_top.vhd:4011:31 */
+  assign n22105 = 3'b111 - cir_dst_reg_idx;
+  /*# mc68881_top.vhd:4013:31 */
+  assign n22109 = 3'b111 - cir_dst_reg_idx;
+  /*# mc68881_top.vhd:4001:11 */
+  assign n22113 = cir_src_fmt == 3'b010;
+  /*# mc68881_top.vhd:3983:9 */
+  assign n22114 = {n22113, n22098, n22096, n21937, n21778, n21622};
   /*# mc68881_top.vhd:109:10 */
-  assign n22114 = conv_single_out[15:0]; // extract
+  assign n22115 = conv_single_out[15:0]; // extract
   /*# mc68881_pkg.vhd:2326:5 */
-  assign n22115 = n21776[15:0]; // extract
-  /*# mc68881_top.vhd:3983:57 */
-  assign n22116 = n21935[15:0]; // extract
-  /*# mc68881_top.vhd:3987:59 */
-  assign n22117 = n22094[15:0]; // extract
+  assign n22116 = n21776[15:0]; // extract
+  /*# mc68881_top.vhd:3991:57 */
+  assign n22117 = n21935[15:0]; // extract
+  /*# mc68881_top.vhd:3995:59 */
+  assign n22118 = n22094[15:0]; // extract
   /*# mc68881_top.vhd:110:10 */
-  assign n22118 = conv_double_out[15:0]; // extract
-  /*# mc68881_top.vhd:3975:9 */
+  assign n22119 = conv_double_out[15:0]; // extract
+  /*# mc68881_top.vhd:3983:9 */
   always @*
-    case (n22113)
-      6'b100000: n22120 = n24232;
-      6'b010000: n22120 = n22118;
-      6'b001000: n22120 = n22117;
-      6'b000100: n22120 = n22116;
-      6'b000010: n22120 = n22115;
-      6'b000001: n22120 = n22114;
-      default: n22120 = 16'b0000000000000000;
+    case (n22114)
+      6'b100000: n22121 = 16'b0000000000000000;
+      6'b010000: n22121 = n22119;
+      6'b001000: n22121 = n22118;
+      6'b000100: n22121 = n22117;
+      6'b000010: n22121 = n22116;
+      6'b000001: n22121 = n22115;
+      default: n22121 = 16'b0000000000000000;
     endcase
   /*# mc68881_top.vhd:109:10 */
-  assign n22121 = conv_single_out[31:16]; // extract
+  assign n22122 = conv_single_out[31:16]; // extract
   /*# mc68881_pkg.vhd:2326:5 */
-  assign n22122 = n21776[31:16]; // extract
-  /*# mc68881_top.vhd:3983:57 */
-  assign n22123 = n21935[31:16]; // extract
-  /*# mc68881_top.vhd:3987:59 */
-  assign n22124 = n22094[31:16]; // extract
+  assign n22123 = n21776[31:16]; // extract
+  /*# mc68881_top.vhd:3991:57 */
+  assign n22124 = n21935[31:16]; // extract
+  /*# mc68881_top.vhd:3995:59 */
+  assign n22125 = n22094[31:16]; // extract
   /*# mc68881_top.vhd:110:10 */
-  assign n22125 = conv_double_out[31:16]; // extract
-  /*# mc68881_top.vhd:307:10 */
-  assign n22127 = n21591[31:16]; // extract
-  /*# mc68881_top.vhd:3975:9 */
+  assign n22126 = conv_double_out[31:16]; // extract
+  /*# mc68881_top.vhd:3983:9 */
   always @*
-    case (n22113)
-      6'b100000: n22128 = n22127;
-      6'b010000: n22128 = n22125;
-      6'b001000: n22128 = n22124;
-      6'b000100: n22128 = n22123;
-      6'b000010: n22128 = n22122;
-      6'b000001: n22128 = n22121;
+    case (n22114)
+      6'b100000: n22128 = n24232;
+      6'b010000: n22128 = n22126;
+      6'b001000: n22128 = n22125;
+      6'b000100: n22128 = n22124;
+      6'b000010: n22128 = n22123;
+      6'b000001: n22128 = n22122;
       default: n22128 = 16'b0000000000000000;
     endcase
   /*# mc68881_top.vhd:110:10 */
   assign n22129 = conv_double_out[63:32]; // extract
   /*# mc68881_top.vhd:307:10 */
   assign n22131 = n21591[63:32]; // extract
-  /*# mc68881_top.vhd:3975:9 */
+  /*# mc68881_top.vhd:3983:9 */
   always @*
-    case (n22113)
+    case (n22114)
       6'b100000: n22132 = n24237;
       6'b010000: n22132 = n22129;
       6'b001000: n22132 = n22131;
@@ -60345,9 +60342,9 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:307:10 */
   assign n22134 = n21591[95:64]; // extract
-  /*# mc68881_top.vhd:3975:9 */
+  /*# mc68881_top.vhd:3983:9 */
   always @*
-    case (n22113)
+    case (n22114)
       6'b100000: n22135 = n24239;
       6'b010000: n22135 = n22134;
       6'b001000: n22135 = n22134;
@@ -60356,95 +60353,95 @@ module mc68881_top
       6'b000001: n22135 = n22134;
       default: n22135 = 32'b00000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:3970:7 */
-  assign n22136 = {n22135, n22132, n22128, n22120};
-  /*# mc68881_top.vhd:3970:7 */
+  /*# mc68881_top.vhd:3978:7 */
+  assign n22136 = {n22135, n22132, n22128, n22121};
+  /*# mc68881_top.vhd:3978:7 */
   assign n22137 = n21620 ? n22136 : n21591;
-  /*# mc68881_top.vhd:3970:7 */
+  /*# mc68881_top.vhd:3978:7 */
   assign n22138 = n22137[31:0]; // extract
-  /*# mc68881_top.vhd:3955:7 */
+  /*# mc68881_top.vhd:3963:7 */
   assign n22139 = n21605 ? n21612 : n22138;
-  /*# mc68881_top.vhd:3970:7 */
+  /*# mc68881_top.vhd:3978:7 */
   assign n22140 = n22137[95:32]; // extract
   /*# mc68881_top.vhd:307:10 */
   assign n22141 = n21591[95:32]; // extract
-  /*# mc68881_top.vhd:3955:7 */
+  /*# mc68881_top.vhd:3963:7 */
   assign n22142 = n21605 ? n22141 : n22140;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n22161 = {n22142, n22139};
-  /*# mc68881_top.vhd:4011:16 */
+  /*# mc68881_top.vhd:4024:16 */
   assign n22225 = ~reset_n;
-  /*# mc68881_top.vhd:4043:39 */
-  assign n22227 = cir_command_written & cir_opword_written;
-  /*# mc68881_top.vhd:4044:30 */
-  assign n22229 = cir_instr_type == 3'b000;
-  /*# mc68881_top.vhd:4043:69 */
-  assign n22230 = n22229 & n22227;
-  /*# mc68881_top.vhd:4052:66 */
-  assign n22231 = ~cir_opword_written;
-  /*# mc68881_top.vhd:4052:43 */
-  assign n22232 = n22231 & cir_command_written;
-  /*# mc68881_top.vhd:4052:11 */
-  assign n22234 = n22232 ? 5'b00001 : cir_state_reg;
-  /*# mc68881_top.vhd:4043:11 */
-  assign n22236 = n22230 ? 5'b00001 : n22234;
   /*# mc68881_top.vhd:4056:39 */
-  assign n22237 = cir_condition_written & cir_opword_written;
+  assign n22227 = cir_command_written & cir_opword_written;
   /*# mc68881_top.vhd:4057:30 */
-  assign n22239 = cir_instr_type == 3'b001;
-  /*# mc68881_top.vhd:4058:30 */
-  assign n22241 = cir_instr_type == 3'b010;
-  /*# mc68881_top.vhd:4057:48 */
-  assign n22242 = n22239 | n22241;
-  /*# mc68881_top.vhd:4059:30 */
-  assign n22244 = cir_instr_type == 3'b011;
-  /*# mc68881_top.vhd:4058:49 */
-  assign n22245 = n22242 | n22244;
-  /*# mc68881_top.vhd:4056:71 */
-  assign n22246 = n22245 & n22237;
+  assign n22229 = cir_instr_type == 3'b000;
+  /*# mc68881_top.vhd:4056:69 */
+  assign n22230 = n22229 & n22227;
+  /*# mc68881_top.vhd:4065:66 */
+  assign n22231 = ~cir_opword_written;
+  /*# mc68881_top.vhd:4065:43 */
+  assign n22232 = n22231 & cir_command_written;
+  /*# mc68881_top.vhd:4065:11 */
+  assign n22234 = n22232 ? 5'b00001 : cir_state_reg;
   /*# mc68881_top.vhd:4056:11 */
+  assign n22236 = n22230 ? 5'b00001 : n22234;
+  /*# mc68881_top.vhd:4069:39 */
+  assign n22237 = cir_condition_written & cir_opword_written;
+  /*# mc68881_top.vhd:4070:30 */
+  assign n22239 = cir_instr_type == 3'b001;
+  /*# mc68881_top.vhd:4071:30 */
+  assign n22241 = cir_instr_type == 3'b010;
+  /*# mc68881_top.vhd:4070:48 */
+  assign n22242 = n22239 | n22241;
+  /*# mc68881_top.vhd:4072:30 */
+  assign n22244 = cir_instr_type == 3'b011;
+  /*# mc68881_top.vhd:4071:49 */
+  assign n22245 = n22242 | n22244;
+  /*# mc68881_top.vhd:4069:71 */
+  assign n22246 = n22245 & n22237;
+  /*# mc68881_top.vhd:4069:11 */
   assign n22248 = n22246 ? 5'b01001 : n22236;
-  /*# mc68881_top.vhd:4063:58 */
+  /*# mc68881_top.vhd:4076:58 */
   assign n22250 = cir_instr_type == 3'b100;
-  /*# mc68881_top.vhd:4063:39 */
+  /*# mc68881_top.vhd:4076:39 */
   assign n22251 = n22250 & cir_opword_written;
-  /*# mc68881_top.vhd:4063:11 */
+  /*# mc68881_top.vhd:4076:11 */
   assign n22253 = n22251 ? 5'b01111 : n22248;
-  /*# mc68881_top.vhd:4068:58 */
+  /*# mc68881_top.vhd:4081:58 */
   assign n22257 = cir_instr_type == 3'b101;
-  /*# mc68881_top.vhd:4068:39 */
+  /*# mc68881_top.vhd:4081:39 */
   assign n22258 = n22257 & cir_opword_written;
-  /*# mc68881_top.vhd:4068:11 */
+  /*# mc68881_top.vhd:4081:11 */
   assign n22260 = n22258 ? 5'b10010 : n22253;
-  /*# mc68881_top.vhd:4068:11 */
+  /*# mc68881_top.vhd:4081:11 */
   assign n22262 = n22258 ? 6'b000000 : cir_restore_word_idx;
-  /*# mc68881_top.vhd:4075:29 */
+  /*# mc68881_top.vhd:4088:29 */
   assign n22264 = cir_instr_type != 3'b000;
-  /*# mc68881_top.vhd:4074:39 */
+  /*# mc68881_top.vhd:4087:39 */
   assign n22265 = n22264 & cir_opword_written;
-  /*# mc68881_top.vhd:4076:29 */
+  /*# mc68881_top.vhd:4089:29 */
   assign n22267 = cir_instr_type != 3'b001;
-  /*# mc68881_top.vhd:4075:47 */
+  /*# mc68881_top.vhd:4088:47 */
   assign n22268 = n22267 & n22265;
-  /*# mc68881_top.vhd:4077:29 */
+  /*# mc68881_top.vhd:4090:29 */
   assign n22270 = cir_instr_type != 3'b010;
-  /*# mc68881_top.vhd:4076:48 */
+  /*# mc68881_top.vhd:4089:48 */
   assign n22271 = n22270 & n22268;
-  /*# mc68881_top.vhd:4078:29 */
+  /*# mc68881_top.vhd:4091:29 */
   assign n22273 = cir_instr_type != 3'b011;
-  /*# mc68881_top.vhd:4077:49 */
+  /*# mc68881_top.vhd:4090:49 */
   assign n22274 = n22273 & n22271;
-  /*# mc68881_top.vhd:4079:29 */
+  /*# mc68881_top.vhd:4092:29 */
   assign n22276 = cir_instr_type != 3'b100;
-  /*# mc68881_top.vhd:4078:49 */
+  /*# mc68881_top.vhd:4091:49 */
   assign n22277 = n22276 & n22274;
-  /*# mc68881_top.vhd:4080:29 */
+  /*# mc68881_top.vhd:4093:29 */
   assign n22279 = cir_instr_type != 3'b101;
-  /*# mc68881_top.vhd:4079:48 */
+  /*# mc68881_top.vhd:4092:48 */
   assign n22280 = n22279 & n22277;
-  /*# mc68881_top.vhd:4074:11 */
+  /*# mc68881_top.vhd:4087:11 */
   assign n22283 = n22280 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:4041:9 */
+  /*# mc68881_top.vhd:4054:9 */
   assign n22285 = cir_state_reg == 5'b00000;
   /*# mc68881_top.vhd:457:15 */
   assign n22292 = cir_decoded_op == 6'b001100;
@@ -60556,13 +60553,13 @@ module mc68881_top
   assign n22372 = cir_decoded_op == 6'b100100;
   /*# mc68881_top.vhd:470:32 */
   assign n22373 = n22370 | n22372;
-  /*# mc68881_top.vhd:4085:25 */
+  /*# mc68881_top.vhd:4098:25 */
   assign n22375 = n22373 & 1'b1;
   /*# mc68881_pkg.vhd:1323:27 */
   assign n22382 = 6'b101110 - cir_decoded_op;
-  /*# mc68881_top.vhd:4098:41 */
+  /*# mc68881_top.vhd:4111:41 */
   assign n22386 = n24244 == 3'b010;
-  /*# mc68881_top.vhd:4098:13 */
+  /*# mc68881_top.vhd:4111:13 */
   assign n22389 = n22386 ? 5'b00000 : 5'b00101;
   /*# mc68881_pkg.vhd:1291:7 */
   assign n22397 = cir_src_fmt == 3'b000;
@@ -60599,7 +60596,7 @@ module mc68881_top
       4'b0001: n22421 = 31'b0000000000000000000000000000001;
       default: n22421 = 31'b0000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:4107:36 */
+  /*# mc68881_top.vhd:4120:36 */
   assign n22422 = n22421[5:0];  // trunc
   /*# mc68881_pkg.vhd:1291:7 */
   assign n22430 = cir_src_fmt == 3'b000;
@@ -60636,63 +60633,63 @@ module mc68881_top
       4'b0001: n22454 = 31'b0000000000000000000000000000001;
       default: n22454 = 31'b0000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:4112:36 */
+  /*# mc68881_top.vhd:4125:36 */
   assign n22455 = n22454[5:0];  // trunc
-  /*# mc68881_top.vhd:4103:11 */
+  /*# mc68881_top.vhd:4116:11 */
   assign n22458 = cir_direction ? 5'b00111 : 5'b00010;
-  /*# mc68881_top.vhd:4103:11 */
+  /*# mc68881_top.vhd:4116:11 */
   assign n22459 = cir_direction ? n22422 : n22455;
-  /*# mc68881_top.vhd:4093:11 */
+  /*# mc68881_top.vhd:4106:11 */
   assign n22460 = cir_reg_to_reg ? n22389 : n22458;
-  /*# mc68881_top.vhd:4093:11 */
+  /*# mc68881_top.vhd:4106:11 */
   assign n22462 = cir_reg_to_reg ? cir_xfer_word_idx : 6'b000000;
-  /*# mc68881_top.vhd:4093:11 */
+  /*# mc68881_top.vhd:4106:11 */
   assign n22463 = cir_reg_to_reg ? cir_xfer_word_count : n22459;
-  /*# mc68881_top.vhd:4093:11 */
+  /*# mc68881_top.vhd:4106:11 */
   assign n22466 = cir_reg_to_reg ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:4085:11 */
+  /*# mc68881_top.vhd:4098:11 */
   assign n22468 = n22375 ? 5'b01100 : n22460;
-  /*# mc68881_top.vhd:4085:11 */
+  /*# mc68881_top.vhd:4098:11 */
   assign n22469 = n22375 ? cir_xfer_word_idx : n22462;
-  /*# mc68881_top.vhd:4085:11 */
+  /*# mc68881_top.vhd:4098:11 */
   assign n22470 = n22375 ? cir_xfer_word_count : n22463;
-  /*# mc68881_top.vhd:4085:11 */
+  /*# mc68881_top.vhd:4098:11 */
   assign n22472 = n22375 ? 10'b0000001011 : cir_exc_vector;
-  /*# mc68881_top.vhd:4085:11 */
+  /*# mc68881_top.vhd:4098:11 */
   assign n22474 = n22375 ? 1'b0 : n22466;
-  /*# mc68881_top.vhd:4084:9 */
+  /*# mc68881_top.vhd:4097:9 */
   assign n22476 = cir_state_reg == 5'b00001;
-  /*# mc68881_top.vhd:4121:34 */
+  /*# mc68881_top.vhd:4134:34 */
   assign n22477 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4121:34 */
+  /*# mc68881_top.vhd:4134:34 */
   assign n22479 = n22477 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4121:38 */
+  /*# mc68881_top.vhd:4134:38 */
   assign n22480 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4121:38 */
+  /*# mc68881_top.vhd:4134:38 */
   assign n22481 = $signed(n22479) >= $signed(n22480);
-  /*# mc68881_top.vhd:4126:54 */
+  /*# mc68881_top.vhd:4139:54 */
   assign n22482 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4126:54 */
+  /*# mc68881_top.vhd:4139:54 */
   assign n22484 = n22482 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4126:36 */
+  /*# mc68881_top.vhd:4139:36 */
   assign n22485 = n22484[5:0];  // trunc
-  /*# mc68881_top.vhd:4129:54 */
+  /*# mc68881_top.vhd:4142:54 */
   assign n22486 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4129:54 */
+  /*# mc68881_top.vhd:4142:54 */
   assign n22488 = n22486 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4129:36 */
+  /*# mc68881_top.vhd:4142:36 */
   assign n22489 = n22488[5:0];  // trunc
-  /*# mc68881_top.vhd:4120:11 */
+  /*# mc68881_top.vhd:4133:11 */
   assign n22491 = n22493 ? 5'b00011 : cir_state_reg;
-  /*# mc68881_top.vhd:4121:13 */
+  /*# mc68881_top.vhd:4134:13 */
   assign n22492 = n22481 ? n22485 : n22489;
-  /*# mc68881_top.vhd:4120:11 */
+  /*# mc68881_top.vhd:4133:11 */
   assign n22493 = n22481 & cir_operand_word_arrived;
-  /*# mc68881_top.vhd:4120:11 */
+  /*# mc68881_top.vhd:4133:11 */
   assign n22494 = cir_operand_word_arrived ? n22492 : cir_xfer_word_idx;
-  /*# mc68881_top.vhd:4117:9 */
+  /*# mc68881_top.vhd:4130:9 */
   assign n22496 = cir_state_reg == 5'b00010;
-  /*# mc68881_top.vhd:4133:9 */
+  /*# mc68881_top.vhd:4146:9 */
   assign n22498 = cir_state_reg == 5'b00011;
   /*# mc68881_top.vhd:457:15 */
   assign n22505 = cir_decoded_op == 6'b001100;
@@ -60804,211 +60801,211 @@ module mc68881_top
   assign n22585 = cir_decoded_op == 6'b100100;
   /*# mc68881_top.vhd:470:32 */
   assign n22586 = n22583 | n22585;
-  /*# mc68881_top.vhd:4147:28 */
+  /*# mc68881_top.vhd:4160:28 */
   assign n22588 = n22586 & 1'b1;
   /*# mc68881_pkg.vhd:1323:27 */
   assign n22595 = 6'b101110 - cir_decoded_op;
-  /*# mc68881_top.vhd:4152:41 */
+  /*# mc68881_top.vhd:4165:41 */
   assign n22599 = n24249 == 3'b010;
-  /*# mc68881_top.vhd:4152:13 */
+  /*# mc68881_top.vhd:4165:13 */
   assign n22602 = n22599 ? 5'b00000 : 5'b00101;
-  /*# mc68881_top.vhd:4147:11 */
+  /*# mc68881_top.vhd:4160:11 */
   assign n22604 = n22588 ? 5'b01100 : n22602;
-  /*# mc68881_top.vhd:4147:11 */
+  /*# mc68881_top.vhd:4160:11 */
   assign n22606 = n22588 ? 10'b0000001011 : cir_exc_vector;
-  /*# mc68881_top.vhd:4147:11 */
+  /*# mc68881_top.vhd:4160:11 */
   assign n22609 = n22588 ? 1'b0 : 1'b1;
-  /*# mc68881_top.vhd:4140:11 */
+  /*# mc68881_top.vhd:4153:11 */
   assign n22611 = cir_is_fpctl_move ? 5'b00000 : n22604;
-  /*# mc68881_top.vhd:4140:11 */
+  /*# mc68881_top.vhd:4153:11 */
   assign n22614 = cir_is_fpctl_move ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:4140:11 */
+  /*# mc68881_top.vhd:4153:11 */
   assign n22615 = cir_is_fpctl_move ? cir_exc_vector : n22606;
-  /*# mc68881_top.vhd:4140:11 */
+  /*# mc68881_top.vhd:4153:11 */
   assign n22617 = cir_is_fpctl_move ? 1'b0 : n22609;
-  /*# mc68881_top.vhd:4138:9 */
+  /*# mc68881_top.vhd:4151:9 */
   assign n22619 = cir_state_reg == 5'b00100;
-  /*# mc68881_top.vhd:4165:37 */
+  /*# mc68881_top.vhd:4178:37 */
   assign n22620 = {30'b0, pending_skip_valid_reg};  // uext
-  /*# mc68881_top.vhd:4165:37 */
+  /*# mc68881_top.vhd:4178:37 */
   assign n22622 = $signed(n22620) > $signed(32'b00000000000000000000000000000000);
-  /*# mc68881_top.vhd:4166:62 */
+  /*# mc68881_top.vhd:4179:62 */
   assign n22623 = {30'b0, pending_skip_valid_reg};  // uext
-  /*# mc68881_top.vhd:4166:62 */
+  /*# mc68881_top.vhd:4179:62 */
   assign n22625 = n22623 - 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4166:39 */
+  /*# mc68881_top.vhd:4179:39 */
   assign n22626 = n22625[1:0];  // trunc
-  /*# mc68881_top.vhd:4167:11 */
+  /*# mc68881_top.vhd:4180:11 */
   assign n22628 = valid ? 5'b00110 : cir_state_reg;
-  /*# mc68881_top.vhd:4165:11 */
+  /*# mc68881_top.vhd:4178:11 */
   assign n22629 = n22622 ? cir_state_reg : n22628;
-  /*# mc68881_top.vhd:4165:11 */
+  /*# mc68881_top.vhd:4178:11 */
   assign n22630 = n22622 ? n22626 : pending_skip_valid_reg;
-  /*# mc68881_top.vhd:4191:58 */
+  /*# mc68881_top.vhd:4204:58 */
   assign n22632 = cir_instr_type == 3'b100;
-  /*# mc68881_top.vhd:4191:39 */
+  /*# mc68881_top.vhd:4204:39 */
   assign n22633 = n22632 & cir_opword_written;
-  /*# mc68881_top.vhd:4191:11 */
+  /*# mc68881_top.vhd:4204:11 */
   assign n22635 = n22633 ? 5'b01111 : n22629;
-  /*# mc68881_top.vhd:4159:9 */
+  /*# mc68881_top.vhd:4172:9 */
   assign n22639 = cir_state_reg == 5'b00101;
-  /*# mc68881_top.vhd:4200:22 */
+  /*# mc68881_top.vhd:4213:22 */
   assign n22640 = fpsr_reg[14]; // extract
-  /*# mc68881_top.vhd:4201:22 */
+  /*# mc68881_top.vhd:4214:22 */
   assign n22641 = fpcr_reg[14]; // extract
-  /*# mc68881_top.vhd:4200:59 */
+  /*# mc68881_top.vhd:4213:59 */
   assign n22642 = n22641 & n22640;
-  /*# mc68881_top.vhd:4204:25 */
-  assign n22643 = fpsr_reg[13]; // extract
-  /*# mc68881_top.vhd:4205:25 */
-  assign n22644 = fpcr_reg[13]; // extract
-  /*# mc68881_top.vhd:4204:63 */
-  assign n22645 = n22644 & n22643;
-  /*# mc68881_top.vhd:4208:25 */
-  assign n22646 = fpsr_reg[12]; // extract
-  /*# mc68881_top.vhd:4209:25 */
-  assign n22647 = fpcr_reg[12]; // extract
-  /*# mc68881_top.vhd:4208:62 */
-  assign n22648 = n22647 & n22646;
-  /*# mc68881_top.vhd:4212:25 */
-  assign n22649 = fpsr_reg[11]; // extract
-  /*# mc68881_top.vhd:4213:25 */
-  assign n22650 = fpcr_reg[11]; // extract
-  /*# mc68881_top.vhd:4212:62 */
-  assign n22651 = n22650 & n22649;
-  /*# mc68881_top.vhd:4216:25 */
-  assign n22652 = fpsr_reg[10]; // extract
   /*# mc68881_top.vhd:4217:25 */
-  assign n22653 = fpcr_reg[10]; // extract
-  /*# mc68881_top.vhd:4216:60 */
-  assign n22654 = n22653 & n22652;
-  /*# mc68881_top.vhd:4220:25 */
-  assign n22655 = fpsr_reg[9]; // extract
+  assign n22643 = fpsr_reg[13]; // extract
+  /*# mc68881_top.vhd:4218:25 */
+  assign n22644 = fpcr_reg[13]; // extract
+  /*# mc68881_top.vhd:4217:63 */
+  assign n22645 = n22644 & n22643;
   /*# mc68881_top.vhd:4221:25 */
-  assign n22656 = fpcr_reg[9]; // extract
-  /*# mc68881_top.vhd:4220:63 */
-  assign n22657 = n22656 & n22655;
-  /*# mc68881_top.vhd:4224:25 */
-  assign n22658 = fpsr_reg[8]; // extract
+  assign n22646 = fpsr_reg[12]; // extract
+  /*# mc68881_top.vhd:4222:25 */
+  assign n22647 = fpcr_reg[12]; // extract
+  /*# mc68881_top.vhd:4221:62 */
+  assign n22648 = n22647 & n22646;
   /*# mc68881_top.vhd:4225:25 */
+  assign n22649 = fpsr_reg[11]; // extract
+  /*# mc68881_top.vhd:4226:25 */
+  assign n22650 = fpcr_reg[11]; // extract
+  /*# mc68881_top.vhd:4225:62 */
+  assign n22651 = n22650 & n22649;
+  /*# mc68881_top.vhd:4229:25 */
+  assign n22652 = fpsr_reg[10]; // extract
+  /*# mc68881_top.vhd:4230:25 */
+  assign n22653 = fpcr_reg[10]; // extract
+  /*# mc68881_top.vhd:4229:60 */
+  assign n22654 = n22653 & n22652;
+  /*# mc68881_top.vhd:4233:25 */
+  assign n22655 = fpsr_reg[9]; // extract
+  /*# mc68881_top.vhd:4234:25 */
+  assign n22656 = fpcr_reg[9]; // extract
+  /*# mc68881_top.vhd:4233:63 */
+  assign n22657 = n22656 & n22655;
+  /*# mc68881_top.vhd:4237:25 */
+  assign n22658 = fpsr_reg[8]; // extract
+  /*# mc68881_top.vhd:4238:25 */
   assign n22659 = fpcr_reg[8]; // extract
-  /*# mc68881_top.vhd:4224:63 */
+  /*# mc68881_top.vhd:4237:63 */
   assign n22660 = n22659 & n22658;
-  /*# mc68881_top.vhd:4224:11 */
+  /*# mc68881_top.vhd:4237:11 */
   assign n22663 = n22660 ? 5'b01110 : 5'b00000;
-  /*# mc68881_top.vhd:4224:11 */
+  /*# mc68881_top.vhd:4237:11 */
   assign n22665 = n22660 ? 10'b0000110001 : cir_exc_vector;
-  /*# mc68881_top.vhd:4220:11 */
+  /*# mc68881_top.vhd:4233:11 */
   assign n22667 = n22657 ? 5'b01110 : n22663;
-  /*# mc68881_top.vhd:4220:11 */
+  /*# mc68881_top.vhd:4233:11 */
   assign n22669 = n22657 ? 10'b0000110001 : n22665;
-  /*# mc68881_top.vhd:4216:11 */
+  /*# mc68881_top.vhd:4229:11 */
   assign n22671 = n22654 ? 5'b01110 : n22667;
-  /*# mc68881_top.vhd:4216:11 */
+  /*# mc68881_top.vhd:4229:11 */
   assign n22673 = n22654 ? 10'b0000110010 : n22669;
-  /*# mc68881_top.vhd:4212:11 */
+  /*# mc68881_top.vhd:4225:11 */
   assign n22675 = n22651 ? 5'b01110 : n22671;
-  /*# mc68881_top.vhd:4212:11 */
+  /*# mc68881_top.vhd:4225:11 */
   assign n22677 = n22651 ? 10'b0000110011 : n22673;
-  /*# mc68881_top.vhd:4208:11 */
+  /*# mc68881_top.vhd:4221:11 */
   assign n22679 = n22648 ? 5'b01110 : n22675;
-  /*# mc68881_top.vhd:4208:11 */
+  /*# mc68881_top.vhd:4221:11 */
   assign n22681 = n22648 ? 10'b0000110101 : n22677;
-  /*# mc68881_top.vhd:4204:11 */
+  /*# mc68881_top.vhd:4217:11 */
   assign n22683 = n22645 ? 5'b01110 : n22679;
-  /*# mc68881_top.vhd:4204:11 */
+  /*# mc68881_top.vhd:4217:11 */
   assign n22685 = n22645 ? 10'b0000110100 : n22681;
-  /*# mc68881_top.vhd:4200:11 */
+  /*# mc68881_top.vhd:4213:11 */
   assign n22687 = n22642 ? 5'b01110 : n22683;
-  /*# mc68881_top.vhd:4200:11 */
+  /*# mc68881_top.vhd:4213:11 */
   assign n22689 = n22642 ? 10'b0000110110 : n22685;
-  /*# mc68881_top.vhd:4196:9 */
+  /*# mc68881_top.vhd:4209:9 */
   assign n22691 = cir_state_reg == 5'b00110;
-  /*# mc68881_top.vhd:4260:34 */
+  /*# mc68881_top.vhd:4273:34 */
   assign n22692 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4260:34 */
+  /*# mc68881_top.vhd:4273:34 */
   assign n22694 = n22692 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4260:38 */
+  /*# mc68881_top.vhd:4273:38 */
   assign n22695 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4260:38 */
+  /*# mc68881_top.vhd:4273:38 */
   assign n22696 = $signed(n22694) >= $signed(n22695);
-  /*# mc68881_top.vhd:4266:54 */
+  /*# mc68881_top.vhd:4279:54 */
   assign n22697 = {26'b0, cir_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4266:54 */
+  /*# mc68881_top.vhd:4279:54 */
   assign n22699 = n22697 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4266:36 */
+  /*# mc68881_top.vhd:4279:36 */
   assign n22700 = n22699[5:0];  // trunc
-  /*# mc68881_top.vhd:4259:11 */
+  /*# mc68881_top.vhd:4272:11 */
   assign n22702 = n22704 ? 5'b01000 : cir_state_reg;
-  /*# mc68881_top.vhd:4260:13 */
+  /*# mc68881_top.vhd:4273:13 */
   assign n22703 = n22696 ? cir_xfer_word_idx : n22700;
-  /*# mc68881_top.vhd:4259:11 */
+  /*# mc68881_top.vhd:4272:11 */
   assign n22704 = n22696 & cir_operand_read_done;
-  /*# mc68881_top.vhd:4259:11 */
+  /*# mc68881_top.vhd:4272:11 */
   assign n22705 = cir_operand_read_done ? n22703 : cir_xfer_word_idx;
-  /*# mc68881_top.vhd:4257:9 */
-  assign n22707 = cir_state_reg == 5'b00111;
   /*# mc68881_top.vhd:4270:9 */
+  assign n22707 = cir_state_reg == 5'b00111;
+  /*# mc68881_top.vhd:4283:9 */
   assign n22709 = cir_state_reg == 5'b01000;
-  /*# mc68881_top.vhd:4273:9 */
-  assign n22711 = cir_state_reg == 5'b01001;
-  /*# mc68881_top.vhd:4281:9 */
-  assign n22713 = cir_state_reg == 5'b01010;
-  /*# mc68881_top.vhd:4290:11 */
-  assign n22716 = cir_trap_pending_reg ? 5'b01100 : 5'b00000;
-  /*# mc68881_top.vhd:4290:11 */
-  assign n22718 = cir_trap_pending_reg ? 10'b0000110000 : cir_exc_vector;
   /*# mc68881_top.vhd:4286:9 */
-  assign n22720 = cir_state_reg == 5'b01011;
-  /*# mc68881_top.vhd:4298:11 */
-  assign n22722 = cir_control_ack ? 5'b00000 : cir_state_reg;
-  /*# mc68881_top.vhd:4297:9 */
-  assign n22724 = cir_state_reg == 5'b01100;
+  assign n22711 = cir_state_reg == 5'b01001;
+  /*# mc68881_top.vhd:4294:9 */
+  assign n22713 = cir_state_reg == 5'b01010;
   /*# mc68881_top.vhd:4303:11 */
+  assign n22716 = cir_trap_pending_reg ? 5'b01100 : 5'b00000;
+  /*# mc68881_top.vhd:4303:11 */
+  assign n22718 = cir_trap_pending_reg ? 10'b0000110000 : cir_exc_vector;
+  /*# mc68881_top.vhd:4299:9 */
+  assign n22720 = cir_state_reg == 5'b01011;
+  /*# mc68881_top.vhd:4311:11 */
+  assign n22722 = cir_control_ack ? 5'b00000 : cir_state_reg;
+  /*# mc68881_top.vhd:4310:9 */
+  assign n22724 = cir_state_reg == 5'b01100;
+  /*# mc68881_top.vhd:4316:11 */
   assign n22726 = cir_control_ack ? 5'b00000 : cir_state_reg;
-  /*# mc68881_top.vhd:4302:9 */
+  /*# mc68881_top.vhd:4315:9 */
   assign n22728 = cir_state_reg == 5'b01101;
-  /*# mc68881_top.vhd:4308:11 */
+  /*# mc68881_top.vhd:4321:11 */
   assign n22730 = cir_control_ack ? 5'b00000 : cir_state_reg;
-  /*# mc68881_top.vhd:4307:9 */
+  /*# mc68881_top.vhd:4320:9 */
   assign n22732 = cir_state_reg == 5'b01110;
-  /*# mc68881_top.vhd:4312:9 */
+  /*# mc68881_top.vhd:4325:9 */
   assign n22734 = cir_state_reg == 5'b01111;
-  /*# mc68881_top.vhd:4333:36 */
+  /*# mc68881_top.vhd:4346:36 */
   assign n22735 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4333:36 */
+  /*# mc68881_top.vhd:4346:36 */
   assign n22737 = n22735 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:4333:13 */
+  /*# mc68881_top.vhd:4346:13 */
   assign n22740 = n22737 ? 5'b00000 : 5'b10001;
-  /*# mc68881_top.vhd:4332:11 */
+  /*# mc68881_top.vhd:4345:11 */
   assign n22741 = cir_save_read_done ? n22740 : cir_state_reg;
-  /*# mc68881_top.vhd:4329:9 */
+  /*# mc68881_top.vhd:4342:9 */
   assign n22743 = cir_state_reg == 5'b10000;
-  /*# mc68881_top.vhd:4345:34 */
+  /*# mc68881_top.vhd:4358:34 */
   assign n22744 = {26'b0, cir_save_word_idx};  // uext
-  /*# mc68881_top.vhd:4345:34 */
+  /*# mc68881_top.vhd:4358:34 */
   assign n22746 = n22744 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4345:38 */
+  /*# mc68881_top.vhd:4358:38 */
   assign n22747 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4345:38 */
+  /*# mc68881_top.vhd:4358:38 */
   assign n22748 = $signed(n22746) >= $signed(n22747);
-  /*# mc68881_top.vhd:4349:54 */
+  /*# mc68881_top.vhd:4362:54 */
   assign n22749 = {26'b0, cir_save_word_idx};  // uext
-  /*# mc68881_top.vhd:4349:54 */
+  /*# mc68881_top.vhd:4362:54 */
   assign n22751 = n22749 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4349:36 */
+  /*# mc68881_top.vhd:4362:36 */
   assign n22752 = n22751[5:0];  // trunc
-  /*# mc68881_top.vhd:4344:11 */
+  /*# mc68881_top.vhd:4357:11 */
   assign n22754 = n22756 ? 5'b01000 : cir_state_reg;
-  /*# mc68881_top.vhd:4345:13 */
+  /*# mc68881_top.vhd:4358:13 */
   assign n22755 = n22748 ? cir_save_word_idx : n22752;
-  /*# mc68881_top.vhd:4344:11 */
+  /*# mc68881_top.vhd:4357:11 */
   assign n22756 = n22748 & cir_operand_read_done;
-  /*# mc68881_top.vhd:4344:11 */
+  /*# mc68881_top.vhd:4357:11 */
   assign n22757 = cir_operand_read_done ? n22755 : cir_save_word_idx;
-  /*# mc68881_top.vhd:4341:9 */
+  /*# mc68881_top.vhd:4354:9 */
   assign n22759 = cir_state_reg == 5'b10001;
-  /*# mc68881_top.vhd:4357:35 */
+  /*# mc68881_top.vhd:4370:35 */
   assign n22761 = cir_restore_fw_reg == 16'b0000000000000000;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n22768 = cir_restore_fw_reg == 16'b0001111100011000;
@@ -61028,7 +61025,7 @@ module mc68881_top
   assign n22784 = cir_restore_fw_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2884:5 */
   assign n22787 = n22784 ? 31'b0000000000000000000000000001110 : 31'b0000000000000000000000000001101;
-  /*# mc68881_top.vhd:4368:38 */
+  /*# mc68881_top.vhd:4381:38 */
   assign n22788 = n22787[5:0];  // trunc
   /*# mc68881_pkg.vhd:2878:15 */
   assign n22795 = cir_restore_fw_reg == 16'b0001111110110100;
@@ -61048,69 +61045,69 @@ module mc68881_top
   assign n22811 = cir_restore_fw_reg == 16'b0000000011010100;
   /*# mc68881_pkg.vhd:2890:5 */
   assign n22814 = n22811 ? 31'b0000000000000000000000000110101 : 31'b0000000000000000000000000101101;
-  /*# mc68881_top.vhd:4376:38 */
+  /*# mc68881_top.vhd:4389:38 */
   assign n22815 = n22814[5:0];  // trunc
-  /*# mc68881_top.vhd:4370:13 */
+  /*# mc68881_top.vhd:4383:13 */
   assign n22818 = n22804 ? 5'b10011 : 5'b01100;
-  /*# mc68881_top.vhd:4370:13 */
+  /*# mc68881_top.vhd:4383:13 */
   assign n22819 = n22804 ? n22815 : cir_xfer_word_count;
-  /*# mc68881_top.vhd:4370:13 */
+  /*# mc68881_top.vhd:4383:13 */
   assign n22821 = n22804 ? cir_exc_vector : 10'b0000001110;
-  /*# mc68881_top.vhd:4370:13 */
+  /*# mc68881_top.vhd:4383:13 */
   assign n22823 = n22804 ? 1'b0 : pending_valid_reg;
-  /*# mc68881_top.vhd:4370:13 */
+  /*# mc68881_top.vhd:4383:13 */
   assign n22825 = n22804 ? 6'b000000 : cir_restore_word_idx;
-  /*# mc68881_top.vhd:4370:13 */
+  /*# mc68881_top.vhd:4383:13 */
   assign n22827 = n22804 ? 1'b1 : alu_restore_req_reg;
-  /*# mc68881_top.vhd:4362:13 */
+  /*# mc68881_top.vhd:4375:13 */
   assign n22829 = n22777 ? 5'b10011 : n22818;
-  /*# mc68881_top.vhd:4362:13 */
+  /*# mc68881_top.vhd:4375:13 */
   assign n22830 = n22777 ? n22788 : n22819;
-  /*# mc68881_top.vhd:4362:13 */
+  /*# mc68881_top.vhd:4375:13 */
   assign n22831 = n22777 ? cir_exc_vector : n22821;
-  /*# mc68881_top.vhd:4362:13 */
+  /*# mc68881_top.vhd:4375:13 */
   assign n22833 = n22777 ? 1'b0 : n22823;
-  /*# mc68881_top.vhd:4362:13 */
+  /*# mc68881_top.vhd:4375:13 */
   assign n22835 = n22777 ? 6'b000000 : n22825;
-  /*# mc68881_top.vhd:4362:13 */
+  /*# mc68881_top.vhd:4375:13 */
   assign n22836 = n22777 ? alu_restore_req_reg : n22827;
-  /*# mc68881_top.vhd:4357:13 */
+  /*# mc68881_top.vhd:4370:13 */
   assign n22838 = n22761 ? 5'b00000 : n22829;
-  /*# mc68881_top.vhd:4357:13 */
+  /*# mc68881_top.vhd:4370:13 */
   assign n22839 = n22761 ? cir_xfer_word_count : n22830;
-  /*# mc68881_top.vhd:4357:13 */
+  /*# mc68881_top.vhd:4370:13 */
   assign n22840 = n22761 ? cir_exc_vector : n22831;
-  /*# mc68881_top.vhd:4357:13 */
+  /*# mc68881_top.vhd:4370:13 */
   assign n22842 = n22761 ? 1'b0 : n22833;
-  /*# mc68881_top.vhd:4357:13 */
+  /*# mc68881_top.vhd:4370:13 */
   assign n22843 = n22761 ? cir_restore_word_idx : n22835;
-  /*# mc68881_top.vhd:4357:13 */
+  /*# mc68881_top.vhd:4370:13 */
   assign n22847 = n22761 ? alu_restore_req_reg : n22836;
-  /*# mc68881_top.vhd:4356:11 */
+  /*# mc68881_top.vhd:4369:11 */
   assign n22848 = cir_restore_trigger ? n22838 : cir_state_reg;
-  /*# mc68881_top.vhd:4356:11 */
+  /*# mc68881_top.vhd:4369:11 */
   assign n22849 = cir_restore_trigger ? n22839 : cir_xfer_word_count;
-  /*# mc68881_top.vhd:4356:11 */
+  /*# mc68881_top.vhd:4369:11 */
   assign n22850 = cir_restore_trigger ? n22840 : cir_exc_vector;
-  /*# mc68881_top.vhd:4356:11 */
+  /*# mc68881_top.vhd:4369:11 */
   assign n22851 = cir_restore_trigger ? n22842 : pending_valid_reg;
-  /*# mc68881_top.vhd:4356:11 */
+  /*# mc68881_top.vhd:4369:11 */
   assign n22852 = cir_restore_trigger ? n22843 : cir_restore_word_idx;
-  /*# mc68881_top.vhd:4356:11 */
+  /*# mc68881_top.vhd:4369:11 */
   assign n22855 = cir_restore_trigger ? n22847 : alu_restore_req_reg;
-  /*# mc68881_top.vhd:4353:9 */
+  /*# mc68881_top.vhd:4366:9 */
   assign n22857 = cir_state_reg == 5'b10010;
-  /*# mc68881_top.vhd:4390:37 */
+  /*# mc68881_top.vhd:4403:37 */
   assign n22858 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4390:37 */
+  /*# mc68881_top.vhd:4403:37 */
   assign n22860 = $signed(n22858) >= $signed(32'b00000000000000000000000000001100);
-  /*# mc68881_top.vhd:4390:68 */
+  /*# mc68881_top.vhd:4403:68 */
   assign n22861 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4390:68 */
+  /*# mc68881_top.vhd:4403:68 */
   assign n22863 = $signed(n22861) <= $signed(32'b00000000000000000000000000100101);
-  /*# mc68881_top.vhd:4390:43 */
+  /*# mc68881_top.vhd:4403:43 */
   assign n22864 = n22863 & n22860;
-  /*# mc68881_top.vhd:4390:13 */
+  /*# mc68881_top.vhd:4403:13 */
   assign n22877 = n22864 ? 1'b1 : 1'b0;
   /*# mc68881_pkg.vhd:2871:15 */
   assign n22886 = cir_restore_fw_reg == 16'b0001111100011000;
@@ -61126,73 +61123,73 @@ module mc68881_top
   assign n22894 = cir_restore_fw_reg == 16'b0000000000111000;
   /*# mc68881_pkg.vhd:2872:38 */
   assign n22895 = n22892 | n22894;
-  /*# mc68881_top.vhd:4400:41 */
+  /*# mc68881_top.vhd:4413:41 */
   assign n22896 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4400:41 */
+  /*# mc68881_top.vhd:4413:41 */
   assign n22898 = $signed(n22896) >= $signed(32'b00000000000000000000000000000110);
-  /*# mc68881_top.vhd:4400:16 */
+  /*# mc68881_top.vhd:4413:16 */
   assign n22899 = n22898 & n22895;
-  /*# mc68881_top.vhd:4400:71 */
+  /*# mc68881_top.vhd:4413:71 */
   assign n22900 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4400:71 */
+  /*# mc68881_top.vhd:4413:71 */
   assign n22902 = $signed(n22900) <= $signed(32'b00000000000000000000000000001101);
-  /*# mc68881_top.vhd:4400:46 */
+  /*# mc68881_top.vhd:4413:46 */
   assign n22903 = n22902 & n22899;
-  /*# mc68881_top.vhd:4401:41 */
+  /*# mc68881_top.vhd:4414:41 */
   assign n22904 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4401:41 */
+  /*# mc68881_top.vhd:4414:41 */
   assign n22906 = n22904 - 32'b00000000000000000000000000000110;
-  /*# mc68881_top.vhd:4403:44 */
+  /*# mc68881_top.vhd:4416:44 */
   assign n22907 = d_in[31]; // extract
-  /*# mc68881_top.vhd:4404:45 */
+  /*# mc68881_top.vhd:4417:45 */
   assign n22908 = d_in[15:0]; // extract
-  /*# mc68881_top.vhd:4402:17 */
-  assign n22910 = n22906 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:4406:46 */
-  assign n22911 = d_in[31:16]; // extract
-  /*# mc68881_top.vhd:4407:46 */
-  assign n22912 = d_in[7:5]; // extract
-  /*# mc68881_top.vhd:4408:45 */
-  assign n22913 = d_in[4:2]; // extract
-  /*# mc68881_top.vhd:4409:44 */
-  assign n22914 = d_in[1]; // extract
-  /*# mc68881_top.vhd:4410:45 */
-  assign n22915 = d_in[0]; // extract
-  /*# mc68881_top.vhd:4405:17 */
-  assign n22917 = n22906 == 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4411:17 */
-  assign n22919 = n22906 == 32'b00000000000000000000000000000010;
-  /*# mc68881_top.vhd:4413:17 */
-  assign n22921 = n22906 == 32'b00000000000000000000000000000011;
   /*# mc68881_top.vhd:4415:17 */
-  assign n22923 = n22906 == 32'b00000000000000000000000000000100;
-  /*# mc68881_top.vhd:4417:17 */
-  assign n22925 = n22906 == 32'b00000000000000000000000000000101;
-  /*# mc68881_top.vhd:4420:70 */
-  assign n22926 = d_in[31:28]; // extract
+  assign n22910 = n22906 == 32'b00000000000000000000000000000000;
+  /*# mc68881_top.vhd:4419:46 */
+  assign n22911 = d_in[31:16]; // extract
   /*# mc68881_top.vhd:4420:46 */
+  assign n22912 = d_in[7:5]; // extract
+  /*# mc68881_top.vhd:4421:45 */
+  assign n22913 = d_in[4:2]; // extract
+  /*# mc68881_top.vhd:4422:44 */
+  assign n22914 = d_in[1]; // extract
+  /*# mc68881_top.vhd:4423:45 */
+  assign n22915 = d_in[0]; // extract
+  /*# mc68881_top.vhd:4418:17 */
+  assign n22917 = n22906 == 32'b00000000000000000000000000000001;
+  /*# mc68881_top.vhd:4424:17 */
+  assign n22919 = n22906 == 32'b00000000000000000000000000000010;
+  /*# mc68881_top.vhd:4426:17 */
+  assign n22921 = n22906 == 32'b00000000000000000000000000000011;
+  /*# mc68881_top.vhd:4428:17 */
+  assign n22923 = n22906 == 32'b00000000000000000000000000000100;
+  /*# mc68881_top.vhd:4430:17 */
+  assign n22925 = n22906 == 32'b00000000000000000000000000000101;
+  /*# mc68881_top.vhd:4433:70 */
+  assign n22926 = d_in[31:28]; // extract
+  /*# mc68881_top.vhd:4433:46 */
   assign n22928 = n22926[2:0];  // trunc
-  /*# mc68881_top.vhd:4421:70 */
+  /*# mc68881_top.vhd:4434:70 */
   assign n22929 = d_in[27:24]; // extract
-  /*# mc68881_top.vhd:4421:46 */
+  /*# mc68881_top.vhd:4434:46 */
   assign n22931 = n22929[2:0];  // trunc
-  /*# mc68881_top.vhd:4422:78 */
+  /*# mc68881_top.vhd:4435:78 */
   assign n22932 = d_in[23:16]; // extract
-  /*# mc68881_top.vhd:4422:50 */
+  /*# mc68881_top.vhd:4435:50 */
   assign n22934 = n22932[5:0];  // trunc
-  /*# mc68881_top.vhd:4423:70 */
+  /*# mc68881_top.vhd:4436:70 */
   assign n22935 = d_in[15:12]; // extract
-  /*# mc68881_top.vhd:4423:46 */
+  /*# mc68881_top.vhd:4436:46 */
   assign n22937 = n22935[1:0];  // trunc
-  /*# mc68881_top.vhd:4424:68 */
+  /*# mc68881_top.vhd:4437:68 */
   assign n22938 = d_in[11:8]; // extract
-  /*# mc68881_top.vhd:4424:44 */
+  /*# mc68881_top.vhd:4437:44 */
   assign n22940 = n22938[1:0];  // trunc
-  /*# mc68881_top.vhd:4419:17 */
+  /*# mc68881_top.vhd:4432:17 */
   assign n22942 = n22906 == 32'b00000000000000000000000000000110;
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   assign n22943 = {n22942, n22925, n22923, n22921, n22919, n22917, n22910};
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22944 = pending_valid_reg;
@@ -61204,7 +61201,7 @@ module mc68881_top
       7'b0000001: n22944 = n22907;
       default: n22944 = pending_valid_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22945 = pending_opword_reg;
@@ -61216,7 +61213,7 @@ module mc68881_top
       7'b0000001: n22945 = n22908;
       default: n22945 = pending_opword_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22946 = pending_command_reg;
@@ -61228,7 +61225,7 @@ module mc68881_top
       7'b0000001: n22946 = pending_command_reg;
       default: n22946 = pending_command_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22947 = pending_instr_type;
@@ -61240,7 +61237,7 @@ module mc68881_top
       7'b0000001: n22947 = pending_instr_type;
       default: n22947 = pending_instr_type;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22948 = pending_src_fmt_reg;
@@ -61252,7 +61249,7 @@ module mc68881_top
       7'b0000001: n22948 = pending_src_fmt_reg;
       default: n22948 = pending_src_fmt_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22949 = n22928;
@@ -61264,7 +61261,7 @@ module mc68881_top
       7'b0000001: n22949 = pending_dst_reg_idx_reg;
       default: n22949 = pending_dst_reg_idx_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22950 = n22931;
@@ -61276,7 +61273,7 @@ module mc68881_top
       7'b0000001: n22950 = pending_src_reg_idx_reg;
       default: n22950 = pending_src_reg_idx_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22951 = pending_reg_to_reg;
@@ -61288,7 +61285,7 @@ module mc68881_top
       7'b0000001: n22951 = pending_reg_to_reg;
       default: n22951 = pending_reg_to_reg;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22952 = pending_direction;
@@ -61300,7 +61297,7 @@ module mc68881_top
       7'b0000001: n22952 = pending_direction;
       default: n22952 = pending_direction;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22953 = n22934;
@@ -61314,7 +61311,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n22954 = pending_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22955 = n22954;
@@ -61328,7 +61325,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n22956 = pending_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22957 = n22956;
@@ -61342,7 +61339,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n22958 = pending_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22959 = n22958;
@@ -61354,7 +61351,7 @@ module mc68881_top
       7'b0000001: n22959 = n22958;
       default: n22959 = n22958;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22960 = n22937;
@@ -61366,7 +61363,7 @@ module mc68881_top
       7'b0000001: n22960 = pending_xfer_word_count;
       default: n22960 = pending_xfer_word_count;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22961 = n22940;
@@ -61378,7 +61375,7 @@ module mc68881_top
       7'b0000001: n22961 = pending_xfer_word_idx;
       default: n22961 = pending_xfer_word_idx;
     endcase
-  /*# mc68881_top.vhd:4401:15 */
+  /*# mc68881_top.vhd:4414:15 */
   always @*
     case (n22943)
       7'b1000000: n22962 = pending_instaddr_reg;
@@ -61404,73 +61401,73 @@ module mc68881_top
   assign n22977 = cir_restore_fw_reg == 16'b0000000011010100;
   /*# mc68881_pkg.vhd:2879:38 */
   assign n22978 = n22975 | n22977;
-  /*# mc68881_top.vhd:4429:44 */
+  /*# mc68881_top.vhd:4442:44 */
   assign n22979 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4429:44 */
+  /*# mc68881_top.vhd:4442:44 */
   assign n22981 = $signed(n22979) >= $signed(32'b00000000000000000000000000101101);
-  /*# mc68881_top.vhd:4429:19 */
+  /*# mc68881_top.vhd:4442:19 */
   assign n22982 = n22981 & n22978;
-  /*# mc68881_top.vhd:4429:75 */
+  /*# mc68881_top.vhd:4442:75 */
   assign n22983 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4429:75 */
+  /*# mc68881_top.vhd:4442:75 */
   assign n22985 = $signed(n22983) <= $signed(32'b00000000000000000000000000110100);
-  /*# mc68881_top.vhd:4429:50 */
+  /*# mc68881_top.vhd:4442:50 */
   assign n22986 = n22985 & n22982;
-  /*# mc68881_top.vhd:4430:41 */
+  /*# mc68881_top.vhd:4443:41 */
   assign n22987 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4430:41 */
+  /*# mc68881_top.vhd:4443:41 */
   assign n22989 = n22987 - 32'b00000000000000000000000000101101;
-  /*# mc68881_top.vhd:4432:44 */
+  /*# mc68881_top.vhd:4445:44 */
   assign n22990 = d_in[31]; // extract
-  /*# mc68881_top.vhd:4433:45 */
+  /*# mc68881_top.vhd:4446:45 */
   assign n22991 = d_in[15:0]; // extract
-  /*# mc68881_top.vhd:4431:17 */
-  assign n22993 = n22989 == 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:4435:46 */
-  assign n22994 = d_in[31:16]; // extract
-  /*# mc68881_top.vhd:4436:46 */
-  assign n22995 = d_in[7:5]; // extract
-  /*# mc68881_top.vhd:4437:45 */
-  assign n22996 = d_in[4:2]; // extract
-  /*# mc68881_top.vhd:4438:44 */
-  assign n22997 = d_in[1]; // extract
-  /*# mc68881_top.vhd:4439:45 */
-  assign n22998 = d_in[0]; // extract
-  /*# mc68881_top.vhd:4434:17 */
-  assign n23000 = n22989 == 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4440:17 */
-  assign n23002 = n22989 == 32'b00000000000000000000000000000010;
-  /*# mc68881_top.vhd:4442:17 */
-  assign n23004 = n22989 == 32'b00000000000000000000000000000011;
   /*# mc68881_top.vhd:4444:17 */
-  assign n23006 = n22989 == 32'b00000000000000000000000000000100;
-  /*# mc68881_top.vhd:4446:17 */
-  assign n23008 = n22989 == 32'b00000000000000000000000000000101;
-  /*# mc68881_top.vhd:4449:70 */
-  assign n23009 = d_in[31:28]; // extract
+  assign n22993 = n22989 == 32'b00000000000000000000000000000000;
+  /*# mc68881_top.vhd:4448:46 */
+  assign n22994 = d_in[31:16]; // extract
   /*# mc68881_top.vhd:4449:46 */
+  assign n22995 = d_in[7:5]; // extract
+  /*# mc68881_top.vhd:4450:45 */
+  assign n22996 = d_in[4:2]; // extract
+  /*# mc68881_top.vhd:4451:44 */
+  assign n22997 = d_in[1]; // extract
+  /*# mc68881_top.vhd:4452:45 */
+  assign n22998 = d_in[0]; // extract
+  /*# mc68881_top.vhd:4447:17 */
+  assign n23000 = n22989 == 32'b00000000000000000000000000000001;
+  /*# mc68881_top.vhd:4453:17 */
+  assign n23002 = n22989 == 32'b00000000000000000000000000000010;
+  /*# mc68881_top.vhd:4455:17 */
+  assign n23004 = n22989 == 32'b00000000000000000000000000000011;
+  /*# mc68881_top.vhd:4457:17 */
+  assign n23006 = n22989 == 32'b00000000000000000000000000000100;
+  /*# mc68881_top.vhd:4459:17 */
+  assign n23008 = n22989 == 32'b00000000000000000000000000000101;
+  /*# mc68881_top.vhd:4462:70 */
+  assign n23009 = d_in[31:28]; // extract
+  /*# mc68881_top.vhd:4462:46 */
   assign n23011 = n23009[2:0];  // trunc
-  /*# mc68881_top.vhd:4450:70 */
+  /*# mc68881_top.vhd:4463:70 */
   assign n23012 = d_in[27:24]; // extract
-  /*# mc68881_top.vhd:4450:46 */
+  /*# mc68881_top.vhd:4463:46 */
   assign n23014 = n23012[2:0];  // trunc
-  /*# mc68881_top.vhd:4451:78 */
+  /*# mc68881_top.vhd:4464:78 */
   assign n23015 = d_in[23:16]; // extract
-  /*# mc68881_top.vhd:4451:50 */
+  /*# mc68881_top.vhd:4464:50 */
   assign n23017 = n23015[5:0];  // trunc
-  /*# mc68881_top.vhd:4452:70 */
+  /*# mc68881_top.vhd:4465:70 */
   assign n23018 = d_in[15:12]; // extract
-  /*# mc68881_top.vhd:4452:46 */
+  /*# mc68881_top.vhd:4465:46 */
   assign n23020 = n23018[1:0];  // trunc
-  /*# mc68881_top.vhd:4453:68 */
+  /*# mc68881_top.vhd:4466:68 */
   assign n23021 = d_in[11:8]; // extract
-  /*# mc68881_top.vhd:4453:44 */
+  /*# mc68881_top.vhd:4466:44 */
   assign n23023 = n23021[1:0];  // trunc
-  /*# mc68881_top.vhd:4448:17 */
+  /*# mc68881_top.vhd:4461:17 */
   assign n23025 = n22989 == 32'b00000000000000000000000000000110;
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   assign n23026 = {n23025, n23008, n23006, n23004, n23002, n23000, n22993};
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23027 = pending_valid_reg;
@@ -61482,7 +61479,7 @@ module mc68881_top
       7'b0000001: n23027 = n22990;
       default: n23027 = pending_valid_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23028 = pending_opword_reg;
@@ -61494,7 +61491,7 @@ module mc68881_top
       7'b0000001: n23028 = n22991;
       default: n23028 = pending_opword_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23029 = pending_command_reg;
@@ -61506,7 +61503,7 @@ module mc68881_top
       7'b0000001: n23029 = pending_command_reg;
       default: n23029 = pending_command_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23030 = pending_instr_type;
@@ -61518,7 +61515,7 @@ module mc68881_top
       7'b0000001: n23030 = pending_instr_type;
       default: n23030 = pending_instr_type;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23031 = pending_src_fmt_reg;
@@ -61530,7 +61527,7 @@ module mc68881_top
       7'b0000001: n23031 = pending_src_fmt_reg;
       default: n23031 = pending_src_fmt_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23032 = n23011;
@@ -61542,7 +61539,7 @@ module mc68881_top
       7'b0000001: n23032 = pending_dst_reg_idx_reg;
       default: n23032 = pending_dst_reg_idx_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23033 = n23014;
@@ -61554,7 +61551,7 @@ module mc68881_top
       7'b0000001: n23033 = pending_src_reg_idx_reg;
       default: n23033 = pending_src_reg_idx_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23034 = pending_reg_to_reg;
@@ -61566,7 +61563,7 @@ module mc68881_top
       7'b0000001: n23034 = pending_reg_to_reg;
       default: n23034 = pending_reg_to_reg;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23035 = pending_direction;
@@ -61578,7 +61575,7 @@ module mc68881_top
       7'b0000001: n23035 = pending_direction;
       default: n23035 = pending_direction;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23036 = n23017;
@@ -61592,7 +61589,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n23037 = pending_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23038 = n23037;
@@ -61606,7 +61603,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n23039 = pending_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23040 = n23039;
@@ -61620,7 +61617,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n23041 = pending_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23042 = n23041;
@@ -61632,7 +61629,7 @@ module mc68881_top
       7'b0000001: n23042 = n23041;
       default: n23042 = n23041;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23043 = n23020;
@@ -61644,7 +61641,7 @@ module mc68881_top
       7'b0000001: n23043 = pending_xfer_word_count;
       default: n23043 = pending_xfer_word_count;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23044 = n23023;
@@ -61656,7 +61653,7 @@ module mc68881_top
       7'b0000001: n23044 = pending_xfer_word_idx;
       default: n23044 = pending_xfer_word_idx;
     endcase
-  /*# mc68881_top.vhd:4430:15 */
+  /*# mc68881_top.vhd:4443:15 */
   always @*
     case (n23026)
       7'b1000000: n23045 = pending_instaddr_reg;
@@ -61668,129 +61665,129 @@ module mc68881_top
       7'b0000001: n23045 = pending_instaddr_reg;
       default: n23045 = pending_instaddr_reg;
     endcase
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23046 = n22986 ? n23027 : pending_valid_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23047 = n22986 ? n23028 : pending_opword_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23048 = n22986 ? n23029 : pending_command_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23049 = n22986 ? n23030 : pending_instr_type;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23050 = n22986 ? n23031 : pending_src_fmt_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23051 = n22986 ? n23032 : pending_dst_reg_idx_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23052 = n22986 ? n23033 : pending_src_reg_idx_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23053 = n22986 ? n23034 : pending_reg_to_reg;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23054 = n22986 ? n23035 : pending_direction;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23055 = n22986 ? n23036 : pending_decoded_op;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23056 = {n23042, n23040, n23038};
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23057 = n22986 ? n23056 : pending_operand_staging;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23058 = n22986 ? n23043 : pending_xfer_word_count;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23059 = n22986 ? n23044 : pending_xfer_word_idx;
-  /*# mc68881_top.vhd:4428:13 */
+  /*# mc68881_top.vhd:4441:13 */
   assign n23060 = n22986 ? n23045 : pending_instaddr_reg;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23061 = n22903 ? n22944 : n23046;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23062 = n22903 ? n22945 : n23047;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23063 = n22903 ? n22946 : n23048;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23064 = n22903 ? n22947 : n23049;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23065 = n22903 ? n22948 : n23050;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23066 = n22903 ? n22949 : n23051;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23067 = n22903 ? n22950 : n23052;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23068 = n22903 ? n22951 : n23053;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23069 = n22903 ? n22952 : n23054;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23070 = n22903 ? n22953 : n23055;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23071 = {n22959, n22957, n22955};
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23072 = n22903 ? n23071 : n23057;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23073 = n22903 ? n22960 : n23058;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23074 = n22903 ? n22961 : n23059;
-  /*# mc68881_top.vhd:4399:13 */
+  /*# mc68881_top.vhd:4412:13 */
   assign n23075 = n22903 ? n22962 : n23060;
-  /*# mc68881_top.vhd:4458:37 */
+  /*# mc68881_top.vhd:4471:37 */
   assign n23076 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4458:37 */
+  /*# mc68881_top.vhd:4471:37 */
   assign n23078 = n23076 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4458:41 */
+  /*# mc68881_top.vhd:4471:41 */
   assign n23079 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4458:41 */
+  /*# mc68881_top.vhd:4471:41 */
   assign n23080 = $signed(n23078) >= $signed(n23079);
-  /*# mc68881_top.vhd:4464:60 */
+  /*# mc68881_top.vhd:4477:60 */
   assign n23081 = {26'b0, cir_restore_word_idx};  // uext
-  /*# mc68881_top.vhd:4464:60 */
+  /*# mc68881_top.vhd:4477:60 */
   assign n23083 = n23081 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4464:39 */
+  /*# mc68881_top.vhd:4477:39 */
   assign n23084 = n23083[5:0];  // trunc
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23086 = n23093 ? 5'b00000 : cir_state_reg;
-  /*# mc68881_top.vhd:4458:13 */
+  /*# mc68881_top.vhd:4471:13 */
   assign n23087 = n23080 ? cir_restore_word_idx : n23084;
-  /*# mc68881_top.vhd:4458:13 */
+  /*# mc68881_top.vhd:4471:13 */
   assign n23090 = n23080 ? 1'b1 : 1'b0;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23092 = n23111 ? 1'b0 : alu_restore_req_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23093 = n23080 & cir_operand_word_arrived;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23094 = cir_operand_word_arrived ? n23061 : pending_valid_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23095 = cir_operand_word_arrived ? n23062 : pending_opword_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23096 = cir_operand_word_arrived ? n23063 : pending_command_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23097 = cir_operand_word_arrived ? n23064 : pending_instr_type;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23098 = cir_operand_word_arrived ? n23065 : pending_src_fmt_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23099 = cir_operand_word_arrived ? n23066 : pending_dst_reg_idx_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23100 = cir_operand_word_arrived ? n23067 : pending_src_reg_idx_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23101 = cir_operand_word_arrived ? n23068 : pending_reg_to_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23102 = cir_operand_word_arrived ? n23069 : pending_direction;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23103 = cir_operand_word_arrived ? n23070 : pending_decoded_op;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23104 = cir_operand_word_arrived ? n23072 : pending_operand_staging;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23105 = cir_operand_word_arrived ? n23073 : pending_xfer_word_count;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23106 = cir_operand_word_arrived ? n23074 : pending_xfer_word_idx;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23107 = cir_operand_word_arrived ? n23075 : pending_instaddr_reg;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23108 = cir_operand_word_arrived ? n23087 : cir_restore_word_idx;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23110 = cir_operand_word_arrived ? n23090 : 1'b0;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23111 = n23080 & cir_operand_word_arrived;
-  /*# mc68881_top.vhd:4388:11 */
+  /*# mc68881_top.vhd:4401:11 */
   assign n23113 = cir_operand_word_arrived ? n22877 : 1'b0;
-  /*# mc68881_top.vhd:4386:9 */
+  /*# mc68881_top.vhd:4399:9 */
   assign n23117 = cir_state_reg == 5'b10011;
-  /*# mc68881_top.vhd:4478:35 */
+  /*# mc68881_top.vhd:4491:35 */
   assign n23118 = ~pending_direction;
   /*# mc68881_pkg.vhd:1291:7 */
   assign n23126 = pending_src_fmt_reg == 3'b000;
@@ -61827,45 +61824,45 @@ module mc68881_top
       4'b0001: n23150 = 31'b0000000000000000000000000000001;
       default: n23150 = 31'b0000000000000000000000000000000;
     endcase
-  /*# mc68881_top.vhd:4480:40 */
+  /*# mc68881_top.vhd:4493:40 */
   assign n23151 = n23150[1:0];  // trunc
-  /*# mc68881_top.vhd:4478:11 */
+  /*# mc68881_top.vhd:4491:11 */
   assign n23154 = n23118 ? 5'b10101 : 5'b00101;
-  /*# mc68881_top.vhd:4478:11 */
+  /*# mc68881_top.vhd:4491:11 */
   assign n23156 = n23118 ? pending_valid_reg : 1'b1;
-  /*# mc68881_top.vhd:4478:11 */
+  /*# mc68881_top.vhd:4491:11 */
   assign n23157 = n23118 ? n23151 : pending_xfer_word_count;
-  /*# mc68881_top.vhd:4478:11 */
+  /*# mc68881_top.vhd:4491:11 */
   assign n23159 = n23118 ? 2'b00 : pending_xfer_word_idx;
-  /*# mc68881_top.vhd:4474:11 */
+  /*# mc68881_top.vhd:4487:11 */
   assign n23161 = pending_reg_to_reg ? 5'b00101 : n23154;
-  /*# mc68881_top.vhd:4474:11 */
+  /*# mc68881_top.vhd:4487:11 */
   assign n23163 = pending_reg_to_reg ? 1'b1 : n23156;
-  /*# mc68881_top.vhd:4474:11 */
+  /*# mc68881_top.vhd:4487:11 */
   assign n23164 = pending_reg_to_reg ? pending_xfer_word_count : n23157;
-  /*# mc68881_top.vhd:4474:11 */
+  /*# mc68881_top.vhd:4487:11 */
   assign n23165 = pending_reg_to_reg ? pending_xfer_word_idx : n23159;
-  /*# mc68881_top.vhd:4472:11 */
+  /*# mc68881_top.vhd:4485:11 */
   assign n23167 = valid ? 5'b00110 : n23161;
-  /*# mc68881_top.vhd:4472:11 */
+  /*# mc68881_top.vhd:4485:11 */
   assign n23168 = valid ? pending_valid_reg : n23163;
-  /*# mc68881_top.vhd:4472:11 */
+  /*# mc68881_top.vhd:4485:11 */
   assign n23169 = valid ? pending_xfer_word_count : n23164;
-  /*# mc68881_top.vhd:4472:11 */
+  /*# mc68881_top.vhd:4485:11 */
   assign n23170 = valid ? pending_xfer_word_idx : n23165;
-  /*# mc68881_top.vhd:4469:9 */
+  /*# mc68881_top.vhd:4482:9 */
   assign n23172 = cir_state_reg == 5'b10100;
-  /*# mc68881_top.vhd:4495:15 */
+  /*# mc68881_top.vhd:4508:15 */
   assign n23174 = pending_xfer_word_idx == 2'b00;
-  /*# mc68881_top.vhd:4496:15 */
+  /*# mc68881_top.vhd:4509:15 */
   assign n23176 = pending_xfer_word_idx == 2'b01;
-  /*# mc68881_top.vhd:4497:15 */
+  /*# mc68881_top.vhd:4510:15 */
   assign n23178 = pending_xfer_word_idx == 2'b10;
-  /*# mc68881_top.vhd:4494:13 */
+  /*# mc68881_top.vhd:4507:13 */
   assign n23179 = {n23178, n23176, n23174};
   /*# mc68881_top.vhd:297:10 */
   assign n23180 = pending_operand_staging[31:0]; // extract
-  /*# mc68881_top.vhd:4494:13 */
+  /*# mc68881_top.vhd:4507:13 */
   always @*
     case (n23179)
       3'b100: n23181 = n23180;
@@ -61875,7 +61872,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n23182 = pending_operand_staging[63:32]; // extract
-  /*# mc68881_top.vhd:4494:13 */
+  /*# mc68881_top.vhd:4507:13 */
   always @*
     case (n23179)
       3'b100: n23183 = n23182;
@@ -61885,7 +61882,7 @@ module mc68881_top
     endcase
   /*# mc68881_top.vhd:297:10 */
   assign n23184 = pending_operand_staging[95:64]; // extract
-  /*# mc68881_top.vhd:4494:13 */
+  /*# mc68881_top.vhd:4507:13 */
   always @*
     case (n23179)
       3'b100: n23185 = d_in;
@@ -61893,51 +61890,51 @@ module mc68881_top
       3'b001: n23185 = n23184;
       default: n23185 = n23184;
     endcase
-  /*# mc68881_top.vhd:4500:38 */
+  /*# mc68881_top.vhd:4513:38 */
   assign n23186 = {30'b0, pending_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4500:38 */
+  /*# mc68881_top.vhd:4513:38 */
   assign n23188 = n23186 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4500:42 */
+  /*# mc68881_top.vhd:4513:42 */
   assign n23189 = {30'b0, pending_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4500:42 */
+  /*# mc68881_top.vhd:4513:42 */
   assign n23190 = $signed(n23188) >= $signed(n23189);
-  /*# mc68881_top.vhd:4503:62 */
+  /*# mc68881_top.vhd:4516:62 */
   assign n23191 = {30'b0, pending_xfer_word_idx};  // uext
-  /*# mc68881_top.vhd:4503:62 */
+  /*# mc68881_top.vhd:4516:62 */
   assign n23193 = n23191 + 32'b00000000000000000000000000000001;
-  /*# mc68881_top.vhd:4503:40 */
+  /*# mc68881_top.vhd:4516:40 */
   assign n23194 = n23193[1:0];  // trunc
-  /*# mc68881_top.vhd:4493:11 */
+  /*# mc68881_top.vhd:4506:11 */
   assign n23196 = n23198 ? 5'b10110 : cir_state_reg;
-  /*# mc68881_top.vhd:4500:13 */
+  /*# mc68881_top.vhd:4513:13 */
   assign n23197 = n23190 ? pending_xfer_word_idx : n23194;
-  /*# mc68881_top.vhd:4493:11 */
+  /*# mc68881_top.vhd:4506:11 */
   assign n23198 = n23190 & cir_operand_word_arrived;
-  /*# mc68881_top.vhd:4493:11 */
+  /*# mc68881_top.vhd:4506:11 */
   assign n23199 = {n23185, n23183, n23181};
-  /*# mc68881_top.vhd:4493:11 */
+  /*# mc68881_top.vhd:4506:11 */
   assign n23200 = cir_operand_word_arrived ? n23199 : pending_operand_staging;
-  /*# mc68881_top.vhd:4493:11 */
+  /*# mc68881_top.vhd:4506:11 */
   assign n23201 = cir_operand_word_arrived ? n23197 : pending_xfer_word_idx;
-  /*# mc68881_top.vhd:4491:11 */
+  /*# mc68881_top.vhd:4504:11 */
   assign n23203 = valid ? 5'b00110 : n23196;
-  /*# mc68881_top.vhd:4491:11 */
+  /*# mc68881_top.vhd:4504:11 */
   assign n23204 = valid ? pending_operand_staging : n23200;
-  /*# mc68881_top.vhd:4491:11 */
+  /*# mc68881_top.vhd:4504:11 */
   assign n23205 = valid ? pending_xfer_word_idx : n23201;
-  /*# mc68881_top.vhd:4489:9 */
+  /*# mc68881_top.vhd:4502:9 */
   assign n23207 = cir_state_reg == 5'b10101;
-  /*# mc68881_top.vhd:4507:9 */
+  /*# mc68881_top.vhd:4520:9 */
   assign n23209 = cir_state_reg == 5'b10110;
-  /*# mc68881_top.vhd:4514:9 */
+  /*# mc68881_top.vhd:4527:9 */
   assign n23211 = cir_state_reg == 5'b10111;
-  /*# mc68881_top.vhd:4524:11 */
+  /*# mc68881_top.vhd:4537:11 */
   assign n23214 = valid ? 5'b00110 : 5'b00101;
-  /*# mc68881_top.vhd:4518:9 */
+  /*# mc68881_top.vhd:4531:9 */
   assign n23216 = cir_state_reg == 5'b11000;
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   assign n23217 = {n23216, n23211, n23209, n23207, n23172, n23117, n22857, n22759, n22743, n22734, n22732, n22728, n22724, n22720, n22713, n22711, n22709, n22707, n22691, n22639, n22619, n22498, n22496, n22476, n22285};
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23226 = n23214;
@@ -61967,7 +61964,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23226 = n22260;
       default: n23226 = 5'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23229 = 1'b0;
@@ -61997,7 +61994,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23229 = 1'b0;
       default: n23229 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23232 = cir_xfer_word_idx;
@@ -62027,7 +62024,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23232 = cir_xfer_word_idx;
       default: n23232 = 6'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23235 = cir_xfer_word_count;
@@ -62057,7 +62054,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23235 = cir_xfer_word_count;
       default: n23235 = 6'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23237 = cir_exc_vector;
@@ -62087,7 +62084,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23237 = cir_exc_vector;
       default: n23237 = 10'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23240 = frame_format_word_reg;
@@ -62117,7 +62114,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23240 = frame_format_word_reg;
       default: n23240 = 16'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23244 = 1'b0;
@@ -62147,7 +62144,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23244 = 1'b0;
       default: n23244 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23248 = 1'b0;
@@ -62177,7 +62174,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23248 = n22283;
       default: n23248 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23252 = 1'b1;
@@ -62207,7 +62204,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23252 = pending_valid_reg;
       default: n23252 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23254 = pending_opword_reg;
@@ -62237,7 +62234,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23254 = pending_opword_reg;
       default: n23254 = 16'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23256 = pending_command_reg;
@@ -62267,7 +62264,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23256 = pending_command_reg;
       default: n23256 = 16'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23258 = pending_instr_type;
@@ -62297,7 +62294,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23258 = pending_instr_type;
       default: n23258 = 3'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23260 = pending_src_fmt_reg;
@@ -62327,7 +62324,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23260 = pending_src_fmt_reg;
       default: n23260 = 3'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23262 = pending_dst_reg_idx_reg;
@@ -62357,7 +62354,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23262 = pending_dst_reg_idx_reg;
       default: n23262 = 3'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23264 = pending_src_reg_idx_reg;
@@ -62387,7 +62384,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23264 = pending_src_reg_idx_reg;
       default: n23264 = 3'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23266 = pending_reg_to_reg;
@@ -62417,7 +62414,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23266 = pending_reg_to_reg;
       default: n23266 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23268 = pending_direction;
@@ -62447,7 +62444,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23268 = pending_direction;
       default: n23268 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23270 = pending_decoded_op;
@@ -62477,7 +62474,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23270 = pending_decoded_op;
       default: n23270 = 6'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23272 = pending_operand_staging;
@@ -62507,7 +62504,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23272 = pending_operand_staging;
       default: n23272 = 96'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23274 = pending_xfer_word_count;
@@ -62537,7 +62534,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23274 = pending_xfer_word_count;
       default: n23274 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23276 = pending_xfer_word_idx;
@@ -62567,7 +62564,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23276 = pending_xfer_word_idx;
       default: n23276 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23278 = pending_instaddr_reg;
@@ -62597,7 +62594,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23278 = pending_instaddr_reg;
       default: n23278 = 32'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23280 = pending_skip_valid_reg;
@@ -62627,7 +62624,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23280 = pending_skip_valid_reg;
       default: n23280 = 2'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23286 = cir_save_word_idx;
@@ -62657,7 +62654,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23286 = cir_save_word_idx;
       default: n23286 = 6'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23288 = cir_restore_word_idx;
@@ -62687,7 +62684,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23288 = n22262;
       default: n23288 = 6'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23295 = 1'b0;
@@ -62717,7 +62714,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23295 = 1'b0;
       default: n23295 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23298 = alu_restore_req_reg;
@@ -62747,7 +62744,7 @@ module mc68881_top
       25'b0000000000000000000000001: n23298 = alu_restore_req_reg;
       default: n23298 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4039:7 */
+  /*# mc68881_top.vhd:4052:7 */
   always @*
     case (n23217)
       25'b1000000000000000000000000: n23301 = 1'b0;
@@ -62777,103 +62774,103 @@ module mc68881_top
       25'b0000000000000000000000001: n23301 = 1'b0;
       default: n23301 = 1'bX;
     endcase
-  /*# mc68881_top.vhd:4538:7 */
+  /*# mc68881_top.vhd:4551:7 */
   assign n23394 = cir_state_reg == 5'b00000;
-  /*# mc68881_top.vhd:4540:7 */
+  /*# mc68881_top.vhd:4553:7 */
   assign n23396 = cir_state_reg == 5'b00001;
-  /*# mc68881_top.vhd:4542:7 */
+  /*# mc68881_top.vhd:4555:7 */
   assign n23398 = cir_state_reg == 5'b00101;
-  /*# mc68881_top.vhd:4548:7 */
+  /*# mc68881_top.vhd:4561:7 */
   assign n23400 = cir_state_reg == 5'b00110;
-  /*# mc68881_top.vhd:4553:60 */
+  /*# mc68881_top.vhd:4566:60 */
   assign n23401 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4553:60 */
+  /*# mc68881_top.vhd:4566:60 */
   assign n23403 = $signed(n23401) * $signed(32'b00000000000000000000000000000100); // smul
-  /*# mc68881_top.vhd:4553:40 */
+  /*# mc68881_top.vhd:4566:40 */
   assign n23404 = n23403[30:0];  // trunc
-  /*# mc68881_top.vhd:4553:28 */
+  /*# mc68881_top.vhd:4566:28 */
   assign n23405 = n23404[7:0];  // trunc
-  /*# mc68881_top.vhd:4552:46 */
+  /*# mc68881_top.vhd:4565:46 */
   assign n23407 = {8'b10010110, n23405};
-  /*# mc68881_top.vhd:4550:7 */
+  /*# mc68881_top.vhd:4563:7 */
   assign n23409 = cir_state_reg == 5'b00010;
-  /*# mc68881_top.vhd:4554:7 */
+  /*# mc68881_top.vhd:4567:7 */
   assign n23411 = cir_state_reg == 5'b00011;
-  /*# mc68881_top.vhd:4556:7 */
+  /*# mc68881_top.vhd:4569:7 */
   assign n23413 = cir_state_reg == 5'b00100;
-  /*# mc68881_top.vhd:4561:60 */
+  /*# mc68881_top.vhd:4574:60 */
   assign n23414 = {26'b0, cir_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4561:60 */
+  /*# mc68881_top.vhd:4574:60 */
   assign n23416 = $signed(n23414) * $signed(32'b00000000000000000000000000000100); // smul
-  /*# mc68881_top.vhd:4561:40 */
+  /*# mc68881_top.vhd:4574:40 */
   assign n23417 = n23416[30:0];  // trunc
-  /*# mc68881_top.vhd:4561:28 */
+  /*# mc68881_top.vhd:4574:28 */
   assign n23418 = n23417[7:0];  // trunc
-  /*# mc68881_top.vhd:4560:46 */
+  /*# mc68881_top.vhd:4573:46 */
   assign n23420 = {8'b10110010, n23418};
-  /*# mc68881_top.vhd:4558:7 */
+  /*# mc68881_top.vhd:4571:7 */
   assign n23422 = cir_state_reg == 5'b00111;
-  /*# mc68881_top.vhd:4562:7 */
+  /*# mc68881_top.vhd:4575:7 */
   assign n23424 = cir_state_reg == 5'b01000;
-  /*# mc68881_top.vhd:4564:7 */
+  /*# mc68881_top.vhd:4577:7 */
   assign n23426 = cir_state_reg == 5'b01001;
-  /*# mc68881_top.vhd:4566:7 */
+  /*# mc68881_top.vhd:4579:7 */
   assign n23428 = cir_state_reg == 5'b01010;
-  /*# mc68881_top.vhd:4568:7 */
+  /*# mc68881_top.vhd:4581:7 */
   assign n23430 = cir_state_reg == 5'b01011;
-  /*# mc68881_top.vhd:4571:63 */
+  /*# mc68881_top.vhd:4584:63 */
   assign n23432 = {6'b101000, cir_exc_vector};
-  /*# mc68881_top.vhd:4570:7 */
-  assign n23434 = cir_state_reg == 5'b01100;
-  /*# mc68881_top.vhd:4573:63 */
-  assign n23436 = {6'b110000, cir_exc_vector};
-  /*# mc68881_top.vhd:4572:7 */
-  assign n23438 = cir_state_reg == 5'b01101;
-  /*# mc68881_top.vhd:4575:64 */
-  assign n23440 = {6'b111000, cir_exc_vector};
-  /*# mc68881_top.vhd:4574:7 */
-  assign n23442 = cir_state_reg == 5'b01110;
-  /*# mc68881_top.vhd:4576:7 */
-  assign n23444 = cir_state_reg == 5'b01111;
-  /*# mc68881_top.vhd:4578:7 */
-  assign n23446 = cir_state_reg == 5'b10000;
-  /*# mc68881_top.vhd:4578:28 */
-  assign n23448 = cir_state_reg == 5'b10001;
-  /*# mc68881_top.vhd:4578:28 */
-  assign n23449 = n23446 | n23448;
-  /*# mc68881_top.vhd:4580:7 */
-  assign n23451 = cir_state_reg == 5'b10010;
-  /*# mc68881_top.vhd:4580:31 */
-  assign n23453 = cir_state_reg == 5'b10011;
-  /*# mc68881_top.vhd:4580:31 */
-  assign n23454 = n23451 | n23453;
   /*# mc68881_top.vhd:4583:7 */
-  assign n23456 = cir_state_reg == 5'b10100;
-  /*# mc68881_top.vhd:4588:64 */
-  assign n23457 = {30'b0, pending_xfer_word_count};  // uext
-  /*# mc68881_top.vhd:4588:64 */
-  assign n23459 = $signed(n23457) * $signed(32'b00000000000000000000000000000100); // smul
-  /*# mc68881_top.vhd:4588:40 */
-  assign n23460 = n23459[30:0];  // trunc
-  /*# mc68881_top.vhd:4588:28 */
-  assign n23461 = n23460[7:0];  // trunc
-  /*# mc68881_top.vhd:4587:46 */
-  assign n23463 = {8'b10010110, n23461};
+  assign n23434 = cir_state_reg == 5'b01100;
+  /*# mc68881_top.vhd:4586:63 */
+  assign n23436 = {6'b110000, cir_exc_vector};
   /*# mc68881_top.vhd:4585:7 */
-  assign n23465 = cir_state_reg == 5'b10101;
+  assign n23438 = cir_state_reg == 5'b01101;
+  /*# mc68881_top.vhd:4588:64 */
+  assign n23440 = {6'b111000, cir_exc_vector};
+  /*# mc68881_top.vhd:4587:7 */
+  assign n23442 = cir_state_reg == 5'b01110;
   /*# mc68881_top.vhd:4589:7 */
+  assign n23444 = cir_state_reg == 5'b01111;
+  /*# mc68881_top.vhd:4591:7 */
+  assign n23446 = cir_state_reg == 5'b10000;
+  /*# mc68881_top.vhd:4591:28 */
+  assign n23448 = cir_state_reg == 5'b10001;
+  /*# mc68881_top.vhd:4591:28 */
+  assign n23449 = n23446 | n23448;
+  /*# mc68881_top.vhd:4593:7 */
+  assign n23451 = cir_state_reg == 5'b10010;
+  /*# mc68881_top.vhd:4593:31 */
+  assign n23453 = cir_state_reg == 5'b10011;
+  /*# mc68881_top.vhd:4593:31 */
+  assign n23454 = n23451 | n23453;
+  /*# mc68881_top.vhd:4596:7 */
+  assign n23456 = cir_state_reg == 5'b10100;
+  /*# mc68881_top.vhd:4601:64 */
+  assign n23457 = {30'b0, pending_xfer_word_count};  // uext
+  /*# mc68881_top.vhd:4601:64 */
+  assign n23459 = $signed(n23457) * $signed(32'b00000000000000000000000000000100); // smul
+  /*# mc68881_top.vhd:4601:40 */
+  assign n23460 = n23459[30:0];  // trunc
+  /*# mc68881_top.vhd:4601:28 */
+  assign n23461 = n23460[7:0];  // trunc
+  /*# mc68881_top.vhd:4600:46 */
+  assign n23463 = {8'b10010110, n23461};
+  /*# mc68881_top.vhd:4598:7 */
+  assign n23465 = cir_state_reg == 5'b10101;
+  /*# mc68881_top.vhd:4602:7 */
   assign n23467 = cir_state_reg == 5'b10110;
-  /*# mc68881_top.vhd:4589:38 */
+  /*# mc68881_top.vhd:4602:38 */
   assign n23469 = cir_state_reg == 5'b10111;
-  /*# mc68881_top.vhd:4589:38 */
+  /*# mc68881_top.vhd:4602:38 */
   assign n23470 = n23467 | n23469;
-  /*# mc68881_top.vhd:4590:10 */
+  /*# mc68881_top.vhd:4603:10 */
   assign n23472 = cir_state_reg == 5'b11000;
-  /*# mc68881_top.vhd:4590:10 */
+  /*# mc68881_top.vhd:4603:10 */
   assign n23473 = n23470 | n23472;
-  /*# mc68881_top.vhd:4537:5 */
+  /*# mc68881_top.vhd:4550:5 */
   assign n23474 = {n23473, n23465, n23456, n23454, n23449, n23444, n23442, n23438, n23434, n23430, n23428, n23426, n23424, n23422, n23413, n23411, n23409, n23400, n23398, n23396, n23394};
-  /*# mc68881_top.vhd:4537:5 */
+  /*# mc68881_top.vhd:4550:5 */
   always @*
     case (n23474)
       21'b100000000000000000000: n23491 = 16'b1000100100000000;
@@ -62899,61 +62896,61 @@ module mc68881_top
       21'b000000000000000000001: n23491 = 16'b0000100100000000;
       default: n23491 = 16'bX;
     endcase
-  /*# mc68881_top.vhd:4598:44 */
+  /*# mc68881_top.vhd:4611:44 */
   assign n23493 = sync_read | sync_read_latched;
-  /*# mc68881_top.vhd:4598:22 */
+  /*# mc68881_top.vhd:4611:22 */
   assign n23494 = n23493 ? d_out_reg : d_out_comb;
-  /*# mc68881_top.vhd:4615:12 */
+  /*# mc68881_top.vhd:4628:12 */
   always @*
     cir_state_dbg_max_state_pos_reg = n23774; // (isignal)
   initial
     cir_state_dbg_max_state_pos_reg = 5'b00000;
-  /*# mc68881_top.vhd:4616:12 */
+  /*# mc68881_top.vhd:4629:12 */
   always @*
     cir_state_dbg_opword_seen_reg = n23776; // (isignal)
   initial
     cir_state_dbg_opword_seen_reg = 1'b0;
-  /*# mc68881_top.vhd:4617:12 */
+  /*# mc68881_top.vhd:4630:12 */
   always @*
     cir_state_dbg_command_seen_reg = n23778; // (isignal)
   initial
     cir_state_dbg_command_seen_reg = 1'b0;
-  /*# mc68881_top.vhd:4618:12 */
+  /*# mc68881_top.vhd:4631:12 */
   always @*
     cir_state_dbg_trigger_seen_reg = n23780; // (isignal)
   initial
     cir_state_dbg_trigger_seen_reg = 1'b0;
-  /*# mc68881_top.vhd:4619:12 */
+  /*# mc68881_top.vhd:4632:12 */
   always @*
     cir_state_dbg_except_seen_reg = n23782; // (isignal)
   initial
     cir_state_dbg_except_seen_reg = 1'b0;
-  /*# mc68881_top.vhd:4620:12 */
+  /*# mc68881_top.vhd:4633:12 */
   always @*
     cir_state_dbg_restore_frame_seen_reg = n23784; // (isignal)
   initial
     cir_state_dbg_restore_frame_seen_reg = 1'b0;
-  /*# mc68881_top.vhd:4625:18 */
+  /*# mc68881_top.vhd:4638:18 */
   assign n23505 = ~reset_n;
-  /*# mc68881_top.vhd:4633:9 */
+  /*# mc68881_top.vhd:4646:9 */
   assign n23508 = {26'b0, cir_state_reg};  // uext
-  /*# mc68881_top.vhd:4634:20 */
+  /*# mc68881_top.vhd:4647:20 */
   assign n23509 = {1'b0, n23508};  // uext
-  /*# mc68881_top.vhd:4634:20 */
+  /*# mc68881_top.vhd:4647:20 */
   assign n23510 = {27'b0, cir_state_dbg_max_state_pos_reg};  // uext
-  /*# mc68881_top.vhd:4634:20 */
+  /*# mc68881_top.vhd:4647:20 */
   assign n23511 = $signed(n23509) > $signed(n23510);
-  /*# mc68881_top.vhd:4640:26 */
+  /*# mc68881_top.vhd:4653:26 */
   assign n23520 = cir_state_reg == 5'b01100;
-  /*# mc68881_top.vhd:4641:26 */
+  /*# mc68881_top.vhd:4654:26 */
   assign n23522 = cir_state_reg == 5'b01101;
-  /*# mc68881_top.vhd:4640:44 */
+  /*# mc68881_top.vhd:4653:44 */
   assign n23523 = n23520 | n23522;
-  /*# mc68881_top.vhd:4642:26 */
+  /*# mc68881_top.vhd:4655:26 */
   assign n23525 = cir_state_reg == 5'b01110;
-  /*# mc68881_top.vhd:4641:44 */
+  /*# mc68881_top.vhd:4654:44 */
   assign n23526 = n23523 | n23525;
-  /*# mc68881_top.vhd:4645:26 */
+  /*# mc68881_top.vhd:4658:26 */
   assign n23530 = cir_state_reg == 5'b10011;
   /*# mc68881_top.vhd:59:5 */
   assign n23557 = {cir_response_prim, cir_state_reg, cir_state_dbg_max_state_pos_reg, cir_state_dbg_opword_seen_reg, cir_state_dbg_command_seen_reg, cir_state_dbg_trigger_seen_reg, cir_state_dbg_except_seen_reg, cir_state_dbg_restore_frame_seen_reg, cir_active};
@@ -62977,87 +62974,87 @@ module mc68881_top
       n23561 <= 32'b00000000000000000000000000000000;
     else
       n23561 <= n23560;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23562 <= 32'b00000000000000000000000000000000;
     else
       n23562 <= n20336;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23563 <= 32'b00000000000000000000000000000000;
     else
       n23563 <= n20337;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23564 <= 16'b0000000000000000;
     else
       n23564 <= n20338;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23565 <= 16'b0000000000000000;
     else
       n23565 <= n20187;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23566 = n20320 ? n20308 : aux_result_lo_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23567 <= 32'b00000000000000000000000000000000;
     else
       n23567 <= n23566;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23568 = n20321 ? n20309 : aux_result_hi_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23569 <= 32'b00000000000000000000000000000000;
     else
       n23569 <= n23568;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23570 = n20322 ? n20310 : aux_result_ex_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23571 <= 16'b0000000000000000;
     else
       n23571 <= n23570;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23572 = op_issue_pulse ? 16'b0000000000000000 : aux_result_ex_hi_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23573 <= 16'b0000000000000000;
     else
       n23573 <= n23572;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23574 <= 1'b0;
     else
       n23574 <= n20191;
-  /*# mc68881_top.vhd:3358:5 */
+  /*# mc68881_top.vhd:3366:5 */
   always @(posedge clk or posedge n20637)
     if (n20637)
       n23575 <= 1'b0;
     else
       n23575 <= n20650;
-  /*# mc68881_top.vhd:3358:5 */
+  /*# mc68881_top.vhd:3366:5 */
   always @(posedge clk or posedge n20637)
     if (n20637)
       n23576 <= 1'b0;
     else
       n23576 <= n20651;
-  /*# mc68881_top.vhd:3358:5 */
+  /*# mc68881_top.vhd:3366:5 */
   always @(posedge clk or posedge n20637)
     if (n20637)
       n23577 <= 1'b0;
     else
       n23577 <= frame_valid_reg;
-  /*# mc68881_top.vhd:3358:5 */
+  /*# mc68881_top.vhd:3366:5 */
   always @(posedge clk or posedge n20637)
     if (n20637)
       n23578 <= 1'b0;
@@ -63145,87 +63142,87 @@ module mc68881_top
       n23597 <= 1'b0;
     else
       n23597 <= n23596;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23598 <= 2'b00;
     else
       n23598 <= n21282;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23599 <= 2'b00;
     else
       n23599 <= n21284;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23600 <= 1'b0;
     else
       n23600 <= n21287;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23601 <= 2'b00;
     else
       n23601 <= n21289;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23602 <= 1'b0;
     else
       n23602 <= n21291;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23603 <= 1'b0;
     else
       n23603 <= n21230;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23604 = n21359 ? n21360 : cir_mode_reg;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23605 <= 1'b1;
     else
       n23605 <= n23604;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   assign n23606 = n21225 ? d_out_comb : d_out_reg;
-  /*# mc68881_top.vhd:3635:5 */
+  /*# mc68881_top.vhd:3643:5 */
   always @(posedge clk or posedge n21220)
     if (n21220)
       n23607 <= 32'b00000000000000000000000000000000;
     else
       n23607 <= n23606;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23608 <= 1'b0;
     else
       n23608 <= n20364;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23609 <= 31'b0000000000000000000000000000000;
     else
       n23609 <= n20372;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23610 = op_issue_pulse ? n11334 : micro_total_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23611 <= 32'b00000000000000000000000000000000;
     else
       n23611 <= n23610;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23612 <= 1'b0;
     else
       n23612 <= n20357;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23613 = op_issue_pulse ? n11117 : last_op_sel_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23614 <= 6'b000000;
@@ -63235,30 +63232,30 @@ module mc68881_top
   assign n23615 = ~n11000;
   /*# mc68881_top.vhd:181:10 */
   assign n23616 = n20199 & n23615;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23617 = n23616 ? n11119 : launch_dst_reg_idx_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk)
     n23618 <= n23617;
   initial
     n23618 = 3'b000;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23619 = op_issue_pulse ? n11080 : fpiar_issue_snapshot_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23620 <= 32'b00000000000000000000000000000000;
     else
       n23620 <= n23619;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23621 <= 640'b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000;
     else
       n23621 <= n20341;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23622 = op_issue_pulse ? n20106 : fp_movem_shadow_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23623 <= 640'b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000;
@@ -63312,19 +63309,19 @@ module mc68881_top
       n23631 <= 1'b1;
     else
       n23631 <= n10806;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23632 <= 1'b0;
     else
       n23632 <= n20205;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23633 <= 1'b0;
     else
       n23633 <= n20208;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23634 <= 1'b0;
@@ -63336,117 +63333,117 @@ module mc68881_top
       n23635 <= 1'b0;
     else
       n23635 <= n4831;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23636 <= 1'b0;
     else
       n23636 <= n20212;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23637 = op_issue_pulse ? n20114 : ctrl_move_sel_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23638 <= 2'b00;
     else
       n23638 <= n23637;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23639 = op_issue_pulse ? n20115 : ctrl_move_data_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23640 <= 32'b00000000000000000000000000000000;
     else
       n23640 <= n23639;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23641 <= 32'b00000000000000000000000000000000;
     else
       n23641 <= n20216;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23642 <= 1'b0;
     else
       n23642 <= n20217;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23643 <= 1'b0;
     else
       n23643 <= n20218;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23644 <= 1'b0;
     else
       n23644 <= n20219;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23645 <= 5'b00000;
     else
       n23645 <= n23226;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23646 = bus_write ? n21552 : cir_command_reg;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23647 <= 16'b0000000000000000;
     else
       n23647 <= n23646;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23648 = bus_write ? n21553 : cir_condition_reg;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23649 <= 6'b000000;
     else
       n23649 <= n23648;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23650 = bus_write ? n21554 : cir_instr_type;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23651 <= 3'b000;
     else
       n23651 <= n23650;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23652 = bus_write ? n21555 : cir_src_fmt;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23653 <= 3'b000;
     else
       n23653 <= n23652;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23654 = bus_write ? n21556 : cir_dst_reg_idx;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23655 <= 3'b000;
     else
       n23655 <= n23654;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23656 = bus_write ? n21557 : cir_src_reg_idx;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23657 <= 3'b000;
     else
       n23657 <= n23656;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23658 = bus_write ? n21558 : cir_reg_to_reg;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23659 <= 1'b0;
     else
       n23659 <= n23658;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23660 = bus_write ? n21559 : cir_direction;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23661 <= 1'b0;
@@ -63456,9 +63453,9 @@ module mc68881_top
   assign n23662 = ~n21355;
   /*# mc68881_top.vhd:259:10 */
   assign n23663 = bus_write & n23662;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23664 = n23663 ? n21560 : cir_is_fpctl_move;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk)
     n23665 <= n23664;
   initial
@@ -63467,56 +63464,56 @@ module mc68881_top
   assign n23666 = ~n21355;
   /*# mc68881_top.vhd:260:10 */
   assign n23667 = bus_write & n23666;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23668 = n23667 ? n21561 : cir_fpctl_mask;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk)
     n23669 <= n23668;
   initial
     n23669 = 3'b000;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23670 <= 1'b0;
     else
       n23670 <= n23229;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23671 <= 6'b000000;
     else
       n23671 <= n23232;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23672 <= 6'b000000;
     else
       n23672 <= n23235;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23673 <= 1'b0;
     else
       n23673 <= n21584;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23674 <= 1'b0;
     else
       n23674 <= n21585;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23675 <= 1'b0;
     else
       n23675 <= n21586;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23676 <= 10'b0000000000;
     else
       n23676 <= n23237;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23677 <= 1'b0;
@@ -63524,46 +63521,46 @@ module mc68881_top
       n23677 <= n21588;
   /*# mc68881_top.vhd:272:10 */
   assign n23678 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23679 = n23678 ? n23240 : frame_format_word_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23680 <= n23679;
   initial
     n23680 = 16'b0000000000000000;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23681 = bus_write ? n21567 : cir_instaddr_reg;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23682 <= 32'b00000000000000000000000000000000;
     else
       n23682 <= n23681;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23683 <= 1'b0;
     else
       n23683 <= n23244;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23684 <= 1'b0;
     else
       n23684 <= n23248;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23685 <= 1'b0;
     else
       n23685 <= n20305;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23686 <= 1'b0;
     else
       n23686 <= n20343;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23687 <= 1'b0;
@@ -63571,164 +63568,164 @@ module mc68881_top
       n23687 <= n23252;
   /*# mc68881_top.vhd:288:10 */
   assign n23688 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23689 = n23688 ? n23254 : pending_opword_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23690 <= n23689;
   initial
     n23690 = 16'b0000000000000000;
   /*# mc68881_top.vhd:289:10 */
   assign n23691 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23692 = n23691 ? n23256 : pending_command_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23693 <= n23692;
   initial
     n23693 = 16'b0000000000000000;
   /*# mc68881_top.vhd:290:10 */
   assign n23694 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23695 = n23694 ? n23258 : pending_instr_type;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23696 <= n23695;
   initial
     n23696 = 3'b000;
   /*# mc68881_top.vhd:291:10 */
   assign n23697 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23698 = n23697 ? n23260 : pending_src_fmt_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23699 <= n23698;
   initial
     n23699 = 3'b000;
   /*# mc68881_top.vhd:292:10 */
   assign n23700 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23701 = n23700 ? n23262 : pending_dst_reg_idx_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23702 <= n23701;
   initial
     n23702 = 3'b000;
   /*# mc68881_top.vhd:293:10 */
   assign n23703 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23704 = n23703 ? n23264 : pending_src_reg_idx_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23705 <= n23704;
   initial
     n23705 = 3'b000;
   /*# mc68881_top.vhd:294:10 */
   assign n23706 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23707 = n23706 ? n23266 : pending_reg_to_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23708 <= n23707;
   initial
     n23708 = 1'b0;
   /*# mc68881_top.vhd:295:10 */
   assign n23709 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23710 = n23709 ? n23268 : pending_direction;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23711 <= n23710;
   initial
     n23711 = 1'b0;
   /*# mc68881_top.vhd:296:10 */
   assign n23712 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23713 = n23712 ? n23270 : pending_decoded_op;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23714 <= n23713;
   initial
     n23714 = 6'b000000;
   /*# mc68881_top.vhd:297:10 */
   assign n23715 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23716 = n23715 ? n23272 : pending_operand_staging;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23717 <= n23716;
   initial
     n23717 = 96'b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000;
   /*# mc68881_top.vhd:298:10 */
   assign n23718 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23719 = n23718 ? n23274 : pending_xfer_word_count;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23720 <= n23719;
   initial
     n23720 = 2'b00;
   /*# mc68881_top.vhd:299:10 */
   assign n23721 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23722 = n23721 ? n23276 : pending_xfer_word_idx;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23723 <= n23722;
   initial
     n23723 = 2'b00;
   /*# mc68881_top.vhd:300:10 */
   assign n23724 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23725 = n23724 ? n23278 : pending_instaddr_reg;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23726 <= n23725;
   initial
     n23726 = 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23727 <= 1'b0;
     else
       n23727 <= 1'b0;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23728 <= 2'b00;
     else
       n23728 <= n23280;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23729 <= 96'b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000;
     else
       n23729 <= n22161;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23730 <= 1'b0;
     else
       n23730 <= n21593;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23731 <= 1'b0;
     else
       n23731 <= n21420;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23732 <= 1'b0;
     else
       n23732 <= n21406;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23733 <= 1'b0;
     else
       n23733 <= n21376;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23734 <= 1'b0;
@@ -63736,18 +63733,18 @@ module mc68881_top
       n23734 <= n21382;
   /*# mc68881_top.vhd:316:10 */
   assign n23735 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23736 = n23735 ? n23286 : cir_save_word_idx;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23737 <= n23736;
   initial
     n23737 = 6'b000000;
   /*# mc68881_top.vhd:317:10 */
   assign n23738 = ~n22225;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   assign n23739 = n23738 ? n23288 : cir_restore_word_idx;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk)
     n23740 <= n23739;
   initial
@@ -63769,45 +63766,45 @@ module mc68881_top
       n23745 <= 1'b0;
     else
       n23745 <= n5148;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23746 <= 1'b0;
     else
       n23746 <= n23295;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23747 <= 1'b0;
     else
       n23747 <= n21399;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23748 <= 1'b0;
     else
       n23748 <= n21388;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23749 = bus_write ? n21571 : cir_frame_data_reg;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk or posedge n21355)
     if (n21355)
       n23750 <= 384'b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000;
     else
       n23750 <= n23749;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23751 <= 1'b0;
     else
       n23751 <= 1'b0;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23752 <= 1'b0;
     else
       n23752 <= n23298;
-  /*# mc68881_top.vhd:4028:5 */
+  /*# mc68881_top.vhd:4041:5 */
   always @(posedge clk or posedge n22225)
     if (n22225)
       n23753 <= 1'b0;
@@ -63817,133 +63814,133 @@ module mc68881_top
   assign n23754 = ~n21355;
   /*# mc68881_top.vhd:342:10 */
   assign n23755 = bus_write & n23754;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   assign n23756 = n23755 ? n21572 : cir_restore_word_data;
-  /*# mc68881_top.vhd:3746:5 */
+  /*# mc68881_top.vhd:3754:5 */
   always @(posedge clk)
     n23757 <= n23756;
   initial
     n23757 = 32'b00000000000000000000000000000000;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23758 <= 1'b0;
     else
       n23758 <= n20345;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23759 <= 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
     else
       n23759 <= n20346;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23760 <= 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
     else
       n23760 <= n20347;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23761 <= 80'b00111111111111111000000000000000000000000000000000000000000000000000000000000000;
     else
       n23761 <= n20349;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23762 <= 1'b0;
     else
       n23762 <= 1'b0;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23763 <= 1'b0;
     else
       n23763 <= n20227;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23764 <= 1'b0;
     else
       n23764 <= n20230;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23765 <= 1'b0;
     else
       n23765 <= n20232;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23766 <= 1'b0;
     else
       n23766 <= n20233;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23767 <= 1'b0;
     else
       n23767 <= n20235;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   assign n23768 = n11006 ? 1'b0 : packed_pending_reg;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(posedge clk or posedge n11000)
     if (n11000)
       n23769 <= 1'b0;
     else
       n23769 <= n23768;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(n11000)
     n23770 <= 2'b00;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(n11000)
     n23771 <= 80'b00000000000000000000000000000000000000000000000000000000000000000000000000000000;
-  /*# mc68881_top.vhd:2708:5 */
+  /*# mc68881_top.vhd:2716:5 */
   always @(n11000)
     n23772 <= 3'b000;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   assign n23773 = n23511 ? cir_state_reg : cir_state_dbg_max_state_pos_reg;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   always @(posedge clk or posedge n23505)
     if (n23505)
       n23774 <= 5'b00000;
     else
       n23774 <= n23773;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   assign n23775 = cir_opword_written ? 1'b1 : cir_state_dbg_opword_seen_reg;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   always @(posedge clk or posedge n23505)
     if (n23505)
       n23776 <= 1'b0;
     else
       n23776 <= n23775;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   assign n23777 = cir_command_written ? 1'b1 : cir_state_dbg_command_seen_reg;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   always @(posedge clk or posedge n23505)
     if (n23505)
       n23778 <= 1'b0;
     else
       n23778 <= n23777;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   assign n23779 = cir_restore_trigger ? 1'b1 : cir_state_dbg_trigger_seen_reg;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   always @(posedge clk or posedge n23505)
     if (n23505)
       n23780 <= 1'b0;
     else
       n23780 <= n23779;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   assign n23781 = n23526 ? 1'b1 : cir_state_dbg_except_seen_reg;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   always @(posedge clk or posedge n23505)
     if (n23505)
       n23782 <= 1'b0;
     else
       n23782 <= n23781;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   assign n23783 = n23530 ? 1'b1 : cir_state_dbg_restore_frame_seen_reg;
-  /*# mc68881_top.vhd:4632:7 */
+  /*# mc68881_top.vhd:4645:7 */
   always @(posedge clk or posedge n23505)
     if (n23505)
       n23784 <= 1'b0;
@@ -64157,9 +64154,9 @@ module mc68881_top
   assign n23802 = n23801[2:0]; // extract
   /*# mc68881_top.vhd:2146:47 */
   assign n23803 = fp_reg_file_reg[n5161 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:2174:35 */
+  /*# mc68881_top.vhd:2180:35 */
   assign n23804 = fp_reg_file_reg[n8280 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:2185:47 */
+  /*# mc68881_top.vhd:2191:47 */
   assign n23805 = fp_reg_file_reg[n9510 * 80 +: 80]; //(Bmux)
   /*# mc68881_pkg.vhd:1358:35 */
   assign n23806 = n3839[20444:50]; // extract
@@ -64169,75 +64166,75 @@ module mc68881_top
   assign n23809 = n23808[n9565 * 435 +: 435]; //(Bmux)
   /*# mc68881_pkg.vhd:1358:35 */
   assign n23810 = n23809[12:0]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23811 = n11010[2]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23812 = ~n23811;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23813 = n11010[1]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23814 = ~n23813;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23815 = n23812 & n23814;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23816 = n23812 & n23813;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23817 = n23811 & n23814;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23818 = n23811 & n23813;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23819 = n11010[0]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23820 = ~n23819;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23821 = n23815 & n23820;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23822 = n23815 & n23819;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23823 = n23816 & n23820;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23824 = n23816 & n23819;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23825 = n23817 & n23820;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23826 = n23817 & n23819;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23827 = n23818 & n23820;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23828 = n23818 & n23819;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23829 = fp_reg_file_reg[79:0]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23830 = n23821 ? packed_result_fp_reg : n23829;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23831 = fp_reg_file_reg[159:80]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23832 = n23822 ? packed_result_fp_reg : n23831;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23833 = fp_reg_file_reg[239:160]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23834 = n23823 ? packed_result_fp_reg : n23833;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23835 = fp_reg_file_reg[319:240]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23836 = n23824 ? packed_result_fp_reg : n23835;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23837 = fp_reg_file_reg[399:320]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23838 = n23825 ? packed_result_fp_reg : n23837;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23839 = fp_reg_file_reg[479:400]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23840 = n23826 ? packed_result_fp_reg : n23839;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23841 = fp_reg_file_reg[559:480]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23842 = n23827 ? packed_result_fp_reg : n23841;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23843 = fp_reg_file_reg[639:560]; // extract
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23844 = n23828 ? packed_result_fp_reg : n23843;
-  /*# mc68881_top.vhd:2736:11 */
+  /*# mc68881_top.vhd:2744:11 */
   assign n23845 = {n23844, n23842, n23840, n23838, n23836, n23834, n23832, n23830};
   /*# mc68881_pkg.vhd:1323:35 */
   assign n23846 = n3839[20444:14]; // extract
@@ -64311,697 +64308,697 @@ module mc68881_top
   assign n23890 = {7'b0, n23886};  // uext
   /*# mc68881_pkg.vhd:1407:27 */
   assign n23891 = n23889 + n23890;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23892 = n11380[2]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23893 = ~n23892;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23894 = n11380[1]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23895 = ~n23894;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23896 = n23893 & n23895;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23897 = n23893 & n23894;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23898 = n23892 & n23895;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23899 = n23892 & n23894;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23900 = n11380[0]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23901 = ~n23900;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23902 = n23896 & n23901;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23903 = n23896 & n23900;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23904 = n23897 & n23901;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23905 = n23897 & n23900;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23906 = n23898 & n23901;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23907 = n23898 & n23900;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23908 = n23899 & n23901;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23909 = n23899 & n23900;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23910 = n11025[79:0]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23911 = n23902 ? n23793 : n23910;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23912 = n11025[159:80]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23913 = n23903 ? n23793 : n23912;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23914 = n11025[239:160]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23915 = n23904 ? n23793 : n23914;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23916 = n11025[319:240]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23917 = n23905 ? n23793 : n23916;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23918 = n11025[399:320]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23919 = n23906 ? n23793 : n23918;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23920 = n11025[479:400]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23921 = n23907 ? n23793 : n23920;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23922 = n11025[559:480]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23923 = n23908 ? n23793 : n23922;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23924 = n11025[639:560]; // extract
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23925 = n23909 ? n23793 : n23924;
-  /*# mc68881_top.vhd:2917:17 */
+  /*# mc68881_top.vhd:2925:17 */
   assign n23926 = {n23925, n23923, n23921, n23919, n23917, n23915, n23913, n23911};
-  /*# mc68881_top.vhd:2921:52 */
+  /*# mc68881_top.vhd:2929:52 */
   assign n23927 = fp_reg_file_reg[n11384 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23928 = n11388[2]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23929 = ~n23928;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23930 = n11388[1]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23931 = ~n23930;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23932 = n23929 & n23931;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23933 = n23929 & n23930;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23934 = n23928 & n23931;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23935 = n23928 & n23930;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23936 = n11388[0]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23937 = ~n23936;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23938 = n23932 & n23937;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23939 = n23932 & n23936;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23940 = n23933 & n23937;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23941 = n23933 & n23936;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23942 = n23934 & n23937;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23943 = n23934 & n23936;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23944 = n23935 & n23937;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23945 = n23935 & n23936;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23946 = n11025[79:0]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23947 = n23938 ? n23927 : n23946;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23948 = n11025[159:80]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23949 = n23939 ? n23927 : n23948;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23950 = n11025[239:160]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23951 = n23940 ? n23927 : n23950;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23952 = n11025[319:240]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23953 = n23941 ? n23927 : n23952;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23954 = n11025[399:320]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23955 = n23942 ? n23927 : n23954;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23956 = n11025[479:400]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23957 = n23943 ? n23927 : n23956;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23958 = n11025[559:480]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23959 = n23944 ? n23927 : n23958;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23960 = n11025[639:560]; // extract
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23961 = n23945 ? n23927 : n23960;
-  /*# mc68881_top.vhd:2925:21 */
+  /*# mc68881_top.vhd:2933:21 */
   assign n23962 = {n23961, n23959, n23957, n23955, n23953, n23951, n23949, n23947};
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23963 = n15487[2]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23964 = ~n23963;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23965 = n15487[1]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23966 = ~n23965;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23967 = n23964 & n23966;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23968 = n23964 & n23965;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23969 = n23963 & n23966;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23970 = n23963 & n23965;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23971 = n15487[0]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23972 = ~n23971;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23973 = n23967 & n23972;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23974 = n23967 & n23971;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23975 = n23968 & n23972;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23976 = n23968 & n23971;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23977 = n23969 & n23972;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23978 = n23969 & n23971;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23979 = n23970 & n23972;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23980 = n23970 & n23971;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23981 = n11025[79:0]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23982 = n23973 ? n15479 : n23981;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23983 = n11025[159:80]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23984 = n23974 ? n15479 : n23983;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23985 = n11025[239:160]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23986 = n23975 ? n15479 : n23985;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23987 = n11025[319:240]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23988 = n23976 ? n15479 : n23987;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23989 = n11025[399:320]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23990 = n23977 ? n15479 : n23989;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23991 = n11025[479:400]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23992 = n23978 ? n15479 : n23991;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23993 = n11025[559:480]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23994 = n23979 ? n15479 : n23993;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23995 = n11025[639:560]; // extract
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23996 = n23980 ? n15479 : n23995;
-  /*# mc68881_top.vhd:2979:23 */
+  /*# mc68881_top.vhd:2987:23 */
   assign n23997 = {n23996, n23994, n23992, n23990, n23988, n23986, n23984, n23982};
-  /*# mc68881_top.vhd:2982:52 */
+  /*# mc68881_top.vhd:2990:52 */
   assign n23998 = fp_reg_file_reg[n15493 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n23999 = n18327[2]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24000 = ~n23999;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24001 = n18327[1]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24002 = ~n24001;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24003 = n24000 & n24002;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24004 = n24000 & n24001;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24005 = n23999 & n24002;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24006 = n23999 & n24001;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24007 = n18327[0]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24008 = ~n24007;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24009 = n24003 & n24008;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24010 = n24003 & n24007;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24011 = n24004 & n24008;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24012 = n24004 & n24007;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24013 = n24005 & n24008;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24014 = n24005 & n24007;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24015 = n24006 & n24008;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24016 = n24006 & n24007;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24017 = n11025[79:0]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24018 = n24009 ? n18329 : n24017;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24019 = n11025[159:80]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24020 = n24010 ? n18329 : n24019;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24021 = n11025[239:160]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24022 = n24011 ? n18329 : n24021;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24023 = n11025[319:240]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24024 = n24012 ? n18329 : n24023;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24025 = n11025[399:320]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24026 = n24013 ? n18329 : n24025;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24027 = n11025[479:400]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24028 = n24014 ? n18329 : n24027;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24029 = n11025[559:480]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24030 = n24015 ? n18329 : n24029;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24031 = n11025[639:560]; // extract
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24032 = n24016 ? n18329 : n24031;
-  /*# mc68881_top.vhd:3069:23 */
+  /*# mc68881_top.vhd:3077:23 */
   assign n24033 = {n24032, n24030, n24028, n24026, n24024, n24022, n24020, n24018};
-  /*# mc68881_top.vhd:3073:61 */
+  /*# mc68881_top.vhd:3081:61 */
   assign n24034 = fp_reg_file_reg[n18332 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3073:69 */
+  /*# mc68881_top.vhd:3081:69 */
   assign n24035 = n24034[31:0]; // extract
-  /*# mc68881_top.vhd:3074:54 */
+  /*# mc68881_top.vhd:3082:54 */
   assign n24036 = fp_reg_file_reg[n18336 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24037 = n18501[n18505 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24038 = n18501[n18526 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24039 = n18501[n18548 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24040 = n18501[n18570 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24041 = n18501[n18592 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24042 = n18501[n18614 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24043 = n18501[n18636 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3111:25 */
+  /*# mc68881_top.vhd:3119:25 */
   assign n24044 = n18501[n18658 * 1 +: 1]; //(Bmux)
-  /*# mc68881_top.vhd:3126:54 */
+  /*# mc68881_top.vhd:3134:54 */
   assign n24045 = fp_movem_shadow_reg[n18682 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3128:50 */
+  /*# mc68881_top.vhd:3136:50 */
   assign n24046 = fp_reg_file_reg[n18687 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24047 = n20299[2]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24048 = ~n24047;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24049 = n20299[1]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24050 = ~n24049;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24051 = n24048 & n24050;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24052 = n24048 & n24049;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24053 = n24047 & n24050;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24054 = n24047 & n24049;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24055 = n20299[0]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24056 = ~n24055;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24057 = n24051 & n24056;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24058 = n24051 & n24055;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24059 = n24052 & n24056;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24060 = n24052 & n24055;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24061 = n24053 & n24056;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24062 = n24053 & n24055;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24063 = n24054 & n24056;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24064 = n24054 & n24055;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24065 = n20202[79:0]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24066 = n24057 ? result : n24065;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24067 = n20202[159:80]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24068 = n24058 ? result : n24067;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24069 = n20202[239:160]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24070 = n24059 ? result : n24069;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24071 = n20202[319:240]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24072 = n24060 ? result : n24071;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24073 = n20202[399:320]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24074 = n24061 ? result : n24073;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24075 = n20202[479:400]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24076 = n24062 ? result : n24075;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24077 = n20202[559:480]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24078 = n24063 ? result : n24077;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24079 = n20202[639:560]; // extract
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24080 = n24064 ? result : n24079;
-  /*# mc68881_top.vhd:3287:13 */
+  /*# mc68881_top.vhd:3295:13 */
   assign n24081 = {n24080, n24078, n24076, n24074, n24072, n24070, n24068, n24066};
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24082 = n20327[2]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24083 = ~n24082;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24084 = n20327[1]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24085 = ~n24084;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24086 = n24083 & n24085;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24087 = n24083 & n24084;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24088 = n24082 & n24085;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24089 = n24082 & n24084;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24090 = n20327[0]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24091 = ~n24090;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24092 = n24086 & n24091;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24093 = n24086 & n24090;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24094 = n24087 & n24091;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24095 = n24087 & n24090;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24096 = n24088 & n24091;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24097 = n24088 & n24090;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24098 = n24089 & n24091;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24099 = n24089 & n24090;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24100 = n20302[79:0]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24101 = n24092 ? n20329 : n24100;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24102 = n20302[159:80]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24103 = n24093 ? n20329 : n24102;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24104 = n20302[239:160]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24105 = n24094 ? n20329 : n24104;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24106 = n20302[319:240]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24107 = n24095 ? n20329 : n24106;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24108 = n20302[399:320]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24109 = n24096 ? n20329 : n24108;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24110 = n20302[479:400]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24111 = n24097 ? n20329 : n24110;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24112 = n20302[559:480]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24113 = n24098 ? n20329 : n24112;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24114 = n20302[639:560]; // extract
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24115 = n24099 ? n20329 : n24114;
-  /*# mc68881_top.vhd:3313:9 */
+  /*# mc68881_top.vhd:3321:9 */
   assign n24116 = {n24115, n24113, n24111, n24109, n24107, n24105, n24103, n24101};
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24117 = n21513[3]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24118 = ~n24117;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24119 = n21513[2]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24120 = ~n24119;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24121 = n24118 & n24120;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24122 = n24118 & n24119;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24123 = n24117 & n24120;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24124 = n21513[1]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24125 = ~n24124;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24126 = n24121 & n24125;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24127 = n24121 & n24124;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24128 = n24122 & n24125;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24129 = n24122 & n24124;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24130 = n24123 & n24125;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24131 = n24123 & n24124;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24132 = n21513[0]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24133 = ~n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24134 = n24126 & n24133;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24135 = n24126 & n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24136 = n24127 & n24133;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24137 = n24127 & n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24138 = n24128 & n24133;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24139 = n24128 & n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24140 = n24129 & n24133;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24141 = n24129 & n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24142 = n24130 & n24133;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24143 = n24130 & n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24144 = n24131 & n24133;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24145 = n24131 & n24132;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24146 = cir_frame_data_reg[31:0]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24147 = n24134 ? d_in : n24146;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24148 = cir_frame_data_reg[63:32]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24149 = n24135 ? d_in : n24148;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24150 = cir_frame_data_reg[95:64]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24151 = n24136 ? d_in : n24150;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24152 = cir_frame_data_reg[127:96]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24153 = n24137 ? d_in : n24152;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24154 = cir_frame_data_reg[159:128]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24155 = n24138 ? d_in : n24154;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24156 = cir_frame_data_reg[191:160]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24157 = n24139 ? d_in : n24156;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24158 = cir_frame_data_reg[223:192]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24159 = n24140 ? d_in : n24158;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24160 = cir_frame_data_reg[255:224]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24161 = n24141 ? d_in : n24160;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24162 = cir_frame_data_reg[287:256]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24163 = n24142 ? d_in : n24162;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24164 = cir_frame_data_reg[319:288]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24165 = n24143 ? d_in : n24164;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24166 = cir_frame_data_reg[351:320]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24167 = n24144 ? d_in : n24166;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24168 = cir_frame_data_reg[383:352]; // extract
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24169 = n24145 ? d_in : n24168;
-  /*# mc68881_top.vhd:3902:17 */
+  /*# mc68881_top.vhd:3910:17 */
   assign n24170 = {n24169, n24167, n24165, n24163, n24161, n24159, n24157, n24155, n24153, n24151, n24149, n24147};
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24171 = n21532[3]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24172 = ~n24171;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24173 = n21532[2]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24174 = ~n24173;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24175 = n24172 & n24174;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24176 = n24172 & n24173;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24177 = n24171 & n24174;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24178 = n21532[1]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24179 = ~n24178;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24180 = n24175 & n24179;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24181 = n24175 & n24178;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24182 = n24176 & n24179;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24183 = n24176 & n24178;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24184 = n24177 & n24179;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24185 = n24177 & n24178;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24186 = n21532[0]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24187 = ~n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24188 = n24180 & n24187;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24189 = n24180 & n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24190 = n24181 & n24187;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24191 = n24181 & n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24192 = n24182 & n24187;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24193 = n24182 & n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24194 = n24183 & n24187;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24195 = n24183 & n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24196 = n24184 & n24187;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24197 = n24184 & n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24198 = n24185 & n24187;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24199 = n24185 & n24186;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24200 = cir_frame_data_reg[31:0]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24201 = n24188 ? d_in : n24200;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24202 = cir_frame_data_reg[63:32]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24203 = n24189 ? d_in : n24202;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24204 = cir_frame_data_reg[95:64]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24205 = n24190 ? d_in : n24204;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24206 = cir_frame_data_reg[127:96]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24207 = n24191 ? d_in : n24206;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24208 = cir_frame_data_reg[159:128]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24209 = n24192 ? d_in : n24208;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24210 = cir_frame_data_reg[191:160]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24211 = n24193 ? d_in : n24210;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24212 = cir_frame_data_reg[223:192]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24213 = n24194 ? d_in : n24212;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24214 = cir_frame_data_reg[255:224]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24215 = n24195 ? d_in : n24214;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24216 = cir_frame_data_reg[287:256]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24217 = n24196 ? d_in : n24216;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24218 = cir_frame_data_reg[319:288]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24219 = n24197 ? d_in : n24218;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24220 = cir_frame_data_reg[351:320]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24221 = n24198 ? d_in : n24220;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24222 = cir_frame_data_reg[383:352]; // extract
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24223 = n24199 ? d_in : n24222;
-  /*# mc68881_top.vhd:3929:17 */
+  /*# mc68881_top.vhd:3937:17 */
   assign n24224 = {n24223, n24221, n24219, n24217, n24215, n24213, n24211, n24209, n24207, n24205, n24203, n24201};
-  /*# mc68881_top.vhd:3981:51 */
-  assign n24225 = fp_reg_file_reg[n21625 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3985:51 */
-  assign n24226 = fp_reg_file_reg[n21781 * 80 +: 80]; //(Bmux)
   /*# mc68881_top.vhd:3989:51 */
+  assign n24225 = fp_reg_file_reg[n21625 * 80 +: 80]; //(Bmux)
+  /*# mc68881_top.vhd:3993:51 */
+  assign n24226 = fp_reg_file_reg[n21781 * 80 +: 80]; //(Bmux)
+  /*# mc68881_top.vhd:3997:51 */
   assign n24227 = fp_reg_file_reg[n21940 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3996:47 */
+  /*# mc68881_top.vhd:4008:47 */
   assign n24228 = fp_reg_file_reg[639:64]; // extract
-  /*# mc68881_top.vhd:3996:31 */
+  /*# mc68881_top.vhd:4008:31 */
   assign n24230 = {64'bX, n24228};
-  /*# mc68881_top.vhd:3996:31 */
+  /*# mc68881_top.vhd:4008:31 */
   assign n24231 = n24230[n22100 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3996:47 */
+  /*# mc68881_top.vhd:4008:47 */
   assign n24232 = n24231[15:0]; // extract
-  /*# mc68881_top.vhd:3998:47 */
+  /*# mc68881_top.vhd:4011:47 */
   assign n24233 = fp_reg_file_reg[639:32]; // extract
-  /*# mc68881_top.vhd:3998:31 */
+  /*# mc68881_top.vhd:4011:31 */
   assign n24235 = {32'bX, n24233};
-  /*# mc68881_top.vhd:3998:31 */
-  assign n24236 = n24235[n22104 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:3998:47 */
+  /*# mc68881_top.vhd:4011:31 */
+  assign n24236 = n24235[n22105 * 80 +: 80]; //(Bmux)
+  /*# mc68881_top.vhd:4011:47 */
   assign n24237 = n24236[31:0]; // extract
-  /*# mc68881_top.vhd:4000:31 */
-  assign n24238 = fp_reg_file_reg[n22108 * 80 +: 80]; //(Bmux)
-  /*# mc68881_top.vhd:4000:47 */
+  /*# mc68881_top.vhd:4013:31 */
+  assign n24238 = fp_reg_file_reg[n22109 * 80 +: 80]; //(Bmux)
+  /*# mc68881_top.vhd:4013:47 */
   assign n24239 = n24238[31:0]; // extract
   /*# mc68881_pkg.vhd:1323:35 */
   assign n24240 = n3839[20444:14]; // extract

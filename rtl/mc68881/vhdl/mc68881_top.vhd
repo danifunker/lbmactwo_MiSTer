@@ -2153,7 +2153,13 @@ begin
                 cir_source_val := fp80_from_single(
                   cir_operand_staging(31 downto 0));
               when CIR_SRC_EXTENDED =>
-                cir_source_val := cir_operand_staging(15 downto 0) &
+                -- MC68881 .X memory layout: byte 0-1 = sign+exp,
+                -- byte 2-3 = reserved, byte 4-11 = mantissa.
+                -- Long 1 (staging[31:0]) holds bytes 0-3, so the
+                -- sign+exp lives in the HIGH half: staging[31:16].
+                -- The LOW half (staging[15:0]) is the reserved word
+                -- and is dropped.
+                cir_source_val := cir_operand_staging(31 downto 16) &
                                   cir_operand_staging(63 downto 32) &
                                   cir_operand_staging(95 downto 64);
               when CIR_SRC_WORD =>
@@ -2202,7 +2208,9 @@ begin
               cir_source_val := fp80_from_single(
                 pending_operand_staging(31 downto 0));
             when CIR_SRC_EXTENDED =>
-              cir_source_val := pending_operand_staging(15 downto 0) &
+              -- See note at the non-pending counterpart above:
+              -- sign+exp lives in HIGH half of long 1, not LOW.
+              cir_source_val := pending_operand_staging(31 downto 16) &
                                 pending_operand_staging(63 downto 32) &
                                 pending_operand_staging(95 downto 64);
             when CIR_SRC_WORD =>
@@ -3991,9 +3999,14 @@ begin
             -- Double: word 0 = upper 32, word 1 = lower 32
             cir_operand_staging(63 downto 0) <= conv_double_out;
           when CIR_SRC_EXTENDED =>
-            -- Extended: word 0[15:0]=sign+exp, word 1=mant_hi, word 2=mant_lo
-            cir_operand_staging(15 downto 0) <=
+            -- MC68881 .X memory layout: byte 0-1 = sign+exp,
+            -- byte 2-3 = reserved (zero), bytes 4-11 = mantissa.
+            -- Long 1 (staging[31:0]) holds bytes 0-3 so the sign+exp
+            -- goes in the HIGH half (staging[31:16]) and the LOW
+            -- half (staging[15:0]) is the reserved zero word.
+            cir_operand_staging(31 downto 16) <=
               fp_reg_file_reg(cir_dst_reg_idx)(79 downto 64);
+            cir_operand_staging(15 downto 0) <= (others => '0');
             cir_operand_staging(63 downto 32) <=
               fp_reg_file_reg(cir_dst_reg_idx)(63 downto 32);
             cir_operand_staging(95 downto 64) <=
