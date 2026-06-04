@@ -128,6 +128,9 @@ foreach inst $info {
     if {$nm eq "PSDH"} { set idx(PSDH) $i }
     # Build #70 — ioBuffer write snoop (bytes Mac OS receives for the last read)
     if {$nm eq "PIRD"} { set idx(PIRD) $i }
+    # Build #71 — Mac OS error globals: ResErr ($A60), DskErr ($142)
+    if {$nm eq "PRSR"} { set idx(PRSR) $i }
+    if {$nm eq "PDSE"} { set idx(PDSE) $i }
     incr i
 }
 
@@ -648,6 +651,63 @@ for {set s 1} {$s <= 6} {incr s} {
         if {$w0 == 0x0000 && $w1 == 0x0000} { set hint "  (all-zero — buffer empty/uninit)" }
         puts [format "           BUF-RD: ioBuffer first 4 bytes = %02X %02X %02X %02X  (word0=0x%04X word1=0x%04X)%s" \
             $b0 $b1 $b2 $b3 $w0 $w1 $hint]
+    }
+    # Build #71 — Mac OS error globals
+    if {[info exists idx(PRSR)]} {
+        set pr [rd $idx(PRSR)]
+        set ev [expr {($pr >> 16) & 0xFFFF}]
+        set ec [expr {$pr & 0xFFFF}]
+        set sigv $ev
+        if {$sigv >= 32768} { set sigv [expr {$sigv - 65536}] }
+        set errname "(unknown)"
+        switch -- $sigv {
+            0      {set errname "noErr (success)"}
+            -39    {set errname "eofErr"}
+            -49    {set errname "opWrErr (file already open)"}
+            -50    {set errname "paramErr"}
+            -108   {set errname "memFullErr"}
+            -109   {set errname "nilHandleErr"}
+            -110   {set errname "memAdrErr"}
+            -111   {set errname "memWZErr"}
+            -188   {set errname "resourceInMemory"}
+            -189   {set errname "writingPastEnd"}
+            -190   {set errname "inputOutOfBounds"}
+            -191   {set errname "resNotFound"}
+            -192   {set errname "resFNotFound (file not found!)"}
+            -193   {set errname "addResFailed"}
+            -194   {set errname "addRefFailed"}
+            -195   {set errname "rmvResFailed"}
+            -196   {set errname "rmvRefFailed"}
+            -197   {set errname "resAttrErr"}
+            -198   {set errname "mapReadErr"}
+            -199   {set errname "CantDecompress"}
+        }
+        puts [format "           Mac-ResErr: \$A60 write_cnt(wrap16)=%u  last=0x%04X (%d) %s" \
+            $ec $ev $sigv $errname]
+        if {$ec == 0} {
+            puts "                 cnt=0 => OS hasn't touched ResErr; resource manager not exercised"
+        }
+    }
+    if {[info exists idx(PDSE)]} {
+        set pd [rd $idx(PDSE)]
+        set ev [expr {($pd >> 16) & 0xFFFF}]
+        set ec [expr {$pd & 0xFFFF}]
+        set sigv $ev
+        if {$sigv >= 32768} { set sigv [expr {$sigv - 65536}] }
+        set errname "(unknown)"
+        switch -- $sigv {
+            0      {set errname "noErr (success)"}
+            -36    {set errname "ioErr"}
+            -66    {set errname "noNybErr"}
+            -67    {set errname "noAdrMkErr"}
+            -68    {set errname "dataVerErr"}
+            -69    {set errname "badCksmErr"}
+            -70    {set errname "badBtSlpErr"}
+            -80    {set errname "seekErr"}
+            -81    {set errname "sectNFErr"}
+        }
+        puts [format "           Mac-DskErr: \$142 write_cnt(wrap16)=%u  last=0x%04X (%d) %s" \
+            $ec $ev $sigv $errname]
     }
     # Build #69 — HPS download verifier: first 4 bytes of F1 floppy download
     if {[info exists idx(PSDH)]} {

@@ -906,18 +906,17 @@ module dbg_min (
     reg [31:0] pir3_r;
     always @(posedge clk) pir3_r <= {ior3_last, ior3_rd_cnt};
 
-    // PIR3 RE-ENABLED for IORB-completion investigation (build #66).
-    // Reads ioRefNum at (PIOA + $08) = (IORB + $18). Once PIOA captures
-    // the hung IORB's ioResult address, PIR3 tells us which DRIVER owns
-    // it via the refnum: -33 .Sony (floppy), -36 .Sound, -38 .SCSI,
-    // -39 .MPP (AppleTalk), -40 .ATP, etc. Combined with PIOA/PIOC/PIR2
-    // this gives us a complete IORB-identity picture in ONE build.
-    altsource_probe #(
-        .instance_id ("PIR3"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIR3 disabled build #71 — refnum was stable at $6B04 (positive,
+    // file-refnum-like, not driver refnum) across all build #68-#70
+    // captures. No further info to gain. Free a slot for the Mac OS
+    // error-global probes (PERG/PERG2) so we can see WHY StandardLaunch
+    // fails despite driver returning noErr.
+    // altsource_probe #(
+    //     .instance_id ("PIR3"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pir3 (.probe(pir3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IORB header probes (PIRH / PIRB / PIRR / PIRP) -- build #68 =======
     // Capture the OS-set fields of the .Sony IORB at the fixed low-memory
@@ -1183,12 +1182,80 @@ module dbg_min (
     reg [31:0] pird_r;
     always @(posedge clk) pird_r <= {pird_w1, pird_w0};
 
+    // PIRD disabled build #71 — confirmed at t=360 sector 529 that the
+    // EVEN bytes in ioBuffer match the file (5F, 52 = file content). Data
+    // path is clean; wedge is at HFS/ProcessMgr layer. Free a slot.
+    // altsource_probe #(
+    //     .instance_id ("PIRD"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pird (.probe(pird_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== PERG: Mac OS error globals (build #71) ==========================
+    // Build #70 confirmed the data-path is clean: HPS download intact, driver
+    // returns noErr 301×, ioBuffer bytes match the file. The wedge must be
+    // at the HFS / Process Manager / Resource Manager level. The likely
+    // failure point is StandardLaunch in ProcessMgr/SegmentLoaderPatches.c:
+    //   rfn = HOpenResFile(...)
+    //   launchResults->LaunchError = RESERR
+    //   if (rfn == (-1)) return;
+    // ResErr is at low-mem $A60 (per Interfaces/AIncludes/ToolUtils.a:169).
+    // If the resource fork open fails, ResErr holds the underlying error
+    // code (e.g., -39 = eofErr, -49 = opWrErr, -50 = paramErr, -108 =
+    // memFullErr, -192 = resNotFound, -193 = resFNotFound, etc.).
+    //
+    // DskErr at $142 (SysEqu.a:1424) is the last disk routine result code.
+    // Mirrors what the .Sony driver returned but at a system-wide level.
+    //
+    // Capture all writes to these two addresses with last_value + wrap16 cnt.
+    //
+    // Quartus truncates altsource_probe instance_id to 4 chars (per the
+    // PMEM/PMEM2 → PMEM/MEM2 pattern). Use 4-char names PRSR and PDSE.
+    //
+    // PRSR layout:  [31:16] last_value @ $0A60 (ResErr)
+    //               [15:0]  wr_cnt(wrap16)
+    // PDSE layout:  [31:16] last_value @ $0142 (DskErr)
+    //               [15:0]  wr_cnt(wrap16)
+    wire perg_aswr = cpuAS_n_d && !cpuAS_n && !cpuRW && (cpuFC != 3'b111);
+
+    reg [15:0] perg_reserr_last;
+    reg [15:0] perg_reserr_cnt;
+    initial begin perg_reserr_last = 16'd0; perg_reserr_cnt = 16'd0; end
+    always @(posedge clk) begin
+        if (perg_aswr && cpuAddr == 32'h0000_0A60) begin
+            perg_reserr_last <= cpu_dout;
+            perg_reserr_cnt  <= perg_reserr_cnt + 16'd1;
+        end
+    end
+    reg [31:0] perg_r;
+    always @(posedge clk) perg_r <= {perg_reserr_last, perg_reserr_cnt};
+
     altsource_probe #(
-        .instance_id ("PIRD"),
+        .instance_id ("PRSR"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pird (.probe(pird_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_prsr (.probe(perg_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    reg [15:0] perg2_dskerr_last;
+    reg [15:0] perg2_dskerr_cnt;
+    initial begin perg2_dskerr_last = 16'd0; perg2_dskerr_cnt = 16'd0; end
+    always @(posedge clk) begin
+        if (perg_aswr && cpuAddr == 32'h0000_0142) begin
+            perg2_dskerr_last <= cpu_dout;
+            perg2_dskerr_cnt  <= perg2_dskerr_cnt + 16'd1;
+        end
+    end
+    reg [31:0] perg2_r;
+    always @(posedge clk) perg2_r <= {perg2_dskerr_last, perg2_dskerr_cnt};
+
+    altsource_probe #(
+        .instance_id ("PDSE"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pdse (.probe(perg2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature
