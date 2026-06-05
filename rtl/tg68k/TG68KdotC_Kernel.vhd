@@ -390,6 +390,20 @@ architecture logic of TG68KdotC_Kernel is
 	-- instead of cp_xfer_to_load (operand from reg_QB / Dn).
 	signal cp_mem_source		: std_logic;
 	signal cp_mem_source_set	: std_logic;  -- pulse from F-line dispatch
+	-- cpSAVE/cpRESTORE prefetch-overrun fix: capture the opcode PC on
+	-- F-line dispatch and force-reload TG68_PC before the post-dialog
+	-- instruction refetch. During the ~30-cycle FSAVE/FRESTORE bus
+	-- dialog the natural prefetch advances TG68_PC past the next
+	-- instruction boundary; without restore, setopcode after the
+	-- dialog loads a stale word as the next opcode (e.g. sndOPC half
+	-- of FMOVE.L FP3,D1 = $6180 → BSR -128 runaway). cp_op_pc holds
+	-- the address of the instruction word AFTER FSAVE/FRESTORE
+	-- (= tmp_TG68_PC at cp_write_opw entry, which the kernel has
+	-- already advanced past any EA extension words). The pending
+	-- flag triggers the force-load when the exit path routes to
+	-- cp_mem_refetch.
+	signal cp_op_pc			: std_logic_vector(31 downto 0);
+	signal cp_pc_restore_pending : std_logic;
 	signal cp_an_writeback	: std_logic;
 	signal cp_branch_target	: std_logic_vector(31 downto 0);
 	signal cp_do_branch		: std_logic;
@@ -831,6 +845,8 @@ PROCESS (clk)
 				cp_xfer_cnt <= "000";
 				cp_ea_addr <= (others => '0');
 				cp_mem_source <= '0';
+				cp_op_pc <= (others => '0');
+				cp_pc_restore_pending <= '0';
 				cp_save_fmt <= (others => '0');
 				cp_frame_cnt <= (others => '0');
 				cp_branch_target <= (others => '0');
@@ -860,6 +876,13 @@ PROCESS (clk)
 				IF micro_state = cp_write_opw AND (exe_opcode(8 downto 6) = "100" OR exe_opcode(8 downto 6) = "101") THEN
 					-- Capture An value at start (cpSAVE/cpRESTORE only)
 					cp_ea_addr <= reg_QA;
+					-- Capture next-instruction PC for post-dialog refetch
+					-- (see cp_op_pc / cp_pc_restore_pending declarations).
+					-- At cp_write_opw, tmp_TG68_PC is already past the
+					-- opword and any EA extension words — the natural kernel
+					-- decode advanced it before dispatching here.
+					cp_op_pc <= tmp_TG68_PC;
+					cp_pc_restore_pending <= '1';
 				ELSIF micro_state = cp_save_idle THEN
 					-- cpSAVE: predecrement by 2 before each memory write
 					cp_ea_addr <= cp_ea_addr - 2;
@@ -903,6 +926,17 @@ PROCESS (clk)
 					cp_mem_source <= '1';
 				ELSIF micro_state = idle THEN
 					cp_mem_source <= '0';
+				END IF;
+				-- cpSAVE/cpRESTORE PC restore: clear pending once the
+				-- micro_state machine is routing into cp_mem_refetch
+				-- (which is the cycle the TG68_PC mux force-loads cp_op_pc).
+				-- Also clear on idle as a belt-and-braces fallback so the
+				-- flag never persists across a subsequent F-line that
+				-- isn't FSAVE/FRESTORE.
+				IF next_micro_state = cp_mem_refetch AND cp_pc_restore_pending = '1' THEN
+					cp_pc_restore_pending <= '0';
+				ELSIF micro_state = idle THEN
+					cp_pc_restore_pending <= '0';
 				END IF;
 				-- FBcc branch target computation (save before CIR accesses corrupt tmp_TG68_PC)
 				IF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "010" THEN
@@ -1498,6 +1532,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						TG68_PC <= addr;
 					ELSIF cp_do_branch = '1' THEN
 						TG68_PC <= cp_branch_target;
+					ELSIF cp_pc_restore_pending = '1' AND next_micro_state = cp_mem_refetch THEN
+						-- cpSAVE/cpRESTORE exit: force-load PC of the
+						-- instruction following the FSAVE/FRESTORE so the
+						-- impending cp_mem_refetch fetches the right word.
+						-- Without this, natural prefetch advanced TG68_PC
+						-- past the next instruction during the bus dialog
+						-- and the post-dialog setopcode loads a stale word.
+						TG68_PC <= cp_op_pc;
 					ELSIF (state ="00" OR TG68_PC_brw = '1') AND stop='0'  THEN
 						TG68_PC <= TG68_PC_add;
 					END IF;
@@ -4630,6 +4672,13 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							-- setopcode that fires next loads the actual
 							-- next-instruction word, not the d16 value.
 							next_micro_state <= cp_mem_refetch;
+						ELSIF cp_pc_restore_pending = '1' THEN
+							-- NULL "done" after cpRESTORE. Same prefetch
+							-- overrun as cpSAVE: TG68_PC advanced past the
+							-- next instruction during the ~30-cycle dialog.
+							-- Route via cp_mem_refetch so the TG68_PC mux
+							-- force-loads cp_op_pc before the fetch.
+							next_micro_state <= cp_mem_refetch;
 						ELSE
 							next_micro_state <= idle;           -- NULL, done
 						END IF;
@@ -4979,8 +5028,13 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						next_micro_state <= cp_save_idle;
 					ELSIF cp_frame_cnt = "0000000" THEN
 						-- Format HIGH just written: frame complete.
+						-- Route through cp_mem_refetch so the TG68_PC mux
+						-- force-loads cp_op_pc and the post-FSAVE setopcode
+						-- gets a freshly-fetched next-instruction word
+						-- instead of whatever the natural prefetch left in
+						-- last_opc_read during the ~30-cycle dialog.
 						cp_an_writeback <= '1';
-						next_micro_state <= idle;
+						next_micro_state <= cp_mem_refetch;
 					ELSE
 						-- More data words to read from CIR.
 						next_micro_state <= cp_save_rd_cir;
@@ -5048,9 +5102,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- registered-process comment above.
 					setstate <= "01";      -- idle
 					IF last_data_read(7 downto 0) = X"00" THEN
-						-- Null frame: done, writeback An
+						-- Null frame: done, writeback An.
+						-- Route through cp_mem_refetch so the TG68_PC mux
+						-- force-loads cp_op_pc (same prefetch overrun as the
+						-- non-null path, just a shorter dialog — exposed by
+						-- save_restore test 8 where the post-FRESTORE
+						-- MOVEQ #5,D0 was being skipped).
 						cp_an_writeback <= '1';
-						next_micro_state <= idle;
+						next_micro_state <= cp_mem_refetch;
 					ELSE
 						-- Non-null frame: consume format LOW word (the
 						-- reserved $0000 half of the format long) before
