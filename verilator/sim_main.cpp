@@ -141,6 +141,7 @@ bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 bool iwm_state_debug_enable = false;
 bool boot_decision_debug_enable = false;
+bool scsi_manager_summary_debug_enable = false;
 bool bootmask_once_debug_enable = false;
 bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
@@ -181,6 +182,10 @@ int boot_decision_debug_count = 0;
 const int boot_decision_debug_max = 900;
 int boot_decision_debug_min_frame = 220;
 uint32_t boot_decision_debug_last_key = 0xFFFFFFFF;
+int scsi_manager_summary_debug_count = 0;
+const int scsi_manager_summary_debug_max = 240;
+int scsi_manager_summary_debug_min_frame = 220;
+uint32_t scsi_manager_summary_debug_last_key = 0xFFFFFFFF;
 const int BOOTMASK_HISTORY_SIZE = 512;
 struct BootmaskHistoryEntry {
 	uint32_t pc;
@@ -626,6 +631,44 @@ static bool bootmask_once_pc(uint32_t pc) {
 	       (pc >= 0x408266A4 && pc <= 0x408266CC) ||
 	       (pc >= 0x40826756 && pc <= 0x40826990) ||
 	       ((pc >= 0x40826CB6 && pc <= 0x40826CD4) && ret == 0x40826976);
+}
+
+static bool scsi_manager_summary_pc(uint32_t pc) {
+	switch (pc) {
+	case 0x40806790:
+	case 0x40806C36:
+	case 0x40826660:
+	case 0x408266A4:
+	case 0x4082672A:
+	case 0x40826734:
+	case 0x4082673A:
+	case 0x40826740:
+	case 0x40826744:
+	case 0x40826756:
+	case 0x4082682C:
+	case 0x40826832:
+	case 0x40826850:
+	case 0x40826870:
+	case 0x40826874:
+	case 0x408268CC:
+	case 0x408268D8:
+	case 0x40826916:
+	case 0x40826970:
+	case 0x40826976:
+	case 0x40826986:
+	case 0x40826CB6:
+	case 0x40826CC6:
+	case 0x40826CCA:
+	case 0x40826CD4:
+	case 0x0082E7FA:
+	case 0x0082E80C:
+	case 0x0082E950:
+	case 0x0082E96C:
+	case 0x0082E96E:
+		return true;
+	default:
+		return false;
+	}
 }
 
 static bool scsi_transition_pc(uint32_t pc) {
@@ -1078,6 +1121,85 @@ static void print_boot_decision_debug(uint32_t pc) {
 		ram_byte((a4 + 0x61) & 0x1FFFFF));
 }
 
+static void print_scsi_manager_summary_debug(uint32_t pc) {
+	uint32_t sp = tg68_reg(15);
+	uint32_t a4 = tg68_reg(12);
+	uint32_t drive_queue = ram_long(0x030A);
+
+	fprintf(stderr,
+		"SCSI_MGR_SUM hit=%03d frame=%d tick=%08X time=%llu pc=%08X op=%04X "
+		"D0=%08X D1=%08X D2=%08X D5=%08X D6=%08X D7=%08X "
+		"A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A6=%08X A7=%08X "
+		"RET=%08X EXCPC=%08X SP00=%04X SP02=%04X SP04=%04X SP06=%04X SP08=%04X SP0A=%04X "
+		"W017A=%04X B0B22=%02X B0B2E=%02X B0C2F=%02X W0D00=%04X W0DA6=%04X "
+		"L0134=%08X L08EE=%08X L0D10=%08X L0D14=%08X L030A=%08X "
+		"Q_00=%08X Q_06=%04X Q_08=%04X A4_60=%04X A4_61=%02X "
+		"SCSI csr=%02X bsr=%02X pmatch=%d mr=%02X icr=%02X tcr=%02X odr=%02X din=%02X req=%d tbsy=%02X treq=%02X "
+		"IWM q6=%d q7=%d en=%d eni=%d ene=%d mode=%02X intRegs=%04X extRegs=%04X\n",
+		scsi_manager_summary_debug_count,
+		video.count_frame,
+		lowmem_tick_016a(),
+		(unsigned long long)main_time,
+		pc,
+		VERTOPINTERN->debug_opcode,
+		tg68_reg(0),
+		tg68_reg(1),
+		tg68_reg(2),
+		tg68_reg(5),
+		tg68_reg(6),
+		tg68_reg(7),
+		tg68_reg(8),
+		tg68_reg(9),
+		tg68_reg(10),
+		tg68_reg(11),
+		a4,
+		tg68_reg(14),
+		sp,
+		ram_long(sp),
+		ram_long(sp + 0x02),
+		ram_word(sp + 0x00),
+		ram_word(sp + 0x02),
+		ram_word(sp + 0x04),
+		ram_word(sp + 0x06),
+		ram_word(sp + 0x08),
+		ram_word(sp + 0x0A),
+		ram_word(0x017A),
+		ram_byte(0x0B22),
+		ram_byte(0x0B2E),
+		ram_byte(0x0C2F),
+		ram_word(0x0D00),
+		ram_word(0x0DA6),
+		ram_long(0x0134),
+		ram_long(0x08EE),
+		ram_long(0x0D10),
+		ram_long(0x0D14),
+		drive_queue,
+		ram_long(drive_queue),
+		ram_word(drive_queue + 0x06),
+		ram_word(drive_queue + 0x08),
+		ram_word(a4 + 0x60),
+		ram_byte((a4 + 0x61) & 0x1FFFFF),
+		scsi_debug_csr(),
+		scsi_debug_bsr(),
+		scsi_debug_pmatch() ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__tcr,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dout,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__din,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
+		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableInt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableExt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__iwmMode,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
+		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs);
+}
+
 static void print_scsi_stop_state() {
 	static const uint8_t lba60_sig[] = {0x4C, 0x4B, 0x60, 0x00, 0x00, 0x86, 0x44, 0x18};
 	uint32_t lba60_at = find_ram_bytes(lba60_sig, sizeof(lba60_sig), 0x0000, 0x1FFFFF);
@@ -1320,6 +1442,21 @@ int verilate() {
 						print_boot_decision_debug(pc);
 						boot_decision_debug_count++;
 						boot_decision_debug_last_key = key;
+					}
+				}
+				if (scsi_manager_summary_debug_enable &&
+				    VERTOPINTERN->debug_fetch_valid &&
+				    video.count_frame >= scsi_manager_summary_debug_min_frame &&
+				    scsi_manager_summary_pc(pc) &&
+				    scsi_manager_summary_debug_count < scsi_manager_summary_debug_max) {
+					uint32_t key = (pc & 0xFFFFFFFEU) ^
+					               ((tg68_reg(5) & 0xFFFFU) << 1) ^
+					               ((tg68_reg(1) & 0xFFFFU) << 17) ^
+					               (tg68_reg(15) & 0xFFFFU);
+					if (key != scsi_manager_summary_debug_last_key) {
+						print_scsi_manager_summary_debug(pc);
+						scsi_manager_summary_debug_count++;
+						scsi_manager_summary_debug_last_key = key;
 					}
 				}
 
@@ -3269,6 +3406,8 @@ void show_help() {
 	printf("  --iwm-state-debug             Trace ROM floppy drive queue state near PC 0082E220\n");
 	printf("  --boot-decision-debug         Trace SCSI/floppy boot-decision ROM PCs\n");
 	printf("  --boot-decision-debug-min-frame <n>\n");
+	printf("  --scsi-manager-summary-debug  Compact SCSI boot-scan transition trace\n");
+	printf("  --scsi-manager-summary-debug-min-frame <n>\n");
 	printf("  --bootmask-once-debug         Stop at the first boot-device scan/SCSI ROM PC and dump PC history\n");
 	printf("  --scsi-transition-debug       Stop at the late no-media-to-SCSI transition and dump PC history\n");
 	printf("  --scsi-transition-debug-min-frame <n>\n");
@@ -3525,6 +3664,11 @@ int main(int argc, char** argv, char** env) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
 			boot_decision_debug_min_frame = std::stoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "--scsi-manager-summary-debug") == 0) {
+			scsi_manager_summary_debug_enable = true;
+		} else if (strcmp(argv[i], "--scsi-manager-summary-debug-min-frame") == 0 && i + 1 < argc) {
+			scsi_manager_summary_debug_min_frame = std::stoi(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "--bootmask-once-debug") == 0) {
 			bootmask_once_debug_enable = true;
