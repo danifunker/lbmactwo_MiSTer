@@ -324,7 +324,9 @@ module floppy
 	// DRIVE_REG_DIRTN		0  /* R/W: step direction (0=toward track 79, 1=toward track 0) */
 	always @(posedge clk or negedge _reset) begin
 		if (_reset == 1'b0) begin		
-			driveRegs[`DRIVE_REG_DIRTN] <= 1'b0;
+			// MAME's Sony drive reports the initial DIRTN sense bit high.
+			// The Mac II ROM samples this before issuing a direction write.
+			driveRegs[`DRIVE_REG_DIRTN] <= 1'b1;
 		end 
 		else if(cep && _enable == 1'b0 && lstrbEdge == 1'b1 && driveWriteAddr == `DRIVE_REG_DIRTN) begin
 			driveRegs[`DRIVE_REG_DIRTN] <= ca2;
