@@ -849,6 +849,7 @@ PROCESS (clk)
 				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_wait
 				   OR next_micro_state = cp_save_rd_cir
 				   OR next_micro_state = cp_restore_wr_fmt OR next_micro_state = cp_restore_wr_data
+				   OR next_micro_state = cp_restore_skip_fmtlo
 				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp
 				   OR next_micro_state = cp_except_ack OR next_micro_state = cp_except_trap THEN
 					cp_fc_override <= '1';
@@ -862,8 +863,11 @@ PROCESS (clk)
 				ELSIF micro_state = cp_save_idle THEN
 					-- cpSAVE: predecrement by 2 before each memory write
 					cp_ea_addr <= cp_ea_addr - 2;
-				ELSIF micro_state = cp_restore_rd_mem THEN
+				ELSIF micro_state = cp_restore_rd_mem
+				   OR micro_state = cp_restore_skip_fmtlo THEN
 					-- cpRESTORE: postincrement by 2 after each memory read
+					-- (data words via cp_restore_rd_mem; the discarded
+					-- format LOW word via cp_restore_skip_fmtlo).
 					cp_ea_addr <= cp_ea_addr + 2;
 				ELSIF next_micro_state = cp_d16_pc_rd THEN
 					-- cpGEN (d16,PC): seed cp_ea_addr with PC of d16 word.
@@ -977,10 +981,19 @@ PROCESS (clk)
 						cp_frame_cnt <= "0000000"; -- Null: 0 data words
 					END IF;
 				ELSIF micro_state = cp_restore_decode THEN
+					-- Data-word count for cp_restore_wr_data loop. The format
+					-- long's HIGH half ($1F18) is already consumed by
+					-- cp_restore_wr_fmt; the LOW half ($0000 reserved) is
+					-- consumed by cp_restore_skip_fmtlo (silent, no FPU write).
+					-- After those, this many words go to the FPU Operand CIR:
+					--   IDLE: 12 (= 6 longwords; bench split halves them
+					--             into 6 FPU widx advances, matching
+					--             CIR_FRAME_IDLE_WORDS = 6).
+					--   BUSY: 90 (= 45 longwords → 45 widx advances).
 					IF last_data_read(7 downto 0) = X"18" THEN
-						cp_frame_cnt <= "0001101"; -- 13 data words (+1 format already read = 28 bytes)
+						cp_frame_cnt <= "0001100"; -- 12 data word writes
 					ELSIF last_data_read(7 downto 0) = X"B4" THEN
-						cp_frame_cnt <= "1011011"; -- 91 data words (+1 format = 184 bytes)
+						cp_frame_cnt <= "1011010"; -- 90 data word writes
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null
 					END IF;
@@ -1116,12 +1129,24 @@ PROCESS (clk)
 					data_write_tmp(15 downto 0) <= x"0001";
 				ELSIF micro_state = cp_save_idle THEN
 					-- Forward operand or format for memory write.
-					-- Source: last_data_read (settled by cp_save_rd_cir's
-					-- set(update_ld)='1' which forces last_data_read to
-					-- update each operand bus-read completion edge).
+					--
+					-- The on-stack frame is built from 32-bit longwords per
+					-- spec (e.g. 881 IDLE = 7 longs = 28 bytes: 1 format
+					-- long + 6 data longs). Each long is written as two
+					-- 16-bit predec word writes:
+					--   cnt = 0  → format HIGH word ($1F18 = bits 15:0 of
+					--              the high half of the format long; this
+					--              is the LAST write, lands at the lowest
+					--              memory address per -(A7) semantics).
+					--   cnt = 1  → format LOW word ($0000 reserved; written
+					--              just before the HIGH word).
+					--   cnt > 1  → data word from last_data_read (operand
+					--              CIR result). Settled by cp_save_rd_cir's
+					--              set(update_ld)='1'.
 					IF cp_frame_cnt = "0000000" THEN
-						-- All data words written; load format word for final write
 						data_write_tmp(15 downto 0) <= cp_save_fmt;
+					ELSIF cp_frame_cnt = "0000001" THEN
+						data_write_tmp(15 downto 0) <= x"0000";
 					ELSE
 						data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
 					END IF;
@@ -4926,20 +4951,38 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					END IF;
 
 				WHEN cp_save_wr_mem =>
-					-- Write word to memory at cp_ea_addr
-					-- data_write_tmp must already contain the word
+					-- Write word to memory at cp_ea_addr.
+					-- data_write_tmp must already contain the word.
+					--
+					-- The frame is built of 32-bit longwords per the
+					-- coprocessor spec (1 format long + N data longs); each
+					-- long is two 16-bit predec word writes. cp_frame_cnt
+					-- counts down the remaining word writes — for 881 IDLE
+					-- it starts at 13 (= 12 data + 2 format - 1), counting
+					-- down to 0 inclusive = 14 word writes = 28 bytes.
+					--   cnt = 2 → just wrote the last data word, next write
+					--             is format LOW ($0000 reserved). Go through
+					--             cp_save_idle to load it.
+					--   cnt = 1 → just wrote format LOW, next write is
+					--             format HIGH ($1F18). Go through cp_save_idle.
+					--   cnt = 0 → just wrote format HIGH; frame complete.
+					--             Writeback An and return to idle.
+					--   else  → more data words; loop back to cp_save_rd_cir.
 					set_cp_memaddr <= '1';
 					setstate <= "11";      -- bus write
 					datatype <= "01";      -- word
-					IF cp_frame_cnt = "0000001" THEN
-						-- Last data word: next write the format word
-						next_micro_state <= cp_save_idle; -- reuse idle to load format
+					IF cp_frame_cnt = "0000010" THEN
+						-- Last data word just written; next is format LOW.
+						next_micro_state <= cp_save_idle;
+					ELSIF cp_frame_cnt = "0000001" THEN
+						-- Format LOW just written; next is format HIGH.
+						next_micro_state <= cp_save_idle;
 					ELSIF cp_frame_cnt = "0000000" THEN
-						-- Format word just written (or null frame)
+						-- Format HIGH just written: frame complete.
 						cp_an_writeback <= '1';
 						next_micro_state <= idle;
 					ELSE
-						-- More data words to read from CIR
+						-- More data words to read from CIR.
 						next_micro_state <= cp_save_rd_cir;
 					END IF;
 
@@ -4964,10 +5007,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				-- cpRESTORE states: read frame from memory (An)+, write to FPU
 				WHEN cp_restore_rd_mem =>
-					-- Read word from memory at cp_ea_addr
+					-- Read word from memory at cp_ea_addr.
+					-- set(update_ld) forces last_data_read to capture the
+					-- read result so cp_restore_decode + cp_restore_idle
+					-- can see it. Without this, state never reaches "00"
+					-- during the cpRESTORE loop and last_data_read holds
+					-- whatever was there before FRESTORE started (typically
+					-- the prefetched FMOVE.L sndOPC), causing decode to
+					-- misread the format word and route subsequent data
+					-- writes to Restore CIR instead of Operand CIR.
 					set_cp_memaddr <= '1';
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					set(update_ld) <= '1';
 					next_micro_state <= cp_restore_idle;
 
 				WHEN cp_restore_idle =>
@@ -5000,9 +5052,24 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						cp_an_writeback <= '1';
 						next_micro_state <= idle;
 					ELSE
-						-- Non-null frame: read data words from memory
-						next_micro_state <= cp_restore_rd_mem;
+						-- Non-null frame: consume format LOW word (the
+						-- reserved $0000 half of the format long) before
+						-- pumping data into the FPU.
+						next_micro_state <= cp_restore_skip_fmtlo;
 					END IF;
+
+				WHEN cp_restore_skip_fmtlo =>
+					-- Read and discard the format LOW word (reserved $0000
+					-- in the spec format long, e.g. low half of $1F18_0000).
+					-- cp_ea_addr advances by 2 (managed in registered
+					-- process above). The read result lands in
+					-- last_data_read via set(update_ld), but is not
+					-- forwarded to the FPU.
+					set_cp_memaddr <= '1';
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					set(update_ld) <= '1';
+					next_micro_state <= cp_restore_rd_mem;
 
 				WHEN cp_restore_wr_data =>
 					-- Write data word to Operand CIR

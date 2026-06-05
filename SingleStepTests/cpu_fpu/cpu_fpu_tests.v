@@ -189,23 +189,17 @@ module cpu_fpu_tests
    reg [15:0] fpu_wr_hi;
    reg [31:0] fpu_rd_latch;
    reg        prev_as_for_phase;
-   // Aggregation only applies to the Operand CIR register (addr 8, after
-   // the remap above) AND only for long-word transfers (FMOVE.L etc.).
-   // For FSAVE/FRESTORE frame data the FPU emits/consumes one 16-bit word
-   // per cir_save_word_idx — matches the real MC68881 word-by-word frame
-   // protocol — so the split must be disabled to keep the FPU's word
-   // counter in sync with the CPU's bus cycles. Without this, the FPU
-   // gets stuck in CIR_SAVE_FRAME (only half the reads land on the
-   // active phase).
-   // CIR enum: CIR_SAVE_FRAME=17, CIR_RESTORE_FRAME=19 (see mc68881_pkg.vhd).
-`ifdef USE_FPU_STUB
-   wire       fpu_in_frame_xfer = 1'b0;
-`else
-   wire       fpu_in_frame_xfer = (fpu.cir_state_reg == 5'd17)
-                                || (fpu.cir_state_reg == 5'd19);
-`endif
-   wire       fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8)
-                                     && !fpu_in_frame_xfer;
+   // Aggregation applies to the Operand CIR register (addr 8, after the
+   // remap above) for ALL operand transfers — FMOVE.L AND FSAVE/FRESTORE
+   // frame data. The MC68881 Operand CIR is a 32-bit register: each
+   // cir_save_word_idx advance corresponds to one long-word transfer
+   // (= 2 16-bit beats on the CPU bus per AN-947 / M68020 PRM §9).
+   // Earlier session disabled the split for SAVE/RESTORE frame states —
+   // that was wrong; the underlying bug was a misaligned word count in
+   // mc68881_pkg.vhd (now CIR_FRAME_IDLE_WORDS = 6 long-words, matching
+   // upstream). With the count right, the split works correctly: 12
+   // CPU word reads → 6 phase-0 FPU accesses → 6 widx advances.
+   wire       fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
    // Flip phase on the END of each FPU operand bus cycle (AS-rising edge
    // while addressed at operand). This way phase is stable throughout each
    // bus cycle: first access sees phase=0, second access sees phase=1.

@@ -383,14 +383,26 @@ package mc68881_pkg is
   -- sees a valid 68881 marker.
   constant CIR_FRAME_IDLE_FW     : std_logic_vector(15 downto 0) := x"1F18";
   constant CIR_FRAME_BUSY_FW     : std_logic_vector(15 downto 0) := x"1FB4";
-  -- Word count is in 16-bit word units (cir_save_word_idx increments
-  -- once per host word read of Operand CIR). 881 IDLE = 28-byte frame
-  -- on stack = 2 format + 26 data = 13 word reads. The previous '6'
-  -- with a "/4" longword comment did not match TG68's word-mode
-  -- reads, so the FPU exited CIR_SAVE_FRAME after 6 reads and the
-  -- CPU's remaining 7 reads fell through to result_hi_reg.
-  constant CIR_FRAME_IDLE_WORDS  : natural := 13;
-  constant CIR_FRAME_BUSY_WORDS  : natural := 45;  -- TODO: align with TG68 (92 words for BUSY)
+  -- Word count is in 32-bit LONG-WORD units (cir_save_word_idx
+  -- increments once per host long-word read of Operand CIR — the
+  -- Operand CIR is a 32-bit register per the upstream protocol;
+  -- see ../../../68881-fpga/docs/plans/2026-03-03-s7-coprocessor-
+  -- interface-design.md "CIR Register Map"). 881 IDLE = 28-byte
+  -- frame = 1 format long + 6 data longs = 6 data-word advances
+  -- on cir_save_word_idx. 881 BUSY = 184-byte frame = 1 format
+  -- long + 45 data longs = 45 data-word advances.
+  --
+  -- Build #41 changed IDLE from 6 → 13 with the diagnosis that
+  -- "the FPU exited CIR_SAVE_FRAME after 6 reads and the CPU's
+  -- remaining 7 reads fell through" — that was a misread. Those
+  -- "remaining" reads are the phase=1 halves of long-word reads
+  -- which the corpus bench's pseudo-DMA correctly handles via the
+  -- fpu_rd_latch (the FPU shouldn't count them). With cnt=13 the
+  -- FPU saw 7 widx advances (half of the 13 word reads) and stayed
+  -- in CIR_SAVE_FRAME, jamming subsequent FMOVE.L instructions.
+  -- Reverting to 6 (the upstream value) restores the spec protocol.
+  constant CIR_FRAME_IDLE_WORDS  : natural := 6;   -- 24 bytes data / 4
+  constant CIR_FRAME_BUSY_WORDS  : natural := 45;  -- 180 bytes data / 4
   constant CIR_FRAME_BUSY_HDR    : natural := 12;  -- Header words 0-11 (operands + metadata)
 
   -- FSAVE frame format words (MC68882).
