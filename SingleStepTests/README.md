@@ -10,7 +10,7 @@ pattern.
 | Dir | What it tests | Status |
 |---|---|---|
 | `tg68k/` | Raw `TG68KdotC_Kernel` (68020 mode) via per-cycle bus driver | 711/718 against MAME oracle |
-| `cpu_fpu/` | Integrated `tg68k` + `mc68881_top` end-to-end via JSONL corpus | 1148/1328 |
+| `cpu_fpu/` | Integrated `tg68k` + `mc68881_top` end-to-end via JSONL corpus | HW: 1319/1320 on a real Mac II (see below); Verilator number predates the 2026-06-05 corpus fixes |
 | `fpu/` | Standalone `mc68881_top` (verilog `fpu_lite` build) via coprocessor CIR | scaffold; smoke only |
 | `gen/` | Test corpus generators (Musashi + MAME) + Mac OS hardware bench + diff tool | 696-test CPU corpus, 1328-test FPU corpus |
 | `results/` | Committed JSON / markdown snapshots for tracking accuracy over time | |
@@ -72,9 +72,51 @@ unrelated FMOVEM gap), so save/restore tests at the tail would never
 execute. (They're privileged, so the combined corpus is supervisor-only —
 the user-mode Mac OS app keeps using the baseline-only `cpu_fpu_tests.h`.)
 
-Expected: **1148 passed, 180 failed**. The 180 failures are diagnostic
-signal pointing at specific TG68K coprocessor microcode gaps (FMOVE
+Expected (Verilator, **pre-2026-06-05**): 1148 passed, 180 failed — a
+diagnostic signal pointing at TG68K coprocessor microcode gaps (FMOVE
 control regs, FMOVEM, FMOVE.D memory, and some FDBcc condition codes).
+**This number predates the 2026-06-05 corpus fixes below and needs a
+Verilator re-run to refresh.**
+
+#### Real-hardware oracle (2026-06-05) and the FDBcc timing quirk
+
+The corpus was run on a **real Macintosh II (68020 + 68881)** via BlueSCSI
+to serve as the ground-truth oracle for tuning the FPGA cores. Baseline:
+**1319/1320 pass** (`results/cpu_fpu/hw_2026-06-05.jsonl`). Fixes landed
+this session, all hardware-confirmed:
+
+- **FDBcc operand-swap** — `gen_fcmp_fdbcc` loaded operands into the wrong
+  FP registers vs FScc/FBcc, inverting the condition for every `a≠b`.
+  Predicate logic itself is validated against the FPU core's own RTL truth
+  table (`68881-fpga/src/mc68881_top.vhd::eval_fcc_condition`, 0 mismatches).
+- **FMOVEM.X** — load ext word was `$C040` (predec list-mode) under an
+  `(A7)+` postinc EA; corrected to the canonical `$D040`.
+- **FPIAR round-trip tests retired** — FPIAR is the FP *instruction-address*
+  register; a real 68881 returns that address, not the written data, so the
+  round-trip can never match silicon (the FPGA core stores it as plain data
+  and would pass). 16 non-faithful tests removed.
+- **Per-test FPU reset** — the harness (`cpu_fpu_bench_main.c`) now issues a
+  **null-frame `FRESTORE`** before each test so results don't depend on
+  prior-test FPU state. (An earlier `FMOVE.L #0,FPCR/FPSR` reset changed the
+  register values but not the coprocessor *state machine*, which made the
+  next FDBcc take a Line-1111 trap — `FRESTORE` is the correct reset.)
+- **Per-test result flush** — `jw_commit_line` after each line, so a hard
+  lock localizes to a single test post-mortem.
+
+**Known quirk — the single remaining "failure" (#074):**
+`FCMP+FDBULE FP1,FP7 (5,47)` intermittently takes a **Line-1111 (F-line)
+trap** in the full-run context (`vec=11`, `actual=0`), but its expected
+value `99` is correct (RTL- and byte-verified) and the *same test passes in
+isolation*. As the per-test reset changed cycle timing, the trap roved
+within the #073–#074 pair (FMOVE-reset → #073; FRESTORE-reset → #074),
+which is the signature of a **real 68881 coprocessor-dialog timing
+marginality on this specific aging chip — not a corpus error.** Do **not**
+"correct" #074's expected to the trap residue (0): that would bake a
+non-deterministic hardware glitch into the spec and make a correct FPGA
+core (which should produce 99) fail. The FPGA should match the corpus
+expected value, which is more correct than the flaky silicon here.
+
+Full write-up: [`docs/cpu_fpu_fdbcc_analysis_2026-06-05.md`](../docs/cpu_fpu_fdbcc_analysis_2026-06-05.md).
 
 For a per-cycle trace of FPU dialog on a single test, run with `--trace`:
 

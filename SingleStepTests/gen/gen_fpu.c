@@ -885,20 +885,21 @@ static int gen_fmovem_x_roundtrip(FILE* f, int is_first, int count) {
         BWf(moveq_d0(a));
         BWf(0xF200); BWf(fmove_size_d0_fpn(0, FMT_L));   /* FP0 = a */
         /* FMOVEM.X FP0,-(A7): opword $F227 (mode=4 predec, reg=7);
-         * ext: bits 15-13 = 111 (R->M), bit 11 = static = 0, predec mask
-         * with bit 0 = FP0 = 0x01.   $E000 | 0x01 = $E001 (wait, includes
-         * bit 13 = 1 which signals predec list-mode? PRM ext: opclass=111
-         * is the high 3 bits 15-13 = 111, so $E000. Predec list-mode is
-         * encoded by the opcode EA being predec; the ext bit-13 difference
-         * is for postinc-vs-control orientation which doesn't apply when
-         * the EA mode is predecrement.)                                     */
+         * ext: 111 (R->M), mode bits 12-11 = 00 (predecrement, matches the
+         * -(A7) EA) -> base $E000; static; predec list mask with bit 0 = FP0
+         * = 0x01.  Canonical encoding (Retro68 as): "fmovem.x fp0,-(sp)" ->
+         * $F227 $E001.                                                      */
         BWf(0xF227);
         BWf(0xE001);
         /* FMOVEM.X (A7)+,FP1: opword $F21F (mode=3 postinc, reg=7=A7);
-         * ext: opclass 110 (M->R) = $C000; static (bit 14=0); list mask
-         * with bit 6 = FP1 (for postinc, bit 7 = FP0): mask = 0x40.        */
+         * ext: 110 (M->R), mode bits 12-11 = 10 (postincrement/control,
+         * NOT 00=predecrement) -> base $D000; static; postinc list mask
+         * with bit 6 = FP1 (bit 7 = FP0): mask = 0x40.  Canonical encoding
+         * (Retro68 as): "fmovem.x (sp)+,fp1" -> $F21F $D040.  (Was $C040 =
+         * predecrement list-mode, which mismatches the (A7)+ postinc EA and
+         * is malformed: real 68881 returns garbage, MAME aborts on it.)    */
         BWf(0xF21F);
-        BWf(0xC040);
+        BWf(0xD040);
         /* FMOVE.L FP1,D{rr} */
         BWf((uint16_t)(0xF200 | (rr & 7)));
         BWf((uint16_t)((0x3 << 13) | (0 << 10) | (1 << 7)));
@@ -1058,6 +1059,17 @@ static int gen_fmove_l_fpcr_roundtrip(FILE* f, int is_first, int count) {
         do { rr_r = pick_result_reg(); } while (rr_r == rr_w);
         const int32_t v = fc->test_val;
 
+        /* Skip FPIAR round-trips: not a faithful hardware test. FPIAR is the
+         * FP *instruction-address* register — a real 68881 loads it with the
+         * address of the FMOVE during the coprocessor dialog, so reading it
+         * back yields that address, never the written data (confirmed on real
+         * Mac II: writes 0x12345678, reads 0x00005670). The FPGA mc68881 core
+         * stores it as plain data and would pass, so the test only flags a
+         * deliberate FPGA-vs-silicon simplification, not a bug. The RNG draws
+         * above are kept so the FPSR/FPCR rows and every later generator stay
+         * byte-identical — only the 16 FPIAR rows drop out. */
+        if (fc->sel_bit == 0x1000) continue;   /* FPIAR */
+
         char nm[120];
         snprintf(nm, sizeof(nm), "FMOVE.L D%d->%s; %s->D%d #%03d",
                  rr_w, fc->name, fc->name, rr_r, i);
@@ -1092,7 +1104,8 @@ static int gen_fmove_l_fpcr_roundtrip(FILE* f, int is_first, int count) {
         fprintf(f, "    \"expected\":%d\n", v);
         fprintf(f, "  }");
     }
-    return count;
+    /* count requested, minus the FPIAR third (i%3==0) we skip above. */
+    return count - (count + 2) / 3;
 }
 
 /* FCMP + FDBcc.W: floating-point decrement-and-branch. Counter Dn=1;
@@ -1101,9 +1114,9 @@ static int gen_fmove_l_fpcr_roundtrip(FILE* f, int is_first, int count) {
  *
  *   MOVEQ #42,Drr            ; initial marker
  *   MOVEQ #1,Dctr            ; loop counter
- *   MOVEQ #a,D0; FMOVE.L D0,FP{src}    ; load FP{src} = a
- *   MOVEQ #b,D0; FMOVE.L D0,FP{dst}    ; load FP{dst} = b
- *   FCMP FP{src},FP{dst}     ; set FPCC
+ *   MOVEQ #a,D0; FMOVE.L D0,FP{dst}    ; load FP{dst} = a
+ *   MOVEQ #b,D0; FMOVE.L D0,FP{src}    ; load FP{src} = b
+ *   FCMP FP{src},FP{dst}     ; set FPCC (= FP{dst} - FP{src} = a - b)
  *   FDBcc Dctr, disp=+4      ; if cond false: Dctr--, Dctr != -1 -> branch over MOVEQ
  *                            ; if cond true:  fall through to MOVEQ #99
  *   MOVEQ #99,Drr            ; (2 bytes)
@@ -1148,10 +1161,15 @@ static int gen_fcmp_fdbcc(FILE* f, int is_first, int count) {
         } while (0)
         BWf((uint16_t)(0x7000 | ((rr  & 7) << 9) | 42));  /* MOVEQ #42,Drr */
         BWf((uint16_t)(0x7000 | ((ctr & 7) << 9) | 1));   /* MOVEQ #1,Dctr */
+        /* Load FP{dst}=a, FP{src}=b -- same operand->register convention as
+         * gen_fcmp_fscc / gen_fcmp_fbcc, so FCMP FP{src},FP{dst} computes
+         * FP{dst} - FP{src} = a - b and eval_cond_int(cond,a,b) (N = a<b)
+         * matches the resulting FPCC. (Previously the loads were swapped
+         * here, inverting N for every a!=b case.) */
         BWf(moveq_d0(a));
-        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));
-        BWf(moveq_d0(b));
         BWf(0xF200); BWf(fmove_size_d0_fpn(dst, FMT_L));
+        BWf(moveq_d0(b));
+        BWf(0xF200); BWf(fmove_size_d0_fpn(src, FMT_L));
         /* FCMP FP{src},FP{dst} */
         BWf(0xF200);
         BWf((uint16_t)(((src & 7) << 10) | ((dst & 7) << 7) | 0x38));
