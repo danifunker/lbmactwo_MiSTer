@@ -5201,19 +5201,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							next_micro_state <= cp_branch_apply;
 						ELSIF exe_opcode(8 downto 6) = "001" THEN
 							IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
-								-- FTRAPcc: trap if condition true
-								IF data_in(0) = '1' THEN
-									trap_trapv <= '1';
-									trapmake <= '1';
-								END IF;
+								-- FTRAPcc: defer one cycle so the trap decision
+								-- uses the registered cp_cond_true (latched from
+								-- data_in(0) at the edge ending cp_cond_eval).
+								-- Same hazard class as FBcc — see cp_branch_apply.
+								next_micro_state <= cp_ftrapcc_eval;
 							ELSIF exe_opcode(5 downto 3) = "001" THEN
-								-- FDBcc: if condition false, decrement Dn and maybe branch
-								IF data_in(0) = '0' THEN
-									data_is_source <= '1';
-									set(OP2out_one) <= '1';
-									next_micro_state <= cp_fdbcc_dec;
-								END IF;
-								-- Condition true: done (no decrement, no branch)
+								-- FDBcc: defer one cycle so the decrement/branch
+								-- decision uses the registered cp_cond_true. The
+								-- combinational data_in(0) read here was stale
+								-- (always sampled as 0 → "condition always false"
+								-- → result always 42). Mirrors FBcc's deferral
+								-- through cp_branch_apply.
+								next_micro_state <= cp_fdbcc_eval;
 							ELSIF exe_opcode(5 downto 3) = "000" THEN
 								-- FScc data register
 								next_micro_state <= cp_fscc_wr;
@@ -5250,6 +5250,34 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						setstate <= "01";
 						next_micro_state <= idle;
 					END IF;
+
+				WHEN cp_fdbcc_eval =>
+					-- FDBcc deferred condition apply. cp_cond_true is the
+					-- registered version of data_in(0) latched at the edge
+					-- ending cp_cond_eval, so it is stable here. Mirrors
+					-- cp_branch_apply for the FBcc deferral.
+					-- Condition true: done (no decrement, no branch).
+					-- Condition false: set up the operand and transition to
+					-- cp_fdbcc_dec, exactly as the original combinational
+					-- path did.
+					setstate <= "01";       -- idle bus this cycle
+					IF cp_cond_true = '0' THEN
+						data_is_source <= '1';
+						set(OP2out_one) <= '1';
+						next_micro_state <= cp_fdbcc_dec;
+					ELSE
+						next_micro_state <= idle;
+					END IF;
+
+				WHEN cp_ftrapcc_eval =>
+					-- FTRAPcc deferred condition apply. cp_cond_true is the
+					-- registered version of data_in(0), stable here.
+					setstate <= "01";       -- idle bus this cycle
+					IF cp_cond_true = '1' THEN
+						trap_trapv <= '1';
+						trapmake <= '1';
+					END IF;
+					next_micro_state <= idle;
 
 				WHEN cp_fscc_wr_mem =>
 					-- Write FScc result byte ($FF or $00) to memory EA

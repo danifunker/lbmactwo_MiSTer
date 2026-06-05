@@ -28,6 +28,59 @@ The Verilator simulator lives in `verilator/`. It is ideal-timing and bypasses
 the SDRAM arbiter, real HPS, and FPU — so it will not reproduce coherency/timing
 bugs that only appear on hardware. Treat sim and hardware as complementary.
 
+## WSL configuration (Verilator / GHDL / Yosys)
+
+On Windows hosts the repo lives on the NTFS side and all sim/conversion
+tooling runs inside **WSL Ubuntu-24.04**, not Windows. The repo path inside
+WSL is the standard `/mnt/<drive>/<path>` translation of the Windows
+checkout location.
+
+**Two toolchains coexist; pick by task.**
+
+1. **OSS-CAD-Suite** (install into your WSL home, e.g.
+   `$HOME/oss-cad-suite/bin`) — required for **VHDL→Verilog conversion**
+   via `ghdl synth`. The apt-installed `ghdl-llvm` is broken on Ubuntu-24.04
+   (missing `libLLVM-18.so.18.1` soname); do **not** use it. Tested
+   versions: GHDL 7.0.0-dev, Verilator 5.049, Yosys 0.64+308.
+2. **System apt packages** — Verilator 5.020 from `apt`. Sufficient to build
+   and run the bench once the `.v` files exist. No OSS-CAD path needed.
+
+**Regenerate Verilog after a VHDL edit** (TG68 or mc68881) — run from the
+repo root:
+
+```bash
+# TG68 kernel/ALU/Pack — after editing rtl/tg68k/*.vhd
+wsl -d Ubuntu-24.04 -e bash -lc '
+  export PATH=$HOME/oss-cad-suite/bin:$PATH
+  cd "$(pwd)/rtl/tg68k" && ./convert_to_verilog.sh
+'
+
+# mc68881 FPU — after editing rtl/mc68881/vhdl/*.vhd
+wsl -d Ubuntu-24.04 -e bash -lc '
+  export PATH=$HOME/oss-cad-suite/bin:$PATH
+  cd "$(pwd)/rtl/mc68881" && ./convert_to_verilog.sh
+'
+```
+
+**Build + run the SingleStepTests cpu_fpu bench** (default `wsl` distro is
+fine once .v files are regenerated):
+
+```bash
+wsl -e bash -lc 'cd SingleStepTests/cpu_fpu && make clean >/dev/null 2>&1 && make'
+wsl -e bash -lc 'cd SingleStepTests/cpu_fpu && ./obj_dir/Vcpu_fpu_tests cpu_fpu_full_corpus.json | tail -1'
+```
+
+**Gotchas:**
+- Quartus reads VHDL directly via `rtl/tg68k/TG68K.qip`, so an RBF rebuild
+  does NOT need the `.v` regenerated — only the Verilator bench does.
+- GHDL version drift: OSS-CAD-Suite ghdl emits a different `.v` than the
+  apt-installed ghdl that produced the pre-generated file in git. The diff
+  surfaces ~70 spurious FSQRT/FCMP+FDB/FSAVE Verilator failures that are
+  **synth artifacts** (the FPU's own truth-table comes out wrong for some
+  condition codes), not VHDL bugs. Hardware is the authoritative oracle —
+  do not chase these in Verilator.
+- `wsl ... 2>&1` may print a benign mount warning on some hosts; ignore.
+
 ## Scratch directory (`scratch/`)
 
 The `scratch/` directory at the repo root is **gitignored** and is the
