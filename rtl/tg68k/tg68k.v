@@ -39,7 +39,11 @@ module tg68k (
 
 	// Format $B RTE: suppress next BERR, provide data instead
 	output berr_inhibit,
-	output [31:0] berr_data
+	output [31:0] berr_data,
+
+	// Bug #6 / supervisor-bench F-line trap debug export.
+	// One-cycle pulse on every trap_1111 (Line-1111) assertion.
+	output dbg_fline_trap
 );
 
 wire  [1:0] tg68_busstate;
@@ -236,7 +240,8 @@ TG68KdotC_Kernel tg68k (
 	.longword       ( longword      ),
 	.nResetOut      ( reset_n       ),
 	.FC             ( fc            ),
-	.VBR_out        ( VBR_out       )
+	.VBR_out        ( VBR_out       ),
+	.dbg_fline_trap  ( dbg_fline_trap )
 );
 
 endmodule

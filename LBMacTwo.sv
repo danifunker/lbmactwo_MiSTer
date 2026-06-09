@@ -486,6 +486,69 @@ wire [4:0] fpu_addr_remapped = (cpuAddr[5:1] == 5'd0) ? 5'd13 :
                                (cpuAddr[5:1] == 5'd3) ? 5'd28 :
                                cpuAddr[5:1];
 
+// ---- MC68881 Operand-CIR 2-beat bus adapter --------------------------------
+// Mirrors SingleStepTests/cpu_fpu/cpu_fpu_tests.v (the Verilator bench glue).
+// The mc68881 Operand CIR is a 32-bit register: ONE FPU-side transfer per
+// long-word (upstream long-word CIR protocol, commit 2dfbafc). TG68K's 16-bit
+// bus splits every .L into two word beats. Without aggregation each beat hits
+// the FPU as a separate access — the frame/operand word index advances twice
+// per long, FSAVE/FRESTORE frames and FMOVE.L operands arrive off-by-half,
+// the CIR dialog wedges (FSM stuck toward CIR_RESTORE_FRAME), and the next
+// F-line op's Response read falls through cp_idle_resp to trap_1111
+// ("coprocessor not installed"). Verilator-verified 2026-06-05: removing this
+// adapter from the bench reproduces the hardware supervisor-bench failure
+// exactly (16/16 FSAVE/FRESTORE+null-frame tests fail, D1=0).
+//
+//   WRITES (CPU->FPU): beat 0 latches the HIGH word locally (FPU suppressed,
+//     DSACK faked back to the CPU); beat 1 presents {hi,lo} as a single
+//     32-bit transfer and lets the FPU's real DSACK through.
+//   READS  (FPU->CPU): beat 0 lets the FPU strobe once, returns d_out[31:16],
+//     and latches the full 32 bits; beat 1 serves the LOW word from the
+//     latch (FPU suppressed, DSACK faked).
+reg        fpu_xfer_phase;   // 0 = first beat (HIGH word), 1 = second (LOW)
+reg [15:0] fpu_wr_hi;
+reg [31:0] fpu_rd_latch;
+reg        fpu_prev_as;
+wire fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
+// Phase flips on the END of each operand-CIR bus cycle (AS-rising edge), so
+// the phase is stable for the whole cycle.
+wire fpu_bus_end_edge = fpuAddrMatch && fpu_is_operand_cycle
+                        && _cpuAS && !fpu_prev_as;
+always @(posedge clk_sys) begin
+	if (!_cpuReset) begin
+		fpu_xfer_phase <= 1'b0;
+		fpu_wr_hi      <= 16'h0000;
+		fpu_rd_latch   <= 32'h0000_0000;
+		fpu_prev_as    <= 1'b1;
+	end else begin
+		fpu_prev_as <= _cpuAS;
+		if (fpu_bus_end_edge && !fpu_xfer_phase) begin
+			if (!_cpuRW) fpu_wr_hi    <= cpuDataOut;
+			else         fpu_rd_latch <= fpu_data_out;
+		end
+		if (fpu_bus_end_edge) fpu_xfer_phase <= ~fpu_xfer_phase;
+	end
+end
+// FPU strobes only on its active beat of an operand cycle (reads: beat 0,
+// writes: beat 1); non-operand CIR registers are plain pass-through.
+wire fpu_active_phase = _cpuRW ? !fpu_xfer_phase : fpu_xfer_phase;
+wire fpu_cs_n_eff = fpu_is_operand_cycle ? ~(fpuAddrMatch && fpu_active_phase)
+                                         : ~fpuAddrMatch;
+wire [31:0] fpu_d_in_eff = (fpu_is_operand_cycle && !_cpuRW)
+                           ? {fpu_wr_hi, cpuDataOut}
+                           : {16'h0000, cpuDataOut};
+// Fake DSACK back to the CPU on the FPU-suppressed beat.
+wire fpu_inactive_beat = fpuAddrMatch && fpu_is_operand_cycle
+                         && !_cpuAS && !fpu_active_phase;
+wire eff_fpu_dsack0_n = fpu_inactive_beat ? 1'b0 : fpu_dsack0_n;
+wire eff_fpu_dsack1_n = fpu_inactive_beat ? 1'b1 : fpu_dsack1_n;
+// CPU read mux: operand beat 0 = HIGH word live from the FPU, beat 1 = LOW
+// word from the latch; everything else = d_out[15:0] as before.
+wire [15:0] fpu_d_to_cpu = fpu_is_operand_cycle
+                           ? (fpu_xfer_phase ? fpu_rd_latch[15:0]
+                                             : fpu_data_out[31:16])
+                           : fpu_data_out[15:0];
+
 
 // video timing signals (Mac Plus legacy - still needed by addrController_top)
 wire hsync, vsync, _hblank, _vblank, loadPixels, vid_alt;
@@ -530,7 +593,7 @@ wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_tu
 wire mac_is_sdram_read    = (!_ramOE || !_romOE);
 wire ram_or_rom_dtack     = (mac_is_sdram_read && !arb_mac_dout_valid) ? 1'b1
                                                                        : ram_or_rom_dtack_raw;
-assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
+assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
@@ -643,7 +706,7 @@ always @(posedge clk_sys) begin
 		fpu_data_hold <= 16'h0000;
 		fpu_data_hold_valid <= 1'b0;
 	end else if (!_cpuAS && selectFPU && _cpuRW) begin
-		fpu_data_hold <= fpu_data_out[15:0];
+		fpu_data_hold <= fpu_d_to_cpu;
 		fpu_data_hold_valid <= 1'b1;
 	end else if (!_cpuAS && !selectFPU) begin
 		fpu_data_hold_valid <= 1'b0;
@@ -651,7 +714,7 @@ always @(posedge clk_sys) begin
 end
 
 wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
-                          selectFPU ? fpu_data_out[15:0] :
+                          selectFPU ? fpu_d_to_cpu :
                           fpu_data_hold_valid ? fpu_data_hold :
                           dataControllerDataOut;
 
@@ -688,11 +751,13 @@ tg68k tg68k_inst (
 		.longword   ( tg68_longword ),
 		.addr       ( tg68_a       ),
 	.berr_inhibit ( berr_inhibit_active ),
-	.berr_data    ( berr_data_out      )
+	.berr_data    ( berr_data_out      ),
+	.dbg_fline_trap( dbg_fline_trap      )
 );
 
 wire berr_inhibit_active;
 wire [31:0] berr_data_out;
+(* keep = "true", preserve = "true" *) wire dbg_fline_trap;  // Bug #6 F-line trap pulse (consumed by dbg_min + SignalTap)
 
 // MC68881 FPU - CIR dialog mode (coprocessor protocol via TG68K)
 // Data bus: TG68K is 16-bit; CIR protocol uses d_in[15:0] for writes, d_out[15:0] for reads
@@ -704,11 +769,12 @@ mc68881_fpu_lite fpu_inst (
 	.clk        ( clk_sys              ),
 	.reset_n    ( _cpuReset            ),
 	.a_in       ( fpu_addr_remapped    ),
-	.d_in       ( {16'h0000, cpuDataOut} ),
+	.d_in       ( fpu_d_in_eff         ),  // {hi,lo} aggregated on operand writes
 	.d_out      ( fpu_data_out         ),
-	.size_n     ( 2'b01                ),  // word-sized transfers
+	.size_n     ( 2'b01                ),  // word-sized transfers (FPU tolerates; sim-verified)
 	.as_n       ( _cpuAS               ),
-	.cs_n       ( ~fpuAddrMatch        ),
+	.cs_n       ( fpu_cs_n_eff         ),  // suppressed on the inactive operand beat
+
 	.rw         ( _cpuRW               ),
 	.ds_n       ( _cpuUDS & _cpuLDS    ),  // active when either byte lane selected
 	.dsack0_n   ( fpu_dsack0_n         ),
@@ -1365,7 +1431,8 @@ dbg_min dbg_min_inst (
 	.selectVIA      (selectVIA),
 	.selectVIA2     (selectVIA2),
 	.selectIWM      (selectIWM),
-	.fpu_dbg_cir_state(fpu_dbg_cir_state)
+	.fpu_dbg_cir_state(fpu_dbg_cir_state),
+	.dbg_fline_trap  (dbg_fline_trap)
 );
 
 endmodule

@@ -1,0 +1,10 @@
+[
+  {"name": "NULL01: CLR.L -(A7); FRESTORE (A7)+; FNOP; roundtrip FP0=42 -> D1", "op_a": 42, "program": [66, 167, 243, 95, 242, 128, 0, 0, 112, 42, 242, 0, 64, 0, 242, 1, 96, 0, 78, 114, 39, 0], "result_reg": 1, "expected": 42},
+  {"name": "NULL02: CLR.L -(A7); FRESTORE (A7)+; roundtrip FP0=42 -> D1 (no FNOP)", "op_a": 42, "program": [66, 167, 243, 95, 112, 42, 242, 0, 64, 0, 242, 1, 96, 0, 78, 114, 39, 0], "result_reg": 1, "expected": 42},
+  {"name": "NULL03: prologue + [FP3=5; FSAVE; FRESTORE; FP3->D1] (supervisor test1 shape)", "op_a": 5, "program": [66, 167, 243, 95, 242, 128, 0, 0, 112, 5, 242, 0, 65, 128, 243, 39, 243, 95, 242, 1, 97, 128, 78, 114, 39, 0], "result_reg": 1, "expected": 5},
+  {"name": "NULL04: push $1F18A5A5 above null frame; FRESTORE; roundtrip 42", "op_a": 42, "program": [47, 60, 31, 24, 165, 165, 66, 167, 243, 95, 88, 143, 242, 128, 0, 0, 112, 42, 242, 0, 64, 0, 242, 1, 96, 0, 78, 114, 39, 0], "result_reg": 1, "expected": 42},
+  {"name": "NULL05: garbage below null frame; FRESTORE; roundtrip 42", "op_a": 42, "program": [47, 60, 31, 24, 190, 239, 47, 60, 202, 254, 31, 24, 80, 143, 66, 167, 243, 95, 242, 128, 0, 0, 112, 42, 242, 0, 64, 0, 242, 1, 96, 0, 78, 114, 39, 0], "result_reg": 1, "expected": 42},
+  {"name": "NULL06: two null FRESTOREs back-to-back; roundtrip 42", "op_a": 42, "program": [66, 167, 243, 95, 242, 128, 0, 0, 66, 167, 243, 95, 242, 128, 0, 0, 112, 42, 242, 0, 64, 0, 242, 1, 96, 0, 78, 114, 39, 0], "result_reg": 1, "expected": 42},
+  {"name": "NULL07: FP3=7 set; null FRESTORE; roundtrip FP0=42", "op_a": 42, "program": [112, 7, 242, 0, 65, 128, 66, 167, 243, 95, 242, 128, 0, 0, 112, 42, 242, 0, 64, 0, 242, 1, 96, 0, 78, 114, 39, 0], "result_reg": 1, "expected": 42},
+  {"name": "NULL08: garbage both sides + supervisor test1 shape", "op_a": 5, "program": [47, 60, 31, 24, 165, 165, 47, 60, 222, 173, 31, 24, 88, 143, 66, 167, 243, 95, 88, 143, 242, 128, 0, 0, 112, 5, 242, 0, 65, 128, 243, 39, 243, 95, 242, 1, 97, 128, 78, 114, 39, 0], "result_reg": 1, "expected": 5}
+]

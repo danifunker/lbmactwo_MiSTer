@@ -142,7 +142,13 @@ entity TG68KdotC_Kernel is
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
 		CACR_out					: out std_logic_vector( 3 downto 0);
-		VBR_out					: out std_logic_vector(31 downto 0)
+		VBR_out					: out std_logic_vector(31 downto 0);
+		-- Bug #6 / supervisor-bench F-line trap debug export.
+		-- Pulses '1' for one clock cycle whenever the internal
+		-- trap_1111 signal asserts (Line-1111 / F-line trap, vector
+		-- 11 / $2C). Consumed by dbg_min.sv via the tg68k.v wrapper
+		-- to power a rising-edge counter + PC latch.
+		dbg_fline_trap			: out std_logic
 		);
 end TG68KdotC_Kernel;
 
@@ -5352,6 +5358,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
   CACR_out <= CACR;
   VBR_out <= VBR;
+  -- Bug #6 / supervisor-bench F-line trap debug export.
+  -- trap_1111 is type `bit`; convert to std_logic for the dbg port.
+  dbg_fline_trap <= '1' when trap_1111 = '1' else '0';
 -----------------------------------------------------------------------------
 -- Conditions
 -----------------------------------------------------------------------------

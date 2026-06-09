@@ -139,7 +139,13 @@ module dbg_min (
     // PFST probe: packed FPU CIR FSM state (see mc68881_top.vhd port comment).
     // Build #15's FRESTORE fix did not unblock boot; this probe is to see
     // what protocol step the FSM is actually wedged on.
-    input wire [31:0] fpu_dbg_cir_state
+    input wire [31:0] fpu_dbg_cir_state,
+
+    // Bug #6 / supervisor-bench F-line trap diagnostic.
+    // One-cycle pulse on every trap_1111 (Line-1111 / F-line) assertion
+    // inside TG68KdotC_Kernel. Used to drive a rising-edge counter, a
+    // last-IF-PC latch, and a last-FPU-response capture (PFLO/PFLA).
+    input wire        dbg_fline_trap
 );
 
     // Coherent snapshots on clk.
@@ -1305,77 +1311,95 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_prsf (.probe(prsf_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // ==== PFLO / PFLA: F-line opcode tracker (build #73) ===================
-    // User-prompted CPU hypothesis 2026-06-04: TG68KdotC_Kernel.vhd:4540-4544
-    // cp_idle_resp ELSE branch raises F-line trap_1111 for any FPU response
-    // not in {NullPrim, XferSingle, ExceptPre/Mid/Post}. The "coprocessor
-    // not installed" bomb dialog matches this exactly.
+    // ==== PFLO / PFLA: trap_1111 direct probe (build #B, 2026-06-05) ========
+    // Supersedes build #73's IF-sniffing PFLO which had a mac_dout_valid /
+    // pflo_pending_addr race that produced false-positive F-line opcodes.
+    // This version uses TG68KdotC_Kernel's INTERNAL trap_1111 signal,
+    // exposed via the new dbg_fline_trap port, so there is no two-step
+    // bus-cycle race.
     //
-    // Detect F-line opcode INSTRUCTION FETCHES: when CPU fetches an opcode
-    // whose high nibble is 4'hF, that's an F-line instruction that the
-    // coprocessor protocol must dispatch (or trap).
+    // Use case: the supervisor cpu/fpu bench's test #1 prologue
+    // (CLR.L -(A7); FRESTORE (A7)+; FNOP) traps with vec=11 on real
+    // hardware (md5 8f4cda35 + new .hda md5 a21bcdd1). Snow runs further.
+    // The trap fires from cp_idle_resp's ELSE branch when the FPU returns
+    // a response primitive the kernel doesn't recognise (NullPrim /
+    // XferSingle / ExceptPre|Mid|Post). PFLO/PFLA isolate which response
+    // was on the bus when the kernel fell through to trap_1111.
     //
-    // PFLO captures the opcode + count:
-    //   [31:16] cpu_din at last F-line IF (= the F-line opcode value)
-    //   [15:0]  wrap16 count of F-line opcode fetches
+    // PFLO layout:
+    //   [31:16] last_fpu_resp_at_trap — cpu_din latched at the most
+    //           recent FPU read (gated on fpu_dsack0_n|fpu_dsack1_n
+    //           falling), frozen at trap_1111 rising edge. This is the
+    //           response primitive value the kernel saw before trapping.
+    //   [15:0]  trap_1111_cnt — wrap16 rising-edge count of dbg_fline_trap.
     //
-    // PFLA captures the PC of the last F-line IF:
-    //   [31:0]  cpuAddr at the time of the last F-line opcode fetch
+    // PFLA layout:
+    //   [31:0]  last_if_pc_at_trap — cpuAddr at the most recent IF cycle
+    //           (cpuFC=110 supervisor program + cpuRW), frozen at trap
+    //           rising edge. Gives the approximate PC of the trapping
+    //           instruction (within a few words due to TG68's prefetch).
     //
-    // Common F-line opcode patterns (high byte):
-    //   $F0xx-$F1xx: cpGEN math (most FPU math instructions)
-    //   $F2xx: FBcc.W (FPU conditional branch)
-    //   $F3xx: FBcc.L (long conditional branch)
-    //   $F4xx-$F7xx: cpSAVE/cpRESTORE/68040 cache ops
-    //   $F8xx-$FBxx: 68030 MMU ops
-    //
-    // Build #71 PFRR (prev. probes) showed CPU read response_prim = $0900
-    // (NULL primary, OK). But if Mac OS does an FPU op that produces a
-    // DIFFERENT primitive, the ELSE branch fires F-line trap → "coprocessor
-    // not installed" bomb dialog regardless of WHICH boot stage we're at.
-    //
-    // Trigger: IF cycle (cpuFC=2 or 6) AND mac_dout_valid AND cpu_din[15:12] = 4'hF.
+    // Read together with PFST (re-enabled below) for the FPU CIR FSM
+    // state at the same moment.
 
-    wire pflo_if_event = cpuAS_n_d && !cpuAS_n && cpuRW &&
-                         (cpuFC == 3'b010 || cpuFC == 3'b110);
-
-    reg        pflo_pending;
-    reg [31:0] pflo_pending_addr;
-    reg [15:0] pflo_last_opcode;
-    reg [31:0] pflo_last_addr;
-    reg [15:0] pflo_cnt;
-    initial begin
-        pflo_pending = 1'b0;
-        pflo_pending_addr = 32'd0;
-        pflo_last_opcode = 16'd0;
-        pflo_last_addr = 32'd0;
-        pflo_cnt = 16'd0;
+    // 1. Last completed FPU read response.
+    //    FPU reads complete when fpu_dsack0_n or fpu_dsack1_n asserts
+    //    low (the FPU owns DSACK for its own address space; mac_dout_valid
+    //    only fires for SDRAM, so we can't use that here). We sample
+    //    cpu_din at the rising edge of the (NOT-DSACK) signal — i.e. the
+    //    edge where DSACK just went active.
+    wire       fpu_dsack_active   = ~fpu_dsack0_n | ~fpu_dsack1_n;
+    reg        fpu_dsack_active_d;
+    reg [15:0] last_fpu_resp;
+    always @(posedge clk) begin
+        fpu_dsack_active_d <= fpu_dsack_active;
+        // Rising edge of DSACK-asserted while CPU is reading from FPU.
+        if (selectFPU && cpuRW && fpu_dsack_active && !fpu_dsack_active_d)
+            last_fpu_resp <= cpu_din;
     end
 
+    // 2. Last instruction-fetch PC (supervisor program reads, AS-rising
+    //    edge so cpuAddr is stable).
+    reg        cpuAS_n_dd;
+    reg [31:0] last_if_pc;
     always @(posedge clk) begin
-        if (pflo_if_event) begin
-            pflo_pending <= 1'b1;
-            pflo_pending_addr <= cpuAddr;
-        end
-        if (pflo_pending && mac_dout_valid) begin
-            if (cpu_din[15:12] == 4'hF) begin
-                pflo_last_opcode <= cpu_din;
-                pflo_last_addr <= pflo_pending_addr;
-                pflo_cnt <= pflo_cnt + 16'd1;
-            end
-            pflo_pending <= 1'b0;
-        end
-        if (pflo_pending && !cpuAS_n_d && cpuAS_n) begin
-            // AS rising without data valid — abort
-            pflo_pending <= 1'b0;
+        cpuAS_n_dd <= cpuAS_n_d;
+        // AS rising (cpuAS_n_d went high after being low) on a supervisor
+        // program read = an IF cycle just ended.
+        if (!cpuAS_n_dd && cpuAS_n_d && cpuRW && cpuFC == 3'b110)
+            last_if_pc <= cpuAddr;
+    end
+
+    // 3. trap_1111 rising-edge detector — latches both the response and
+    //    the PC at the moment the trap fires, and counts firings.
+    reg        dbg_fline_trap_d;
+    reg [15:0] trap_1111_cnt;
+    reg [15:0] trap_resp_latch;
+    reg [31:0] trap_pc_latch;
+    initial begin
+        fpu_dsack_active_d = 1'b0;
+        last_fpu_resp      = 16'd0;
+        cpuAS_n_dd         = 1'b1;
+        last_if_pc         = 32'd0;
+        dbg_fline_trap_d    = 1'b0;
+        trap_1111_cnt      = 16'd0;
+        trap_resp_latch    = 16'd0;
+        trap_pc_latch      = 32'd0;
+    end
+    always @(posedge clk) begin
+        dbg_fline_trap_d <= dbg_fline_trap;
+        if (dbg_fline_trap && !dbg_fline_trap_d) begin
+            trap_1111_cnt   <= trap_1111_cnt + 16'd1;
+            trap_resp_latch <= last_fpu_resp;
+            trap_pc_latch   <= last_if_pc;
         end
     end
 
     reg [31:0] pflo_r;
     reg [31:0] pfla_r;
     always @(posedge clk) begin
-        pflo_r <= {pflo_last_opcode, pflo_cnt};
-        pfla_r <= pflo_last_addr;
+        pflo_r <= {trap_resp_latch, trap_1111_cnt};
+        pfla_r <= trap_pc_latch;
     end
 
     altsource_probe #(
@@ -2089,14 +2113,17 @@ module dbg_min (
     reg [31:0] pfst_r;
     always @(posedge clk) pfst_r <= fpu_dbg_cir_state;
 
-    // PFST disabled build #69 — FPU CIR FSM confirmed healthy by Snow
-    // checkpoint cross-check. Frees budget for PIRE + PSDH.
-    // altsource_probe #(
-    //     .instance_id ("PFST"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFST re-enabled for Build B (2026-06-05) supervisor-bench test-1
+    // F-line trap investigation. Same instant as PFLO/PFLA capture the
+    // trap_1111 fire, PFST shows whether the FPU CIR FSM is in IDLE,
+    // RESTORE_FORMAT, RESTORE_FRAME, EXCEPT_*, or wedged. Brings active
+    // probe count from 18 → 19 (right at the ~19 JTAG-hub ceiling).
+    altsource_probe #(
+        .instance_id ("PFST"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== Coprocessor Control CIR ACK probe (PCAK) -- build #22 ===========
     // Diagnoses whether the bug-#3 fix (cp_except_ack/cp_except_trap path

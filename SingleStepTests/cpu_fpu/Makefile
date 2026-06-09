@@ -5,7 +5,9 @@ RTL     = ../../rtl
 SIM_INC = ../../verilator/sim
 V_INC   = +incdir+$(RTL) +incdir+$(RTL)/tg68k +incdir+$(RTL)/mc68881
 
-V_DEFINE = +define+SIMULATION=1 \
+# Extra defines from the command line, e.g. make V_DEFINE_EXTRA=+define+LBMAC_GLUE
+V_DEFINE_EXTRA ?=
+V_DEFINE = +define+SIMULATION=1 $(V_DEFINE_EXTRA) \
            -CFLAGS "-I.. -I$(SIM_INC) -g" \
            --timescale-override 1ps/1ps \
            -Wno-TIMESCALEMOD -Wno-fatal \

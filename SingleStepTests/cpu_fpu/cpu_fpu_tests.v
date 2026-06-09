@@ -199,7 +199,19 @@ module cpu_fpu_tests
    // mc68881_pkg.vhd (now CIR_FRAME_IDLE_WORDS = 6 long-words, matching
    // upstream). With the count right, the split works correctly: 12
    // CPU word reads → 6 phase-0 FPU accesses → 6 widx advances.
+`ifdef LBMAC_GLUE
+ `define LBMAC_NO_ADAPTER
+ `define LBMAC_SIZE01
+`endif
+`ifdef LBMAC_NO_ADAPTER
+   // Model LBMacTwo.sv's FPU glue: NO 2-beat Operand-CIR adapter.
+   // Every 16-bit CPU beat hits the FPU as a separate access, d_in is the
+   // zero-extended low word, reads return d_out[15:0]. Used to reproduce
+   // the hardware supervisor-bench test#1 vec=11 trap in simulation.
+   wire       fpu_is_operand_cycle = 1'b0;
+`else
    wire       fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
+`endif
    // Flip phase on the END of each FPU operand bus cycle (AS-rising edge
    // while addressed at operand). This way phase is stable throughout each
    // bus cycle: first access sees phase=0, second access sees phase=1.
@@ -316,12 +328,17 @@ module cpu_fpu_tests
                                   (cpu_addr[5:1] == 5'd3) ? 5'd28 :
                                                             cpu_addr[5:1];
 
+`ifdef LBMAC_SIZE01
+   // LBMacTwo.sv hard-codes size_n = 2'b01 ("word-sized transfers").
+   wire [1:0] fpu_size_n = 2'b01;
+`else
    // Size encoding: derive from longword + UDS/LDS.
    wire [1:0] fpu_size_n =
        cpu_as_n                   ? 2'b11 :  // idle
        cpu_longword               ? 2'b00 :  // .L
        (!cpu_uds_n && !cpu_lds_n) ? 2'b10 :  // .W
                                     2'b01;   // .B
+`endif
 
    assign fpu_d_out_obs    = fpu_d_out;
    assign fpu_dsack0_n_obs = fpu_dsack0_n;
