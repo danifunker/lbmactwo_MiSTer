@@ -277,8 +277,12 @@ wire [7:0] request_sense_dout_next2 = (data_cnt_next2 == 32'd0)?8'h70:(data_cnt_
 wire [7:0] request_sense_dout_next3 = (data_cnt_next3 == 32'd0)?8'h70:(data_cnt_next3 == 32'd7)?8'h0a:8'h00;
 
 // output of inquiry command, identify as "SEAGATE ST225N"
+// additional-length byte = 31 -> standard 36-byte INQUIRY response (5 + 31),
+// matching real drives and Snow. It was 32 (=37 total): a driver that reads
+// the standard 36 bytes then left 1 unserved byte on the target -> REQ held
+// forever -> the post-clamp Welcome wedge of 2026-06-10c.
 wire [7:0] inquiry_dout =
-		(data_cnt == 32'd4 )?8'd32:  // length
+		(data_cnt == 32'd4 )?8'd31:  // additional length
 
 		(data_cnt == 32'd8 )?" ":(data_cnt == 32'd9 )?"S":
 		(data_cnt == 32'd10)?"E":(data_cnt == 32'd11)?"A":
@@ -298,7 +302,7 @@ wire [31:0] data_cnt_next = data_cnt + 32'd1;
 wire [31:0] data_cnt_next2 = data_cnt + 32'd2;
 wire [31:0] data_cnt_next3 = data_cnt + 32'd3;
 wire [7:0] inquiry_dout_next =
-		(data_cnt_next == 32'd4 )?8'd32:
+		(data_cnt_next == 32'd4 )?8'd31:
 		(data_cnt_next == 32'd8 )?" ":(data_cnt_next == 32'd9 )?"S":
 		(data_cnt_next == 32'd10)?"E":(data_cnt_next == 32'd11)?"A":
 		(data_cnt_next == 32'd12)?"G":(data_cnt_next == 32'd13)?"A":
@@ -314,7 +318,7 @@ wire [7:0] inquiry_dout_next =
 		(data_cnt_next == 32'd30)?"5":(data_cnt_next == 32'd31)?"N" + {5'd0, ID}:
 		8'h00;
 wire [7:0] inquiry_dout_next2 =
-		(data_cnt_next2 == 32'd4 )?8'd32:
+		(data_cnt_next2 == 32'd4 )?8'd31:
 		(data_cnt_next2 == 32'd8 )?" ":(data_cnt_next2 == 32'd9 )?"S":
 		(data_cnt_next2 == 32'd10)?"E":(data_cnt_next2 == 32'd11)?"A":
 		(data_cnt_next2 == 32'd12)?"G":(data_cnt_next2 == 32'd13)?"A":
@@ -330,7 +334,7 @@ wire [7:0] inquiry_dout_next2 =
 		(data_cnt_next2 == 32'd30)?"5":(data_cnt_next2 == 32'd31)?"N" + {5'd0, ID}:
 		8'h00;
 wire [7:0] inquiry_dout_next3 =
-		(data_cnt_next3 == 32'd4 )?8'd32:
+		(data_cnt_next3 == 32'd4 )?8'd31:
 		(data_cnt_next3 == 32'd8 )?" ":(data_cnt_next3 == 32'd9 )?"S":
 		(data_cnt_next3 == 32'd10)?"E":(data_cnt_next3 == 32'd11)?"A":
 		(data_cnt_next3 == 32'd12)?"G":(data_cnt_next3 == 32'd13)?"A":
@@ -391,7 +395,13 @@ wire [7:0] read_capacity_dout_next3 =
 		(data_cnt_next3 == 32'd6 )?8'd2:
 		8'h00;
 
+// MODE SENSE(6): 4-byte header + 8-byte block descriptor = 12 bytes.
+// Header byte 0 = mode data length = total-1 = 11, so a driver that trusts
+// the length field reads exactly what we serve (it was 0, which told
+// length-honoring drivers "nothing follows the header" while we kept
+// serving — REQ-held wedge class).
 wire [7:0] mode_sense_dout =
+		(data_cnt == 32'd0 )?8'd11:
 		(data_cnt == 32'd3 )?8'd8:
 		(data_cnt == 32'd5 )?capacity[23:16]:
 		(data_cnt == 32'd6 )?capacity[15:8]:
@@ -399,6 +409,7 @@ wire [7:0] mode_sense_dout =
 		(data_cnt == 32'd10 )?8'd2:
 		8'h00;
 wire [7:0] mode_sense_dout_next =
+		(data_cnt_next == 32'd0 )?8'd11:
 		(data_cnt_next == 32'd3 )?8'd8:
 		(data_cnt_next == 32'd5 )?capacity[23:16]:
 		(data_cnt_next == 32'd6 )?capacity[15:8]:
@@ -406,6 +417,7 @@ wire [7:0] mode_sense_dout_next =
 		(data_cnt_next == 32'd10 )?8'd2:
 		8'h00;
 wire [7:0] mode_sense_dout_next2 =
+		(data_cnt_next2 == 32'd0 )?8'd11:
 		(data_cnt_next2 == 32'd3 )?8'd8:
 		(data_cnt_next2 == 32'd5 )?capacity[23:16]:
 		(data_cnt_next2 == 32'd6 )?capacity[15:8]:
@@ -413,6 +425,7 @@ wire [7:0] mode_sense_dout_next2 =
 		(data_cnt_next2 == 32'd10 )?8'd2:
 		8'h00;
 wire [7:0] mode_sense_dout_next3 =
+		(data_cnt_next3 == 32'd0 )?8'd11:
 		(data_cnt_next3 == 32'd3 )?8'd8:
 		(data_cnt_next3 == 32'd5 )?capacity[23:16]:
 		(data_cnt_next3 == 32'd6 )?capacity[15:8]:
@@ -533,15 +546,19 @@ wire [31:0] sense_len = (tlen == 16'd256) ? 32'd4 : {16'd0, tlen};
 // behavior) DEADLOCKS the bus whenever the initiator transfers fewer bytes
 // than it asked for: the target holds REQ with leftover bytes while the Mac
 // polls BSR for a phase change that never comes (the 2026-06-10 Welcome
-// hang). Actual sizes: INQUIRY = 5 + additional-length(32) = 37 bytes;
+// hang). Actual sizes: INQUIRY = 5 + additional-length(31) = 36 bytes — the
+// STANDARD response size (matches real drives and Snow; serving 37 left one
+// unread byte for drivers that read the standard 36 -> 2026-06-10c wedge);
+// MODE SENSE(6) = 12 bytes (4 header + 8 block descriptor, header says 11);
 // REQUEST SENSE = 8 + additional-length(0x0a) = 18 bytes.
 wire [31:0] data_len =
 		 cmd_read_capacity?32'd8:
 		 cmd_read?{ 7'd0, tlen, 9'd0 }:   // read command length is in 512 bytes blocks
 		 cmd_write?{ 7'd0, tlen, 9'd0 }:  // write command length is in 512 bytes blocks
-		 cmd_inquiry?((alloc_len < 32'd37) ? alloc_len : 32'd37):
+		 cmd_inquiry?((alloc_len < 32'd36) ? alloc_len : 32'd36):
+		 cmd_mode_sense?((alloc_len < 32'd12) ? alloc_len : 32'd12):
 		 cmd_request_sense?((sense_len < 32'd18) ? sense_len : 32'd18):
-		 { 16'd0, tlen };                 // mode sense etc have length in bytes
+		 { 16'd0, tlen };                 // mode select etc have length in bytes
 
 always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin

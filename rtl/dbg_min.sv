@@ -427,18 +427,21 @@ module dbg_min (
     //     .sld_auto_instance_index ("YES")
     // ) cp_psc7 (.probe(scsi7_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // Per-target command-type bitmap.
+    // Per-target last-opcode capture (scsi_dbg5 = {t1_opcode, t0_opcode}).
     reg [31:0] scsi6_r;
     always @(posedge clk)
         scsi6_r <= {16'd0, scsi_dbg5};
 
-    // PSC6 disabled to free fit budget for audio probes (PVBL/PASC/PAUD).
-    // altsource_probe #(
-    //     .instance_id ("PSC6"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC6 RE-ENABLED 2026-06-10c (slot freed by PSDH): identifies WHICH
+    // command wedged a disk target in a data phase — e.g. INQUIRY (0x12) vs
+    // MODE SENSE (0x1A) vs READ(6/10) (0x08/0x28) — the post-clamp Welcome
+    // wedge could not be attributed without it.
+    altsource_probe #(
+        .instance_id ("PSC6"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc6 (.probe(scsi6_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Disk-flow: first word of the most recent sector + write-strobe count, to
     // tell whether disk reads are STILL happening during the stuck scan or
@@ -1192,12 +1195,16 @@ module dbg_min (
         psdi_r <= {psdh_w3, psdh_w2};
     end
 
-    altsource_probe #(
-        .instance_id ("PSDH"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psdh (.probe(psdh_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSDH disabled 2026-06-10c — F1-download verification long since
+    // confirmed (and reads all-zero on HD boots). Freed the JTAG slot for
+    // PSC6 (last SCSI opcode per target), needed to identify which command
+    // wedges a disk target in a data phase.
+    // altsource_probe #(
+    //     .instance_id ("PSDH"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psdh (.probe(psdh_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PIRD: ioBuffer-write snoop (build #70) =========================
     // Build #69 PIRE confirmed driver completes reads with noErr (301

@@ -539,12 +539,15 @@ module ncr5380
 	assign dbg_scsi2 = { empty_cd_phase[1:0], target_phase[1], target_phase[0],
 	                     empty_cd_phase[2], empty_cd_req, io_rd[1:0], io_wr[1:0], io_ack[1:0] };
 
-	// Capture whichever target is in the WRITE data phase (PHASE_DATA_IN=3).
-	// The bench's disk is actually target1 (ID5), not target0 — the result
-	// write stalls there in DATA_IN. Mux on phase so it tracks the active disk
-	// regardless of which target ID it mounts on.
+	// Capture whichever target is in a DATA phase — DATA_IN (3, writes) takes
+	// priority, then DATA_OUT (2, reads — added 2026-06-10c: the post-clamp
+	// wedge parked t0 in DATA_OUT and the old mux only routed DATA_IN, hiding
+	// the wedged dialog's data_cnt/tlen). Default is target 1 when neither is
+	// in a data phase (the OSD-mounted disk has landed on either slot).
 	assign dbg_scsi_wr = (target_phase[1] == 3'd3) ? target_wrstall[1] :
 	                     (target_phase[0] == 3'd3) ? target_wrstall[0] :
+	                     (target_phase[1] == 3'd2) ? target_wrstall[1] :
+	                     (target_phase[0] == 3'd2) ? target_wrstall[0] :
 	                     target_wrstall[1];
 
 	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
