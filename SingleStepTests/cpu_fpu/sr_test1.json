@@ -1,0 +1,1 @@
+[{"name": "FSAVE -(A7); FRESTORE (A7)+; FPU still usable, FP3=5 -> D1", "op_a": 5, "program": [112, 5, 242, 0, 65, 128, 243, 39, 243, 95, 242, 1, 97, 128, 78, 114, 39, 0], "result_reg": 1, "expected": 5}]

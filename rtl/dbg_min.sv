@@ -145,7 +145,14 @@ module dbg_min (
     // One-cycle pulse on every trap_1111 (Line-1111 / F-line) assertion
     // inside TG68KdotC_Kernel. Used to drive a rising-edge counter, a
     // last-IF-PC latch, and a last-FPU-response capture (PFLO/PFLA).
-    input wire        dbg_fline_trap
+    input wire        dbg_fline_trap,
+
+    // Operand-CIR 2-beat adapter observability (PADP). fpu_xfer_phase is
+    // the adapter's beat toggle in LBMacTwo.sv. Together with the CIR
+    // register decode (from cpuAddr[5:1]) this shows whether FRESTORE
+    // frame data is reaching the Operand CIR (reg 8 — adapter aggregates)
+    // or being misrouted to the Restore CIR (reg 3 — adapter inert).
+    input wire        dbg_fpu_xfer_phase
 );
 
     // Coherent snapshots on clk.
@@ -1396,10 +1403,8 @@ module dbg_min (
     end
 
     reg [31:0] pflo_r;
-    reg [31:0] pfla_r;
     always @(posedge clk) begin
         pflo_r <= {trap_resp_latch, trap_1111_cnt};
-        pfla_r <= trap_pc_latch;
     end
 
     altsource_probe #(
@@ -1409,12 +1414,58 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pflo (.probe(pflo_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // ==== PADP: Operand-CIR adapter observability (repurposes PFLA slot) =====
+    // Counts CPU bus WRITES to FPU CIR registers, decoded from the raw
+    // register index cpuAddr[5:1]. A write cycle = _cpuAS falling while the
+    // CPU addresses the FPU (selectFPU) with _cpuRW low. This is independent
+    // of the adapter, so it shows the TRUTH of where the kernel sends FRESTORE
+    // frame data:
+    //   - Operand CIR (raw reg 8)  -> adapter aggregates; expected path.
+    //   - Restore CIR (raw reg 3)  -> adapter inert; the line-5078 misroute.
+    // Plus the adapter's own phase toggle, so we can tell if the 2-beat
+    // pairing is alive at all.
+    //
+    // PADP layout:
+    //   [31:24] writes to Operand CIR  (cpuAddr[5:1]==8), saturating u8
+    //   [23:16] writes to Restore CIR  (cpuAddr[5:1]==3), saturating u8
+    //   [15: 8] writes to OpWord  CIR  (cpuAddr[5:1]==4), saturating u8 (sanity)
+    //   [ 7: 1] count of operand-CIR write cycles seen by phase=1 (active beat)
+    //   [ 0]    live fpu_xfer_phase
+    reg        padp_as_d;
+    reg [7:0]  padp_operand_wr;
+    reg [7:0]  padp_restore_wr;
+    reg [7:0]  padp_opword_wr;
+    reg [6:0]  padp_operand_beat1;
+    // Count on AS falling (cycle start) so the address is settled.
+    wire       padp_as_falling = !cpuAS_n && padp_as_d;
+    wire [4:0] padp_reg = cpuAddr[5:1];
+    initial begin
+        padp_as_d = 1'b1;
+        padp_operand_wr = 8'd0; padp_restore_wr = 8'd0;
+        padp_opword_wr = 8'd0;  padp_operand_beat1 = 7'd0;
+    end
+    always @(posedge clk) begin
+        padp_as_d <= cpuAS_n;
+        if (padp_as_falling && selectFPU && !cpuRW) begin
+            if (padp_reg == 5'd8 && padp_operand_wr  != 8'hFF) padp_operand_wr  <= padp_operand_wr  + 8'd1;
+            if (padp_reg == 5'd3 && padp_restore_wr  != 8'hFF) padp_restore_wr  <= padp_restore_wr  + 8'd1;
+            if (padp_reg == 5'd4 && padp_opword_wr   != 8'hFF) padp_opword_wr   <= padp_opword_wr   + 8'd1;
+            if (padp_reg == 5'd8 && dbg_fpu_xfer_phase && padp_operand_beat1 != 7'h7F)
+                padp_operand_beat1 <= padp_operand_beat1 + 7'd1;
+        end
+    end
+    reg [31:0] padp_r;
+    always @(posedge clk) begin
+        padp_r <= {padp_operand_wr, padp_restore_wr, padp_opword_wr,
+                   padp_operand_beat1, dbg_fpu_xfer_phase};
+    end
+
     altsource_probe #(
-        .instance_id ("PFLA"),
+        .instance_id ("PADP"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pfla (.probe(pfla_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature
@@ -1849,20 +1900,20 @@ module dbg_min (
             endcase
         end
     end
-    reg [31:0] padp_r;
+    reg [31:0] padp_adb_r;   // renamed: PADP name reused by the FPU-adapter probe above
     always @(posedge clk)
-        padp_r <= {last_cmd, last_cmd_prev, mouse_poll_cnt, kbd_poll_cnt};
+        padp_adb_r <= {last_cmd, last_cmd_prev, mouse_poll_cnt, kbd_poll_cnt};
 
-    // PADP disabled for build #13 to free fit budget for PIFC (IF cycle
-    // counter). ADB cmd-histogram showed both kbd_polls and mouse_polls
-    // saturated at 255 -- mouse/kbd path is healthy; not load-bearing
-    // for the Welcome-hang investigation.
+    // PADP (ADB poll histogram) disabled for build #13 to free fit budget for
+    // PIFC. ADB cmd-histogram showed both kbd_polls and mouse_polls saturated
+    // at 255 -- mouse/kbd path healthy. The "PADP" instance_id is now reused
+    // by the FPU Operand-CIR adapter observability probe (see above).
     // altsource_probe #(
-    //     .instance_id ("PADP"),
+    //     .instance_id ("PADP_ADB"),
     //     .probe_width (32),
     //     .source_width(1),
     //     .sld_auto_instance_index ("YES")
-    // ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // ) cp_padp_adb (.probe(padp_adb_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSRR / PSRL: SR byte sequences (newest byte in [7:0]).
     //   PSRR = what the CPU READ from the SR (what ROM actually receives).

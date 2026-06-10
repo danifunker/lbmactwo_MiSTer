@@ -1432,7 +1432,8 @@ dbg_min dbg_min_inst (
 	.selectVIA2     (selectVIA2),
 	.selectIWM      (selectIWM),
 	.fpu_dbg_cir_state(fpu_dbg_cir_state),
-	.dbg_fline_trap  (dbg_fline_trap)
+	.dbg_fline_trap  (dbg_fline_trap),
+	.dbg_fpu_xfer_phase(fpu_xfer_phase)
 );
 
 endmodule

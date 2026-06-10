@@ -426,12 +426,14 @@ for {set s 1} {$s <= 6} {incr s} {
     }
     if {[info exists idx(PADP)]} {
         set pp [rd $idx(PADP)]
-        set kbd_poll   [expr {$pp & 0xFF}]
-        set mouse_poll [expr {($pp >> 8) & 0xFF}]
-        set lastp      [expr {($pp >> 16) & 0xFF}]
-        set lastc      [expr {($pp >> 24) & 0xFF}]
-        puts [format "           ADB POLL: last_cmd=0x%02X prev_distinct=0x%02X mouse_polls(0x3C)=%u(sat255) kbd_polls(0x2C)=%u(sat255)" \
-            $lastc $lastp $mouse_poll $kbd_poll]
+        set phase     [expr {$pp & 0x1}]
+        set beat1     [expr {($pp >> 1) & 0x7F}]
+        set opword_wr [expr {($pp >> 8) & 0xFF}]
+        set restore_wr [expr {($pp >> 16) & 0xFF}]
+        set operand_wr [expr {($pp >> 24) & 0xFF}]
+        puts [format "           FPU-ADAPTER: operand-CIR(r8) writes=%u  restore-CIR(r3) writes=%u  opword(r4)=%u | phase=1 operand beats=%u  live_phase=%u" \
+            $operand_wr $restore_wr $opword_wr $beat1 $phase]
+        puts "                 EXPECT: frame data -> operand-CIR writes>0 (adapter aggregates). If restore-CIR>>operand-CIR => line-5078 misroute (adapter inert)."
     }
     if {[info exists idx(PSRR)]} {
         set rr [rd $idx(PSRR)]
