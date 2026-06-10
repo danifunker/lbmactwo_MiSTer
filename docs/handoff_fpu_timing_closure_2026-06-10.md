@@ -30,18 +30,41 @@ pipeline) the FPU datapath so timing closes deterministically.
    `output_files_fpu-cir-fixes/all_violated.txt` top paths are the same
    `fp80_to_int_trunc~50 → result_ex_reg[*]` at **-175.285**, data delay
    205.754 ns. So this is a standing condition across months of builds.
-3. **Same-bitstream state dependence (separate but related clue)**: on RBF
-   `af34c4c4`, a **cold core load** ran the full corpus to
-   `passed=1057/1320` with 165 vec-11s (FSQRT block trapping en masse); a
-   **warm restart** re-run on the same bitstream was at `run=292 ok=287
-   trap=5` through the same FSQRT region (~98% pass). So the vec-11 class
-   has BOTH a routing-lottery axis (across builds) and a state axis (cold
-   vs warm on one build). Disentangle them with the protocol below.
+3. **Cold vs warm runs are nearly identical** (correcting an earlier
+   in-session over-read from a progress screenshot): a per-test diff of a
+   cold-core-load run vs a warm-restart run on the SAME bitstream
+   (`af34c4c4`) shows **257 fails common to both** (254 with identical
+   vectors), **6 cold-only** (all `FMOVE.X` register-chain tests,
+   #994–#1033), **0 warm-only**. So the fail set is ~98% deterministic on
+   one placement; the lottery/state question applies mainly to the small
+   FMOVE.X class and to ACROSS-build variation (untested — the protocol
+   below measures it).
 4. Corpus ground truth: 1320 per-test JSONL records (name/vec/pass) extract
    cleanly from the bench disk — `dd if=/media/fat/games/LBMacTwo/cpufpubench.hda
    bs=512 skip=992 count=800` (results at partition offset 0x70000; HFS
-   partition starts at block 96). Fail distribution on the cold run:
-   165× vec=11, 34× vec=4, 64× vec=0-wrong-result.
+   partition starts at block 96). Both runs' raw journals are committed:
+   `docs/bench_results/2026-06-10_af34c4c4_{cold,warm}.jsonl.gz`.
+
+## Failure analysis (cold run, RBF af34c4c4, bench hda 33b6fc9c)
+
+`passed=1057 of 1320` → 263 fails (257 deterministic). By family:
+
+| Family (test idx range) | n | vectors | signature | reading |
+|---|---|---|---|---|
+| FDIV (#328–#631) | 80 | all vec=11 | `exp=N act=0`, F-line | **Slow-op Response-CIR misdecode.** FDIV/FSQRT are the FPU's long-latency ops: the kernel polls Response through many NULL-BUSY cycles, and `cp_idle_resp` decodes the combinational `data_in` — the exact bug `3c68a27` (`cp_read_resp_wait`, on `fpu-cir-fixes`, unported here) fixes. Fast ops (FADD/FSUB/FMUL: ZERO fails) answer on the first read and never enter the window. **Port `3c68a27` first — it plausibly clears all 160 FDIV/FSQRT fails (62% of total).** |
+| FSQRT.X (#288–#327) | 40 | all vec=11 | same | same as FDIV |
+| FSQRT+FINTRZ (#632–#671) | 40 | all vec=11 | same | same as FDIV |
+| FCMP+FDBcc (#1098–#1174) | 43 | 42× vec=0, 1× vec=11 | `exp=99 act=42` | **The documented FDBcc kernel bug** (docs/cpu_fpu_fdbcc_analysis_2026-06-05.md §2; memory `project_fpu_corpus_fixes`): combinational condition apply — mirror FBcc's registered `cp_cond_true`. The act=42 signature matches exactly. |
+| FCMP+FBcc (#834–#991) | 37 | 34× vec=4 (!), 3× vec=0 | `exp=1 act=0`, ILLEGAL instruction | **New, well-localized item**: FBcc dialogs taking vector 4 (illegal) — kernel cpBcc decode path rejects something (condition predicate? displacement word handling?). Examples: FBNE, FBLT, FBNLE. Investigate `cp_cond_eval`/cpBcc dispatch. |
+| FMOVEM.X push/pop (#1304–#1319) | 16 | vec=0 | `act=18` constant | The known pre-existing FMOVEM class (unit bench had 218): `FMOVEM.X FP0,-(A7); (A7)+,FP1` doesn't round-trip — FP1 keeps a stale value. |
+| FMOVE.X chains (#994–#1033) | 6 | mixed 11/0, **non-deterministic** | one `act=65491` (=0xFFD3, a truncation artifact) | The only run-to-run variable class — prime candidate for the timing-lottery/multicycle work in this handoff. |
+| FSAVE/FRESTORE (A0) (#6) | 1 | vec=11 | clobber-reload test | FSAVE with (A0) addressing mode — single known test. |
+
+**Recommended order of attack:** (1) port `3c68a27` → re-run corpus
+(expect ~160 fails to clear); (2) FDBcc registered-condition fix (43);
+(3) FBcc vec-4 illegal investigation (37); (4) FMOVEM.X round-trip (16);
+(5) multicycle constraints (this doc's main subject) for determinism +
+the FMOVE.X class. Items 1+2 alone would take the corpus to ~96%.
 
 ## The work
 
@@ -77,16 +100,16 @@ dd above, tally script shape in the session transcript /
 re-fit). Success = the vec-11 set is IDENTICAL across builds (lottery
 gone). Whatever residue remains cold-vs-warm is the **state axis**:
 
-### Phase 3 — the cold-vs-warm state axis
+### Phase 3 — the residual non-deterministic class
 
-Candidates to probe once builds are deterministic: FPU power-on state vs
-post-restart state (FPCR/FPSR/FPIAR, internal FSM), RAM-content effects,
-PLL/clock settle, or bench-side ordering (the corpus FPU-reset preamble
-`CLR.L -(A7); FRESTORE (A7)+; FNOP` resets per-test, so suspicion falls on
-deeper machine state). A cheap first experiment: cold-load, let the corpus
-trap through FSQRT, then warm-restart WITHOUT redeploying and compare the
-exact per-test vec sets from the two journals (rename/save the .hda between
-runs — each run overwrites /Results.jsonl).
+(Scoped down by the cold/warm diff in "Failure analysis" above: only the
+6 `FMOVE.X` chain tests vary run-to-run on one bitstream; everything else
+is deterministic.) Once multicycle constraints are in and builds are
+deterministic, re-measure this class across cold/warm runs and across
+rebuilds — if it stabilizes, the constraints fixed it; if it still
+flickers on one placement, look at the FMOVE.X register-chain datapath
+specifically (its `act=0xFFD3` artifact suggests a truncation/latch-window
+issue in fp80 register-to-register transfers).
 
 ### Overlapping known item
 
