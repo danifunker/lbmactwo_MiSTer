@@ -291,7 +291,7 @@ module emu
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
-	assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
+	assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
@@ -412,7 +412,7 @@ module emu
 			fpu_data_hold <= 16'h0000;
 			fpu_data_hold_valid <= 1'b0;
 		end else if (!_cpuAS && selectFPU && _cpuRW) begin
-			fpu_data_hold <= fpu_data_out[15:0];
+			fpu_data_hold <= fpu_d_to_cpu;
 			fpu_data_hold_valid <= 1'b1;
 		end else if (!_cpuAS && !selectFPU) begin
 			fpu_data_hold_valid <= 1'b0;
@@ -420,7 +420,7 @@ module emu
 	end
 
 	wire [15:0] cpu_data_in = cpu_berr_inhibit ? cpu_berr_data[15:0] :
-	                          selectFPU ? fpu_data_out[15:0] :
+	                          selectFPU ? fpu_d_to_cpu :
 	                          fpu_data_hold_valid ? fpu_data_hold :
 	                          dataControllerDataOut;
 
@@ -433,39 +433,62 @@ module emu
 	                               (cpuAddr[5:1] == 5'd3) ? 5'd28 :
 	                               cpuAddr[5:1];
 
-`ifdef USE_FPU_STUB
-	// CIR-protocol no-op stub (Makefile: USE_FPU_STUB=1). Accepts writes,
-	// always returns "done". Doesn't compute anything; useful when running
-	// non-FPU software and skipping FPU area/runtime cost.
-	sim_fpu_cir_stub fpu_inst (
-		.clk          ( clk_sys              ),
-		.reset_n      ( _cpuReset            ),
-		.a_in         ( cpuAddr[5:1]         ),  // stub doesn't need remap
-		.d_in         ( {16'h0000, cpuDataOut} ),
-		.d_out        ( fpu_data_out         ),
-		.size_n       ( 2'b01                ),
-		.as_n         ( _cpuAS               ),
-		.cs_n         ( ~fpuAddrMatch        ),
-		.rw           ( _cpuRW               ),
-		.ds_n         ( _cpuUDS & _cpuLDS    ),
-		.dsack0_n     ( fpu_dsack0_n         ),
-		.dsack1_n     ( fpu_dsack1_n         ),
-		.sense_n      ( fpu_sense_n          ),
-		.status_valid (                      )
-	);
-`else
-	// Real MC68881 (lite variant — same FPU instantiated in production
-	// LBMacTwo.sv). Default for this sim so functional FPU behavior is
-	// tested. Has the B-4 F-line trap fix for unsupported ops.
+	// ---- MC68881 Operand-CIR 2-beat bus adapter (ported from LBMacTwo.sv) ----
+	// The mc68881 Operand CIR is a 32-bit register (one FPU-side transfer per
+	// long-word). TG68K's 16-bit bus splits each .L into two beats; without
+	// aggregation the frame/operand word index advances twice per long and
+	// FSAVE/FRESTORE/FMOVE.L wedge. Mirrors the production fix in LBMacTwo.sv.
+	reg        fpu_xfer_phase;
+	reg [15:0] fpu_wr_hi;
+	reg [31:0] fpu_rd_latch;
+	reg        fpu_prev_as;
+	wire fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
+	wire fpu_bus_end_edge = fpuAddrMatch && fpu_is_operand_cycle
+	                        && _cpuAS && !fpu_prev_as;
+	always @(posedge clk_sys) begin
+		if (!_cpuReset) begin
+			fpu_xfer_phase <= 1'b0;
+			fpu_wr_hi      <= 16'h0000;
+			fpu_rd_latch   <= 32'h0000_0000;
+			fpu_prev_as    <= 1'b1;
+		end else begin
+			fpu_prev_as <= _cpuAS;
+			if (fpu_bus_end_edge && !fpu_xfer_phase) begin
+				if (!_cpuRW) fpu_wr_hi    <= cpuDataOut;
+				else         fpu_rd_latch <= fpu_data_out;
+			end
+			if (fpu_bus_end_edge) fpu_xfer_phase <= ~fpu_xfer_phase;
+		end
+	end
+	wire fpu_active_phase = _cpuRW ? !fpu_xfer_phase : fpu_xfer_phase;
+	wire fpu_cs_n_eff = fpu_is_operand_cycle ? ~(fpuAddrMatch && fpu_active_phase)
+	                                         : ~fpuAddrMatch;
+	wire [31:0] fpu_d_in_eff = (fpu_is_operand_cycle && !_cpuRW)
+	                           ? {fpu_wr_hi, cpuDataOut}
+	                           : {16'h0000, cpuDataOut};
+	wire fpu_inactive_beat = fpuAddrMatch && fpu_is_operand_cycle
+	                         && !_cpuAS && !fpu_active_phase;
+	wire eff_fpu_dsack0_n = fpu_inactive_beat ? 1'b0 : fpu_dsack0_n;
+	wire eff_fpu_dsack1_n = fpu_inactive_beat ? 1'b1 : fpu_dsack1_n;
+	wire [15:0] fpu_d_to_cpu = fpu_is_operand_cycle
+	                           ? (fpu_xfer_phase ? fpu_rd_latch[15:0]
+	                                             : fpu_data_out[31:16])
+	                           : fpu_data_out[15:0];
+
+	// Real MC68881 (lite variant — the same FPU instantiated in production
+	// LBMacTwo.sv), fed through the Operand-CIR 2-beat adapter above. The old
+	// sim_fpu_cir_stub no-op responder was removed: the lite FPU now boots and
+	// runs the cpu/fpu corpus correctly in sim, so the stub no longer earns its
+	// keep.
 	mc68881_top fpu_inst (
 		.clk          ( clk_sys              ),
 		.reset_n      ( _cpuReset            ),
 		.a_in         ( fpu_addr_remapped    ),
-		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_in         ( fpu_d_in_eff         ),  // operand-CIR 2-beat aggregation
 		.d_out        ( fpu_data_out         ),
 		.size_n       ( 2'b01                ),
 		.as_n         ( _cpuAS               ),
-		.cs_n         ( ~fpuAddrMatch        ),
+		.cs_n         ( fpu_cs_n_eff         ),  // FPU suppressed on inactive beat
 		.rw           ( _cpuRW               ),
 		.ds_n         ( _cpuUDS & _cpuLDS    ),
 		.dsack0_n     ( fpu_dsack0_n         ),
@@ -473,8 +496,7 @@ module emu
 		.sense_n      ( fpu_sense_n          ),
 		.status_valid (                      )
 	);
-`endif
-	
+
 	// CPU debug - simplified without busstate
 	reg [31:0] last_fetch_pc;
 	reg [15:0] last_fetch_opcode;
@@ -1690,6 +1712,3 @@ module emu
 `endif
 
 endmodule
-
-// sim_fpu_cir_stub moved to ../rtl/mc68881/sim_fpu_cir_stub.v so it
-// can be shared by other verilator builds (SingleStepTests/cpu_fpu/).
