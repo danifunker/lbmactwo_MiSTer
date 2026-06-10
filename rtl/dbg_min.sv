@@ -724,17 +724,14 @@ module dbg_min (
     always @(posedge clk)
         pflp_r <= {flp_byte_cnt, flp_miss_cnt};
 
-    // PFLP RE-ENABLED for floppy-slowness investigation (per
-    // scratch/floppy_slow_plan.md and scratch/snow_compare/baseline.md).
-    // Snow baseline shows 57.8 KB/s sustained; LBMacTwo's 6-min boot
-    // is ~7x slower, so PFLP's byte_cnt + miss_cnt are the primary
-    // diagnostic — see the interpretation matrix in the plan.
-    altsource_probe #(
-        .instance_id ("PFLP"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLP disabled 2026-06-10 — floppy not involved in the SCSI cpufpu-bench
+    // runaway investigation; freed a JTAG slot for PRNG/PRWF (runaway ring).
+    // altsource_probe #(
+    //     .instance_id ("PFLP"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== IWM latch / SDRAM-grant diagnostic (PIWM) ========================
     // Complements PFLP from the IWM side. Layout:
@@ -809,30 +806,25 @@ module dbg_min (
         end
     end
 
-    // PIOA RE-ENABLED for IORB-completion investigation (build #66).
-    // Floppy ruled out as slow (build #65 PFLP: 64 KB/s peak). Mac OS
-    // is stuck in IOWait spin at PC=$40006C36 (per build #65 IF-PC
-    // bursts). PIOA captures the (A0+$10) data address fetched right
-    // after the C36 IF — that's the ioResult field of the IORB whose
-    // driver never IODone's.
-    altsource_probe #(
-        .instance_id ("PIOA"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIOA disabled 2026-06-10 — Welcome-hang IORB probe, not load-bearing for
+    // the cpufpu-bench runaway; freed a JTAG slot for PRNG/PRWF.
+    // altsource_probe #(
+    //     .instance_id ("PIOA"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pioa (.probe(iowait_data_addr), .source(), .source_clk(clk), .source_ena(1'b1));
 
     reg [31:0] pioc_r;
     always @(posedge clk) pioc_r <= {16'd0, iowait_iter_cnt};
-    // PIOC RE-ENABLED for IORB-completion investigation. Counts every
-    // IF at $40006C36 (i.e. every IOWait poll iteration). Build #65
-    // showed Mac OS spends most boot time spinning here; PIOC quantifies.
-    altsource_probe #(
-        .instance_id ("PIOC"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PIOC disabled 2026-06-10 — Welcome-hang IOWait counter, not load-bearing
+    // for the cpufpu-bench runaway; freed a JTAG slot for PRNG/PRWF.
+    // altsource_probe #(
+    //     .instance_id ("PIOC"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pioc (.probe(pioc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PIR1: writes to $0000_03B4 (= IORB.ioResult at Mac low-mem "Params").
     //   [31:16] last 16-bit value the CPU wrote to $3B4
@@ -1998,6 +1990,118 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pifc (.probe(pifc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ==== Runaway-entry jump ring (PRNG / PRWF) — 2026-06-10 ===============
+    // Catch the TRANSITION from healthy execution into the wild-PC runaway
+    // that wedges the cpufpu bench after test 1 (PC sweeps monotonically
+    // through >1MB RAM, vbl_irq_count frozen; same signature live on the
+    // fpu-cir-fixes bitstream). Pure bus-side logic — no TG68 kernel exports.
+    //
+    // Jump-event ring: on every instruction-fetch DISCONTINUITY (IF addr is
+    // not prev_if+2 / prev_if+4), push the pair {prev_if (src), this_if (dst)}
+    // into a 16-entry ring (= 8 pairs of history). Sequential plowing through
+    // pre-cleared RAM ($0000 = ORI) pushes nothing, so the ring PRESERVES the
+    // original entry jump even if the freeze trigger fires much later.
+    //
+    // Trigger/freeze: bench payload code lives at $40000..~$100000 (payload.ld
+    // base $40000, HANDOFF $50000, results buf 400KB); NO legitimate IF goes
+    // above 1MB. Arm when an IF lands in [$40000,$50000) (payload running),
+    // freeze the ring at the first IF in [$100000,$1000000) — the runaway
+    // (observed sweeping $1C0000-$345716) trips this, boot ROM ($40xxxxxxx)
+    // and bench code don't.
+    //
+    // Classifier context (PRWF): the last exception-vector fetch (super-data
+    // read below $400 = VBR table read) + its age in AS cycles at freeze, and
+    // whether an IACK (FC=7, CPU-space type $F) was seen just before. Tells
+    // wild BRANCH (no vector activity) vs exception/interrupt entry with a
+    // corrupted return (vector fetch/IACK immediately before the wild IF).
+    //
+    // Readout: PRNG is a single 32-bit probe; its JTAG SOURCE[3:0] selects
+    // the ring slot (write_source_data in cpu_state.tcl). PRWF layout:
+    //   [31]    frozen
+    //   [30:16] wild_entry_cnt[14:0] (in-window→wild IF transitions, wraps)
+    //   [15:8]  vec_low = cpuAddr[9:2] of last vector fetch (<<2 = offset)
+    //   [7:5]   rng_head[3:1] = OLDEST pair slot (next write position)
+    //   [4:2]   vec_age[2:0]  = AS cycles since that vector fetch (sat 7)
+    //   [1]     iack_recent   = IACK within 7 AS cycles of freeze
+    //   [0]     armed
+    reg [31:0] rng [0:15];
+    reg [3:0]  rng_head;
+    reg [31:0] prev_if;
+    reg        have_prev;
+    reg        rng_armed, rng_frozen, prev_wild;
+    reg [14:0] wild_entry_cnt;
+    reg [7:0]  vec_low;
+    reg [2:0]  vec_age;
+    reg [2:0]  iack_age;
+    integer ri;
+    initial begin
+        for (ri = 0; ri < 16; ri = ri + 1) rng[ri] = 32'd0;
+        rng_head = 4'd0; prev_if = 32'd0; have_prev = 1'b0;
+        rng_armed = 1'b0; rng_frozen = 1'b0; prev_wild = 1'b0;
+        wild_entry_cnt = 15'd0; vec_low = 8'd0; vec_age = 3'd7; iack_age = 3'd7;
+    end
+
+    wire rng_jump = pifa_if_cycle && have_prev &&
+                    (cpuAddr != prev_if + 32'd2) && (cpuAddr != prev_if + 32'd4);
+    wire rng_wild = pifa_if_cycle && rng_armed &&
+                    (cpuAddr[31:24] == 8'h00) && (cpuAddr[23:20] != 4'h0);
+    wire rng_vecrd = cpuAS_n_d && !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
+                     (cpuAddr[31:10] == 22'd0);
+    wire rng_iack = cpuAS_n_d && !cpuAS_n && (cpuFC == 3'b111) &&
+                    (cpuAddr[19:16] == 4'hF);
+
+    always @(posedge clk) begin
+        if (pifa_if_cycle) begin
+            prev_if   <= cpuAddr;
+            have_prev <= 1'b1;
+            prev_wild <= rng_wild;
+            if (cpuAddr[31:16] == 16'h0004) rng_armed <= 1'b1;
+        end
+        if (rng_jump && !rng_frozen) begin
+            rng[rng_head]          <= prev_if;   // src of the jump
+            rng[rng_head + 4'd1]   <= cpuAddr;   // dst of the jump
+            rng_head               <= rng_head + 4'd2;
+        end
+        if (rng_wild && !prev_wild) begin
+            rng_frozen     <= 1'b1;
+            wild_entry_cnt <= wild_entry_cnt + 15'd1;
+        end
+        if (!rng_frozen) begin
+            if (rng_vecrd) begin
+                vec_low <= cpuAddr[9:2];
+                vec_age <= 3'd0;
+            end else if (cpuAS_n_d && !cpuAS_n && vec_age != 3'd7)
+                vec_age <= vec_age + 3'd1;
+            if (rng_iack)
+                iack_age <= 3'd0;
+            else if (cpuAS_n_d && !cpuAS_n && iack_age != 3'd7)
+                iack_age <= iack_age + 3'd1;
+        end
+    end
+
+    wire [3:0] rng_sel;
+    reg [31:0] prng_r;
+    reg [31:0] prwf_r;
+    always @(posedge clk) begin
+        prng_r <= rng[rng_sel];
+        prwf_r <= {rng_frozen, wild_entry_cnt, vec_low,
+                   rng_head[3:1], vec_age, (iack_age != 3'd7), rng_armed};
+    end
+
+    altsource_probe #(
+        .instance_id ("PRNG"),
+        .probe_width (32),
+        .source_width(4),
+        .sld_auto_instance_index ("YES")
+    ) cp_prng (.probe(prng_r), .source(rng_sel), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PRWF"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_prwf (.probe(prwf_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== FPU CIR Response/Restore probes (PFRR / PFRW) -- build #14 =======
     // Build #13 found PIFA frozen at $4000D612 (FRESTORE opcode at $D60E)

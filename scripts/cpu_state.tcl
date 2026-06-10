@@ -139,6 +139,10 @@ foreach inst $info {
     # Build #73 — F-line opcode tracker (CPU/FPU bug hypothesis)
     if {$nm eq "PFLO"} { set idx(PFLO) $i }
     if {$nm eq "PFLA"} { set idx(PFLA) $i }
+    # 2026-06-10 — runaway-entry jump ring (src/dst pairs; PRNG source[3:0]
+    # selects the ring slot) + freeze/classifier flags
+    if {$nm eq "PRNG"} { set idx(PRNG) $i }
+    if {$nm eq "PRWF"} { set idx(PRWF) $i }
     incr i
 }
 
@@ -1396,6 +1400,47 @@ for {set s 1} {$s <= 6} {incr s} {
             lappend seen [format "0x%08X" [rd $idx(PIFA)]]
         }
         puts [format "           IF-PC burst: %s" [join $seen " "]]
+    }
+    if {[info exists idx(PRNG)] && [info exists idx(PRWF)]} {
+        # Runaway-entry jump ring (2026-06-10). PRWF layout:
+        #   [31] frozen  [30:16] wild_entry_cnt  [15:8] vec_low(=addr[9:2])
+        #   [7:5] oldest pair slot  [4:2] vec_age(sat7)  [1] iack_recent
+        #   [0] armed
+        set wf [rd $idx(PRWF)]
+        set frozen   [expr {($wf >> 31) & 1}]
+        set wcnt     [expr {($wf >> 16) & 0x7FFF}]
+        set vlow     [expr {($wf >> 8) & 0xFF}]
+        set oldpair  [expr {($wf >> 5) & 0x7}]
+        set vage     [expr {($wf >> 2) & 0x7}]
+        set iackr    [expr {($wf >> 1) & 1}]
+        set armed    [expr {$wf & 1}]
+        puts [format "           RUNAWAY: frozen=%d armed=%d wild_entry_cnt=%u | last vector fetch: offset=0x%02X (vec %u) age=%u AS-cycles%s | iack_recent=%d" \
+            $frozen $armed $wcnt [expr {$vlow << 2}] $vlow $vage \
+            [expr {$vage == 7 ? "+ (stale)" : ""}] $iackr]
+        if {$frozen} {
+            # Dump the 8 {src -> dst} jump pairs, oldest first. PRNG's JTAG
+            # source[3:0] selects the ring slot; pairs sit at even slots.
+            puts "           RUNAWAY jump ring (oldest -> newest; LAST pair = the jump that tripped the freeze):"
+            for {set p 0} {$p < 8} {incr p} {
+                set slot [expr {(($oldpair + $p) % 8) * 2}]
+                write_source_data -instance_index $idx(PRNG) -value [format "%X" $slot] -value_in_hex
+                set src [rd $idx(PRNG)]
+                write_source_data -instance_index $idx(PRNG) -value [format "%X" [expr {$slot + 1}]] -value_in_hex
+                set dst [rd $idx(PRNG)]
+                if {$src == 0 && $dst == 0} { continue }
+                set delta [expr {$dst - $src}]
+                puts [format "             pair %d: src=0x%08X -> dst=0x%08X  (delta %+d)" \
+                    $p $src $dst $delta]
+            }
+            if {$vage < 7} {
+                puts [format "                 vector fetch (offset 0x%02X) %u AS-cycles before freeze => EXCEPTION/INTERRUPT entry preceded the wild jump" \
+                    [expr {$vlow << 2}] $vage]
+            } else {
+                puts "                 NO recent vector fetch => wild BRANCH/RTS-style jump (no exception entry involved)"
+            }
+        } else {
+            puts "           RUNAWAY: not frozen yet (no IF above 1MB since arming) -- reproduce the wedge, then re-read"
+        }
     }
     if {[info exists idx(PMEM)] && [info exists idx(PMEM2)]} {
         set m1 [rd $idx(PMEM)]
