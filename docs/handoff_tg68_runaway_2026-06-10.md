@@ -2,6 +2,26 @@
 
 *2026-06-10, branch `fpu-bus-adapter-dani` @ `23f5bbd`.*
 
+> ## ✅ RESOLVED — 2026-06-10, same day (commits `065d08d`..`fefc429`)
+>
+> This handoff's unification instinct was right but the suspect was wrong:
+> it was **never a TG68 bug**. The probe loop it prescribed (PC-history
+> ring → recovery-stub freeze → PIFD fetch-data capture) traced the
+> cascade to a **top-level SDRAM read-path bug**: the DTACK coherency
+> gate blinked with the busCycle interleave and `cpu_data` latched
+> neighbor transactions' words, so DREQ-randomized cycles after pseudo-DMA
+> DACK writes could fetch/read a stale word (PIFD caught `0x1ED8` in
+> place of the ROM write loop's `DBF D5` opcode `0x51CD`, whose orphaned
+> `$FFFA` displacement then executed as an F-line ⇒ vector 11; journal
+> reads got `0x51C9`/`0x0000` neighbor words ⇒ the disk corruption). The
+> visible runaway/IOWait symptoms below were the **bench's own recovery
+> cascade** (SR=$2700 leak + stale longjmp), fixed in `recovery.s`
+> (`dea2cfd`, hda `33b6fc9c`). Core fix: slot-owned AS-scoped read
+> handshake (`fefc429`, RBF `af34c4c4`). Validation: full corpus runs
+> (was wedged at run=1), journal byte-clean. Memory:
+> `project_tg68_runaway_unification`. The text below is kept for the
+> diagnostic record.
+
 ## TL;DR — the big realization
 
 Two symptoms we were chasing as separate bugs are **the same TG68 CPU bug**:
