@@ -600,9 +600,52 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 // asserts, so this always releases within ~1-2 SDRAM cycles. Writes and the
 // turbo fast path are unchanged.
 wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
-wire mac_is_sdram_read    = (!_ramOE || !_romOE);
-wire ram_or_rom_dtack     = (mac_is_sdram_read && !arb_mac_dout_valid) ? 1'b1
-                                                                       : ram_or_rom_dtack_raw;
+
+// SLOT-OWNED READ HANDSHAKE (2026-06-10 — the vec-11 / journal-corruption fix).
+//
+// The old gate `(!_ramOE || !_romOE) && !arb_mac_dout_valid` had two holes,
+// caught red-handed by the PIFD probe (CPU fetched 0x1ED8 where ROM holds
+// 0x51CD ⇒ the DBF's $FFFA displacement decoded as an F-line opcode ⇒ the
+// bench's vector-11 stray trap; same mechanism corrupted journal-buffer
+// READS, so the CPU wrote 0x51C9/0x0000 neighbor words to disk):
+//
+//  1. `!_ramOE || !_romOE` BLINKS with the busCycle interleave (video 0 /
+//     CPU 1 / floppy 2 / CPU 3): during off-slots the gate term vanishes
+//     and raw turbo DTACK passes, so a CPU whose s4 DTACK-sample lands in
+//     an off-slot bypasses the coherency hold entirely.
+//  2. arb_mac_dout_valid counted SDRAM t=0 boundaries while arb_mac_oe was
+//     high — but arb_mac_oe is a MUX of CPU + legacy-video + floppy slot
+//     fetches with different addresses, so the count could be satisfied by
+//     a neighbor master's slot while sdram_dout held that master's word.
+//
+// Misaligned cycles are rare in ordinary code (bus cycles phase-lock to
+// the interleave) but the NCR pseudo-DMA loop completes each DACK cycle on
+// DREQ timing, randomizing the phase of the following fetch — which is why
+// the corruption clustered in the 16KB journal writes.
+//
+// Fix: DTACK for an SDRAM read is held until a slot that STARTED with the
+// CPU's own read command at its t=0 (busPhase 0 of a cpuBusControl
+// busCycle) has completed (its clk8_en_p tail, where the SDRAM word is in
+// sdram_dout and dataController latches cpu_data). The decode is AS-scoped
+// (selectRAM/ROM, non-blinking). Worst case adds ~2 busCycles of wait on a
+// misaligned read; a CPU slot always arrives, so this cannot wedge.
+reg  slot0_mark;          // busPhase==0 marker (the clk after clk8_en_p)
+reg  sdram_slot_cpu_rd;   // this SDRAM slot started with the CPU's read cmd
+reg  cpu_sdram_rd_done;   // an owned slot has completed for this bus cycle
+wire cpu_sdram_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
+always @(posedge clk_sys) begin
+	slot0_mark <= clk8_en_p;
+	if (slot0_mark)
+		sdram_slot_cpu_rd <= cpuBusControl && cpu_sdram_rd_cycle;
+	if (_cpuAS)
+		cpu_sdram_rd_done <= 1'b0;
+	else if (sdram_slot_cpu_rd && clk8_en_p)
+		cpu_sdram_rd_done <= 1'b1;
+end
+
+wire mac_is_sdram_read    = cpu_sdram_rd_cycle;
+wire ram_or_rom_dtack     = (mac_is_sdram_read && !cpu_sdram_rd_done) ? 1'b1
+                                                                      : ram_or_rom_dtack_raw;
 assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
@@ -952,6 +995,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.selectASC(selectASC),
 	.cpuAddrASC(cpuAddr[12:0]),
 	.cpuBusControl(cpuBusControl),
+	.cpuSlotOwned(sdram_slot_cpu_rd),
 	.videoBusControl(videoBusControl),
 	.memoryDataOut(memoryDataOut),
 	.memoryDataIn(sdram_do),
@@ -1389,7 +1433,9 @@ dbg_min dbg_min_inst (
 	.selectNuBus    (selectNuBus),
 	.fpu_dsack0_n   (fpu_dsack0_n),
 	.fpu_dsack1_n   (fpu_dsack1_n),
-	.mac_dout_valid (arb_mac_dout_valid),
+	// Rewired 2026-06-10 to the slot-owned read-done flag (the signal that
+	// now gates DTACK); the arbiter's blind-counted valid is vestigial.
+	.mac_dout_valid (cpu_sdram_rd_done),
 	.video_en       (dbg_video_en),
 	.vram_wr_cnt    (dbg_vram_wr_cnt),
 	.vram_fetch_cnt (dbg_vram_fetch_cnt),

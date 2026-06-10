@@ -48,6 +48,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// RAM/ROM:
 	input videoBusControl,
 	input cpuBusControl,
+	// this SDRAM slot started with the CPU's own read command at its t=0
+	// (registered in LBMacTwo.sv) — the only slots whose memoryLatch tail
+	// may be captured as CPU read data. See cpu_data comment below.
+	input cpuSlotOwned,
 	input [15:0] memoryDataIn,
 	output [15:0] memoryDataOut,
 	input memoryLatch,
@@ -191,8 +195,16 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign dbg_scc_irq_n  = _sccIrq;
 
 
+	// Latch SDRAM read data ONLY from a slot the CPU's own read command
+	// started (cpuSlotOwned, registered at the slot's t=0 in LBMacTwo.sv).
+	// The old `cpuBusControl && memoryLatch` gate latched EVERY CPU-slot
+	// tail — including slots whose SDRAM transaction was a refresh or a
+	// neighbor master's, leaving the PREVIOUS transaction's word (legacy
+	// slot-0 video fetch, or the CPU's own prior fetch) in cpu_data. That
+	// neighbor word reaching the CPU = the journal 0x51C9/0x0000 disk
+	// corruption and the mid-pseudo-DMA F-line (vec 11) stray trap.
 	reg [15:0] cpu_data;
-	always @(posedge clk32) if (cpuBusControl && memoryLatch) cpu_data <= memoryDataIn;
+	always @(posedge clk32) if (cpuSlotOwned && memoryLatch) cpu_data <= memoryDataIn;
 
 	// CPU-side data output mux
 	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
@@ -202,7 +214,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
 							  selectSCSI ? scsiDataOut :
-							  (cpuBusControl && memoryLatch) ? memoryDataIn : cpu_data;
+							  (cpuSlotOwned && memoryLatch) ? memoryDataIn : cpu_data;
 
 	// Memory-side
 	assign memoryDataOut = cpuDataIn;
