@@ -202,18 +202,55 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
-	// REQ assertion. Previously this was gated on !sel ("wait for the initiator
-	// to drop SEL before the first REQ"). But the reference implementations
-	// (Snow's NCR5380, MAME) assert REQ as soon as the target is selected and
-	// in an information-transfer phase — they do NOT wait for SEL to deassert.
-	// Our !sel gate added an extra handshake step: target asserts BSY at
-	// CMD_IN, then withholds REQ until SEL drops. The Mac ROM driver's
-	// SEL-release intermittently races that, the command never starts, the
-	// driver times out and issues a bus RESET -> the CMD_IN->IDLE->reselect
-	// loop seen on the FPGA (but not on real HW or MAME). Drop the !sel gate;
-	// `phase != PHASE_IDLE` already prevents REQ during the IDLE->selection
-	// sampling window, so REQ now comes up on selection like the references.
-	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
+	// REQ assertion combines two independent fixes from the two source branches:
+	//
+	// (1) DROP the !sel gate (from fpu-bus-adapter):
+	//     Previously REQ was gated on !sel ("wait for initiator to drop SEL
+	//     before the first REQ").  But Snow's NCR5380 and MAME assert REQ as
+	//     soon as the target is selected and in an information-transfer phase
+	//     — they do NOT wait for SEL to deassert.  Our !sel gate raced the
+	//     Mac ROM's SEL release and produced a CMD_IN->IDLE->reselect loop on
+	//     the FPGA.  `phase != PHASE_IDLE` already prevents REQ during the
+	//     IDLE->selection window, so dropping !sel is safe.
+	//
+	// (2) ADD the multi-block boundary REQ pulse (from eight-mb-fix 8e388a4):
+	//     The Mac SCSI Manager transfers a multi-block read one 512-byte block
+	//     per TIB instruction, parking in a wait loop (ROM $C624) that polls
+	//     CSR.REQ and exits when REQ drops.  A single-block read satisfies
+	//     this naturally (data_complete drops REQ at byte 512); a multi-block
+	//     read needs the same drop at every interior 512-byte boundary or the
+	//     host wedges ("Welcome to Macintosh" hang).
+	//     Drop REQ at each interior boundary and hold it low until EITHER:
+	//       * host_csr_rd (the $C624 poll observed REQ=0) — careful per-block
+	//         driver path; closed-loop, interrupt-timing-independent; OR
+	//       * a short timeout — the blind pseudo-DMA path never reads CSR.
+	//     Timeout MUST stay below the host's SCSI-DMA BERR watchdog (~260 sys
+	//     cycles) so the blind path doesn't trip /BERR at the boundary.
+	reg       blk_breath;
+	reg [31:0] data_cnt_q;
+	reg  [7:0] breath_timeout;
+	always @(posedge clk) begin
+		if (phase != PHASE_DATA_OUT) begin
+			blk_breath     <= 1'b0;
+			data_cnt_q     <= 32'd0;
+			breath_timeout <= 8'd0;
+		end else begin
+			data_cnt_q <= data_cnt;
+			if ((data_cnt != data_cnt_q) && (data_cnt[8:0] == 9'd0) &&
+			    (data_cnt != 32'd0) && !data_complete) begin
+				blk_breath     <= 1'b1;
+				breath_timeout <= 8'd180;     // < ~260-cycle SCSI-DMA BERR watchdog
+			end else if (blk_breath) begin
+				if (host_csr_rd || breath_timeout == 8'd0)
+					blk_breath <= 1'b0;
+				else
+					breath_timeout <= breath_timeout - 8'd1;
+			end
+		end
+	end
+	wire blk_breathing = blk_breath;
+
+	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete && !blk_breathing;
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -512,8 +549,8 @@ always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
 		data_cnt <= 0;
 		data_complete <= 0;
-	end else begin	
-		if(stb_adv)begin	
+	end else begin
+		if(stb_adv)begin
 			if(!data_complete) data_cnt <= data_cnt + 1'd1;
 			data_complete <= (data_len - 1'd1) == data_cnt;
 		end
@@ -523,8 +560,9 @@ end
 `ifdef SIMULATION
 // No-progress watchdog: in a data phase, if data_cnt has not advanced for a
 // long time, dump the FULL handshake state — independent of REQ level — so a
-// deadlock where REQ is held LOW (io_busy / data_phase_complete)
-// is visible, not just a REQ-high host stall.  Also logs every phase change.
+// deadlock where REQ is held LOW (io_busy / data_phase_complete /
+// blk_breathing) is visible, not just a REQ-high host stall.  Also logs every
+// phase change.  Supersedes eight-mb-fix's simpler REQ-high-only variant.
 reg [31:0] stall_cnt;
 reg [31:0] data_cnt_seen;
 reg  [2:0] phase_d;
