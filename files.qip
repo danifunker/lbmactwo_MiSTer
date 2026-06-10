@@ -22,7 +22,14 @@ set_global_assignment -name VERILOG_FILE rtl/videoShifter.v
 set_global_assignment -name VERILOG_FILE rtl/rtc.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_min.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_arbiter.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_mdc824.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_highres.sv
+# nubus_video_mdc824.sv (Display Card 8-24 model) kept on disk for reference but
+# excluded from the build: our baked-in declaration ROM is the 341-0660 Hi-Res
+# declrom, so the Mac installs the Hi-Res slot driver and writes to the m2hires
+# register map.  mdc824's decode never matched those writes, so VBL never got
+# acknowledged and boot wedged in IOWait.  See docs/scsi-id5-phantom-workaround.md
+# for the matching pattern.
+#set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_mdc824.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/vram_ram.sv
 #set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_toby.sv
 #set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/ovo.sv

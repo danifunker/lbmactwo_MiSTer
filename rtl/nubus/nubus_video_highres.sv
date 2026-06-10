@@ -65,7 +65,13 @@ module nubus_video_highres #(
     //   dbg_vram_fetch_cnt: count of completed video VRAM fetches (reads)
     output       dbg_video_en,
     output [15:0] dbg_vram_wr_cnt,
-    output [15:0] dbg_vram_fetch_cnt
+    output [15:0] dbg_vram_fetch_cnt,
+
+    // Match mdc824 debug surface so the CARD: probe in cpu_state.tcl keeps
+    // working unchanged across a card swap.
+    output [15:0] dbg_irq_cnt,        // # of VBL IRQ assertions (nmrq_n falling)
+    output [15:0] dbg_ack_cnt,        // # of bus cycles this card ACKed
+    output        dbg_vblank_enable   // VBL IRQ currently enabled? (~vbl_disable)
 );
 
     // ========================================================================
@@ -973,5 +979,26 @@ module nubus_video_highres #(
                 vram_fetch_cnt_r <= vram_fetch_cnt_r + 16'd1;
         end
     end
+
+    // VBL IRQ assertions + bus-ACK count (match mdc824's debug surface so
+    // cpu_state.tcl's CARD: line decodes identically across the card swap).
+    reg [15:0] irq_cnt_r, ack_cnt_r;
+    reg        nmrq_d, ack_n_d;
+    always @(posedge clk) begin
+        if (reset) begin
+            irq_cnt_r <= 16'd0;
+            ack_cnt_r <= 16'd0;
+            nmrq_d    <= 1'b1;
+            ack_n_d   <= 1'b1;
+        end else begin
+            nmrq_d  <= nmrq_n;
+            ack_n_d <= ack_n;
+            if (nmrq_d && !nmrq_n)   irq_cnt_r <= irq_cnt_r + 16'd1;  // falling edge: VBL IRQ asserted
+            if (ack_n_d && !ack_n)   ack_cnt_r <= ack_cnt_r + 16'd1;  // falling edge: card ACKed
+        end
+    end
+    assign dbg_irq_cnt        = irq_cnt_r;
+    assign dbg_ack_cnt        = ack_cnt_r;
+    assign dbg_vblank_enable  = ~vbl_disable;
 
 endmodule

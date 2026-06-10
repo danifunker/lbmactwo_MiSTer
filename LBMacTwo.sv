@@ -855,7 +855,14 @@ addrController_top ac0
 wire [1:0] diskEject;
 wire [1:0] diskMotor, diskAct;
 
-nubus_video_mdc824 nubus_card (
+// Swap back to nubus_video_highres: the 341-0660 declaration ROM we bake into
+// the bitstream IS the Hi-Res card's declrom, so the Mac installs the Hi-Res
+// driver and writes VBL ctrl/clear into slot offset 0x0A_xxxx with bit-2
+// encoding (matches MAME's m2hires).  The mdc824 model decodes 0x013C/0x148
+// and never sees those writes, so the VBL IRQ never gets cleared
+// (vbl_irq_count stuck at 1) and the boot hangs in IOWait.  See
+// docs/scsi-id5-phantom-workaround.md for the analogous diagnostic pattern.
+nubus_video_highres nubus_card (
 	.clk(clk_sys),
 	.reset(!_cpuReset),
 	.addr(cpuAddr),
