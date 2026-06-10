@@ -1377,26 +1377,34 @@ module dbg_min (
             last_if_pc <= cpuAddr;
     end
 
-    // 3. trap_1111 rising-edge detector. STICKY-ON-FIRST capture of the raw
-    //    bus state at the exact cycle the FIRST trap fires — this is the
-    //    high-information probe that the lagged last_fpu_resp version missed:
-    //      first_trap_din  = cpu_din raw at the trap edge (the response /
-    //                        opcode the kernel actually trapped on). 0x0000 =>
-    //                        the Response read still hadn't landed (stale-read
-    //                        persisting on HW); 0x09xx/0x96xx => a real
-    //                        Response primitive (cp_idle_resp ELSE); 0xFxxx =>
-    //                        an F-line opcode fetch (the cpID-decode trap site).
-    //      first_trap_addr = cpuAddr at the trap edge. $0002xxxx+FC7 => CIR
-    //                        access; $40xxxxxx => ROM IF; $00xxxxxx => RAM.
-    //      first_trap_fc/rw, plus last_fpu_resp (last completed FPU read).
+    // 3. trap_1111 rising-edge detector. The very FIRST trap_1111 after reset
+    //    is the Mac II ROM's benign FPU/coprocessor self-probe: the ROM
+    //    deliberately executes the cpID=0 F-line opcode 0xF008 at ROM
+    //    0x40003B06 behind a temporary vec-$2C handler, EXPECTS the trap, and
+    //    catches it itself (confirmed by ROM disassembly). That swamped the old
+    //    sticky-first capture (it always read din=0xF008 addr=0x40003B06). So
+    //    we now SKIP every ROM-region trap (cpuAddr[31:28]==0x4) and capture the
+    //    first NON-ROM trap — that one is the supervisor bench test #1 trap.
+    //      first_nr_din  = cpu_din at the trap edge. 0xFxxx => F-line opcode
+    //                      decode trap (3731 cpID=0 / 3726 cpID!=0 bad type);
+    //                      at FC=6 + RAM addr that means a post-FRESTORE
+    //                      prefetch landed the PC on a non-instruction word.
+    //                      0x09xx/0x96xx => Response primitive hitting
+    //                      cp_idle_resp ELSE (4761).
+    //      first_nr_addr = cpuAddr ($00xxxxxx RAM => bench code; $0002xxxx+FC7
+    //                      => CIR access).
+    //      first_nr_fc/rw + last_fpu_resp captured too. nr_trap_cnt = number of
+    //      NON-ROM traps (0 while trap_1111_cnt>0 => every trap was the ROM
+    //      self-probe and the bench trap is elsewhere — rethink the filter).
     reg        dbg_fline_trap_d;
     reg [15:0] trap_1111_cnt;
-    reg        first_trap_seen;
-    reg [15:0] first_trap_din;
-    reg [31:0] first_trap_addr;
-    reg [2:0]  first_trap_fc;
-    reg        first_trap_rw;
-    reg [15:0] first_trap_lastresp;
+    reg [11:0] nr_trap_cnt;
+    reg        first_nr_seen;
+    reg [15:0] first_nr_din;
+    reg [31:0] first_nr_addr;
+    reg [2:0]  first_nr_fc;
+    reg        first_nr_rw;
+    reg [15:0] first_nr_lastresp;
     initial begin
         fpu_dsack_active_d = 1'b0;
         last_fpu_resp      = 16'd0;
@@ -1404,40 +1412,43 @@ module dbg_min (
         last_if_pc         = 32'd0;
         dbg_fline_trap_d   = 1'b0;
         trap_1111_cnt      = 16'd0;
-        first_trap_seen    = 1'b0;
-        first_trap_din     = 16'd0;
-        first_trap_addr    = 32'd0;
-        first_trap_fc      = 3'd0;
-        first_trap_rw      = 1'b0;
-        first_trap_lastresp= 16'd0;
+        nr_trap_cnt        = 12'd0;
+        first_nr_seen      = 1'b0;
+        first_nr_din       = 16'd0;
+        first_nr_addr      = 32'd0;
+        first_nr_fc        = 3'd0;
+        first_nr_rw        = 1'b0;
+        first_nr_lastresp  = 16'd0;
     end
     always @(posedge clk) begin
         dbg_fline_trap_d <= dbg_fline_trap;
         if (dbg_fline_trap && !dbg_fline_trap_d) begin
             trap_1111_cnt <= trap_1111_cnt + 16'd1;
-            if (!first_trap_seen) begin
-                first_trap_seen     <= 1'b1;
-                first_trap_din      <= cpu_din;
-                first_trap_addr     <= cpuAddr;
-                first_trap_fc       <= cpuFC;
-                first_trap_rw       <= cpuRW;
-                first_trap_lastresp <= last_fpu_resp;
+            if (cpuAddr[31:28] != 4'h4) begin   // skip the ROM-region self-probe
+                nr_trap_cnt <= nr_trap_cnt + 12'd1;
+                if (!first_nr_seen) begin
+                    first_nr_seen     <= 1'b1;
+                    first_nr_din      <= cpu_din;
+                    first_nr_addr     <= cpuAddr;
+                    first_nr_fc       <= cpuFC;
+                    first_nr_rw       <= cpuRW;
+                    first_nr_lastresp <= last_fpu_resp;
+                end
             end
         end
     end
 
-    // PFLO [31:16] = cpu_din at first trap, [15:0] = trap count.
+    // PFLO [31:16] = first NON-ROM trap din, [15:0] = total trap_1111 count.
     reg [31:0] pflo_r;
-    // PFLA [31:0] = cpuAddr at first trap.
+    // PFLA [31:0] = first NON-ROM trap addr.
     reg [31:0] pfla_r;
-    // PFLF [31:16] = last_fpu_resp at first trap, [15:13]=cpuFC, [12]=cpuRW,
-    //      [11:0] = low 12 bits of cpuAddr (CIR register offset visibility).
+    // PFLF [31:16] = last_fpu_resp at first NON-ROM trap, [15:13]=cpuFC,
+    //      [12]=cpuRW, [11:0] = number of NON-ROM traps seen.
     reg [31:0] pflf_r;
     always @(posedge clk) begin
-        pflo_r <= {first_trap_din, trap_1111_cnt};
-        pfla_r <= first_trap_addr;
-        pflf_r <= {first_trap_lastresp, first_trap_fc, first_trap_rw,
-                   first_trap_addr[11:0]};
+        pflo_r <= {first_nr_din, trap_1111_cnt};
+        pfla_r <= first_nr_addr;
+        pflf_r <= {first_nr_lastresp, first_nr_fc, first_nr_rw, nr_trap_cnt};
     end
 
     altsource_probe #(

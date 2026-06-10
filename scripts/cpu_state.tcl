@@ -660,35 +660,41 @@ for {set s 1} {$s <= 6} {incr s} {
         puts [format "           BUF-RD: ioBuffer first 4 bytes = %02X %02X %02X %02X  (word0=0x%04X word1=0x%04X)%s" \
             $b0 $b1 $b2 $b3 $w0 $w1 $hint]
     }
-    # First-trap data capture (2026-06-09): din/addr/fc at the FIRST
-    # trap_1111 rising edge, sticky. Classifies which trap_1111 site fired.
+    # First NON-ROM trap capture (2026-06-10): the FIRST trap_1111 is always the
+    # Mac II ROM's benign FPU self-probe (cpID=0 0xF008 @ ROM 0x40003B06, caught
+    # by the ROM itself). The probe now skips all ROM-region traps and captures
+    # the first NON-ROM trap = the supervisor bench test #1 trap. PFLO[31:16]=din,
+    # PFLO[15:0]=total trap count; PFLA=addr; PFLF[11:0]=non-ROM trap count.
     if {[info exists idx(PFLO)] && [info exists idx(PFLA)]} {
         set po [rd $idx(PFLO)]
         set pa [rd $idx(PFLA)]
         set din [expr {($po >> 16) & 0xFFFF}]
         set cnt [expr {$po & 0xFFFF}]
         set hi  [expr {($din >> 12) & 0xF}]
+        set cpid [expr {($din >> 9) & 0x7}]
         set cls "(unclassified)"
-        if {$din == 0x0000} { set cls "0x0000 => Response read NOT landed (stale-read persists on HW; cp_read_resp_wait wait too short for real DSACK)" }
-        if {$hi == 0x0 && $din != 0x0000} { set cls "looks like a Response primitive low-form" }
-        if {(($din >> 8) & 0xF) == 0x9} { set cls "0x_9__ Null/Transfer-ish Response primitive => cp_idle_resp ELSE" }
-        if {$hi == 0xF} { set cls "0xFxxx => F-line OPCODE => cpID-decode trap site (3721/3726), NOT cp_idle_resp" }
-        puts [format "           FIRST-TRAP: din=0x%04X  addr=0x%08X  trap_cnt(wrap16)=%u" $din $pa $cnt]
+        if {$din == 0x0000} { set cls "0x0000 => no NON-ROM trap captured yet (see PFLF non-ROM count)" }
+        if {(($din >> 8) & 0xF) == 0x9} { set cls "0x_9__ Null/Transfer-ish Response primitive => cp_idle_resp ELSE (kernel 4761)" }
+        if {$hi == 0xF && $cpid == 0} { set cls [format "0xFxxx cpID=0 => F-line decode trap (kernel 3731). At FC=6/RAM => CPU fetched a non-instruction word (post-FRESTORE prefetch overrun?)"] }
+        if {$hi == 0xF && $cpid == 1} { set cls "0xFxxx cpID=1 (FPU op) => unrecognized type hit kernel 3726 — a real FPU opcode the decoder rejects" }
+        if {$hi == 0xF && $cpid > 1}  { set cls [format "0xFxxx cpID=%u => other-coprocessor F-line (kernel 3731)" $cpid] }
+        puts [format "           NONROM-TRAP: din=0x%04X (cpID=%u)  addr=0x%08X  total_trap_cnt(wrap16)=%u" $din $cpid $pa $cnt]
         puts "                 din class: $cls"
-        if {$cnt == 0} {
-            puts "                 cnt=0 => trap_1111 NEVER fired this run."
-        }
     }
     if {[info exists idx(PFLF)]} {
         set pf [rd $idx(PFLF)]
         set lastresp [expr {($pf >> 16) & 0xFFFF}]
         set fc  [expr {($pf >> 13) & 0x7}]
         set rw  [expr {($pf >> 12) & 0x1}]
-        set alo [expr {$pf & 0xFFF}]
-        puts [format "           FIRST-TRAP ctx: last_fpu_resp=0x%04X  cpuFC=%u  cpuRW=%u  addr\[11:0\]=0x%03X" \
-            $lastresp $fc $rw $alo]
-        puts "                 cpuFC=7 + addr~0x0002xxxx => trap during a CIR access (FPU dialog)."
-        puts "                 cpuFC=6 => trap during a supervisor instruction fetch."
+        set nrc [expr {$pf & 0xFFF}]
+        puts [format "           NONROM-TRAP ctx: last_fpu_resp=0x%04X  cpuFC=%u  cpuRW=%u  nonROM_trap_cnt=%u" \
+            $lastresp $fc $rw $nrc]
+        puts "                 cpuFC=7 + addr~0x0002xxxx => trap during a CIR access (FPU dialog: 4761/5008)."
+        puts "                 cpuFC=6 => trap during an instruction fetch (decode trap 3726/3731)."
+        if {$nrc == 0} {
+            puts "                 nonROM_trap_cnt=0 => EVERY trap was the ROM self-probe; the"
+            puts "                                     bench trap is ROM-region too — rethink the filter."
+        }
     }
     # Build #71 — Mac OS error globals
     if {[info exists idx(PRSR)]} {
