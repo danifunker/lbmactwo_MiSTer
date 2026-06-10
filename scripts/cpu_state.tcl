@@ -294,8 +294,16 @@ for {set s 1} {$s <= 6} {incr s} {
         set sackseen [expr {($s3 >> 16) & 0x3}]
         set cp0 [expr {($s3 >> 18) & 0x7}]
         set cp1 [expr {($s3 >> 21) & 0x7}]
+        # 2026-06-10c: [27:26]=empty-CD phase[1:0], [25]=phase[2], [24]=REQ
+        set ecreq [expr {($s3 >> 24) & 0x1}]
+        set ecph  [expr {((($s3 >> 25) & 0x1) << 2) | (($s3 >> 26) & 0x3)}]
         puts [format "           PHASE now: t0=%s t1=%s | max: t0=%s t1=%s | io_ack_seen=%d sd_ack_seen=%d" \
             [phname $cp0] [phname $cp1] [phname $mp0] [phname $mp1] $iackseen $sackseen]
+        puts [format "           EMPTY-CD(ID3): phase=%s req=%u" [phname $ecph] $ecreq]
+        if {$ecph != 0} {
+            puts "                 => the fake CD-ROM target is BUSY. If it stays in DATA_OUT with req=1"
+            puts "                    while the Mac polls BSR, that is the alloc-length over-serve wedge."
+        }
     }
     if {[info exists idx(PSCW)]} {
         set w [rd $idx(PSCW)]
@@ -310,7 +318,10 @@ for {set s 1} {$s <= 6} {incr s} {
         set tlen [expr {($w >> 25) & 0x3F}]
         set req  [expr {($w >> 31) & 0x1}]
         set blk  [expr {$dc >> 9}]
-        puts [format "           WR-STALL t0(ID6): phase=%s data_cnt=%u (block %u/%u of tlen=%u)  cmd_write=%u" \
+        # NOTE: the ncr5380 mux shows whichever target is in DATA_IN and
+        # DEFAULTS TO TARGET 1 (ID5) when neither is — the OSD-mounted disk
+        # normally lands on t1, so the idle snapshot is usually the real disk.
+        puts [format "           WR-STALL disk(muxed,idle=t1/ID5): phase=%s data_cnt=%u (block %u/%u of tlen=%u)  cmd_write=%u" \
             [phname $wph] $dc $blk [expr {$tlen>0?$tlen-1:0}] $tlen $cwr]
         puts [format "                 io_wr=%u io_ack=%u io_busy=%u sd_buff_sel=%u dc9=%u req=%u data_complete=%u" \
             $iowr $ioack $iobusy $sbsel [expr {($dc>>9)&1}] $req $dcpl]

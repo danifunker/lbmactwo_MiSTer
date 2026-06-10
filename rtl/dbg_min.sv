@@ -302,26 +302,31 @@ module dbg_min (
         io_ack_seen <= io_ack_seen | scsi_dbg2[1:0];
         sd_ack_seen <= sd_ack_seen | sd_ack;
     end
+    // scsi3_r layout (2026-06-10c):
+    //   [27:26]=empty-CD phase[1:0]  [25]=empty-CD phase[2]  [24]=empty-CD REQ
+    //   [23:21]=ph1 [20:18]=ph0 [17:16]=sd_ack_seen [15:14]=io_ack_seen
+    //   [12:10]=max_ph1 [8:6]=max_ph0 [5:0]=live io_rd/io_wr/io_ack
     reg [31:0] scsi3_r;
     always @(posedge clk)
-        scsi3_r <= {8'd0, ph1, ph0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
+        scsi3_r <= {4'd0, scsi_dbg2[15:14], scsi_dbg2[7:6], ph1, ph0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
 
-    // PSC3 RE-ENABLED 2026-06-10 for the SCSI 16KB multi-block-write wedge.
-    // scsi3_r exposes per-target live phase (ph0/ph1), max phase reached
-    // (sticky), io_ack/sd_ack seen, and live io_rd/io_wr/io_ack (scsi_dbg2[5:0]).
-    // Disambiguates: stuck in DATA_IN (3) data-phase flush stall vs STATUS_OUT
-    // (4) completion stall vs back-to-IDLE (SCSI done, Mac driver wedged); and
-    // whether HPS block-flush acks flow during the write.
-    // PSC3 disabled again 2026-06-10 — its phase info is now also in PSCW
-    // ([18:16]); freed the slot for PSNC (NCR5380 host-side DMA stall).
-    // altsource_probe #(
-    //     .instance_id ("PSC3"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC3 RE-ENABLED 2026-06-10c for the disk-corruption investigation: it now
+    // also carries the empty-CD target's live phase + REQ (scsi_dbg2[15:14]/
+    // [7:6]) — the ID3 fake CD-ROM was wedging the bus in DATA_OUT with zero
+    // probe visibility (the Welcome hang had to be proven by elimination).
+    // Slot freed by disabling PSWL (blind_wr/req_drop counters — they proved
+    // their point: blind_wr_count==0, the Mac honors DREQ).
+    altsource_probe #(
+        .instance_id ("PSC3"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    // PSCW: target0 (boot disk) multi-block WRITE-stall snapshot (2026-06-10).
+    // PSCW: disk-target multi-block WRITE-stall snapshot (2026-06-10).
+    // NOTE: the ncr5380 mux shows whichever target is in DATA_IN, and defaults
+    // to TARGET 1 (ID5) when neither is — NOT t0. The OSD-mounted disk lands
+    // on t1, so the idle-state snapshot is usually the real disk.
     // Latch-and-HOLD scsi_dbg_wr the first time the boot disk is mid-write-data
     // -phase (cmd_write & phase==DATA_IN) with io_busy asserted — i.e. stalled
     // waiting for an HPS block-flush ack. Before that (and if that exact stall
@@ -372,12 +377,15 @@ module dbg_min (
     initial begin pswl_r = 32'd0; end
     always @(posedge clk)
         pswl_r <= scsi_dbg_ncr2;
-    altsource_probe #(
-        .instance_id ("PSWL"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pswl (.probe(pswl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSWL disabled 2026-06-10c — freed the JTAG slot for PSC3 (empty-CD phase
+    // visibility). The loss-mechanism question is answered: blind_wr_count==0,
+    // the Mac honors DREQ; req_drop_count is just HPS flush throttling.
+    // altsource_probe #(
+    //     .instance_id ("PSWL"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pswl (.probe(pswl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target REQ/ACK observations (sticky, from scsi.v dbg_hs).
     reg [31:0] scsi4_r;
