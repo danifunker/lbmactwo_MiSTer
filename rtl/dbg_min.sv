@@ -2016,63 +2016,86 @@ module dbg_min (
     // wild BRANCH (no vector activity) vs exception/interrupt entry with a
     // corrupted return (vector fetch/IACK immediately before the wild IF).
     //
+    // Build #2 retarget (2026-06-10b): build #1's ring caught the post-fault
+    // CASCADE (recovery longjmp → RTS-to-garbage → sweep) but the PRIMAL
+    // fault's pair had rotated out. The bench's recovery stubs live at
+    // payload 0x40F3A..0x410CC (RSTUB v2..v9,v11..v15,v32..v47, 14 B apart;
+    // recovery_core at 0x410D0) and are ONLY entered on a trap — so freeze
+    // on the FIRST IF into that window: the last ring pair then reads
+    // {faulting PC → stub_vN}, naming both the fault PC and the vector.
+    // The ≥1MB wild trigger stays as a fallback. Addresses are tied to bench
+    // .hda a21bcdd1 (test 1 passes there, so the first stub entry IS the
+    // primal fault; a corpus with earlier legit-trap tests would need this
+    // gated). Slots 12-15 of the readout ring are repurposed as the last-4
+    // supervisor-data WRITE addresses (exception-frame pushes → frame
+    // location; DACK writes → loop activity), jump ring shrinks to 6 pairs.
+    //
     // Readout: PRNG is a single 32-bit probe; its JTAG SOURCE[3:0] selects
-    // the ring slot (write_source_data in cpu_state.tcl). PRWF layout:
+    // the slot (write_source_data in cpu_state.tcl): 0-11 jump-pair ring,
+    // 12-15 FC5-write mini-ring. PRWF layout:
     //   [31]    frozen
     //   [30:16] wild_entry_cnt[14:0] (in-window→wild IF transitions, wraps)
-    //   [15:8]  vec_low = cpuAddr[9:2] of last vector fetch (<<2 = offset)
-    //   [7:5]   rng_head[3:1] = OLDEST pair slot (next write position)
-    //   [4:2]   vec_age[2:0]  = AS cycles since that vector fetch (sat 7)
+    //   [15:8]  stub_entry_cnt[7:0]  (IF entries into the stub window)
+    //   [7:5]   rng_head[3:1] = OLDEST jump-pair slot/2 (0..5)
+    //   [4:3]   wr_head[1:0]  = OLDEST write slot (12 + this)
+    //   [2]     freeze_cause  (1 = wild ≥1MB, 0 = stub window)
     //   [1]     iack_recent   = IACK within 7 AS cycles of freeze
     //   [0]     armed
     reg [31:0] rng [0:15];
-    reg [3:0]  rng_head;
+    reg [3:0]  rng_head;            // jump ring: even slots 0..10
+    reg [1:0]  wr_head;             // write ring: slots 12..15
     reg [31:0] prev_if;
     reg        have_prev;
-    reg        rng_armed, rng_frozen, prev_wild;
+    reg        rng_armed, rng_frozen, prev_wild, prev_stub, freeze_cause;
     reg [14:0] wild_entry_cnt;
-    reg [7:0]  vec_low;
-    reg [2:0]  vec_age;
+    reg [7:0]  stub_entry_cnt;
     reg [2:0]  iack_age;
     integer ri;
     initial begin
         for (ri = 0; ri < 16; ri = ri + 1) rng[ri] = 32'd0;
-        rng_head = 4'd0; prev_if = 32'd0; have_prev = 1'b0;
-        rng_armed = 1'b0; rng_frozen = 1'b0; prev_wild = 1'b0;
-        wild_entry_cnt = 15'd0; vec_low = 8'd0; vec_age = 3'd7; iack_age = 3'd7;
+        rng_head = 4'd0; wr_head = 2'd0; prev_if = 32'd0; have_prev = 1'b0;
+        rng_armed = 1'b0; rng_frozen = 1'b0; prev_wild = 1'b0; prev_stub = 1'b0;
+        freeze_cause = 1'b0; wild_entry_cnt = 15'd0; stub_entry_cnt = 8'd0;
+        iack_age = 3'd7;
     end
 
     wire rng_jump = pifa_if_cycle && have_prev &&
                     (cpuAddr != prev_if + 32'd2) && (cpuAddr != prev_if + 32'd4);
     wire rng_wild = pifa_if_cycle && rng_armed &&
                     (cpuAddr[31:24] == 8'h00) && (cpuAddr[23:20] != 4'h0);
-    wire rng_vecrd = cpuAS_n_d && !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
-                     (cpuAddr[31:10] == 22'd0);
+    wire rng_in_stubw = (cpuAddr >= 32'h0004_0F38) && (cpuAddr < 32'h0004_10D0);
+    wire rng_stub_entry = pifa_if_cycle && rng_armed && rng_in_stubw && !prev_stub;
     wire rng_iack = cpuAS_n_d && !cpuAS_n && (cpuFC == 3'b111) &&
                     (cpuAddr[19:16] == 4'hF);
+    wire rng_fc5wr = cpuAS_n_d && !cpuAS_n && !cpuRW && (cpuFC == 3'b101);
 
     always @(posedge clk) begin
         if (pifa_if_cycle) begin
             prev_if   <= cpuAddr;
             have_prev <= 1'b1;
             prev_wild <= rng_wild;
+            prev_stub <= rng_in_stubw;
             if (cpuAddr[31:16] == 16'h0004) rng_armed <= 1'b1;
         end
         if (rng_jump && !rng_frozen) begin
             rng[rng_head]          <= prev_if;   // src of the jump
             rng[rng_head + 4'd1]   <= cpuAddr;   // dst of the jump
-            rng_head               <= rng_head + 4'd2;
+            rng_head               <= (rng_head == 4'd10) ? 4'd0 : rng_head + 4'd2;
         end
-        if (rng_wild && !prev_wild) begin
-            rng_frozen     <= 1'b1;
+        if (rng_fc5wr && !rng_frozen) begin
+            rng[{2'b11, wr_head}]  <= cpuAddr;   // slots 12..15
+            wr_head                <= wr_head + 2'd1;
+        end
+        if ((rng_wild && !prev_wild) || rng_stub_entry) begin
+            if (!rng_frozen)
+                freeze_cause <= (rng_wild && !prev_wild);
+            rng_frozen <= 1'b1;
+        end
+        if (rng_wild && !prev_wild)
             wild_entry_cnt <= wild_entry_cnt + 15'd1;
-        end
+        if (rng_stub_entry)
+            stub_entry_cnt <= stub_entry_cnt + 8'd1;
         if (!rng_frozen) begin
-            if (rng_vecrd) begin
-                vec_low <= cpuAddr[9:2];
-                vec_age <= 3'd0;
-            end else if (cpuAS_n_d && !cpuAS_n && vec_age != 3'd7)
-                vec_age <= vec_age + 3'd1;
             if (rng_iack)
                 iack_age <= 3'd0;
             else if (cpuAS_n_d && !cpuAS_n && iack_age != 3'd7)
@@ -2085,8 +2108,9 @@ module dbg_min (
     reg [31:0] prwf_r;
     always @(posedge clk) begin
         prng_r <= rng[rng_sel];
-        prwf_r <= {rng_frozen, wild_entry_cnt, vec_low,
-                   rng_head[3:1], vec_age, (iack_age != 3'd7), rng_armed};
+        prwf_r <= {rng_frozen, wild_entry_cnt, stub_entry_cnt,
+                   rng_head[3:1], wr_head, freeze_cause,
+                   (iack_age != 3'd7), rng_armed};
     end
 
     altsource_probe #(

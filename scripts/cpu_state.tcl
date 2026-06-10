@@ -1402,44 +1402,74 @@ for {set s 1} {$s <= 6} {incr s} {
         puts [format "           IF-PC burst: %s" [join $seen " "]]
     }
     if {[info exists idx(PRNG)] && [info exists idx(PRWF)]} {
-        # Runaway-entry jump ring (2026-06-10). PRWF layout:
-        #   [31] frozen  [30:16] wild_entry_cnt  [15:8] vec_low(=addr[9:2])
-        #   [7:5] oldest pair slot  [4:2] vec_age(sat7)  [1] iack_recent
-        #   [0] armed
+        # Runaway/primal-fault ring, build #2 (2026-06-10b). PRWF layout:
+        #   [31] frozen  [30:16] wild_entry_cnt  [15:8] stub_entry_cnt
+        #   [7:5] oldest jump-pair slot/2 (0..5)  [4:3] oldest write slot
+        #   [2] freeze_cause (1=wild >=1MB, 0=recovery-stub window)
+        #   [1] iack_recent  [0] armed
         set wf [rd $idx(PRWF)]
         set frozen   [expr {($wf >> 31) & 1}]
         set wcnt     [expr {($wf >> 16) & 0x7FFF}]
-        set vlow     [expr {($wf >> 8) & 0xFF}]
+        set scnt     [expr {($wf >> 8) & 0xFF}]
         set oldpair  [expr {($wf >> 5) & 0x7}]
-        set vage     [expr {($wf >> 2) & 0x7}]
+        set oldwr    [expr {($wf >> 3) & 0x3}]
+        set fcause   [expr {($wf >> 2) & 1}]
         set iackr    [expr {($wf >> 1) & 1}]
         set armed    [expr {$wf & 1}]
-        puts [format "           RUNAWAY: frozen=%d armed=%d wild_entry_cnt=%u | last vector fetch: offset=0x%02X (vec %u) age=%u AS-cycles%s | iack_recent=%d" \
-            $frozen $armed $wcnt [expr {$vlow << 2}] $vlow $vage \
-            [expr {$vage == 7 ? "+ (stale)" : ""}] $iackr]
+        puts [format "           RUNAWAY: frozen=%d armed=%d wild_entries=%u stub_entries=%u freeze_cause=%s iack_recent=%d" \
+            $frozen $armed $wcnt $scnt [expr {$fcause ? "WILD>=1MB" : "STUB-WINDOW"}] $iackr]
         if {$frozen} {
-            # Dump the 8 {src -> dst} jump pairs, oldest first. PRNG's JTAG
-            # source[3:0] selects the ring slot; pairs sit at even slots.
-            puts "           RUNAWAY jump ring (oldest -> newest; LAST pair = the jump that tripped the freeze):"
-            for {set p 0} {$p < 8} {incr p} {
-                set slot [expr {(($oldpair + $p) % 8) * 2}]
+            # 6 {src -> dst} jump pairs, oldest first (slots 0-11); LAST pair
+            # = the jump that tripped the freeze. For a stub-window freeze:
+            # src = the FAULTING PC, dst = recovery_stub_vN -> vector N.
+            puts "           RUNAWAY jump ring (oldest -> newest; LAST pair = freeze trigger):"
+            for {set p 0} {$p < 6} {incr p} {
+                set slot [expr {(($oldpair + $p) % 6) * 2}]
                 write_source_data -instance_index $idx(PRNG) -value [format "%X" $slot] -value_in_hex
                 set src [rd $idx(PRNG)]
                 write_source_data -instance_index $idx(PRNG) -value [format "%X" [expr {$slot + 1}]] -value_in_hex
                 set dst [rd $idx(PRNG)]
                 if {$src == 0 && $dst == 0} { continue }
                 set delta [expr {$dst - $src}]
-                puts [format "             pair %d: src=0x%08X -> dst=0x%08X  (delta %+d)" \
-                    $p $src $dst $delta]
+                set note ""
+                # Map dst into the recovery-stub table (bench .hda a21bcdd1):
+                # stubs at 0x40F3A + 14*k, order v2..v9, v11..v15, v32..v47.
+                if {$dst >= 0x40F3A && $dst < 0x410D0} {
+                    set k [expr {($dst - 0x40F3A) / 14}]
+                    set vecs {2 3 4 5 6 7 8 9 11 12 13 14 15 \
+                              32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47}
+                    set vnames(2)  "bus error"
+                    set vnames(3)  "address error"
+                    set vnames(4)  "illegal instruction"
+                    set vnames(5)  "zero divide"
+                    set vnames(6)  "CHK"
+                    set vnames(7)  "TRAPV"
+                    set vnames(8)  "privilege violation"
+                    set vnames(9)  "trace"
+                    set vnames(11) "Line-F / coprocessor"
+                    if {$k >= 0 && $k < [llength $vecs]} {
+                        set v [lindex $vecs $k]
+                        set nm2 [expr {[info exists vnames($v)] ? $vnames($v) : "TRAP #[expr {$v - 32}]"}]
+                        set note [format "  <== recovery_stub_v%d (%s) -- src IS the FAULTING PC" $v $nm2]
+                    }
+                }
+                if {$dst == 0x410D0} { set note "  <== recovery_core (longjmp dispatch)" }
+                if {$dst == 0x4114A} { set note "  <== .resume (longjmp landed)" }
+                puts [format "             pair %d: src=0x%08X -> dst=0x%08X  (delta %+d)%s" \
+                    $p $src $dst $delta $note]
             }
-            if {$vage < 7} {
-                puts [format "                 vector fetch (offset 0x%02X) %u AS-cycles before freeze => EXCEPTION/INTERRUPT entry preceded the wild jump" \
-                    [expr {$vlow << 2}] $vage]
-            } else {
-                puts "                 NO recent vector fetch => wild BRANCH/RTS-style jump (no exception entry involved)"
+            # Last-4 supervisor-data WRITE addresses before the freeze
+            # (slots 12-15): exception-frame pushes cluster near the SSP;
+            # $50Fxxxxx = DACK/IO writes from the pseudo-DMA loop.
+            puts "           last-4 FC5 writes before freeze (oldest -> newest):"
+            for {set p 0} {$p < 4} {incr p} {
+                set slot [expr {12 + (($oldwr + $p) % 4)}]
+                write_source_data -instance_index $idx(PRNG) -value [format "%X" $slot] -value_in_hex
+                set wa [rd $idx(PRNG)]
+                puts [format "             wr %d: 0x%08X" $p $wa]
             }
         } else {
-            puts "           RUNAWAY: not frozen yet (no IF above 1MB since arming) -- reproduce the wedge, then re-read"
+            puts "           RUNAWAY: not frozen yet (no stub entry / wild IF since arming) -- reproduce, then re-read"
         }
     }
     if {[info exists idx(PMEM)] && [info exists idx(PMEM2)]} {
