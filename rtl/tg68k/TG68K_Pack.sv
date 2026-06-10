@@ -142,6 +142,7 @@ package TG68K_Pack;
     cp_restore_rd_mem, cp_restore_idle, cp_restore_wr_fmt, cp_restore_decode, cp_restore_wr_data,
     cp_cond_write, cp_cond_resp, cp_cond_eval, cp_cond_skip, cp_fscc_wr,
     cp_fscc_wr_mem, cp_fdbcc_disp, cp_fdbcc_dec,
+    cp_read_resp_wait,
     cp_except_ack, cp_except_trap
   } micro_states_t;
 

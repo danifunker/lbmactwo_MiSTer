@@ -61,6 +61,7 @@ package TG68K_Pack is
 				  cp_cond_write, cp_cond_resp, cp_cond_eval, cp_cond_skip, cp_fscc_wr,
 				  cp_fscc_wr_mem, cp_fdbcc_disp, cp_fdbcc_dec, cp_branch_apply,
 				  cp_fdbcc_eval, cp_ftrapcc_eval,
+				  cp_read_resp_wait,
 				  cp_except_ack, cp_except_trap);
 	
 	constant opcMOVE				: integer := 0; --

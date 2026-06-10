@@ -102,6 +102,14 @@ static void plant_program(const uint8_t* bytes, size_t n) {
     for (size_t i = 0; i < n; ++i) ram[PROG_BASE + i] = bytes[i];
 }
 
+// Per-test count of TAKEN F-line traps: trap_1111 AND trapmake asserted
+// together (rising edge). A bare trap_1111 pulse is a harmless combinational
+// glitch; trap_1111 & trapmake means the kernel actually vectors the trap —
+// which on real hardware (recovery.s VBR handler) reports vec=11. The bench
+// otherwise ignores taken traps (no vector table), so without this counter it
+// silently "passes" tests that fault on real silicon.
+static int g_taken_fline_traps = 0;
+
 // Reset the kernel + run the planted program for at most max_cycles.
 // Detects STOP by watching the kernel halt (busstate idle for many cycles).
 static void reset_and_run(int max_cycles) {
@@ -110,7 +118,14 @@ static void reset_and_run(int max_cycles) {
     phase = 0;
     for (int i = 0; i < 32; ++i) tick();
     top->reset = 0;
-    for (int i = 0; i < max_cycles; ++i) tick();
+    g_taken_fline_traps = 0;
+    int prev_taken = 0;
+    for (int i = 0; i < max_cycles; ++i) {
+        tick();
+        int taken = top->dbg_trap_1111 && top->dbg_trapmake;
+        if (taken && !prev_taken) ++g_taken_fline_traps;
+        prev_taken = taken;
+    }
 }
 
 // ---- Smoke test (no-arg / --trace mode) --------------------------------
@@ -230,8 +245,24 @@ static int run_corpus(const std::string& fname, bool trace) {
             uint8_t  bus_fc_at_fall = 0;
             int      bus_cyc_at_fall = 0;
             uint16_t bus_wr_data = 0;
+            int prev_taken_t = 0;
             for (int cyc = 0; cyc < 5000; ++cyc) {
                 tick();
+                // Flag the EXACT cycle a taken F-line trap fires, with the
+                // FPU response / data_in / micro_state that triggered it.
+                int taken_t = top->dbg_trap_1111 && top->dbg_trapmake;
+                if (taken_t && !prev_taken_t) {
+                    std::cerr << ">>> TAKEN F-LINE TRAP @cyc " << std::dec << cyc
+                              << "  ms=" << int(top->dbg_micro_state)
+                              << " cir=" << int(top->dbg_cir_state)
+                              << " resp=0x" << std::hex << std::setw(8) << std::setfill('0')
+                              << top->dbg_cir_response_reg
+                              << " din=0x" << std::setw(4) << top->dbg_data_in
+                              << " ldr=0x" << std::setw(8) << top->dbg_last_data_read
+                              << " pc=0x" << std::setw(8) << top->dbg_pc
+                              << std::dec << std::setfill(' ') << "\n";
+                }
+                prev_taken_t = taken_t;
                 // Bus AS-falling: record context. AS-rising: log access with
                 // the data that actually settled on the bus this cycle.
                 if (prev_as && !top->as_n) {
@@ -300,9 +331,19 @@ static int run_corpus(const std::string& fname, bool trace) {
 
         uint32_t got = get_reg(result_reg);
         int32_t got_s = int32_t(got);
+        // Oracle is result-match. The taken-F-line-trap count is printed as
+        // diagnostic info — some tests (fline_trap_regression, FTRAPcc) trap
+        // BY DESIGN, so a trap is not inherently a failure. But a passing
+        // FSAVE/FRESTORE/FMOVE.L that ALSO trapped is the masked-bug signature
+        // (the result happened to land while execution faulted on real HW):
+        // flagged loudly so it can't hide.
         bool ok = (got_s == expected);
+        bool trapped = (g_taken_fline_traps > 0);
         if (ok) {
             ++passed;
+            if (trapped)
+                std::cerr << "WARN " << name << ": passed but took "
+                          << g_taken_fline_traps << " F-line trap(s)\n";
         } else {
             ++failed;
             std::cerr << "FAIL " << name
@@ -310,7 +351,10 @@ static int run_corpus(const std::string& fname, bool trace) {
                       << " (0x" << std::hex << got << std::dec
                       << "), expected " << expected
                       << " (0x" << std::hex << uint32_t(expected) << std::dec
-                      << ")\n";
+                      << ")"
+                      << (trapped ? " [+" + std::to_string(g_taken_fline_traps)
+                                    + " F-line trap(s)]" : "")
+                      << "\n";
         }
     }
 
