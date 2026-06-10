@@ -5,6 +5,102 @@ MiSTer). User report: hard disks still end up corrupted after Mac OS
 sessions on the core, even after today's fixes. This outranks the FPU
 handoff (`docs/handoff_fpu_timing_closure_2026-06-10.md`).*
 
+---
+
+## 2026-06-10 session 2 — ROOT CAUSE FOUND + FIXED (commit `4376c8f`, HW validation pending)
+
+User symptom: most Mac OS disks hang at "Welcome to Macintosh"; once a disk
+hangs it never boots again. Caught LIVE on a frozen image (HD20SC-755.vhd, a
+multi-System "System Picker" disk booting System 6.0.8) with RBF `af34c4c4`.
+
+### The hang (live-probed, smoking gun)
+
+- CPU not frozen: spinning in a supervisor RAM loop at 0x11AC2-0x11AD0
+  polling **0x50F10050 = NCR5380 reg 5 (Bus & Status)**.
+- Bus state: `dreq=1 scsi_req=1 dma_en=1 tcr=1(DATA-IN) pmatch=1`, no ACKs —
+  the Mac finished its transfer count and waits for the end-of-data phase
+  change; a target still holds REQ with leftover bytes. Deadlock.
+- PSCW showed `cmd_write=1 tlen=32 phase=IDLE` — **note the ncr5380 PSCW mux
+  defaults to t1 (ID5), not t0**; t1 is the OSD-mounted disk, proving the
+  disk was IDLE. t0 unmounted. By elimination the REQ holder was
+  **`scsi_empty_cd` (fake Sony CD-ROM at ID3, zero probe visibility)**: its
+  `data_len` for INQUIRY/REQUEST SENSE was the RAW allocation length, never
+  clamped to the actual response size like a real device — when the Mac's
+  boot-time SCSI mount scan transfers fewer bytes than alloc, the CD holds
+  REQ forever.
+
+### The corruption (byte-level disk forensics)
+
+Pulled the hung image and diffed against its pristine parent
+(`scripts/hda_diff.py`, `scripts/hda_match_sources.py`,
+`scripts/hfs_forensics.py` — written this session):
+
+- Misdirected whole-sector writes, e.g. **MultiFinder rsrc fork content
+  (pristine LBA 1849-1874) written over General + Startup Device rsrc forks
+  (LBA 22693-22723)** — exactly covering those files' extents; Finder's
+  rsrc fork rewritten with itself shifted +10 sectors (212 sectors);
+  System file clobbered (=> unbootable). ~3200 sectors zeroed.
+- **Signature: every corrupted run = ONE part-garbage sector followed by
+  EXACT sector-aligned copies of an earlier boot-time READ.** That is a
+  wedged DATA_IN target being walked by stray shared-bus ACKs: garbage
+  trickles into the start of its 2-sector buffer until a 512-byte boundary
+  fires the HPS flush, which writes the STALE previous-read content to the
+  command's LBA (with `lba++` per flush).
+- `dma_wr_count` (all pseudo-DMA write beats since core load) was **256 =
+  512 bytes total** — the Mac's own data barely flowed; the megabytes of
+  disk damage were HPS flushes of stale read-buffer content.
+- Gateway for the chaos: with a target wedged BUSY, its dout stays
+  wired-ORed onto the data bus and it consumes every shared ACK. Selection
+  has no bus-free check, so dialogs interleave; a target parked in
+  STATUS_OUT drives CHECK CONDITION 0x02 which ORs a READ6 opcode 0x08
+  into WRITE6 0x0A on the next command's first ACK.
+
+### Fixes (commit `4376c8f`)
+
+1. `scsi.v` + `scsi_empty_cd`: `data_len = min(allocation, actual)` for
+   INQUIRY (37 disk / 54 CD) and REQUEST SENSE (18; alloc 0 -> 4); undo the
+   0->256 block-count mapping for allocation lengths (it's a READ/WRITE(6)
+   convention only).
+2. Zero-length data phases complete immediately (`data_done`); `req_wr`
+   guarded so a tlen=0 WRITE can't flush a stale buffer block in STATUS_OUT.
+3. **Selection requires a free bus** (`sel && din[ID] && !bus_busy`) in both
+   target modules — real SCSI cannot select while BSY is asserted; this
+   closes the spurious-selection / shared-ACK corruption class.
+4. Probes: empty-CD live phase+REQ in `dbg_scsi2[15:14]/[7:6]`, surfaced via
+   re-enabled PSC3 (PSWL disabled — its question is answered:
+   blind_wr_count==0). `cpu_state.tcl` decodes it and PSCW is relabeled.
+
+### Validation protocol (pending)
+
+1. Fresh pristine copy staged on the MiSTer:
+   `/media/fat/games/LBMacTwo/HD20SC_scsifix_test.vhd`
+   (md5 `b393de428b25c9680d378a27ee4a48d2`, recorded in
+   `scratch/HD20SC_scsifix_test.md5`).
+2. Load new RBF from the MiSTer menu (NOT JTAG — boot0.rom must load),
+   mount the test disk, boot to Finder, browse, clean shutdown.
+3. During boot run `bash scripts/read_probes.sh`: EMPTY-CD(ID3) phase should
+   return to IDLE after the mount scan; no BSR-poll wedge.
+4. `scp` the image back, `python scripts/hda_match_sources.py <pristine>
+   <after>`: expect ONLY NOVEL-class changes in catalog/Desktop/MDB regions
+   (legit HFS metadata) — **zero COPY-class runs** (sector-aligned copies of
+   other disk regions = misdirected writes).
+5. Post-crash artifact preserved at `scratch/HD20SC-755_postcrash.vhd` for
+   re-analysis.
+
+### Open follow-ups
+
+- The corrupted HD20SC-755.vhd on the MiSTer is dead (System file + catalog
+  damage) — restore from a backup; do not reuse as a test oracle.
+- An F-line/coprocessor trap from RAM PC 0x629AC -> 0x40FAA was captured in
+  the runaway ring during the hang — System-file code, NOT the ROM
+  self-probe red herring. Belongs to the FPU handoff
+  (`docs/handoff_fpu_timing_closure_2026-06-10.md`), noted there-adjacent.
+- MODE SENSE still serves the raw allocation length (deliberately untouched
+  — working path, no evidence of under-read); revisit if a wedge recurs
+  with PSC3 showing a disk target parked in DATA_OUT.
+
+---
+
 ## What is ALREADY fixed and validated — don't re-chase these
 
 1. **CPU-side read corruption (`fefc429`, today)** — the slot-owned SDRAM
