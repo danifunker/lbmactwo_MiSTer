@@ -5101,21 +5101,16 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- Identifier byte is in bits[7:0] — see cp_save/restore_decode
 					-- registered-process comment above.
 					setstate <= "01";      -- idle
-					IF last_data_read(7 downto 0) = X"00" THEN
-						-- Null frame: done, writeback An.
-						-- Route through cp_mem_refetch so the TG68_PC mux
-						-- force-loads cp_op_pc (same prefetch overrun as the
-						-- non-null path, just a shorter dialog — exposed by
-						-- save_restore test 8 where the post-FRESTORE
-						-- MOVEQ #5,D0 was being skipped).
-						cp_an_writeback <= '1';
-						next_micro_state <= cp_mem_refetch;
-					ELSE
-						-- Non-null frame: consume format LOW word (the
-						-- reserved $0000 half of the format long) before
-						-- pumping data into the FPU.
-						next_micro_state <= cp_restore_skip_fmtlo;
-					END IF;
+					-- Null and non-null frames both consume the reserved LOW
+					-- word of the format long via cp_restore_skip_fmtlo. The
+					-- null path used to write An back here, skipping that
+					-- word — the format long is 4 bytes even for NULL, so An
+					-- came back 2 bytes short. (Caught by cpufpubench: every
+					-- test's CLR.L -(A7); FRESTORE (A7)+ preamble left A7 -2
+					-- and the test's terminating RTS popped the wrong slot.)
+					-- skip_fmtlo routes on cp_frame_cnt (0 = null) to either
+					-- cp_restore_null_done or the data-word pump.
+					next_micro_state <= cp_restore_skip_fmtlo;
 
 				WHEN cp_restore_skip_fmtlo =>
 					-- Read and discard the format LOW word (reserved $0000
@@ -5128,7 +5123,24 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
 					set(update_ld) <= '1';
-					next_micro_state <= cp_restore_rd_mem;
+					IF cp_frame_cnt = "0000000" THEN
+						-- Null frame (cp_frame_cnt loaded 0 at decode): no
+						-- data words follow the format long.
+						next_micro_state <= cp_restore_null_done;
+					ELSE
+						next_micro_state <= cp_restore_rd_mem;
+					END IF;
+
+				WHEN cp_restore_null_done =>
+					-- Null-frame FRESTORE epilogue. Runs one idle cycle after
+					-- cp_restore_skip_fmtlo so its +2 postincrement is already
+					-- registered in cp_ea_addr; the An writeback therefore
+					-- includes the full 4-byte format long. Route through
+					-- cp_mem_refetch so the TG68_PC mux force-loads cp_op_pc
+					-- (same prefetch-overrun handling as the non-null exits).
+					setstate <= "01";      -- idle
+					cp_an_writeback <= '1';
+					next_micro_state <= cp_mem_refetch;
 
 				WHEN cp_restore_wr_data =>
 					-- Write data word to Operand CIR
