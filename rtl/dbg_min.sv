@@ -147,6 +147,15 @@ module dbg_min (
     // last-IF-PC latch, and a last-FPU-response capture (PFLO/PFLA).
     input wire        dbg_fline_trap,
 
+    // Post-FRESTORE wild-PC bisection (2026-06-10). cp_op_pc = the PC
+    // force-loaded after the FSAVE/FRESTORE dialog (kernel's restore PC);
+    // dbg_opcode = the instruction register at the trap. Latched sticky at
+    // the first NON-ROM trap: a sane RAM cp_op_pc => the refetch loaded a
+    // stale opcode (fix cp_mem_refetch timing); a garbage cp_op_pc => the
+    // restore PC itself is wrong (fix the cp_op_pc capture).
+    input wire [31:0] dbg_cp_op_pc,
+    input wire [15:0] dbg_opcode,
+
     // Operand-CIR 2-beat adapter observability (PADP). fpu_xfer_phase is
     // the adapter's beat toggle in LBMacTwo.sv. Together with the CIR
     // register decode (from cpuAddr[5:1]) this shows whether FRESTORE
@@ -1385,12 +1394,15 @@ module dbg_min (
     //    sticky-first capture (it always read din=0xF008 addr=0x40003B06). So
     //    we now SKIP every ROM-region trap (cpuAddr[31:28]==0x4) and capture the
     //    first NON-ROM trap — that one is the supervisor bench test #1 trap.
-    //      first_nr_din  = cpu_din at the trap edge. 0xFxxx => F-line opcode
-    //                      decode trap (3731 cpID=0 / 3726 cpID!=0 bad type);
-    //                      at FC=6 + RAM addr that means a post-FRESTORE
-    //                      prefetch landed the PC on a non-instruction word.
-    //                      0x09xx/0x96xx => Response primitive hitting
-    //                      cp_idle_resp ELSE (4761).
+    //      first_nr_opc  = dbg_opcode (the registered instruction word) at the
+    //                      trap edge — reliable, unlike the bus-lagged cpu_din
+    //                      which read 0x0000. 0xFxxx cpID=0 => F-line decode
+    //                      trap (3731); at FC=6 + RAM addr that means a
+    //                      post-FRESTORE runaway onto a non-instruction word.
+    //      first_nr_cp_op_pc = dbg_cp_op_pc, the restored PC the kernel
+    //                      force-loaded after the FSAVE/FRESTORE dialog — sane
+    //                      RAM => refetch loaded a stale opcode; garbage =>
+    //                      the restore PC itself is wrong.
     //      first_nr_addr = cpuAddr ($00xxxxxx RAM => bench code; $0002xxxx+FC7
     //                      => CIR access).
     //      first_nr_fc/rw + last_fpu_resp captured too. nr_trap_cnt = number of
@@ -1400,11 +1412,12 @@ module dbg_min (
     reg [15:0] trap_1111_cnt;
     reg [11:0] nr_trap_cnt;
     reg        first_nr_seen;
-    reg [15:0] first_nr_din;
+    reg [15:0] first_nr_opc;     // registered instruction word at the trap
     reg [31:0] first_nr_addr;
     reg [2:0]  first_nr_fc;
     reg        first_nr_rw;
     reg [15:0] first_nr_lastresp;
+    reg [31:0] first_nr_cp_op_pc; // restored PC (cp_op_pc) at the trap
     initial begin
         fpu_dsack_active_d = 1'b0;
         last_fpu_resp      = 16'd0;
@@ -1414,11 +1427,12 @@ module dbg_min (
         trap_1111_cnt      = 16'd0;
         nr_trap_cnt        = 12'd0;
         first_nr_seen      = 1'b0;
-        first_nr_din       = 16'd0;
+        first_nr_opc       = 16'd0;
         first_nr_addr      = 32'd0;
         first_nr_fc        = 3'd0;
         first_nr_rw        = 1'b0;
         first_nr_lastresp  = 16'd0;
+        first_nr_cp_op_pc  = 32'd0;
     end
     always @(posedge clk) begin
         dbg_fline_trap_d <= dbg_fline_trap;
@@ -1428,27 +1442,31 @@ module dbg_min (
                 nr_trap_cnt <= nr_trap_cnt + 12'd1;
                 if (!first_nr_seen) begin
                     first_nr_seen     <= 1'b1;
-                    first_nr_din      <= cpu_din;
+                    first_nr_opc      <= dbg_opcode;     // trapping instruction (reliable; din lagged 0x0000)
                     first_nr_addr     <= cpuAddr;
                     first_nr_fc       <= cpuFC;
                     first_nr_rw       <= cpuRW;
                     first_nr_lastresp <= last_fpu_resp;
+                    first_nr_cp_op_pc <= dbg_cp_op_pc;   // FRESTORE restore PC at the trap
                 end
             end
         end
     end
 
-    // PFLO [31:16] = first NON-ROM trap din, [15:0] = total trap_1111 count.
+    // PFLO [31:16] = trapping opcode at first NON-ROM trap, [15:0] = total count.
     reg [31:0] pflo_r;
-    // PFLA [31:0] = first NON-ROM trap addr.
+    // PFLA [31:0] = first NON-ROM trap addr (the wild PC).
     reg [31:0] pfla_r;
     // PFLF [31:16] = last_fpu_resp at first NON-ROM trap, [15:13]=cpuFC,
     //      [12]=cpuRW, [11:0] = number of NON-ROM traps seen.
     reg [31:0] pflf_r;
+    // PFL2 [31:0] = cp_op_pc (post-FRESTORE restored PC) at first NON-ROM trap.
+    reg [31:0] pfl2_r;
     always @(posedge clk) begin
-        pflo_r <= {first_nr_din, trap_1111_cnt};
+        pflo_r <= {first_nr_opc, trap_1111_cnt};
         pfla_r <= first_nr_addr;
         pflf_r <= {first_nr_lastresp, first_nr_fc, first_nr_rw, nr_trap_cnt};
+        pfl2_r <= first_nr_cp_op_pc;
     end
 
     altsource_probe #(
@@ -1471,6 +1489,13 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pflf (.probe(pflf_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PFL2"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfl2 (.probe(pfl2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PADP: Operand-CIR adapter observability (repurposes PFLA slot) =====
     // Counts CPU bus WRITES to FPU CIR registers, decoded from the raw

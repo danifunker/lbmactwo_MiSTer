@@ -137,6 +137,7 @@ foreach inst $info {
     if {$nm eq "PFLO"} { set idx(PFLO) $i }
     if {$nm eq "PFLA"} { set idx(PFLA) $i }
     if {$nm eq "PFLF"} { set idx(PFLF) $i }
+    if {$nm eq "PFL2"} { set idx(PFL2) $i }
     incr i
 }
 
@@ -660,26 +661,26 @@ for {set s 1} {$s <= 6} {incr s} {
         puts [format "           BUF-RD: ioBuffer first 4 bytes = %02X %02X %02X %02X  (word0=0x%04X word1=0x%04X)%s" \
             $b0 $b1 $b2 $b3 $w0 $w1 $hint]
     }
-    # First NON-ROM trap capture (2026-06-10): the FIRST trap_1111 is always the
-    # Mac II ROM's benign FPU self-probe (cpID=0 0xF008 @ ROM 0x40003B06, caught
-    # by the ROM itself). The probe now skips all ROM-region traps and captures
-    # the first NON-ROM trap = the supervisor bench test #1 trap. PFLO[31:16]=din,
-    # PFLO[15:0]=total trap count; PFLA=addr; PFLF[11:0]=non-ROM trap count.
+    # First NON-ROM trap + post-FRESTORE wild-PC bisection (2026-06-10).
+    # The first trap_1111 is always the ROM's benign FPU self-probe; we skip
+    # ROM-region traps and capture the first NON-ROM trap = bench test #1's.
+    # PFLO[31:16]=trapping opcode, PFLO[15:0]=total trap count; PFLA=wild addr;
+    # PFLF[11:0]=non-ROM trap count; PFL2=cp_op_pc (restored PC after FRESTORE).
     if {[info exists idx(PFLO)] && [info exists idx(PFLA)]} {
         set po [rd $idx(PFLO)]
         set pa [rd $idx(PFLA)]
-        set din [expr {($po >> 16) & 0xFFFF}]
+        set opc [expr {($po >> 16) & 0xFFFF}]
         set cnt [expr {$po & 0xFFFF}]
-        set hi  [expr {($din >> 12) & 0xF}]
-        set cpid [expr {($din >> 9) & 0x7}]
+        set hi  [expr {($opc >> 12) & 0xF}]
+        set cpid [expr {($opc >> 9) & 0x7}]
         set cls "(unclassified)"
-        if {$din == 0x0000} { set cls "0x0000 => no NON-ROM trap captured yet (see PFLF non-ROM count)" }
-        if {(($din >> 8) & 0xF) == 0x9} { set cls "0x_9__ Null/Transfer-ish Response primitive => cp_idle_resp ELSE (kernel 4761)" }
-        if {$hi == 0xF && $cpid == 0} { set cls [format "0xFxxx cpID=0 => F-line decode trap (kernel 3731). At FC=6/RAM => CPU fetched a non-instruction word (post-FRESTORE prefetch overrun?)"] }
-        if {$hi == 0xF && $cpid == 1} { set cls "0xFxxx cpID=1 (FPU op) => unrecognized type hit kernel 3726 — a real FPU opcode the decoder rejects" }
+        if {$opc == 0x0000} { set cls "0x0000 => no NON-ROM trap captured yet (see PFLF non-ROM count)" }
+        if {$hi == 0xF && $cpid == 0} { set cls "0xFxxx cpID=0 => F-line decode trap (kernel 3731). FC=6/RAM => CPU ran a non-instruction word (post-FRESTORE runaway)" }
+        if {$hi == 0xF && $cpid == 1} { set cls "0xFxxx cpID=1 (FPU op) => unrecognized type, kernel 3726" }
         if {$hi == 0xF && $cpid > 1}  { set cls [format "0xFxxx cpID=%u => other-coprocessor F-line (kernel 3731)" $cpid] }
-        puts [format "           NONROM-TRAP: din=0x%04X (cpID=%u)  addr=0x%08X  total_trap_cnt(wrap16)=%u" $din $cpid $pa $cnt]
-        puts "                 din class: $cls"
+        if {$hi != 0xF}               { set cls [format "0x%04X is NOT F-line (hi nibble %X) => trap edge caught a non-opcode bus word" $opc $hi] }
+        puts [format "           NONROM-TRAP: opcode=0x%04X (cpID=%u)  wild_addr=0x%08X  total_trap_cnt(wrap16)=%u" $opc $cpid $pa $cnt]
+        puts "                 opcode class: $cls"
     }
     if {[info exists idx(PFLF)]} {
         set pf [rd $idx(PFLF)]
@@ -689,11 +690,25 @@ for {set s 1} {$s <= 6} {incr s} {
         set nrc [expr {$pf & 0xFFF}]
         puts [format "           NONROM-TRAP ctx: last_fpu_resp=0x%04X  cpuFC=%u  cpuRW=%u  nonROM_trap_cnt=%u" \
             $lastresp $fc $rw $nrc]
-        puts "                 cpuFC=7 + addr~0x0002xxxx => trap during a CIR access (FPU dialog: 4761/5008)."
-        puts "                 cpuFC=6 => trap during an instruction fetch (decode trap 3726/3731)."
         if {$nrc == 0} {
-            puts "                 nonROM_trap_cnt=0 => EVERY trap was the ROM self-probe; the"
-            puts "                                     bench trap is ROM-region too — rethink the filter."
+            puts "                 nonROM_trap_cnt=0 => EVERY trap was the ROM self-probe — rethink the filter."
+        }
+    }
+    if {[info exists idx(PFL2)]} {
+        set cpoppc [rd $idx(PFL2)]
+        set top [expr {($cpoppc >> 28) & 0xF}]
+        puts [format "           POST-FRESTORE BISECT: cp_op_pc (restored PC) = 0x%08X" $cpoppc]
+        if {$top == 0x4} {
+            puts "                 cp_op_pc in ROM (0x4xxxxxxx) — restored PC points at ROM; unexpected for the bench."
+        } elseif {$top == 0x0 && $cpoppc != 0} {
+            puts "                 cp_op_pc is a SANE low-RAM address => the restore PC is RIGHT, so the"
+            puts "                 cp_mem_refetch loaded a STALE opcode (HW bus latency). FIX = hold"
+            puts "                 cp_mem_refetch_wait until the fetch DSACK (mirror cp_read_resp_wait)."
+        } elseif {$cpoppc == 0} {
+            puts "                 cp_op_pc=0 => never captured (no non-ROM trap, or cp_op_pc not loaded)."
+        } else {
+            puts "                 cp_op_pc is GARBAGE (not RAM/ROM) => the restore PC itself is WRONG."
+            puts "                 FIX = the cp_op_pc capture (tmp_TG68_PC at cp_write_opw) is off on HW."
         }
     }
     # Build #71 — Mac OS error globals

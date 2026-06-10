@@ -43,7 +43,9 @@ module tg68k (
 
 	// Bug #6 / supervisor-bench F-line trap debug export.
 	// One-cycle pulse on every trap_1111 (Line-1111) assertion.
-	output dbg_fline_trap
+	output dbg_fline_trap,
+	output [31:0] dbg_cp_op_pc,
+	output [15:0] dbg_opcode
 );
 
 wire  [1:0] tg68_busstate;
@@ -241,7 +243,9 @@ TG68KdotC_Kernel tg68k (
 	.nResetOut      ( reset_n       ),
 	.FC             ( fc            ),
 	.VBR_out        ( VBR_out       ),
-	.dbg_fline_trap  ( dbg_fline_trap )
+	.dbg_fline_trap  ( dbg_fline_trap ),
+	.dbg_cp_op_pc    ( dbg_cp_op_pc ),
+	.dbg_opcode      ( dbg_opcode )
 );
 
 endmodule

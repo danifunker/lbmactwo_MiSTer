@@ -752,12 +752,16 @@ tg68k tg68k_inst (
 		.addr       ( tg68_a       ),
 	.berr_inhibit ( berr_inhibit_active ),
 	.berr_data    ( berr_data_out      ),
-	.dbg_fline_trap( dbg_fline_trap      )
+	.dbg_fline_trap( dbg_fline_trap      ),
+	.dbg_cp_op_pc ( dbg_cp_op_pc       ),
+	.dbg_opcode   ( dbg_opcode         )
 );
 
 wire berr_inhibit_active;
 wire [31:0] berr_data_out;
 (* keep = "true", preserve = "true" *) wire dbg_fline_trap;  // Bug #6 F-line trap pulse (consumed by dbg_min + SignalTap)
+(* keep = "true", preserve = "true" *) wire [31:0] dbg_cp_op_pc;  // post-FRESTORE restored PC (cp_op_pc) for wild-PC bisection
+(* keep = "true", preserve = "true" *) wire [15:0] dbg_opcode;    // instruction register at the trap
 
 // MC68881 FPU - CIR dialog mode (coprocessor protocol via TG68K)
 // Data bus: TG68K is 16-bit; CIR protocol uses d_in[15:0] for writes, d_out[15:0] for reads
@@ -1433,6 +1437,8 @@ dbg_min dbg_min_inst (
 	.selectIWM      (selectIWM),
 	.fpu_dbg_cir_state(fpu_dbg_cir_state),
 	.dbg_fline_trap  (dbg_fline_trap),
+	.dbg_cp_op_pc    (dbg_cp_op_pc),
+	.dbg_opcode      (dbg_opcode),
 	.dbg_fpu_xfer_phase(fpu_xfer_phase)
 );
 

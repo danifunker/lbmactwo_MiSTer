@@ -148,7 +148,14 @@ entity TG68KdotC_Kernel is
 		-- trap_1111 signal asserts (Line-1111 / F-line trap, vector
 		-- 11 / $2C). Consumed by dbg_min.sv via the tg68k.v wrapper
 		-- to power a rising-edge counter + PC latch.
-		dbg_fline_trap			: out std_logic
+		dbg_fline_trap			: out std_logic;
+		-- Post-FRESTORE wild-PC bisection (2026-06-10). cp_op_pc = the PC
+		-- force-loaded after the FSAVE/FRESTORE dialog; dbg_opcode = the
+		-- instruction register at the trap. dbg_min latches both at the first
+		-- non-ROM trap to tell whether the restored PC is wrong vs a stale
+		-- refetched opcode.
+		dbg_cp_op_pc			: out std_logic_vector(31 downto 0);
+		dbg_opcode				: out std_logic_vector(15 downto 0)
 		);
 end TG68KdotC_Kernel;
 
@@ -5405,6 +5412,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
   -- Bug #6 / supervisor-bench F-line trap debug export.
   -- trap_1111 is type `bit`; convert to std_logic for the dbg port.
   dbg_fline_trap <= '1' when trap_1111 = '1' else '0';
+  -- Post-FRESTORE wild-PC bisection exports (2026-06-10).
+  dbg_cp_op_pc <= cp_op_pc;
+  dbg_opcode   <= opcode;
 -----------------------------------------------------------------------------
 -- Conditions
 -----------------------------------------------------------------------------

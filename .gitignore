@@ -81,3 +81,6 @@ scripts/local.env
 # screenshots, session-specific notes, etc. See CLAUDE.md "Scratch
 # directory" for the convention.
 scratch/
+
+# Quartus tool-crash info dump (quartus_fit Access Violation)
+cr_ie_info.json
