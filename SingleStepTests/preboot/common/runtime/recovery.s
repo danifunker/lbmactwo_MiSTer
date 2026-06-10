@@ -28,6 +28,17 @@
 g_resume_sp:    .long 0
 g_resume_pc:    .long 0
 g_last_vector:  .long 0     | set by recovery_stub before jumping back
+| 2026-06-10 stray-trap hardening (see docs/handoff_hda_rebuild_2026-06-10.md):
+g_resume_sr:    .word 0     | SR at arm time; restored on longjmp. recovery_core
+                            | used to leave SR=$2700, so after ANY caught trap the
+                            | next synchronous _Write IOWait-spun forever (its
+                            | per-block SCSI completion IRQ was masked).
+g_in_test:      .word 0     | 1 only while a test runs under recovery protection.
+    .align 4
+    .global g_stray_vec
+    .global g_stray_pc
+g_stray_vec:    .long 0     | vector of a trap caught OUTSIDE a test
+g_stray_pc:     .long 0     | faulting PC of that stray trap (from the frame)
 
     .bss
     .align 4
@@ -152,10 +163,39 @@ recovery_stub_v\n:
 | to g_resume_pc. The bench thinks invoke_test_with_recovery() just
 | returned with that value.
 recovery_core:
+    | A trap OUTSIDE a protected test (g_in_test==0) must NOT longjmp:
+    | g_resume_sp/g_resume_pc point into a frame that already returned, so
+    | the longjmp's final RTS pops a reused slot and launches into garbage
+    | (= the wild-PC runaway captured by the PRNG jump ring, 2026-06-10).
+    | Freeze the crime scene instead: record vector + faulting PC, paint a
+    | marker (stripe row + one block per vector number), halt.
+    tst.w   g_in_test
+    bne.b   recovery_longjmp
+    move.l  g_last_vector, g_stray_vec
+    move.l  2(%sp), g_stray_pc      | 68020 frame: SR.w, PC.l, fmt/vec.w
+    | stripe row 56 (clobbers a0/d1 — acceptable, we halt and never resume)
+    move.l  0x0824, %a0
+    add.l   #(56 * 80), %a0
+    moveq   #39, %d1
+3:  move.b  #0xF0, (%a0)+
+    dbra    %d1, 3b
+    | row 58: N blocks = vector number (count them in the screenshot)
+    move.l  0x0824, %a0
+    add.l   #(58 * 80), %a0
+    move.l  g_stray_vec, %d1
+    bra.b   5f
+4:  move.b  #0xFF, (%a0)+
+    move.b  #0x00, (%a0)+
+5:  dbra    %d1, 4b
+6:  stop    #0x2700                 | halt; regs/stack/frame stay for JTAG
+    bra.b   6b
+
+recovery_longjmp:
+    move.w  #0x2700, %sr            | mask while switching stacks
     move.l  g_resume_sp, %sp
-    move.w  #0x2700, %sr
     move.l  g_last_vector, %d0
     move.l  g_resume_pc, %a0
+    move.w  g_resume_sr, %sr        | restore arm-time SR (do NOT leave $2700)
     jmp     (%a0)
 
 | ---- invoke_test_with_recovery -------------------------------------
@@ -180,13 +220,16 @@ invoke_test_with_recovery:
     lea     .resume(%pc), %a0
     move.l  %a0, g_resume_pc
     move.l  %sp, g_resume_sp
+    move.w  %sr, g_resume_sr        | arm-time SR; recovery_longjmp restores it
     DOT 2
     move.l  4+(11*4)(%sp), %a0      | entry arg (past saved regs)
     DOT 3
+    move.w  #1, g_in_test           | traps from here to .resume may longjmp
     jsr     (%a0)
     DOT 4
     moveq   #0, %d0                  | normal return
 .resume:
+    clr.w   g_in_test               | traps beyond this point are STRAY: halt
     DOT 5
     movem.l (%sp)+, %d2-%d7/%a2-%a6
     rts
