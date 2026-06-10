@@ -540,19 +540,15 @@ module dbg_min (
     always @(posedge clk)
         pvbl_r <= {card_vbl_en, card_irq_cnt[14:0], card_ack_cnt};
 
-    // PVBL RE-ENABLED for IORB-completion investigation (build #67).
-    // Build #66 confirmed boot reaches Welcome dialog then hangs 5 min
-    // before bomb. Mac OS drivers commonly schedule "I/O done" via VBL
-    // tasks; if VBL stops firing during Welcome, drivers never complete
-    // their IORBs, IOWait spins forever. PVBL counts card VBL IRQ
-    // assertions — if card_irq_cnt freezes during the hang, that's
-    // strong evidence VBL is the bottleneck.
-    altsource_probe #(
-        .instance_id ("PVBL"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PVBL disabled 2026-06-10c — freed the JTAG slot for PIFD (IF-data
+    // capture). The frozen-VBL diagnosis is superseded: the bench's stray
+    // halt + ring now pin the wedge directly.
+    // altsource_probe #(
+    //     .instance_id ("PVBL"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pvbl (.probe(pvbl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PASC: ASC FIFO refill cadence — refill REQUESTS vs CPU REFILLS.
     //   {asc_irq_cnt[15:0], asc_wr_cnt[15:0]}
@@ -2059,12 +2055,18 @@ module dbg_min (
         iack_age = 3'd7;
     end
 
-    wire rng_jump = pifa_if_cycle && have_prev &&
+    wire rng_disc = have_prev &&
                     (cpuAddr != prev_if + 32'd2) && (cpuAddr != prev_if + 32'd4);
+    wire rng_jump = pifa_if_cycle && rng_disc;
     wire rng_wild = pifa_if_cycle && rng_armed &&
                     (cpuAddr[31:24] == 8'h00) && (cpuAddr[23:20] != 4'h0);
+    // Stub-window entry must be a JUMP TARGET (discontinuity): install_vbr's
+    // RTS sits at 0x40F38 and the prefetcher slides sequentially into
+    // stub_v2's words, which false-froze build #2's ring at bench init.
+    // A real vector dispatch into a stub is always discontinuous.
     wire rng_in_stubw = (cpuAddr >= 32'h0004_0F38) && (cpuAddr < 32'h0004_10D0);
-    wire rng_stub_entry = pifa_if_cycle && rng_armed && rng_in_stubw && !prev_stub;
+    wire rng_stub_entry = pifa_if_cycle && rng_armed && rng_in_stubw &&
+                          !prev_stub && rng_disc;
     wire rng_iack = cpuAS_n_d && !cpuAS_n && (cpuFC == 3'b111) &&
                     (cpuAddr[19:16] == 4'hF);
     wire rng_fc5wr = cpuAS_n_d && !cpuAS_n && !cpuRW && (cpuFC == 3'b101);
@@ -2112,6 +2114,42 @@ module dbg_min (
                    rng_head[3:1], wr_head, freeze_cause,
                    (iack_age != 3'd7), rng_armed};
     end
+
+    // PIFD: the last two instruction-fetch DATA words the CPU actually
+    // received (latched at mac_dout_valid), frozen with the ring. The
+    // primal fault is an F-line (vec 11) inside the ROM's pseudo-DMA
+    // write loop, whose DBF displacement word $FFFA itself decodes as
+    // F-line — so at the freeze:
+    //   last_if_data == memory[ring src] but src is mid-instruction
+    //     => fetch-stream DESYNC (a bus cycle slipped/duplicated);
+    //   last_if_data != memory at that address
+    //     => fetch DATA corruption (wrong cycle's word on cpu_din).
+    // Same discriminator as the disk-side 0x0000/0x51C9 injections seen
+    // in the journaled record (write stream capturing a neighbor cycle).
+    //   [31:16] previous IF data   [15:0] last IF data before freeze
+    reg        ifd_wait;
+    reg [15:0] ifd_last, ifd_prev;
+    initial begin ifd_wait = 1'b0; ifd_last = 16'd0; ifd_prev = 16'd0; end
+    always @(posedge clk) begin
+        if (!rng_frozen) begin
+            if (pifa_if_cycle)
+                ifd_wait <= 1'b1;
+            else if (ifd_wait && mac_dout_valid) begin
+                ifd_prev <= ifd_last;
+                ifd_last <= cpu_din;
+                ifd_wait <= 1'b0;
+            end
+        end
+    end
+    reg [31:0] pifd_r;
+    always @(posedge clk) pifd_r <= {ifd_prev, ifd_last};
+
+    altsource_probe #(
+        .instance_id ("PIFD"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pifd (.probe(pifd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     altsource_probe #(
         .instance_id ("PRNG"),

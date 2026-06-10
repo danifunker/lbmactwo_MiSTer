@@ -143,6 +143,8 @@ foreach inst $info {
     # selects the ring slot) + freeze/classifier flags
     if {$nm eq "PRNG"} { set idx(PRNG) $i }
     if {$nm eq "PRWF"} { set idx(PRWF) $i }
+    # 2026-06-10c — last two IF data words before the ring freeze
+    if {$nm eq "PIFD"} { set idx(PIFD) $i }
     incr i
 }
 
@@ -1470,6 +1472,17 @@ for {set s 1} {$s <= 6} {incr s} {
                 write_source_data -instance_index $idx(PRNG) -value [format "%X" $slot] -value_in_hex
                 set wa [rd $idx(PRNG)]
                 puts [format "             wr %d: 0x%08X" $p $wa]
+            }
+            if {[info exists idx(PIFD)]} {
+                set ifd [rd $idx(PIFD)]
+                set ifd_prev [expr {($ifd >> 16) & 0xFFFF}]
+                set ifd_last [expr {$ifd & 0xFFFF}]
+                puts [format "           last IF data before freeze: prev=0x%04X last=0x%04X" \
+                    $ifd_prev $ifd_last]
+                puts "                 (last should be the trapped opcode. 0xFFFA = the ROM"
+                puts "                  DBF's own displacement word => fetch-stream DESYNC if it"
+                puts "                  matches ROM content at the ring-src address; a word that"
+                puts "                  does NOT match memory there => fetch DATA corruption.)"
             }
         } else {
             puts "           RUNAWAY: not frozen yet (no stub entry / wild IF since arming) -- reproduce, then re-read"
