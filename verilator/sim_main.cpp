@@ -79,6 +79,7 @@ FILE* cpu_trace_file = nullptr;
 const char* cpu_trace_filename = "cpu_trace.log";
 int cpu_trace_count = 0;
 const int cpu_trace_max = 0;  // 0 = unlimited
+int cpu_trace_min_frame = 0;  // --cpu-trace-min-frame: suppress trace output before this frame
 int post_download_delay = 0;  // Delay after ROM load before tracing
 uint32_t cpu_trace_last_pc = 0xFFFFFFFF;  // For edge detection (new instruction)
 
@@ -1716,16 +1717,22 @@ int verilate() {
 			}
 
 			// Vector table write watchpoint - log any write to $0-$3FF
-			if (VERTOPINTERN->debug_write_valid && !*bus.ioctl_download && cpu_trace_file) {
+			if (VERTOPINTERN->debug_write_valid && !*bus.ioctl_download && cpu_trace_file &&
+			    (int)video.count_frame >= cpu_trace_min_frame) {
 				uint32_t waddr = VERTOPINTERN->debug_write_addr;
 				if (waddr < 0x400) {
 					uint16_t wdata = VERTOPINTERN->debug_write_data;
 					fprintf(cpu_trace_file, "** VECWR %08X <= %04X\n", waddr, wdata);
+				} else if (waddr >= 0x00022000 && waddr < 0x00022040) {
+					// FPU CIR window (CPU-space $0002 2xxx; same A[15:0] as RAM alias)
+					uint16_t wdata = VERTOPINTERN->debug_write_data;
+					fprintf(cpu_trace_file, "** CIRWR %08X <= %04X\n", waddr, wdata);
 				}
 			}
 
 			// CPU trace output - skip while ROM is downloading
-			if (cpu_trace_enable && VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
+			if (cpu_trace_enable && VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download &&
+			    (int)video.count_frame >= cpu_trace_min_frame) {
 				// Use the debug signals from sim.v that capture actual bus transactions
 				uint32_t pc = VERTOPINTERN->debug_pc;
 				uint16_t opcode = VERTOPINTERN->debug_opcode;
@@ -3428,6 +3435,8 @@ int main(int argc, char** argv, char** env) {
 			return 0;
 		} else if (strcmp(argv[i], "--headless") == 0 || strcmp(argv[i], "--no-gui") == 0) {
 			headless = true;
+		} else if (strcmp(argv[i], "--cpu-trace-min-frame") == 0 && i + 1 < argc) {
+			cpu_trace_min_frame = std::stoi(argv[++i]);
 		} else if (strcmp(argv[i], "--no-cpu-trace") == 0) {
 			cpu_trace_enable = false;
 		} else if (strcmp(argv[i], "--no-via-debug") == 0) {
