@@ -1453,8 +1453,11 @@ for {set s 1} {$s <= 6} {incr s} {
                         set note [format "  <== recovery_stub_v%d (%s) -- src IS the FAULTING PC" $v $nm2]
                     }
                 }
-                if {$dst == 0x410D0} { set note "  <== recovery_core (longjmp dispatch)" }
-                if {$dst == 0x4114A} { set note "  <== .resume (longjmp landed)" }
+                # recovery.s landmarks — hda 33b6fc9c (stray-trap-fixed bench;
+                # stub table unchanged from a21bcdd1)
+                if {$dst == 0x410D0} { set note "  <== recovery_core (trap dispatch)" }
+                if {$dst == 0x41122} { set note "  <== recovery_longjmp" }
+                if {$dst == 0x411B0} { set note "  <== .resume (longjmp landed)" }
                 puts [format "             pair %d: src=0x%08X -> dst=0x%08X  (delta %+d)%s" \
                     $p $src $dst $delta $note]
             }
