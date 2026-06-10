@@ -142,7 +142,12 @@ entity TG68KdotC_Kernel is
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
 		CACR_out					: out std_logic_vector( 3 downto 0);
-		VBR_out					: out std_logic_vector(31 downto 0)
+		VBR_out					: out std_logic_vector(31 downto 0);
+-- exception capture (debug): pulse + vector/opcode/PC of each exception taken
+		trapmake_out			: out std_logic;
+		trap_vector_out		: out std_logic_vector(11 downto 0);
+		opcode_out				: out std_logic_vector(15 downto 0);
+		tg68pc_out				: out std_logic_vector(31 downto 0)
 		);
 end TG68KdotC_Kernel;
 
@@ -510,6 +515,12 @@ ALU: TG68K_ALU
 	busstate <= "01" WHEN halted='1' ELSE state;
 	nResetOut <= '0' WHEN exec(opcRESET)='1' ELSE '1';
 	cpu_halted <= halted;
+
+	-- exception capture (debug)
+	trapmake_out    <= '1' WHEN trapmake='1' ELSE '0';
+	trap_vector_out <= trap_vector(11 downto 0);
+	opcode_out      <= opcode;
+	tg68pc_out      <= TG68_PC;
 
 	-- does shift for byte access. note active low me
 	-- should produce address error on 68000

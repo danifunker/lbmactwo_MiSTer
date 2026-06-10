@@ -761,11 +761,19 @@ tg68k tg68k_inst (
 		.longword   ( tg68_longword ),
 		.addr       ( tg68_a       ),
 	.berr_inhibit ( berr_inhibit_active ),
-	.berr_data    ( berr_data_out      )
+	.berr_data    ( berr_data_out      ),
+	.trapmake_out    ( cpu_trapmake    ),
+	.trap_vector_out ( cpu_trap_vector ),
+	.opcode_out      ( cpu_opcode_dbg  ),
+	.tg68pc_out      ( cpu_tg68pc      )
 );
 
 wire berr_inhibit_active;
 wire [31:0] berr_data_out;
+wire        cpu_trapmake;
+wire [11:0] cpu_trap_vector;
+wire [15:0] cpu_opcode_dbg;
+wire [31:0] cpu_tg68pc;
 
 // MC68881 FPU - CIR dialog mode (coprocessor protocol via TG68K)
 // Data bus: TG68K is 16-bit; non-Operand CIR accesses use d_in/d_out[15:0].
@@ -1403,6 +1411,10 @@ dbg_min dbg_min_inst (
 	.sd_buff_wr     (sd_buff_wr),
 	.cpuIPL_n       (_cpuIPL),
 	.berr           (berr_out),
+	.trapmake       (cpu_trapmake),
+	.trap_vector    (cpu_trap_vector),
+	.cpu_opcode     (cpu_opcode_dbg),
+	.cpu_pc         (cpu_tg68pc),
 	.ioctl_wr       (ioctl_write),
 	.ioctl_idx      (dio_index[7:0]),
 	.ioctl_addr     (ioctl_addr),

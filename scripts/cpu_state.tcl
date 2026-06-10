@@ -51,6 +51,8 @@ foreach inst $info {
     if {$nm eq "PSCF"} { set idx(PSCF) $i }
     if {$nm eq "PSCG"} { set idx(PSCG) $i }
     if {$nm eq "PSCH"} { set idx(PSCH) $i }
+    if {$nm eq "PSCK"} { set idx(PSCK) $i }
+    if {$nm eq "PSCL"} { set idx(PSCL) $i }
     if {$nm eq "PADB"} { set idx(PADB) $i }
     if {$nm eq "PAD2"} { set idx(PAD2) $i }
     if {$nm eq "PAD3"} { set idx(PAD3) $i }
@@ -151,6 +153,22 @@ proc opword_class {ow} {
     if {[expr {$ow & 0xC000}] == 0x8000} { return "cpBcc.W" }
     if {[expr {$ow & 0xC000}] == 0xC000} { return "cpBcc.L" }
     return "?"
+}
+
+proc vecname {v} {
+    switch -- $v {
+        8       {return "BUS_ERROR"}
+        12      {return "ADDR_ERROR"}
+        16      {return "ILLEGAL_INSTR"}
+        20      {return "ZERO_DIVIDE"}
+        24      {return "CHK"}
+        28      {return "TRAPV"}
+        32      {return "PRIVILEGE"}
+        36      {return "TRACE"}
+        40      {return "LINE_A(1010)"}
+        44      {return "LINE_F(1111)=FPU/coproc"}
+        default {return "vec0x[format %X $v]"}
+    }
 }
 
 proc decode_cmd {v} {
@@ -313,6 +331,21 @@ for {set s 1} {$s <= 6} {incr s} {
     if {[info exists idx(PSC7)]} {
         set s7 [expr {[rd $idx(PSC7)] & 0xFFFF}]
         puts "           NCR live: [decode_scsi $s7]"
+    }
+    if {[info exists idx(PSCK)]} {
+        set sk    [rd $idx(PSCK)]
+        set fvec  [expr {($sk >> 20) & 0xFFF}]
+        set fopc  [expr {($sk >> 4) & 0xFFFF}]
+        set flf   [expr {($sk >> 3) & 0x1}]
+        set ffs   [expr {($sk >> 2) & 0x1}]
+        set fpc   0
+        if {[info exists idx(PSCL)]} { set fpc [rd $idx(PSCL)] }
+        if {$ffs} {
+            puts [format "           EXCEPTION: last fatal=%s (vec=0x%02X) opcode=0x%04X PC=0x%08X | lineF(FPU)_seen=%d" \
+                [vecname $fvec] $fvec $fopc $fpc $flf]
+        } else {
+            puts "           EXCEPTION: none captured yet (no fatal-class exception taken)"
+        }
     }
     if {[info exists idx(PSC8)]} {
         set s8 [rd $idx(PSC8)]

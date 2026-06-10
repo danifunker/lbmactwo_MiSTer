@@ -39,7 +39,13 @@ module tg68k (
 
 	// Format $B RTE: suppress next BERR, provide data instead
 	output berr_inhibit,
-	output [31:0] berr_data
+	output [31:0] berr_data,
+
+	// exception capture (debug)
+	output        trapmake_out,
+	output [11:0] trap_vector_out,
+	output [15:0] opcode_out,
+	output [31:0] tg68pc_out
 );
 
 wire  [1:0] tg68_busstate;
@@ -236,7 +242,11 @@ TG68KdotC_Kernel tg68k (
 	.longword       ( longword      ),
 	.nResetOut      ( reset_n       ),
 	.FC             ( fc            ),
-	.VBR_out        ( VBR_out       )
+	.VBR_out        ( VBR_out       ),
+	.trapmake_out   ( trapmake_out    ),
+	.trap_vector_out( trap_vector_out ),
+	.opcode_out     ( opcode_out      ),
+	.tg68pc_out     ( tg68pc_out      )
 );
 
 endmodule

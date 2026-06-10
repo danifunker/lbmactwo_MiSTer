@@ -34,6 +34,12 @@ module dbg_min (
     // be dropping the Mac into the ROM serial monitor).
     input wire        berr,
 
+    // CPU exception capture (decode the Sad Mac): pulse + vector/opcode/PC.
+    input wire        trapmake,        // pulses when the CPU takes an exception
+    input wire [11:0] trap_vector,     // vector byte offset (0x2C=lineF/FPU, 0x08=berr, ...)
+    input wire [15:0] cpu_opcode,      // opcode reg at the exception
+    input wire [31:0] cpu_pc,          // TG68_PC at the exception
+
     // Video card state
     input wire        video_en,
     input wire [15:0] vram_wr_cnt,      // CPU VRAM writes (Mac drawing)
@@ -2997,5 +3003,53 @@ module dbg_min (
     //     .source_width(1),
     //     .sld_auto_instance_index ("YES")
     // ) cp_pfts (.probe(pfts_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // ---- PSCK/PSCL: CPU exception capture (decode the Sad Mac) ------------
+    // Latch the last *fatal-class* exception (vectors 0x08..0x3C, excluding the
+    // 0x28 line-A toolbox trap that fires constantly): vector, opcode, faulting
+    // PC.  0x2C => line-1111/F-line = coprocessor/FPU instruction not handled
+    // (the suspected Sad Mac dsLineFErr).  0x08=bus error, 0x0C=address error,
+    // 0x10=illegal instruction.
+    reg        trapmake_d_psck;
+    reg        fatal_seen, lineF_seen;
+    reg [11:0] last_fatal_vec;
+    reg [15:0] last_fatal_opc;
+    reg [31:0] last_fatal_pc;
+    initial begin
+        trapmake_d_psck = 1'b0; fatal_seen = 1'b0; lineF_seen = 1'b0;
+        last_fatal_vec = 12'd0; last_fatal_opc = 16'd0; last_fatal_pc = 32'd0;
+    end
+    always @(posedge clk) begin
+        trapmake_d_psck <= trapmake;
+        if (trapmake & ~trapmake_d_psck) begin       // exception taken
+            if (trap_vector >= 12'h008 && trap_vector <= 12'h03C
+                && trap_vector != 12'h028) begin     // exclude line-A toolbox traps
+                fatal_seen     <= 1'b1;
+                last_fatal_vec <= trap_vector;
+                last_fatal_opc <= cpu_opcode;
+                last_fatal_pc  <= cpu_pc;
+                if (trap_vector == 12'h02C) lineF_seen <= 1'b1;
+            end
+        end
+    end
+    reg [31:0] exc_r, excpc_r;
+    always @(posedge clk) begin
+        exc_r   <= { last_fatal_vec, last_fatal_opc, lineF_seen, fatal_seen, 2'b0 };
+        excpc_r <= last_fatal_pc;
+    end
+
+    altsource_probe #(
+        .instance_id ("PSCK"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psck (.probe(exc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PSCL"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscl (.probe(excpc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

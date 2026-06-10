@@ -221,7 +221,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.rdata(scsiDataOut),
 
 		// connections to io controller
-		.img_mounted( img_mounted ),
+		// Single-disk workaround: force device 1 (SCSI ID5) to never mount.
+		// PSCJ trace (this session) showed the HPS phantom-mounts SC1 with a
+		// nonzero img_size even when the user has only mounted SC0, so ID5
+		// falsely responds to selection and the Mac wedges on it during the
+		// SCSI scan.  Masking img_mounted[1] keeps ID5 unmounted (it then
+		// times out selection like an absent device) so boot proceeds from
+		// ID6.  Revisit when the two-disk mount handling is fixed properly.
+		.img_mounted( {1'b0, img_mounted[0]} ),
 		.img_size( img_size ),
 		.io_lba ( io_lba ),
 		.io_rd ( io_rd ),
