@@ -96,7 +96,17 @@ module ncr5380
 	// JTAG debug: target0 (boot disk, ID6) multi-block WRITE stall snapshot.
 	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
 	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req
-	output      [31:0] dbg_scsi_wr
+	output      [31:0] dbg_scsi_wr,
+	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
+	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
+	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
+	//   [11]=dma_word_latched [12]=dma_longword_latched [13]=longword_second_pending
+	//   [17:14]=tcr [31:18]=dma_wr_count (i_dma_wr pulses since selection)
+	output      [31:0] dbg_ncr,
+	// JTAG debug: write loss-mechanism confirmation.
+	//   [15:0]=blind_wr_count (i_dma_wr while dreq==0 => Mac wrote w/o DREQ = blind)
+	//   [31:16]=req_drop_count (scsi_req 1->0 edges while dma_en — REQ pauses)
+	output      [31:0] dbg_ncr2
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -529,6 +539,42 @@ module ncr5380
 	assign dbg_scsi_wr = (target_phase[1] == 3'd3) ? target_wrstall[1] :
 	                     (target_phase[0] == 3'd3) ? target_wrstall[0] :
 	                     target_wrstall[1];
+
+	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
+	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:
+	// 2048 bytes => 512 longword / 1024 word / 2048 byte writes (cross-check vs
+	// dma_word/longword_latched).
+	reg [13:0] dma_wr_count;
+	always @(posedge clk) begin
+		if (reset) dma_wr_count <= 14'd0;
+		else if (~old_dma_wr & i_dma_wr) dma_wr_count <= dma_wr_count + 14'd1;
+	end
+	assign dbg_ncr = { dma_wr_count, tcr[3:0], dma_longword_second_pending,
+	                   dma_longword_latched, dma_word_latched, bsr_pmatch,
+	                   mr[`MR_DMA_MODE], dma_ack_holdoff, dma_ack_busy, dma_ack,
+	                   dma_en, scsi_ack, scsi_req, dreq };
+
+	// Write loss-mechanism confirmation (2026-06-10):
+	//   blind_wr_count = host wrote a pseudo-DMA byte/word (i_dma_wr) while DREQ
+	//                    was LOW — i.e. ignored flow control => BLIND writes; these
+	//                    are the bytes the 1-word NCR buffer can't hold => lost.
+	//   req_drop_count = target REQ fell while DMA active — the HPS-flush pauses
+	//                    that, under blind writes, drop bytes.
+	reg [15:0] blind_wr_count;
+	reg [15:0] req_drop_count;
+	reg        old_scsi_req_dbg;
+	always @(posedge clk) begin
+		if (reset) begin
+			blind_wr_count   <= 16'd0;
+			req_drop_count   <= 16'd0;
+			old_scsi_req_dbg <= 1'b0;
+		end else begin
+			old_scsi_req_dbg <= scsi_req;
+			if (~old_dma_wr & i_dma_wr & ~dreq) blind_wr_count <= blind_wr_count + 16'd1;
+			if (old_scsi_req_dbg & ~scsi_req & dma_en) req_drop_count <= req_drop_count + 16'd1;
+		end
+	end
+	assign dbg_ncr2 = { req_drop_count, blind_wr_count };
 
 	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
 

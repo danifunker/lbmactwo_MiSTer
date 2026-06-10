@@ -117,6 +117,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi4,
 	output           [15:0] dbg_scsi5,
 	output           [31:0] dbg_scsi_wr,   // target0 multi-block write-stall snapshot
+	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
+	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_adb,
 	output           [17:0] dbg_adb2,
 	output           [31:0] dbg_adb3,   // last 4 bytes CPU READ from VIA1 SR
@@ -238,7 +240,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_scsi3(dbg_scsi3),
 		.dbg_scsi4(dbg_scsi4),
 		.dbg_scsi5(dbg_scsi5),
-		.dbg_scsi_wr(dbg_scsi_wr)
+		.dbg_scsi_wr(dbg_scsi_wr),
+		.dbg_ncr(dbg_ncr),
+		.dbg_ncr2(dbg_ncr2)
 	);
 
 	// ASC (Apple Sound Chip)

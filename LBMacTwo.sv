@@ -1017,6 +1017,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi4(dbg_scsi4),
 	.dbg_scsi5(dbg_scsi5),
 	.dbg_scsi_wr(dbg_scsi_wr),
+	.dbg_ncr(dbg_ncr),
+	.dbg_ncr2(dbg_ncr2),
 	.dbg_adb(dbg_adb),
 	.dbg_adb2(dbg_adb2),
 	.dbg_adb3(dbg_adb3),
@@ -1039,6 +1041,8 @@ wire [15:0] dbg_scsi3;
 wire [15:0] dbg_scsi4;
 wire [15:0] dbg_scsi5;
 wire [31:0] dbg_scsi_wr;   // target0 multi-block write-stall snapshot
+wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
+wire [31:0] dbg_ncr2;      // NCR5380 write loss-mechanism counters
 wire [31:0] dbg_adb;
 wire [17:0] dbg_adb2;
 wire [31:0] dbg_adb3;
@@ -1401,6 +1405,8 @@ dbg_min dbg_min_inst (
 	.scsi_dbg4      (dbg_scsi4),
 	.scsi_dbg5      (dbg_scsi5),
 	.scsi_dbg_wr    (dbg_scsi_wr),
+	.scsi_dbg_ncr   (dbg_ncr),
+	.scsi_dbg_ncr2  (dbg_ncr2),
 	.sd_buff_dout   (sd_buff_dout),
 	.sd_buff_addr   (sd_buff_addr),
 	.sd_buff_wr     (sd_buff_wr),

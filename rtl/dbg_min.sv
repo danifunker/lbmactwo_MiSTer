@@ -52,6 +52,8 @@ module dbg_min (
     input wire [15:0] scsi_dbg4,        // bus-reset count + completion flags
     input wire [15:0] scsi_dbg5,        // per-target command-type bitmap
     input wire [31:0] scsi_dbg_wr,      // target0 multi-block WRITE stall snapshot
+    input wire [31:0] scsi_dbg_ncr,     // NCR5380 host-side pseudo-DMA stall
+    input wire [31:0] scsi_dbg_ncr2,    // NCR5380 write loss-mechanism counters
 
     // Raw disk data the HPS delivers (to catch byte-order/corruption)
     input wire [15:0] sd_buff_dout,
@@ -310,12 +312,14 @@ module dbg_min (
     // Disambiguates: stuck in DATA_IN (3) data-phase flush stall vs STATUS_OUT
     // (4) completion stall vs back-to-IDLE (SCSI done, Mac driver wedged); and
     // whether HPS block-flush acks flow during the write.
-    altsource_probe #(
-        .instance_id ("PSC3"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC3 disabled again 2026-06-10 — its phase info is now also in PSCW
+    // ([18:16]); freed the slot for PSNC (NCR5380 host-side DMA stall).
+    // altsource_probe #(
+    //     .instance_id ("PSC3"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSCW: target0 (boot disk) multi-block WRITE-stall snapshot (2026-06-10).
     // Latch-and-HOLD scsi_dbg_wr the first time the boot disk is mid-write-data
@@ -340,6 +344,40 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pscw (.probe(pscw_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSNC: NCR5380 host-side pseudo-DMA stall (2026-06-10). Live snapshot of
+    // why DREQ stops feeding the write: dreq = scsi_req & dma_en & !dma_ack_busy.
+    // The write stalls at byte 2048 with the target asking (req=1) but the Mac
+    // not feeding — so dma_en cleared or dma_ack_busy stuck. Layout = scsi_dbg_ncr:
+    //   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack [5]=dma_ack_busy
+    //   [8:6]=holdoff [9]=mr_dma [10]=pmatch [11]=word_l [12]=long_l
+    //   [13]=long2nd_pending [17:14]=tcr [31:18]=dma_wr_count
+    reg [31:0] psnc_r;
+    initial begin psnc_r = 32'd0; end
+    always @(posedge clk)
+        psnc_r <= scsi_dbg_ncr;
+    altsource_probe #(
+        .instance_id ("PSNC"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psnc (.probe(psnc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSWL: write loss-mechanism counters (2026-06-10). blind_wr_count>0 proves
+    // the Mac does BLIND pseudo-DMA writes (writes while DREQ=0); combined with
+    // req_drop_count (REQ pauses during HPS flushes) it confirms whether bytes
+    // are lost by blind-writing into a paused target. [15:0]=blind_wr_count,
+    // [31:16]=req_drop_count.
+    reg [31:0] pswl_r;
+    initial begin pswl_r = 32'd0; end
+    always @(posedge clk)
+        pswl_r <= scsi_dbg_ncr2;
+    altsource_probe #(
+        .instance_id ("PSWL"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pswl (.probe(pswl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target REQ/ACK observations (sticky, from scsi.v dbg_hs).
     reg [31:0] scsi4_r;
@@ -1412,12 +1450,14 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pflo (.probe(pflo_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-    altsource_probe #(
-        .instance_id ("PFLA"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pfla (.probe(pfla_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLA (FPU first-trap addr) disabled 2026-06-10 to free a JTAG slot for
+    // PSWL (SCSI write loss counters) — FPU trap diag irrelevant to SCSI write.
+    // altsource_probe #(
+    //     .instance_id ("PFLA"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pfla (.probe(pfla_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature

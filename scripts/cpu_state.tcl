@@ -41,6 +41,8 @@ foreach inst $info {
     if {$nm eq "PSC4"} { set idx(PSC4) $i }
     if {$nm eq "PSC5"} { set idx(PSC5) $i }
     if {$nm eq "PSCW"} { set idx(PSCW) $i }
+    if {$nm eq "PSNC"} { set idx(PSNC) $i }
+    if {$nm eq "PSWL"} { set idx(PSWL) $i }
     if {$nm eq "PSC6"} { set idx(PSC6) $i }
     if {$nm eq "PSC7"} { set idx(PSC7) $i }
     if {$nm eq "PSC8"} { set idx(PSC8) $i }
@@ -313,6 +315,53 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                 => stalled at STATUS_OUT (last-block flush / completion)."
         } elseif {$cwr==1 && $wph<3} {
             puts "                 => write stuck BEFORE data phase (command-phase issue)."
+        }
+    }
+    if {[info exists idx(PSNC)]} {
+        set n [rd $idx(PSNC)]
+        set dreq    [expr {$n & 0x1}]
+        set sreq    [expr {($n >> 1) & 0x1}]
+        set sack    [expr {($n >> 2) & 0x1}]
+        set dmaen   [expr {($n >> 3) & 0x1}]
+        set dmaack  [expr {($n >> 4) & 0x1}]
+        set ackbusy [expr {($n >> 5) & 0x1}]
+        set holdoff [expr {($n >> 6) & 0x7}]
+        set mrdma   [expr {($n >> 9) & 0x1}]
+        set pmatch  [expr {($n >> 10) & 0x1}]
+        set wordl   [expr {($n >> 11) & 0x1}]
+        set longl   [expr {($n >> 12) & 0x1}]
+        set long2nd [expr {($n >> 13) & 0x1}]
+        set tcr     [expr {($n >> 14) & 0xF}]
+        set wrcnt   [expr {($n >> 18) & 0x3FFF}]
+        set bytes_lw [expr {$wrcnt*4}]
+        set bytes_w  [expr {$wrcnt*2}]
+        puts [format "           NCR-DMA: dreq=%u scsi_req=%u scsi_ack=%u | dma_en=%u dma_ack=%u dma_ack_busy=%u holdoff=%u" \
+            $dreq $sreq $sack $dmaen $dmaack $ackbusy $holdoff]
+        puts [format "                 mr_dma_mode=%u pmatch=%u word_l=%u long_l=%u long2nd=%u tcr=0x%X  dma_wr_count=%u (=%u B word / %u B longword)" \
+            $mrdma $pmatch $wordl $longl $long2nd $tcr $wrcnt $bytes_w $bytes_lw]
+        if {$sreq==1 && $dreq==0 && $dmaen==0} {
+            puts "                 => DREQ stopped because dma_en=0: the Mac CLEARED DMA mode (MR_DMA_MODE)"
+            puts "                    mid-transfer while the target still wants data — chunk re-arm / phase-mismatch IRQ."
+        } elseif {$sreq==1 && $dreq==0 && $ackbusy==1} {
+            puts "                 => DREQ stopped because dma_ack_busy=1 STUCK (holdoff=$holdoff) — longword-write ACK sequencing bug."
+        } elseif {$sreq==1 && $dreq==0 && $pmatch==0} {
+            puts "                 => phase mismatch (pmatch=0): tcr expected phase != actual bus phase."
+        }
+    }
+    if {[info exists idx(PSWL)]} {
+        set wl [rd $idx(PSWL)]
+        set blindwr  [expr {$wl & 0xFFFF}]
+        set reqdrops [expr {($wl >> 16) & 0xFFFF}]
+        puts [format "           WR-LOSS: blind_wr_count=%u (i_dma_wr while DREQ=0)  req_drop_count=%u (REQ pauses during DMA)" \
+            $blindwr $reqdrops]
+        if {$blindwr > 0} {
+            puts "                 => blind_wr_count>0 CONFIRMS the Mac does BLIND pseudo-DMA writes (ignores DREQ)."
+            puts "                    Those $blindwr writes hit a 1-word NCR buffer with no flow control => bytes LOST."
+            puts "                    With req_drop_count=$reqdrops REQ pauses (HPS flushes), the loss correlates => fix = keep"
+            puts "                    the target accepting bytes across flushes (deeper write buffer / continuous REQ)."
+        } else {
+            puts "                 => blind_wr_count=0: the Mac is NOT blind-writing (it honors DREQ). The overrun must"
+            puts "                    come from DREQ asserting when it shouldn't — investigate the dreq/holdoff gating instead."
         }
     }
     if {[info exists idx(PSC4)]} {
