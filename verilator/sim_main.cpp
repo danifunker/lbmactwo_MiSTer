@@ -1730,6 +1730,13 @@ int verilate() {
 				}
 			}
 
+			// FPU CIR read watchpoint (FSAVE frame / response reads)
+			if (VERTOPINTERN->debug_cirrd_valid && !*bus.ioctl_download && cpu_trace_file &&
+			    (int)video.count_frame >= cpu_trace_min_frame) {
+				fprintf(cpu_trace_file, "** CIRRD %08X => %04X\n",
+				        VERTOPINTERN->debug_cirrd_addr, VERTOPINTERN->debug_cirrd_data);
+			}
+
 			// CPU trace output - skip while ROM is downloading
 			if (cpu_trace_enable && VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download &&
 			    (int)video.count_frame >= cpu_trace_min_frame) {

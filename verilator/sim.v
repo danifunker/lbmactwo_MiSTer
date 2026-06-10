@@ -59,6 +59,9 @@ module emu
 	output        debug_write_valid,  // Write bus cycle completed
 	output [31:0] debug_write_addr,   // Write address
 	output [15:0] debug_write_data,   // Write data
+	output        debug_cirrd_valid,  // FPU CIR read cycle completed (FC=7, $22000-$2203F)
+	output [31:0] debug_cirrd_addr,   // CIR read address
+	output [15:0] debug_cirrd_data,   // CIR read data (as seen by the CPU)
 
 	// RAM debug outputs
 	output [24:0] debug_ram_addr,
@@ -560,6 +563,11 @@ module emu
 	reg [31:0] write_addr;
 	reg [15:0] write_data;
 
+	// FPU CIR read capture (FSAVE frame / response reads are otherwise invisible)
+	reg        cirrd_valid;
+	reg [31:0] cirrd_addr;
+	reg [15:0] cirrd_data;
+
 	// Capture VIA read data while AS is still asserted
 	reg [15:0] via_rd_data_r;
 	always @(posedge clk_sys) begin
@@ -578,6 +586,7 @@ module emu
 		end else begin
 			fetch_valid <= 0;
 			write_valid <= 0;
+			cirrd_valid <= 0;
 			prev_as_n <= tg68_as_n;
 
 			// Capture on AS rising edge (bus cycle complete)
@@ -593,6 +602,12 @@ module emu
 					write_addr <= tg68_a;
 					write_data <= tg68_dout[15:0];
 					write_valid <= 1;
+				end else if (tg68_rw && cpuFC == 3'b111 &&
+				             tg68_a[31:16] == 16'h0002 && tg68_a[15:6] == 10'h080) begin
+					// FPU CIR read ($22000-$2203F): log what the CPU saw
+					cirrd_addr <= tg68_a;
+					cirrd_data <= fpu_d_to_cpu;
+					cirrd_valid <= 1;
 				end
 				// Uncomment for VIA bus read debugging:
 				// if (tg68_rw && tg68_a[31:20] == 12'h50F)
@@ -609,6 +624,9 @@ module emu
 	assign debug_write_valid = write_valid;
 	assign debug_write_addr = write_addr;
 	assign debug_write_data = write_data;
+	assign debug_cirrd_valid = cirrd_valid;
+	assign debug_cirrd_addr = cirrd_addr;
+	assign debug_cirrd_data = cirrd_data;
 	assign debug_berr = berr_out;
 
 	addrController_top ac0
