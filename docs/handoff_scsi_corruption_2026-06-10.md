@@ -1,0 +1,142 @@
+# Handoff — SCSI hard-disk corruption (TOP PRIORITY)
+
+*2026-06-10, branch `fpu-bus-adapter-dani` @ `1127811` (RBF `af34c4c4` on the
+MiSTer). User report: hard disks still end up corrupted after Mac OS
+sessions on the core, even after today's fixes. This outranks the FPU
+handoff (`docs/handoff_fpu_timing_closure_2026-06-10.md`).*
+
+## What is ALREADY fixed and validated — don't re-chase these
+
+1. **CPU-side read corruption (`fefc429`, today)** — the slot-owned SDRAM
+   read handshake. Before it, CPU reads/fetches could latch a neighbor
+   transaction's word; the CPU then *wrote that garbage to disk* (journal
+   showed `0x51C9`/`0x0000` clobbers). Validated: 2× full 1320-test corpus
+   runs, every 16 KB journal commit byte-clean (~42 MB of pseudo-DMA
+   writes total). Raw proof: `docs/bench_results/2026-06-10_af34c4c4_*.jsonl.gz`.
+2. **scsi.v word-mode write byte-duplication** (`384bc37`): late `din`
+   sampling in word-mode pseudo-DMA duplicated the even byte into the odd
+   slot; fixed by latching the odd byte at beat-1 `stb_ack`.
+3. **Warm-boot bus-error on stalled DMA** (`c616bf3`): the 8 µs undecoded
+   -address timeout no longer fires on DREQ-stalled DACK cycles.
+4. **Selection hang** (`5f147a4`), **dbg_scsi2 phase decode** (`8465259`).
+5. SCSI is NOT generally broken: the bench .hda boots from SCSI every
+   time, System 6 mounts and browses it in the Finder, and the corpus
+   read every test program off it correctly.
+
+## Scope of today's validation — and the gaps (= the suspects)
+
+The corpus validation exercised ONE traffic pattern: **word-mode**
+(`PSNC: word_l=1 long_l=0`) sequential-LBA 16 KB writes to a single fixed
+region, plus sequential reads at boot. Mac OS does much more, and each gap
+is a candidate for the remaining corruption:
+
+### Suspect 1 — LONGWORD pseudo-DMA mode (UNVALIDATED, prime suspect)
+`scsi.v`/`ncr5380.sv` implement a longword DACK path (`dma_longword`,
+`long2nd_pending`, `cpuLongword` from `LBMacTwo.sv`). The Mac II ROM SCSI
+Manager's blind-transfer loops use `MOVE.L` — the 8× unrolled
+`MOVE.L (A2)+,(A1)` loop at ROM `0x40026BC2` is exactly that — so real
+Mac OS I/O runs the LONG path. The `384bc37` odd-byte fix was proven for
+WORD mode; verify the equivalent late-`din` hazard on the long path's
+2nd/3rd/4th byte beats (same class of bug, different beats). Read
+`scsi.v` around the beat-1 stb_ack latch and check whether long-mode
+beats have the same protection.
+
+### Suspect 2 — scattered-LBA writes / block addressing
+The bench always rewrote the same 32-block region from offset 0. Mac OS
+writes catalog/extents/bitmap/data scattered across the disk with seeks
+between. An LBA-computation or flush-ordering bug (stale sector index,
+sd_buff handoff across block boundaries, `io_busy` overlap between
+back-to-back writes at different LBAs) would corrupt *unrelated* parts of
+the volume — which is what "disk gets corrupted over a session" looks
+like. Check `scsi.v` block/LBA bookkeeping and the HPS `sd_lba`/`sd_wr`
+handshake in `LBMacTwo.sv` for multi-write sequences.
+
+### Suspect 3 — interrupt-interleaved transfers
+The bench ran with a simple IRQ environment. Mac OS takes VBL/VIA/SCC
+interrupts mid-transfer; the driver suspends/resumes pseudo-DMA. If the
+NCR dma engine or the target buffer pointer mishandles a paused-resumed
+transfer (REQ pauses: `req_drop_count` was 17–22k even in the clean bench
+runs — normal HPS flush throttling, but the resume path under *CPU-side*
+pauses is different), bytes could slip. PSCW/PSNC/PSWL probes are still
+in the bitstream for exactly this.
+
+### Suspect 4 — phantom/spurious writes, not data corruption
+"Corrupted disk" after a session can also be HFS-level: volume not
+unmounted cleanly (the core has NO SCSI eject — `eject.c` is .Sony-only;
+MiSTer remounts the image per-core), bench auto-boot re-running and
+REWRITING /Results.jsonl on every restart while the bench disk is
+mounted, or writes lost at power-off. Rule this in/out FIRST (Step 0) —
+it's cheap and changes everything downstream.
+
+## Step 0 — establish a reproducible case (do this before any RTL work)
+
+We have a unique advantage: **host-side byte-exact access to the disk
+image**. Protocol:
+
+1. Build a test image: copy a known-good bootable System 6/7 .hda; md5 it.
+   Keep a pristine copy.
+2. `scp` to the MiSTer, mount, run a CONTROLLED session script by hand:
+   boot to Finder → copy a folder → restart → boot → verify → shut down
+   cleanly. (Vary one factor per run: with/without restart, with/without
+   writes, word of what was done each time.)
+3. After each session: `md5sum` on the MiSTer, `scp` back, and **binary
+   diff against pristine** (`cmp -l` / python) — classify every changed
+   byte range: expected HFS metadata (MDB/alternate MDB at fixed offsets,
+   catalog B-tree, allocation bitmap, file data you intentionally wrote)
+   vs UNEXPLAINED ranges. Unexplained ranges = real corruption; their
+   content tells the mechanism (look for the `0x51C9`-style neighbor-word
+   signature, byte-duplication signature from the old scsi.v bug,
+   512-byte-aligned blocks of foreign data = LBA addressing bug,
+   all-zeros = dropped/lost write).
+4. If corruption appears: bisect the session (which op introduces it) and
+   note whether ranges are word-, long-, or block-aligned — that aligns
+   1:1 with suspects 1/3 vs 2.
+
+The user has likely already seen a corrupting case — **ask what
+disk/operations produced it** and start from that repro if available.
+
+## Step 1 — targeted bench (parallel track, needs Retro68 machine)
+
+Extend the supervisor bench (`SingleStepTests/preboot/supervisor_bench/`,
+`variant_cpu_scsi.s` lineage — same machinery that nailed today's bug)
+with a SCSI exerciser payload:
+- write a per-LBA pseudo-random pattern across a WIDE scattered LBA set,
+  read back and verify, journal mismatches with {lba, offset, expected,
+  actual} — distinguishes data-path vs addressing instantly;
+- a `MOVE.L`-based transfer loop variant to exercise long mode
+  (suspect 1) — the ROM driver path does this, but a bench version gives
+  controlled patterns + the existing recovery/journal infrastructure.
+
+## Tools you already have
+
+- Probes (RBF `af34c4c4`, 20 instances): PSCW (target write state), PSNC
+  (NCR DMA: dreq/dma_en/word_l/long_l/`dma_wr_count`), PSWL
+  (blind_wr/req_drop counters), PADR/PSTA/PACT, PIFA/PIFC (IF-PC), PRNG/
+  PRWF/PIFD (bench-payload-tied; repurposable). `bash scripts/read_probes.sh`.
+  Budget is at the ~20 ceiling — trade bench-specific rings for SCSI
+  probes if needed.
+- Deploy/observe loop: `scratch/cir_bisect/deploy_and_run.sh`, `shot.sh`;
+  journal extraction recipe in the FPU handoff.
+- Prior art: `docs/SCSI_IOTEST_INVESTIGATION.md` (the word-mode write bug
+  hunt — methodology template), `docs/MISTER_HARDWARE_DEBUGGING.md`.
+
+## Open adjacent items (related, not this handoff's core)
+
+- **Cold-boot SCSI** (memory `project_scsi_iotest_investigation`): CPU
+  released before SCSI/HPS ready on power-on — boot availability, not
+  corruption; retest now that the read-path fix is in (old evidence was
+  gathered with the read bug live).
+- **No SCSI eject/unmount**: bench skips eject on SCSI boots by design;
+  consider implementing SCSI START/STOP UNIT → MiSTer unmount, or at
+  least document the OSD-replace workflow.
+
+## Don'ts
+
+- Don't re-debug the NCR selection/arbitration or the word-mode odd-byte
+  path — proven healthy/fixed (see top).
+- Don't trust Verilator for this (no SDRAM arbiter, no HPS latency, and
+  feedback memory says sim SCSI is broken anyway).
+- Don't run `read_probes.sh` during a Quartus compile.
+- Don't let the bench .hda stay mounted during Mac OS experiments — every
+  restart boots it and writes the journal (md5 churn that looks like
+  corruption).
