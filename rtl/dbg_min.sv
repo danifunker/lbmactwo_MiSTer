@@ -1377,34 +1377,67 @@ module dbg_min (
             last_if_pc <= cpuAddr;
     end
 
-    // 3. trap_1111 rising-edge detector — latches both the response and
-    //    the PC at the moment the trap fires, and counts firings.
+    // 3. trap_1111 rising-edge detector. STICKY-ON-FIRST capture of the raw
+    //    bus state at the exact cycle the FIRST trap fires — this is the
+    //    high-information probe that the lagged last_fpu_resp version missed:
+    //      first_trap_din  = cpu_din raw at the trap edge (the response /
+    //                        opcode the kernel actually trapped on). 0x0000 =>
+    //                        the Response read still hadn't landed (stale-read
+    //                        persisting on HW); 0x09xx/0x96xx => a real
+    //                        Response primitive (cp_idle_resp ELSE); 0xFxxx =>
+    //                        an F-line opcode fetch (the cpID-decode trap site).
+    //      first_trap_addr = cpuAddr at the trap edge. $0002xxxx+FC7 => CIR
+    //                        access; $40xxxxxx => ROM IF; $00xxxxxx => RAM.
+    //      first_trap_fc/rw, plus last_fpu_resp (last completed FPU read).
     reg        dbg_fline_trap_d;
     reg [15:0] trap_1111_cnt;
-    reg [15:0] trap_resp_latch;
-    reg [31:0] trap_pc_latch;
+    reg        first_trap_seen;
+    reg [15:0] first_trap_din;
+    reg [31:0] first_trap_addr;
+    reg [2:0]  first_trap_fc;
+    reg        first_trap_rw;
+    reg [15:0] first_trap_lastresp;
     initial begin
         fpu_dsack_active_d = 1'b0;
         last_fpu_resp      = 16'd0;
         cpuAS_n_dd         = 1'b1;
         last_if_pc         = 32'd0;
-        dbg_fline_trap_d    = 1'b0;
+        dbg_fline_trap_d   = 1'b0;
         trap_1111_cnt      = 16'd0;
-        trap_resp_latch    = 16'd0;
-        trap_pc_latch      = 32'd0;
+        first_trap_seen    = 1'b0;
+        first_trap_din     = 16'd0;
+        first_trap_addr    = 32'd0;
+        first_trap_fc      = 3'd0;
+        first_trap_rw      = 1'b0;
+        first_trap_lastresp= 16'd0;
     end
     always @(posedge clk) begin
         dbg_fline_trap_d <= dbg_fline_trap;
         if (dbg_fline_trap && !dbg_fline_trap_d) begin
-            trap_1111_cnt   <= trap_1111_cnt + 16'd1;
-            trap_resp_latch <= last_fpu_resp;
-            trap_pc_latch   <= last_if_pc;
+            trap_1111_cnt <= trap_1111_cnt + 16'd1;
+            if (!first_trap_seen) begin
+                first_trap_seen     <= 1'b1;
+                first_trap_din      <= cpu_din;
+                first_trap_addr     <= cpuAddr;
+                first_trap_fc       <= cpuFC;
+                first_trap_rw       <= cpuRW;
+                first_trap_lastresp <= last_fpu_resp;
+            end
         end
     end
 
+    // PFLO [31:16] = cpu_din at first trap, [15:0] = trap count.
     reg [31:0] pflo_r;
+    // PFLA [31:0] = cpuAddr at first trap.
+    reg [31:0] pfla_r;
+    // PFLF [31:16] = last_fpu_resp at first trap, [15:13]=cpuFC, [12]=cpuRW,
+    //      [11:0] = low 12 bits of cpuAddr (CIR register offset visibility).
+    reg [31:0] pflf_r;
     always @(posedge clk) begin
-        pflo_r <= {trap_resp_latch, trap_1111_cnt};
+        pflo_r <= {first_trap_din, trap_1111_cnt};
+        pfla_r <= first_trap_addr;
+        pflf_r <= {first_trap_lastresp, first_trap_fc, first_trap_rw,
+                   first_trap_addr[11:0]};
     end
 
     altsource_probe #(
@@ -1413,6 +1446,20 @@ module dbg_min (
         .source_width(1),
         .sld_auto_instance_index ("YES")
     ) cp_pflo (.probe(pflo_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PFLA"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pfla (.probe(pfla_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    altsource_probe #(
+        .instance_id ("PFLF"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pflf (.probe(pflf_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== PADP: Operand-CIR adapter observability (repurposes PFLA slot) =====
     // Counts CPU bus WRITES to FPU CIR registers, decoded from the raw
@@ -1460,12 +1507,14 @@ module dbg_min (
                    padp_operand_beat1, dbg_fpu_xfer_phase};
     end
 
-    altsource_probe #(
-        .instance_id ("PADP"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PADP disabled — adapter already HW-proven (clean 14->7 pairing); freed
+    // its JTAG slot for the first-trap capture probes PFLA/PFLF.
+    // altsource_probe #(
+    //     .instance_id ("PADP"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_padp (.probe(padp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSDI (bytes 4..7 of file) deferred — keeping PSDH only to stay within
     // ~20-probe JTAG budget. PSDH bytes 0..3 catches the boot-signature
@@ -1786,12 +1835,14 @@ module dbg_min (
     // over (CRC retry) — step_cnt grows; (b) stuck mid-sector searching
     // for an address mark — step_cnt static. flp_track + step_cnt tell
     // us which pattern.
-    altsource_probe #(
-        .instance_id ("PFLT"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLT disabled — floppy/track diag irrelevant to the FPU trap; freed its
+    // JTAG slot for the first-trap capture probes PFLA/PFLF.
+    // altsource_probe #(
+    //     .instance_id ("PFLT"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
     //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND
