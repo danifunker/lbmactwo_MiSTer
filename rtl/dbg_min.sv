@@ -51,6 +51,7 @@ module dbg_min (
     input wire [15:0] scsi_dbg3,        // per-target REQ/ACK observations
     input wire [15:0] scsi_dbg4,        // bus-reset count + completion flags
     input wire [15:0] scsi_dbg5,        // per-target command-type bitmap
+    input wire [31:0] scsi_dbg_wr,      // target0 multi-block WRITE stall snapshot
 
     // Raw disk data the HPS delivers (to catch byte-order/corruption)
     input wire [15:0] sd_buff_dout,
@@ -303,16 +304,42 @@ module dbg_min (
     always @(posedge clk)
         scsi3_r <= {8'd0, ph1, ph0, sd_ack_seen, io_ack_seen, 1'b0, max_ph1, 1'b0, max_ph0, scsi_dbg2[5:0]};
 
-    // PSC3 disabled to free fit budget for PIR2 (dynamic IORB ioResult watcher).
-    // The SCSI phase-progress counters are not load-bearing for the
-    // Welcome-hang investigation; re-enable by uncommenting if SCSI debugging
-    // is needed again.
-    // altsource_probe #(
-    //     .instance_id ("PSC3"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSC3 RE-ENABLED 2026-06-10 for the SCSI 16KB multi-block-write wedge.
+    // scsi3_r exposes per-target live phase (ph0/ph1), max phase reached
+    // (sticky), io_ack/sd_ack seen, and live io_rd/io_wr/io_ack (scsi_dbg2[5:0]).
+    // Disambiguates: stuck in DATA_IN (3) data-phase flush stall vs STATUS_OUT
+    // (4) completion stall vs back-to-IDLE (SCSI done, Mac driver wedged); and
+    // whether HPS block-flush acks flow during the write.
+    altsource_probe #(
+        .instance_id ("PSC3"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_psc3 (.probe(scsi3_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PSCW: target0 (boot disk) multi-block WRITE-stall snapshot (2026-06-10).
+    // Latch-and-HOLD scsi_dbg_wr the first time the boot disk is mid-write-data
+    // -phase (cmd_write & phase==DATA_IN) with io_busy asserted — i.e. stalled
+    // waiting for an HPS block-flush ack. Before that (and if that exact stall
+    // never occurs) it tracks live, so a wedge in any other state is still
+    // visible frozen. Layout = scsi_dbg_wr:
+    //   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
+    //   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req
+    // LIVE capture: the wedge is stable (PSC3 shows the disk stuck in DATA_IN),
+    // so the live muxed snapshot read over JTAG IS the terminal stall state. A
+    // freeze-on-first-io_busy would risk latching a normal block-boundary
+    // throttle instead of the terminal stall. The mux in ncr5380 routes the
+    // target that is in DATA_IN, so this tracks the stalled disk.
+    reg [31:0] pscw_r;
+    initial begin pscw_r = 32'd0; end
+    always @(posedge clk)
+        pscw_r <= scsi_dbg_wr;
+    altsource_probe #(
+        .instance_id ("PSCW"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscw (.probe(pscw_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target REQ/ACK observations (sticky, from scsi.v dbg_hs).
     reg [31:0] scsi4_r;
@@ -1711,12 +1738,14 @@ module dbg_min (
     // over (CRC retry) — step_cnt grows; (b) stuck mid-sector searching
     // for an address mark — step_cnt static. flp_track + step_cnt tell
     // us which pattern.
-    altsource_probe #(
-        .instance_id ("PFLT"),
-        .probe_width (32),
-        .source_width(1),
-        .sld_auto_instance_index ("YES")
-    ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PFLT (floppy track) disabled 2026-06-10 to free a JTAG slot for PSCW
+    // (SCSI write-stall) — floppy diag irrelevant to the SCSI write wedge.
+    // altsource_probe #(
+    //     .instance_id ("PFLT"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_pflt (.probe(pflt_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PSLT: Slot-E REGISTER write monitor (filters out VRAM writes).
     //   MDC824 register space: cpuAddr[31:24]==$FE (slot E) AND

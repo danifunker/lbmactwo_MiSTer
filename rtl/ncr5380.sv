@@ -92,7 +92,11 @@ module ncr5380
 	output      [15:0] dbg_scsi4,
 	// JTAG debug: per-target command-type bitmap
 	//   [15:8] target1 dbg_cmd   [7:0] target0 dbg_cmd
-	output      [15:0] dbg_scsi5
+	output      [15:0] dbg_scsi5,
+	// JTAG debug: target0 (boot disk, ID6) multi-block WRITE stall snapshot.
+	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
+	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req
+	output      [31:0] dbg_scsi_wr
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -391,6 +395,7 @@ module ncr5380
 	wire [7:0]      target_cmd[DEVS];
 	wire [31:0]     target_wrsnap[DEVS];   // JTAG debug: first-word-write capture
 	wire [31:0]     target_selsnap[DEVS];  // JTAG debug: selection/command handshake
+	wire [31:0]     target_wrstall[DEVS];  // JTAG debug: multi-block write-stall snapshot
 	wire [DEVS-1:0] target_bsy;
 
 	// Count SCSI bus resets (Mac asserting ICR.RST) -- the abort/retry signal.
@@ -492,7 +497,8 @@ module ncr5380
 				.dbg_dma_long( dma_longword_latched ),
 				.dbg_dma_lowbyte( dma_write_low_byte ),
 				.dbg_wrsnap( target_wrsnap[i] ),
-				.dbg_selsnap( target_selsnap[i] )
+				.dbg_selsnap( target_selsnap[i] ),
+				.dbg_wrstall( target_wrstall[i] )
 			);
 		end
 	endgenerate
@@ -509,8 +515,20 @@ module ncr5380
 	                    target_mounted[1:0], icr[`ICR_A_DATA],
 	                    scsi_bus_data };
 
+	// NOTE: the 2'b0 gap at [7:6] makes this a full 16 bits so the phase fields
+	// land at [13:11]/[10:8] as the header comment (and dbg_min) expect. Without
+	// it the 14-bit concat right-justified and shifted the phases down 2 bits,
+	// garbling the decoded phase (the "phase 6/7" red herring, fixed 2026-06-10).
 	assign dbg_scsi2 = { 2'b0, target_phase[1], target_phase[0],
-	                     io_rd[1:0], io_wr[1:0], io_ack[1:0] };
+	                     2'b0, io_rd[1:0], io_wr[1:0], io_ack[1:0] };
+
+	// Capture whichever target is in the WRITE data phase (PHASE_DATA_IN=3).
+	// The bench's disk is actually target1 (ID5), not target0 — the result
+	// write stalls there in DATA_IN. Mux on phase so it tracks the active disk
+	// regardless of which target ID it mounts on.
+	assign dbg_scsi_wr = (target_phase[1] == 3'd3) ? target_wrstall[1] :
+	                     (target_phase[0] == 3'd3) ? target_wrstall[0] :
+	                     target_wrstall[1];
 
 	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
 

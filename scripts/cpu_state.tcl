@@ -40,6 +40,7 @@ foreach inst $info {
     if {$nm eq "PSC3"} { set idx(PSC3) $i }
     if {$nm eq "PSC4"} { set idx(PSC4) $i }
     if {$nm eq "PSC5"} { set idx(PSC5) $i }
+    if {$nm eq "PSCW"} { set idx(PSCW) $i }
     if {$nm eq "PSC6"} { set idx(PSC6) $i }
     if {$nm eq "PSC7"} { set idx(PSC7) $i }
     if {$nm eq "PSC8"} { set idx(PSC8) $i }
@@ -287,6 +288,32 @@ for {set s 1} {$s <= 6} {incr s} {
         set cp1 [expr {($s3 >> 21) & 0x7}]
         puts [format "           PHASE now: t0=%s t1=%s | max: t0=%s t1=%s | io_ack_seen=%d sd_ack_seen=%d" \
             [phname $cp0] [phname $cp1] [phname $mp0] [phname $mp1] $iackseen $sackseen]
+    }
+    if {[info exists idx(PSCW)]} {
+        set w [rd $idx(PSCW)]
+        set dc   [expr {$w & 0xFFFF}]
+        set wph  [expr {($w >> 16) & 0x7}]
+        set dcpl [expr {($w >> 19) & 0x1}]
+        set iowr [expr {($w >> 20) & 0x1}]
+        set ioack [expr {($w >> 21) & 0x1}]
+        set iobusy [expr {($w >> 22) & 0x1}]
+        set sbsel [expr {($w >> 23) & 0x1}]
+        set cwr  [expr {($w >> 24) & 0x1}]
+        set tlen [expr {($w >> 25) & 0x3F}]
+        set req  [expr {($w >> 31) & 0x1}]
+        set blk  [expr {$dc >> 9}]
+        puts [format "           WR-STALL t0(ID6): phase=%s data_cnt=%u (block %u/%u of tlen=%u)  cmd_write=%u" \
+            [phname $wph] $dc $blk [expr {$tlen>0?$tlen-1:0}] $tlen $cwr]
+        puts [format "                 io_wr=%u io_ack=%u io_busy=%u sd_buff_sel=%u dc9=%u req=%u data_complete=%u" \
+            $iowr $ioack $iobusy $sbsel [expr {($dc>>9)&1}] $req $dcpl]
+        if {$cwr==1 && $wph==3 && $iobusy==1} {
+            puts "                 => STALLED in WRITE DATA phase waiting for HPS block-flush ack (io_busy held)."
+            puts "                    If sd_buff_sel==dc9 the double-buffer desynced; if io_wr stuck=1 the HPS never acked."
+        } elseif {$cwr==1 && $wph==4} {
+            puts "                 => stalled at STATUS_OUT (last-block flush / completion)."
+        } elseif {$cwr==1 && $wph<3} {
+            puts "                 => write stuck BEFORE data phase (command-phase issue)."
+        }
     }
     if {[info exists idx(PSC4)]} {
         set s4 [rd $idx(PSC4)]

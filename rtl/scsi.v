@@ -54,7 +54,15 @@ module scsi
 	input         dbg_dma_long,    // ncr5380 dma_longword_latched
 	input  [7:0]  dbg_dma_lowbyte, // ncr5380 dma_write_low_byte (intended odd byte)
 	output [31:0] dbg_wrsnap,      // captured first-word-write snapshot
-	output [31:0] dbg_selsnap      // selection/command handshake observability
+	output [31:0] dbg_selsnap,     // selection/command handshake observability
+
+	// JTAG debug: multi-block WRITE stall observability (2026-06-10). Live
+	// snapshot of the data-transfer state so the 16KB (32-block) result write
+	// can be caught mid-stall: which block (data_cnt), phase, the io_wr/io_ack
+	// block-flush handshake, the double-buffer select, and tlen.
+	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
+	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen[5:0] [31]=req
+	output [31:0] dbg_wrstall
 );
 
 // SCSI device id
@@ -778,6 +786,10 @@ always @(posedge clk) begin
 end
 assign dbg_wrsnap = { 4'd0, dbg_b1_seen, dbg_b0_seen, dbg_long_l, dbg_word_l,
                       dbg_low_l, dbg_b1, dbg_b0 };
+
+// Multi-block WRITE stall snapshot (2026-06-10). Live data-transfer state.
+assign dbg_wrstall = { req, tlen[5:0], cmd_write, sd_buff_sel, io_busy,
+                       io_ack, io_wr, data_complete, phase, data_cnt[15:0] };
 
 // ---- Selection/command handshake observability (PSEL probe) -----------
 // Live state {phase,sel,bsy,req,ack} plus sticky high-water/counters that
