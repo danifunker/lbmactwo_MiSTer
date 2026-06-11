@@ -874,15 +874,63 @@ PROCESS (clk)
 				END IF;
 				-- cpSAVE/cpRESTORE EA address management
 				IF micro_state = cp_write_opw AND (exe_opcode(8 downto 6) = "100" OR exe_opcode(8 downto 6) = "101") THEN
-					-- Capture An value at start (cpSAVE/cpRESTORE only)
-					cp_ea_addr <= reg_QA;
-					-- Capture next-instruction PC for post-dialog refetch
-					-- (see cp_op_pc / cp_pc_restore_pending declarations).
-					-- At cp_write_opw, tmp_TG68_PC is already past the
-					-- opword and any EA extension words — the natural kernel
-					-- decode advanced it before dispatching here.
-					cp_op_pc <= tmp_TG68_PC;
+					-- Compute the frame EA and the post-dialog resume PC
+					-- (cp_op_pc, force-loaded at cp_mem_refetch).
+					-- tmp_TG68_PC here = address of the word after the opword
+					-- (= the first EA extension word when one exists; the
+					-- natural decode does NOT consume cpSAVE/cpRESTORE
+					-- extension words, so the resume PC must skip them).
+					-- sndOPC = the word after the opword, latched from the
+					-- prefetch at decodeOPC — i.e. d16 / abs.W when present.
+					CASE exe_opcode(5 downto 3) IS
+						WHEN "101" =>		-- (d16,An)
+							cp_ea_addr <= reg_QA +
+								(sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+								 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+								 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+								 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC);
+							cp_op_pc <= tmp_TG68_PC + 2;
+						WHEN "111" =>
+							IF exe_opcode(2 downto 0) = "000" THEN		-- (xxx).W
+								cp_ea_addr <=
+									(sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+									 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+									 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+									 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC);
+								cp_op_pc <= tmp_TG68_PC + 2;
+							ELSIF exe_opcode(2 downto 0) = "010" THEN	-- (d16,PC), cpRESTORE only
+								cp_ea_addr <= tmp_TG68_PC +
+									(sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+									 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+									 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) &
+									 sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC(15) & sndOPC);
+								cp_op_pc <= tmp_TG68_PC + 2;
+							ELSE										-- (xxx).L
+								-- set(longaktion) at dispatch pulled both
+								-- extension words into last_data_read
+								-- (same mechanism as FBcc.L's displacement).
+								cp_ea_addr <= last_data_read;
+								cp_op_pc <= tmp_TG68_PC + 4;
+							END IF;
+						WHEN OTHERS =>		-- (An) / -(An) / (An)+
+							cp_ea_addr <= reg_QA;
+							cp_op_pc <= tmp_TG68_PC;
+					END CASE;
 					cp_pc_restore_pending <= '1';
+				ELSIF micro_state = cp_save_decode AND exe_opcode(5 downto 3) /= "100" THEN
+					-- Control-mode cpSAVE: the frame writer is the shared
+					-- DESCENDING loop (predec order), so seed it with the TOP
+					-- of the frame: EA + frame size. The format word then
+					-- lands at EA+0 (lowest address) per M68881UM §6.6 —
+					-- identical memory layout to the -(An) flavor, which is
+					-- also what FRESTORE's ascending reader expects.
+					IF cp_save_fmt(7 downto 0) = X"18" THEN
+						cp_ea_addr <= cp_ea_addr + 28;	-- 881 IDLE frame
+					ELSIF cp_save_fmt(7 downto 0) = X"B4" THEN
+						cp_ea_addr <= cp_ea_addr + 184;	-- 881 BUSY frame
+					ELSE
+						cp_ea_addr <= cp_ea_addr + 4;	-- NULL: format long only
+					END IF;
 				ELSIF micro_state = cp_save_idle THEN
 					-- cpSAVE: predecrement by 2 before each memory write
 					cp_ea_addr <= cp_ea_addr - 2;
@@ -1012,7 +1060,15 @@ PROCESS (clk)
 					ELSIF cp_save_fmt(7 downto 0) = X"B4" THEN
 						cp_frame_cnt <= "1011011"; -- 91 data words (+1 format = 184 bytes)
 					ELSE
-						cp_frame_cnt <= "0000000"; -- Null: 0 data words
+						-- Null: format long ONLY, but that is still 4 bytes
+						-- (format word + reserved word, $0000_0000). cnt=1
+						-- makes the writer emit format LOW then format HIGH —
+						-- the same two-word tail every other frame gets. The
+						-- old cnt=0 wrote a single word: An came back 2 bytes
+						-- short and the reserved word was never written
+						-- (asymmetric with cp_restore_skip_fmtlo, which pops
+						-- the full 4-byte format long — commit 0b66b67).
+						cp_frame_cnt <= "0000001";
 					END IF;
 				ELSIF micro_state = cp_restore_decode THEN
 					-- Data-word count for cp_restore_wr_data loop. The format
@@ -3642,23 +3698,66 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							next_micro_state <= cp_write_opw;
 						END IF;
 					ELSIF opcode(8 downto 6)="100" THEN
-						-- cpSAVE: save coprocessor state
+						-- cpSAVE: save coprocessor state.
+						-- Legal EAs: -(An) (dedicated predec path: frame size is
+						-- only known after the Save-CIR read, so the generic EA
+						-- predec can't be used) plus the control-alterable modes
+						-- (An), (d16,An), (xxx).W, (xxx).L. The EA for the
+						-- non-predec modes is computed at cp_write_opw in the
+						-- registered cp_ea_addr process (d16 comes from sndOPC,
+						-- abs.L from last_data_read via set(longaktion)).
+						-- Everything else — Dn/An/(An)+/#imm/PC-rel and the
+						-- unimplemented (d8,An,Xn) — F-line traps. The old code
+						-- ran EVERY mode with -(An) semantics: it clobbered An,
+						-- never consumed the EA extension words (they then
+						-- executed as instructions), and wrote the frame at the
+						-- wrong address — the MacsBug "FSAVE -$AF0(A5)"
+						-- recursive-debugger-entry wedge
+						-- (docs/init_wedge_ltlk_scc_2026-06-11.md).
 						IF SVmode='1' THEN
-							set(opcCPopw) <= '1';
-							next_micro_state <= cp_write_opw;
-							-- EA is -(An), source_areg selects the An
-							source_lowbits <= '1';
+							IF opcode(5 downto 3)="100" OR opcode(5 downto 3)="010"
+							   OR opcode(5 downto 3)="101"
+							   OR (opcode(5 downto 3)="111" AND opcode(2 downto 1)="00") THEN
+								set(opcCPopw) <= '1';
+								next_micro_state <= cp_write_opw;
+								-- An-based modes: reg_QA carries the An.
+								source_lowbits <= '1';
+								IF opcode(5 downto 3)="111" AND opcode(2 downto 0)="001" THEN
+									-- (xxx).L: pull both extension words into
+									-- last_data_read (same idiom as FBcc.L).
+									set(longaktion) <= '1';
+								END IF;
+							ELSE
+								trap_1111 <= '1';
+								trapmake <= '1';
+							END IF;
 						ELSE
 							trap_priv <= '1';
 							trapmake <= '1';
 						END IF;
 					ELSIF opcode(8 downto 6)="101" THEN
-						-- cpRESTORE: restore coprocessor state
+						-- cpRESTORE: restore coprocessor state.
+						-- Legal EAs: (An)+ (dedicated postinc path) plus control
+						-- modes (An), (d16,An), (xxx).W, (xxx).L, (d16,PC). The
+						-- read loop is ascending for all of them; control modes
+						-- just skip the An writeback. (d8,An,Xn)/(d8,PC,Xn) are
+						-- unimplemented and the rest are illegal — F-line trap
+						-- (the old code ran them as (An)+ and clobbered An).
 						IF SVmode='1' THEN
-							set(opcCPopw) <= '1';
-							next_micro_state <= cp_write_opw;
-							-- EA is (An)+, source_areg selects the An
-							source_lowbits <= '1';
+							IF opcode(5 downto 3)="011" OR opcode(5 downto 3)="010"
+							   OR opcode(5 downto 3)="101"
+							   OR (opcode(5 downto 3)="111" AND
+							       (opcode(2 downto 1)="00" OR opcode(2 downto 0)="010")) THEN
+								set(opcCPopw) <= '1';
+								next_micro_state <= cp_write_opw;
+								source_lowbits <= '1';
+								IF opcode(5 downto 3)="111" AND opcode(2 downto 0)="001" THEN
+									set(longaktion) <= '1';
+								END IF;
+							ELSE
+								trap_1111 <= '1';
+								trapmake <= '1';
+							END IF;
 						ELSE
 							trap_priv <= '1';
 							trapmake <= '1';
@@ -5077,7 +5176,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						-- gets a freshly-fetched next-instruction word
 						-- instead of whatever the natural prefetch left in
 						-- last_opc_read during the ~30-cycle dialog.
-						cp_an_writeback <= '1';
+						-- An writeback is -(An) semantics only; control-mode
+						-- EAs leave all registers untouched.
+						IF exe_opcode(5 downto 3) = "100" THEN
+							cp_an_writeback <= '1';
+						END IF;
 						next_micro_state <= cp_mem_refetch;
 					ELSE
 						-- More data words to read from CIR.
@@ -5183,7 +5286,10 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- cp_mem_refetch so the TG68_PC mux force-loads cp_op_pc
 					-- (same prefetch-overrun handling as the non-null exits).
 					setstate <= "01";      -- idle
-					cp_an_writeback <= '1';
+					-- (An)+ writeback only; control modes don't touch An.
+					IF exe_opcode(5 downto 3) = "011" THEN
+						cp_an_writeback <= '1';
+					END IF;
 					next_micro_state <= cp_mem_refetch;
 
 				WHEN cp_restore_wr_data =>
@@ -5193,8 +5299,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					setstate <= "11";      -- bus write
 					datatype <= "01";      -- word
 					IF cp_frame_cnt = "0000001" THEN
-						-- Last data word: writeback An and done
-						cp_an_writeback <= '1';
+						-- Last data word: done. Writeback An for (An)+ only;
+						-- control-mode FRESTORE leaves An untouched.
+						IF exe_opcode(5 downto 3) = "011" THEN
+							cp_an_writeback <= '1';
+						END IF;
 						next_micro_state <= cp_read_resp;
 					ELSE
 						-- More data words to read from memory
