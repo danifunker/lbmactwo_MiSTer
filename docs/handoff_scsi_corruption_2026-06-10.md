@@ -7,6 +7,31 @@ handoff (`docs/handoff_fpu_timing_closure_2026-06-10.md`).*
 
 ---
 
+## 2026-06-11 — RESOLVED: round 6 (`2d025c5`) HW-validated; SCSI hang + corruption CLOSED
+
+PVIA proved VIA2 SCSI IER bits DISABLED (IER=0x02): no ISR exists — the
+polled settle loop is the only continuation. Full decode (PIFD pairs +
+disk-image byte-anchor): `(a4)` = BSR (`lea $50(a3),a4`); the loop spins
+while (CSR.REQ==1 && BSR.pmatch==1) and exits ONLY when a CSR read
+returns REQ=0. Snow's `set_req` deferral provides that window; ours
+never did. Fix `2d025c5`: defer bus-visible REQ from CSR until one full
+CSR read completes (BSR.DRQ undeferred = Snow get_drq). VALIDATION
+(RBF `e24964bf`): boot passed Welcome into the INIT parade (first time
+ever for this disk lineage; 471 I/O completions vs the eternal 147);
+post-session byte-diff vs pristine = ONE sector changed, LBA 98 = HFS
+MDB clean-bit mount write (2 bytes). ZERO copy-class runs.
+
+REMAINING (separate, non-SCSI): an INIT spins at RAM ~0xA44C4
+(`tst.b d(a2) / bne` on a RAM flag), IWM-register churn, SCSI idle,
+first INIT icon drawn. This System-Picker disk never booted past
+Welcome before, so its INIT chain (TattleTech-style hardware probers)
+is unexplored — suspect floppy-poll or FPU/MMU-probe class (see
+docs/handoff_fpu_timing_closure_2026-06-10.md). Use the PIFD remote
+disassembler (scripts/sample_loop.tcl + loop_disasm.py, anchor with a
+disk-image byte search) on the new loop.
+
+---
+
 ## 2026-06-10 session 3 (cont.) — the wedge loop DECODED via JTAG remote disassembly; waiting on PVIA
 
 Rounds 4 (VIA2 level overlays `1ee80e8`) and 5 (bus-visible REQ
