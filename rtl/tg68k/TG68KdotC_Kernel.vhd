@@ -1064,10 +1064,15 @@ PROCESS (clk)
 					cp_xfer_data(15 downto 0) <= data_in;
 				END IF;
 				-- Latch FPU exception vector from response primitive low byte.
-				-- Asserted during cp_idle_resp / cp_cond_eval at the clkena
-				-- edge that ends the Response CIR read (data_in stable).
+				-- cp_idle_resp now decodes the REGISTERED response
+				-- (last_data_read, latched in cp_read_resp_wait), so its vector
+				-- comes from there. cp_cond_eval keeps its own data_in timing.
 				IF set_cp_except_vec='1' THEN
-					cp_except_vec <= data_in(7 downto 0);
+					IF micro_state = cp_idle_resp THEN
+						cp_except_vec <= last_data_read(7 downto 0);
+					ELSE
+						cp_except_vec <= data_in(7 downto 0);
+					END IF;
 				END IF;
 				-- MOVES FC override management
 				IF endOPC='1' THEN
@@ -4639,11 +4644,44 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					next_micro_state <= cp_read_resp;
 
 				WHEN cp_read_resp =>
-					-- Read Response CIR
+					-- Read Response CIR (queue the bus read; it physically
+					-- runs DURING the next state per the 1-cycle setstate
+					-- pipeline). The result is NOT valid until the read
+					-- completes, so route through cp_read_resp_wait — the
+					-- same read→wait→decode shape as cp_save_rd_fmt→
+					-- cp_save_wait→cp_save_decode. Without the wait,
+					-- cp_idle_resp decoded the combinational data_in while it
+					-- was still 0x0000 (read not yet landed) and fell through
+					-- to the ELSE F-line trap on every FSAVE/FRESTORE/FMOVE.L
+					-- response — the supervisor-bench test #1 vec=11 / Bug #6
+					-- "coprocessor not installed" bomb. Verilator-proven via
+					-- the >>> TAKEN F-LINE TRAP @cp_idle_resp din=0x0000 trace.
 					set_cpaddr <= '1';
 					cp_cir_reg <= "00000"; -- Response CIR (register 0)
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					-- set(update_ld) here so exec(update_ld) is asserted DURING
+					-- cp_read_resp_wait — the state the read physically runs in
+					-- — and last_data_read latches the response at that state's
+					-- completing clkena (gated on DSACK). cp_idle_resp then
+					-- decodes the stable last_data_read. (Setting it in the wait
+					-- state itself captures one clkena too late — at
+					-- cp_idle_resp's end, after the decode already ran on stale
+					-- data.)
+					set(update_ld) <= '1';
+					next_micro_state <= cp_read_resp_wait;
+
+				WHEN cp_read_resp_wait =>
+					-- Bus read (queued by cp_read_resp) runs DURING this state.
+					-- exec(update_ld) is asserted here (from cp_read_resp's set),
+					-- so last_data_read latches the Response CIR word at the
+					-- DSACK-gated clkena that ends this state. Keep the FPU
+					-- addressed so the cycle completes cleanly (mirror of
+					-- cp_save_wait).
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00000";
+					setstate <= "01";
+					datatype <= "01";
 					next_micro_state <= cp_idle_resp;
 
 				WHEN cp_idle_resp =>
@@ -4659,10 +4697,16 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					--   bits 7-0: byte count for transfer primaries
 					-- The original simplified class-based decode was incompatible
 					-- with mc68881_top's correct AN-947 encoding.
+					--
+					-- Decode the REGISTERED response (last_data_read, latched in
+					-- cp_read_resp_wait) — NOT the combinational data_in, which
+					-- is only valid for one clkena at the very end of the read
+					-- and reads as 0x0000 during this state (→ spurious ELSE
+					-- F-line trap; see cp_read_resp comment).
 					setstate <= "01";      -- idle (no bus access)
-					IF data_in(12) = '0' AND data_in(11 downto 8) = "1001" THEN
+					IF last_data_read(12) = '0' AND last_data_read(11 downto 8) = "1001" THEN
 						-- Null Primary: CA distinguishes busy vs done.
-						IF data_in(15) = '1' THEN
+						IF last_data_read(15) = '1' THEN
 							next_micro_state <= cp_read_resp;   -- BUSY, come again
 						ELSIF cp_mem_source = '1' THEN
 							-- NULL "done" after a cpGEN memory-source xfer.
@@ -4682,14 +4726,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						ELSE
 							next_micro_state <= idle;           -- NULL, done
 						END IF;
-					ELSIF data_in(12) = '1' THEN
+					ELSIF last_data_read(12) = '1' THEN
 						-- Transfer Single Operand primary. Direction in bit 13.
 						-- CPU→FPU: source is either Dn (reg_QB → cp_xfer_data via
 						--   cp_xfer_to_load) or memory at cp_ea_addr (cp_xfer_mem_rd_*
 						--   fetches 2 words then hands off to cp_xfer_to_load).
 						--   cp_mem_source selects.
 						-- FPU→CPU: read high word, then low word, then write to Dn.
-						IF data_in(13) = '0' THEN
+						IF last_data_read(13) = '0' THEN
 							IF cp_mem_source = '1' THEN
 								next_micro_state <= cp_xfer_mem_rd_hi;
 							ELSE
@@ -4698,8 +4742,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						ELSE
 							next_micro_state <= cp_xfer_from_hi;
 						END IF;
-					ELSIF data_in(15) = '1' AND data_in(12) = '0'
-					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
+					ELSIF last_data_read(15) = '1' AND last_data_read(12) = '0'
+					   AND (last_data_read(14) = '1' OR last_data_read(13) = '1') THEN
 						-- EXCEPT_PRE/MID/POST primitive (bits15:13 = 101/110/111,
 						-- bit12 = 0). Vector in low byte. Must ACK Control CIR
 						-- before trapping, else FPU stays wedged in CIR_EXCEPT_*.
