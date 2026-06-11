@@ -145,6 +145,7 @@ foreach inst $info {
     if {$nm eq "PRWF"} { set idx(PRWF) $i }
     # 2026-06-10c — last two IF data words before the ring freeze
     if {$nm eq "PIFD"} { set idx(PIFD) $i }
+    if {$nm eq "PVIA"} { set idx(PVIA) $i }
     incr i
 }
 
@@ -392,24 +393,30 @@ for {set s 1} {$s <= 6} {incr s} {
         }
     }
     if {[info exists idx(PIFD)]} {
-        # 2026-06-10e live atomic pair: [31:16]=IF addr[15:0]  [15:0]=opcode word
+        # 2026-06-10e live atomic pair: high half = IF addr lo16, low half = opcode.
         set fp [rd $idx(PIFD)]
-        puts [format "           IF-PAIR: PC[15:0]=0x%04X opcode=0x%04X" \
+        puts [format "           IF-PAIR: PClo16=0x%04X opcode=0x%04X" \
             [expr {($fp >> 16) & 0xFFFF}] [expr {$fp & 0xFFFF}]]
     }
-    if {[info exists idx(PDRD)]} {
-        # 2026-06-10e live atomic pair: [31:16]=I/O addr[19:4]  [15:0]=read value.
-        # Full addr = 0x50F00000 | (addr_field << 4).
-        set dr [rd $idx(PDRD)]
-        set af  [expr {($dr >> 16) & 0xFFFF}]
-        set dv  [expr {$dr & 0xFFFF}]
-        set full [expr {0x50F00000 | ($af << 4)}]
-        set dev "?"
-        if {($full & 0xFFFFE000) == 0x50F10000} { set dev [format "SCSI reg %d" [expr {($full >> 4) & 7}]] }
-        if {($full & 0xFFFFE000) == 0x50F12000} { set dev "SCSI DACK" }
-        if {($full & 0xFFFFE000) == 0x50F00000} { set dev [format "VIA1 reg %d" [expr {($full >> 9) & 15}]] }
-        if {($full & 0xFFFFE000) == 0x50F02000} { set dev [format "VIA2 reg %d" [expr {($full >> 9) & 15}]] }
-        puts [format "           IO-RD: addr=0x%08X (%s) value=0x%04X" $full $dev $dv]
+    if {[info exists idx(PVIA)]} {
+        # 2026-06-10f VIA2 IRQ machinery: bit31=irq_out, 30:24=IER, 22:16=IFR_eff,
+        # 15:8=PCR, 7:0=ACR. IFR/IER bit3=CB2(SCSI IRQ), bit0=CA2(SCSI DRQ).
+        set vv [rd $idx(PVIA)]
+        set v_irq  [expr {($vv >> 31) & 1}]
+        set v_ier  [expr {($vv >> 24) & 0x7F}]
+        set v_ifr  [expr {($vv >> 16) & 0x7F}]
+        set v_pcr  [expr {($vv >> 8) & 0xFF}]
+        set v_acr  [expr {$vv & 0xFF}]
+        puts [format "           VIA2-IRQ: irq_out=%u IER=0x%02X IFR_eff=0x%02X PCR=0x%02X ACR=0x%02X" \
+            $v_irq $v_ier $v_ifr $v_pcr $v_acr]
+        puts [format "                 CB2/SCSI-IRQ: IER=%u IFR=%u | CA2/SCSI-DRQ: IER=%u IFR=%u | CB2edge(PCR6)=%u CA2edge(PCR2)=%u" \
+            [expr {($v_ier >> 3) & 1}] [expr {($v_ifr >> 3) & 1}] \
+            [expr {$v_ier & 1}] [expr {$v_ifr & 1}] \
+            [expr {($v_pcr >> 6) & 1}] [expr {($v_pcr >> 2) & 1}]]
+        if {(($v_ier >> 3) & 1) == 0 && ($v_ier & 1) == 0} {
+            puts "                 => BOTH SCSI IER bits DISABLED: the OS/driver never enabled VIA2 SCSI"
+            puts "                    interrupts - the completion ISR can only be entered some other way."
+        }
     }
     if {[info exists idx(PSC4)]} {
         set s4 [rd $idx(PSC4)]

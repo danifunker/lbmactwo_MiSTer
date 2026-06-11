@@ -66,6 +66,10 @@ module via6522 (
     input  wire        cb2_lvl_i,
 
     output wire        irq,
+    // Debug snapshot of the interrupt machinery (PVIA probe):
+    //   [31]=irq_out [30:24]=irq_mask(IER) [22:16]=irq_flags_eff
+    //   [15:8]=pcr [7:0]=acr
+    output wire [31:0] dbg_irq_state,
     output wire        sr_active, // shift register armed and counting
 
     // External shift register completion (Snow-style timer-based SR)
@@ -790,6 +794,7 @@ module via6522 (
     assign serial_event = (shift_active_d & ~shift_active & rising & serport_en)
                         | (shift_tick_r & ~shift_active & rising & serport_en);
     assign sr_active = shift_active;
+    assign dbg_irq_state = { irq_out, irq_mask, 1'b0, irq_flags_eff, pcr, acr };
     always @(posedge clock) begin
         if (falling == 1'b1) begin
             if (shift_active == 1'b0 && shift_mode_control != 3'b000) begin

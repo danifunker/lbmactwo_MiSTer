@@ -123,6 +123,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [31:0] dbg_scsi_wr,   // target0 multi-block write-stall snapshot
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
+	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
 	output           [31:0] dbg_adb,
 	output           [17:0] dbg_adb2,
 	output           [31:0] dbg_adb3,   // last 4 bytes CPU READ from VIA1 SR
@@ -428,6 +429,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (cb2_t),
 
 		.irq        (viaIrq),
+		.dbg_irq_state (),
 		.sr_active  (via1_sr_active),
 
 		// Snow-style timer-based SR completion
@@ -570,6 +572,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (),
 
 		.irq        (via2Irq),
+		.dbg_irq_state (dbg_via2_irq),
 		.sr_active  (),          // not used for VIA2
 
 		.sr_ext_complete (1'b0),

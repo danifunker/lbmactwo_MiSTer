@@ -142,7 +142,12 @@ module dbg_min (
     // PFST probe: packed FPU CIR FSM state (see mc68881_top.vhd port comment).
     // Build #15's FRESTORE fix did not unblock boot; this probe is to see
     // what protocol step the FSM is actually wedged on.
-    input wire [31:0] fpu_dbg_cir_state
+    input wire [31:0] fpu_dbg_cir_state,
+
+    // PVIA (2026-06-10f): VIA2 interrupt machinery — {irq_out, IER[6:0],
+    // 1'b0, IFR_eff[6:0], PCR[7:0], ACR[7:0]}. Decides why the SCSI
+    // completion interrupt never reaches the HD SC driver's ISR.
+    input wire [31:0] via2_irq_state
 );
 
     // Coherent snapshots on clk.
@@ -2177,20 +2182,19 @@ module dbg_min (
     // wedge loop enumerates which device registers it polls and the values
     // it receives (addr[19:4]: 0x1005=SCSI reg5/BSR, 0x1004=CSR,
     // 0x0260=VIA2 IFR, ...). Answers "what is the wait condition" directly.
-    reg [31:0] pdrd_r;
-    initial pdrd_r = 32'd0;
-    always @(posedge clk) begin
-        if (mac_dout_valid && cpuRW &&
-            (cpuFC == 3'b001 || cpuFC == 3'b101) &&
-            cpuAddr[31:20] == 12'h50F)
-            pdrd_r <= {cpuAddr[19:4], cpu_din};
-    end
+    // PDRD retired 2026-06-10f — mac_dout_valid only pulses for SDRAM reads,
+    // so it never saw the I/O polls. Slot reused for PVIA (VIA2 IRQ state):
+    // {irq_out, IER[6:0], 1'b0, IFR_eff[6:0], PCR[7:0], ACR[7:0]} — decides
+    // why the SCSI completion interrupt never reaches the driver's ISR.
+    reg [31:0] pvia_r;
+    initial pvia_r = 32'd0;
+    always @(posedge clk) pvia_r <= via2_irq_state;
     altsource_probe #(
-        .instance_id ("PDRD"),
+        .instance_id ("PVIA"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_pdrd (.probe(pdrd_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pvia (.probe(pvia_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // PRNG/PRWF retired 2026-06-10e — the runaway jump ring froze on its
     // bench-era trigger long ago and its F-line evidence is documented in
