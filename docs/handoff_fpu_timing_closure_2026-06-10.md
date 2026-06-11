@@ -5,6 +5,116 @@ SDRAM read-path fix (`fefc429`) resolved the corruption/runaway saga — see
 `docs/handoff_tg68_runaway_2026-06-10.md` (resolution banner) and memory
 `project_tg68_runaway_unification`.*
 
+---
+
+## ⚠ 2026-06-11 UPDATE — the lottery ESCALATED from "residual fails" to "wedges the machine"; constraints are now THE blocker
+
+*Branch `add-nmi-debug` @ `abe16dc`. Full forensic log of the day:
+`scratch/mac_debug.md` (+ `scratch/macsbug_session/` artifacts). Memory:
+`project_macsbug_fpu_context`.*
+
+### What changed in the RTL (all Verilator-validated, sim corpus 1102 → 1161/1320)
+
+- `49e4f8b` — **item (1) of this handoff DONE**: ported `3c68a27`
+  (`cp_read_resp_wait`, registered Response decode).
+- `abe2bc3` — FSAVE/FRESTORE memory EAs ((An)/d16(An)/abs.W/abs.L; control
+  modes write the frame at EA via the shared descending writer; NULL FSAVE
+  = 4 bytes; An writeback gated to stack modes). MacsBug's
+  `FSAVE -$AF0(A5)` wedge class fixed. Tests: `fsave_ea_corpus` 9/9.
+- `abe16dc` — cpGEN memory EAs BOTH directions (new `cp_xfer_mem_wr_*`
+  FPU→memory store pipeline), predec/postinc cpGEN (FPU-reported length),
+  FPU-side **FMOVEM in the CIR dialog** (item (4) ~DONE: corpus FMOVEM.X
+  class passes in sim), plus a latent **OpWord-clobber fix** (EA-routed
+  dispatches wrote d16 to the OpWord CIR; alone worth +43 sim corpus).
+  Tests: `cpgen_mem_corpus` 7/7, `fmovem_corpus` 5/5 (incl. byte-exact
+  MacsBug shapes `FMOVE.L fpcr,-$25A(A5)` / `FMOVEM fp0-fp7,-$24E(A5)`).
+- Items still NOT done: FDBcc registered-condition (2), FBcc vec-4 (3).
+
+### The hardware evidence chain (read this before touching anything)
+
+1. **Quartus is deterministic**: rebuilding `af36828`'s sources reproduced
+   yesterday's RBF **bit-identical** (md5 `66ba190f`). "Lottery" therefore
+   = source-change-induced re-fit, not per-build randomness. A build's
+   behavior is a property of its sources' placement draw.
+2. **`66ba190f` (yesterday's HW-validated bits, boots 7.1.2 fine) WEDGES
+   the corpus at test 1** — it had simply never been corpus-tested
+   (af34c4c4 was). **`a164163f`** (= `abe16dc` build) wedges at test 5.
+   `af34c4c4` completed all 1320 (lucky draw, 1057 pass).
+3. Wedge signature (both builds): **stray F-line, vector 11**, taken in
+   the bench's inter-test `CLR.L -(A7); FRESTORE (A7)+` preamble
+   (g_in_test=0) → recovery_core terminal `STOP #$2700`, bus frozen.
+   Vector decoded from the on-screen marker — recovery.s:176-190: row 56
+   = fixed 40×`$F0` banner, row 58 = ONE `FF 00` block per vector number
+   (count blocks in the screenshot = vector). Both wedges: 11 blocks.
+4. **vec-11 source**: `mc68881_fpu_lite` answers a failed internal op
+   decode with an EXCEPT primitive carrying `CIR_VEC_FLINE` (= 11)
+   (`mc68881_pkg.vhd:429`). Marginal placement ⇒ occasionally corrupted
+   decode ⇒ FPU posts spurious vec-11 ⇒ kernel correctly F-lines. The
+   165× vec-11 "deterministic fails" of af34c4c4 and these wedges are the
+   SAME mechanism at different placement severity.
+5. Collateral on `a164163f`: System 7.1.2 boot dies nondeterministically
+   (sad Mac 0F/0003 once, happy-Mac wedge twice) — boot-path FPU dialogs
+   tripping the same marginal paths. **6.0.8 boots fine** (minimal FPU
+   dialog at boot) — desktop + SCSI fully healthy, so the session's RTL
+   is functionally sound where timing permits.
+6. **Dead ends already cleared — do not re-litigate**: SCSI displaced-write
+   "corruption" was a FALSE POSITIVE (a healthy 6.0.8 boot rewrites the
+   same ~37 sectors — MacsBug/Desktop state; controlled single-boot
+   experiment in scratch/mac_debug.md). All disk images verified intact
+   vs pristine (HD20SC: 429 benign bytes; 6.0.8 restored from its zip).
+   MiSTer Main unchanged since Jun 7. MacLC-core failures = separate
+   fresh build of shared RTL, same dice — its own session.
+
+### Fix analysis (done 2026-06-11, ready to implement)
+
+The violated cone is `fp80_to_int_trunc` (+ siblings) into:
+- **`result_lo/hi/ex(_hi)_reg`, `aux_result_*`** — written SINGLE-SHOT at
+  op COMPLETION (`micro_remaining_reg=0`). Budget between operand-stable
+  (launch loads `micro_remaining_reg` from `op_cycle_count(...)` = faithful
+  68881 timings) and commit: **≥20 clk_sys cycles even for the fastest
+  MOVE-class op** (mc68881_top.vhd ~2880: launch; ~3000-3145: commit).
+- **`cir_operand_staging`** — load-enable (`CIR_XFER_DST ∧ word_idx=0 ∧
+  ¬read_done`, mc68881_top.vhd:3963-4017) holds for the whole window
+  until the CPU's Operand-CIR read; the register RE-LATCHES the stable
+  cone every cycle, so early garbage samples are overwritten long before
+  consumption. Multicycle honest by the re-latch argument.
+
+Need = ⌈205.8 ns / 31.93 ns⌉ = 7. **Proposed: `set_multicycle_path
+-setup 7` / `-hold 6`** from {`fp_reg_file_reg*`, `operand_reg*`,
+packed/trig/divrem unit result cones} to {`result_*_reg`, `aux_result_*`,
+`cir_operand_staging*`, `fp_reg_file_reg*` (FMOVEM shadow copies commit at
+completion too), `fpcr/fpsr/exc_event_*`}. **Do NOT blanket the FPU**: the
+CIR dialog/bus registers (`cir_state_reg`, response, DSACK, `d_out`) are
+genuine single-cycle paths — a multicycle there would bless real
+corruption. New core SDC file + `set_global_assignment -name SDC_FILE …`
+in `LBMacTwo.qsf` (edit between builds ONLY — Quartus rewrites the qsf).
+
+### Resume protocol
+
+1. A third placement roll (`abe2bc3` sources) was building when this
+   update was written — `scratch/bisect_build_abe2bc3.log`; if it exists
+   as an RBF, corpus-test it as another lottery data point (and if lucky,
+   it can run the MacsBug field test early).
+2. Implement the SDC above on `add-nmi-debug`; `rm -rf db incremental_db`;
+   full rebuild; **verify `LBMacTwo.sta.rpt` shows clk_sys
+   "Timing requirements not met" GONE** (or only known-benign leftovers).
+3. Corpus (deploy loop `scratch/cir_bisect/deploy_and_run.sh`, journal dd
+   per "Evidence" §4 below): expect the wedges gone AND the historical
+   165× vec-11 class largely gone; remaining fails should be the FDBcc
+   (43) and FBcc-vec-4 (37) KERNEL bugs — fix per items (2)/(3) below.
+4. Then the deferred MacsBug field test: boot `MacLC_6-0-8-macsbug.hda`
+   (System 6.0.8; image restorable from its .zip neighbor), OSD →
+   "Interrupt (NMI / MacsBug)" (10th selectable row: `osd` + 9×`down` +
+   `confirm` via scripts/mister_ws.py), expect MacsBug entry; `g`+Return
+   = `POST /api/controls/keyboard-raw/{34,28}` resumes. The FSAVE/FMOVEM
+   context-save instructions it needs are all sim-proven on `abe16dc`.
+5. MiSTer state as left: `_Unstable/LBMacTwo.rbf` = `66ba190f`
+   (yesterday's bits — fine for normal OS use, just don't run the FPU
+   bench); OSD slot s0 = `cpufpubench.hda` (user should remount their
+   disks); bench journal region holds the wedged 1-record run.
+
+---
+
 ## TL;DR
 
 The mc68881 FPU datapath has **never met timing** and has **no multicycle
