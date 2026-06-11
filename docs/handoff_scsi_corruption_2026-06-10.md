@@ -7,6 +7,56 @@ handoff (`docs/handoff_fpu_timing_closure_2026-06-10.md`).*
 
 ---
 
+## 2026-06-10 session 3 (cont.) — the wedge loop DECODED via JTAG remote disassembly; waiting on PVIA
+
+Rounds 4 (VIA2 level overlays `1ee80e8`) and 5 (bus-visible REQ
+continuity `5adc2e1`, audit-driven — see `docs/scsi_audit_2026-06-10.md`)
+did NOT clear the Welcome wedge (same `data_cnt=512/tlen=35` freeze).
+Round 5's RBF carries the live PIFD {PC,opcode} pair probe; 120 JTAG
+samples + `scripts/loop_disasm.py` reconstructed the ACTUAL wait loop
+(driver RAM @ 0x1120A):
+
+```
+120A: btst.b #5, $40(a3)   ; CSR — test REQ
+1210: beq.b  $1218          ; REQ dropped -> exit forward
+1212: btst.b #3, (a4)       ; RAM completion-flag byte, bit 3
+1216: bne.b  $120A          ; still set -> keep spinning
+```
+
+Facts established: (a4) is a DRIVER RAM FLAG (PADR caught RAM data reads
+0x003FE656/66E in-loop; across 5 rounds of sampling the loop never read
+a VIA2 address), cleared by the driver's SCSI completion ISR. The IF-PC
+bursts NEVER show that ISR running (only ROM 60Hz/ADB excursions). So:
+completion interrupt never taken -> flag never clears -> loop spins ->
+no DACK reads -> transfer never finishes -> no phase change -> no new
+IRQ. Deadlock. irq_latch=1 sits unconsumed in PSWL.
+
+Three candidate causes, all inside VIA2 registers we couldn't see:
+IER bits 3/0 (CB2=SCSI IRQ, CA2=DRQ) never enabled; PCR edge polarity
+mismatch vs our active-low wiring; or delivery broken past irq_out.
+**Next RBF (commit `59bc6c6`, building at handoff) adds PVIA:
+{irq_out, IER, IFR_eff, PCR, ACR} live.** Read it AT THE WEDGE:
+- IER bit3/bit0 = 0 => the polled driver masks VIA2 SCSI ints; the flag
+  must be cleared another way — next step: write-snoop (a4)≈0x3FE656
+  (PMEM-style probe) to find who's supposed to clear bit 3.
+- IER set + irq_out=1 + no ISR => CPU-side delivery broken (IPL cascade
+  /TG68 level-2/SR mask) — compare PSTA FC + add IPL visibility.
+- IFR bit3=0 while irq_latch=1 => our overlay/edge plumbing bug.
+
+Caveat for interpreting IFR: the level overlays (`1ee80e8`) FORCE IFR
+bits 0/3 while DREQ/irq_latch are high — if the driver POLLS IFR and
+treats bit3=1 as 'IRQ still pending / not done', the overlay itself
+keeps the loop spinning; reading PVIA decides whether to revert the
+overlays in favor of pure edges + reg-7-read discipline.
+
+Probe deck: PIFD pair + PVIA (replaced mis-gated PDRD: mac_dout_valid
+only covers SDRAM reads — it never saw I/O polls). Tools:
+`scripts/sample_loop.tcl N` + `scripts/loop_disasm.py` = remote
+disassembler for any stable RAM loop. cpu_state.tcl TCL trap fixed
+('PC[15:0]' in a quoted format string is command substitution).
+
+---
+
 ## 2026-06-10 session 3 — TWO more stacked wedges found on HW; the big one is the missing VIA2 SCSI IRQ/DRQ wiring (commits `4f9506b`, `b760944`)
 
 HW validation of `4376c8f` un-stacked two FURTHER wedges. Each fix moved
