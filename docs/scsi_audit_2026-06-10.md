@@ -37,16 +37,20 @@ preserved while the driver-visible bus never dies mid-command.
 Ranked by suspicion for current/future symptoms. ✔ = we now match.
 
 1. **REQ continuity (above)** — fixed in `5adc2e1`. THE wedge candidate.
-2. **Data→Status REQ race (Snow-only workaround, NOT implemented by us):**
-   Snow defers REQ assertion on every phase entry until the next CSR
-   read (`set_req` latch, controller.rs ~410/~763) because *"MacII has a
-   race condition where it will get stuck if REQ is immediately set on a
-   Data -> Status transition."* MAME has no equivalent (its timing
-   differs). If a wedge appears at TRANSFER END (target in STATUS_OUT,
-   driver polling), implement: suppress REQ in STATUS_OUT until the
-   first CSR/BSR/DACK access after phase entry. Note Snow's
-   `get_drq()` includes the *pending* latch — DRQ must not glitch low
-   during the deferral.
+2. **Deferred REQ until CSR read (Snow `set_req`) — PROVEN to be the
+   final wedge mechanism and FIXED in `2d025c5` (2026-06-11).** The
+   live-decoded SCSI Manager TIB engine (RAM 0x1120A; `(a4)` turned out
+   to be the BSR, `lea $50(a3),a4` — NOT a RAM flag) spins between
+   512-byte scInc chunks while `(CSR.REQ==1 && BSR.pmatch==1)` and
+   exits ONLY when a CSR read returns REQ=0. PVIA proved VIA2 SCSI IER
+   bits are disabled (IER=0x02) — there is no ISR; this poll is the only
+   continuation. Snow's deferral gives every first CSR poll a REQ=0
+   window; our combinational REQ never did. Implemented exactly Snow:
+   REQ rising edge → hidden from CSR until one full CSR read completes;
+   BSR.DRQ undeferred (Snow `get_drq()` includes the pending latch).
+   The same engine installs a custom bus-error handler around its DACK
+   reads — confirming real Mac II glue bus-errors stalled DACK cycles
+   (MAME's model); our indefinite DTACK stall is a working superset.
 3. **Loss-of-BSY / Busy-error IRQ (MAME: BAS bit 2 + IRQ when
    MODE.MONBSY set):** we hardwire `bsr_berr=0` and never IRQ on
    disconnect. Mac OS uses MONBSY around disconnect/reselect; matters
