@@ -124,3 +124,38 @@ a hung system — built precisely so future wedges like this one can be
 inspected from the Mac side.
 
 Commits: `c3cb7d3` (scc fix), `8ed0efd` (NMI button).
+
+## Post-validation: NMI button works; MacsBug blocked by FPU FSAVE bug
+
+Field test (RBF `66ba190f`, `MacLC_6-0-8-macsbug.hda`, System 6.0.8 with
+MacsBug installed): pressing the OSD NMI "hung" the core. Diagnosis —
+**the NMI is fine; MacsBug entered and then wedged on our FPU**:
+
+- Live PIFD samples: CPU running flat-out, 100% supervisor, in
+  MacsBug's body at top-of-RAM (`0x7E8C12-0x7ECB48`) plus the ROM
+  debugger glue (`0x400020A6-0x400020FA` save/restore + the 13-rung
+  `bsr.b` vector ladder; rung k = vector k+1).
+- Byte-anchor of the hot code in the disk image → 'MacsBug' (System
+  Folder, cnid 65) data fork; disassembly shows the debugger entry
+  saves FPU context when an FPU is present:
+  `FSAVE -$AF0(a5)` / `FMOVE.L fpcr,-$25A(a5)` /
+  `FMOVEM fp0-fp7,-$24E(a5)` (and the mirror restore on exit).
+- The sampled ladder fetches (`0x210C/0x210E`) = the **vector 11**
+  rung: the FPU save F-line-faults, re-vectors into MacsBug, which
+  runs the FPU save again — infinite recursive debugger entry. It
+  never reaches its screen-draw or keyboard loop (VIA1 counters
+  static), hence the frozen desktop and dead keys (verified: raw
+  `g`+Return via `POST /api/controls/keyboard-raw/{34,28}` did
+  nothing).
+- The existing corpus (scratch/cir_bisect/results_final.jsonl) already
+  contains both bugs: `FSAVE/FRESTORE (A0)` → **vec=11** (memory-EA
+  FSAVE faults; only `-(A7)` variants pass), and all 16 `FMOVEM.X`
+  roundtrips corrupt data.
+
+**Conclusion:** MacsBug is unusable until the FPU FSAVE-memory-EA
+vec-11 fault (and then FMOVEM.X data corruption) are fixed — items in
+`docs/handoff_fpu_timing_closure_2026-06-10.md`. The NMI button needs
+no further work; on a no-FPU config (or post-FPU-fix) it should drop
+into MacsBug normally. Keyboard-injection note for future remote
+MacsBug driving: the remote API route is
+`POST /api/controls/keyboard-raw/<linux keycode>`.
