@@ -19,6 +19,10 @@ PLLJ_PLLSPE_INFO.txt
 
 # Local build-artifact backups made during hardware debugging
 output_files_baseline_*/
+# Quartus talkback/machine-info junk regenerated every compile
+cr_ie_info.json
+# Python bytecode caches
+__pycache__/
 *.qdf
 *.rpt
 *.smsg

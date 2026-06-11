@@ -1,0 +1,1169 @@
+Info: *******************************************************************
+Info: Running Quartus Prime TimeQuest Timing Analyzer
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Thu May 28 15:22:04 2026
+Info: Command: quartus_sta -t scripts/sta_diag2.tcl
+Info (20030): Parallel compilation is enabled and will use 12 of the 12 processors detected
+Info (21077): Low junction temperature is -40 degrees C
+Info (21077): High junction temperature is 100 degrees C
+Info (332164): Evaluating HDL-embedded SDC commands
+    Info (332165): Entity altera_std_synchronizer
+        Info (332166): set_false_path -to [get_keepers {*altera_std_synchronizer:*|din_s1}]
+    Info (332165): Entity sld_hub
+        Info (332166): create_clock -name altera_reserved_tck [get_ports {altera_reserved_tck}] -period 30MHz   
+        Info (332166): if { [string equal quartus_fit $::TimeQuestInfo(nameofexecutable)] } { set_max_delay -to [get_ports { altera_reserved_tdo } ] 0 }
+        Info (332166): set_clock_groups -asynchronous -group {altera_reserved_tck}
+Info (332104): Reading SDC File: 'sys/sys_top.sdc'
+Info (332110): Deriving PLL clocks
+    Info (332110): create_generated_clock -source {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|vco0ph[0]} -divide_by 3 -duty_cycle 50.00 -name {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk} {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk}
+    Info (332110): create_generated_clock -source {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|refclkin} -divide_by 512 -multiply_by 4563 -duty_cycle 50.00 -name {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|vcoph[0]} {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|vcoph[0]}
+    Info (332110): create_generated_clock -source {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|refclkin} -divide_by 512 -multiply_by 4279 -duty_cycle 50.00 -name {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]} {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]}
+    Info (332110): create_generated_clock -source {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 17 -duty_cycle 50.00 -name {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk} {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|refclkin} -divide_by 512 -multiply_by 4493 -duty_cycle 50.00 -name {emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]} {emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]}
+    Info (332110): create_generated_clock -source {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 7 -duty_cycle 50.00 -name {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk} {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 14 -duty_cycle 50.00 -name {emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk} {emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Info (332097): The following timing edges are non-unate.  TimeQuest will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll  from: refclkin  to: fbclk
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_762
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_920
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_7
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_6
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_4
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_3
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_2
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_0
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+==== WORST 60 SETUP PATHS, NON-FPU -> NON-FPU ====
+Info (332115): Report Timing: Found 60 setup paths (60 violated).  Worst case slack is -20.487
+    Info (332115): -from [remove_from_collection [all_registers] [get_registers {*fpu_inst*}]]
+    Info (332115): -to [remove_from_collection [all_registers] [get_registers {*fpu_inst*}]]
+    Info (332115): -setup
+    Info (332115): -npaths 60
+    Info (332115): -detail summary
+    Info (332115): -stdout
+Info (332115): Path #1: Setup slack is -20.487 (VIOLATED)
+    Info (332115):    Slack        : -20.487 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.803
+Info (332115): Path #2: Setup slack is -20.471 (VIOLATED)
+    Info (332115):    Slack        : -20.471 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.787
+Info (332115): Path #3: Setup slack is -20.370 (VIOLATED)
+    Info (332115):    Slack        : -20.370 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.686
+Info (332115): Path #4: Setup slack is -20.354 (VIOLATED)
+    Info (332115):    Slack        : -20.354 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.670
+Info (332115): Path #5: Setup slack is -20.351 (VIOLATED)
+    Info (332115):    Slack        : -20.351 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.667
+Info (332115): Path #6: Setup slack is -20.335 (VIOLATED)
+    Info (332115):    Slack        : -20.335 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.651
+Info (332115): Path #7: Setup slack is -20.322 (VIOLATED)
+    Info (332115):    Slack        : -20.322 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.638
+Info (332115): Path #8: Setup slack is -20.306 (VIOLATED)
+    Info (332115):    Slack        : -20.306 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.622
+Info (332115): Path #9: Setup slack is -20.280 (VIOLATED)
+    Info (332115):    Slack        : -20.280 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.596
+Info (332115): Path #10: Setup slack is -20.264 (VIOLATED)
+    Info (332115):    Slack        : -20.264 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.580
+Info (332115): Path #11: Setup slack is -20.259 (VIOLATED)
+    Info (332115):    Slack        : -20.259 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.575
+Info (332115): Path #12: Setup slack is -20.179 (VIOLATED)
+    Info (332115):    Slack        : -20.179 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.495
+Info (332115): Path #13: Setup slack is -20.173 (VIOLATED)
+    Info (332115):    Slack        : -20.173 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.489
+Info (332115): Path #14: Setup slack is -20.163 (VIOLATED)
+    Info (332115):    Slack        : -20.163 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.479
+Info (332115): Path #15: Setup slack is -20.157 (VIOLATED)
+    Info (332115):    Slack        : -20.157 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.473
+Info (332115): Path #16: Setup slack is -20.142 (VIOLATED)
+    Info (332115):    Slack        : -20.142 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.458
+Info (332115): Path #17: Setup slack is -20.123 (VIOLATED)
+    Info (332115):    Slack        : -20.123 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.439
+Info (332115): Path #18: Setup slack is -20.096 (VIOLATED)
+    Info (332115):    Slack        : -20.096 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.412
+Info (332115): Path #19: Setup slack is -20.094 (VIOLATED)
+    Info (332115):    Slack        : -20.094 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.410
+Info (332115): Path #20: Setup slack is -20.093 (VIOLATED)
+    Info (332115):    Slack        : -20.093 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.409
+Info (332115): Path #21: Setup slack is -20.080 (VIOLATED)
+    Info (332115):    Slack        : -20.080 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.396
+Info (332115): Path #22: Setup slack is -20.077 (VIOLATED)
+    Info (332115):    Slack        : -20.077 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.393
+Info (332115): Path #23: Setup slack is -20.052 (VIOLATED)
+    Info (332115):    Slack        : -20.052 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.368
+Info (332115): Path #24: Setup slack is -20.030 (VIOLATED)
+    Info (332115):    Slack        : -20.030 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.346
+Info (332115): Path #25: Setup slack is -20.014 (VIOLATED)
+    Info (332115):    Slack        : -20.014 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.330
+Info (332115): Path #26: Setup slack is -19.976 (VIOLATED)
+    Info (332115):    Slack        : -19.976 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.292
+Info (332115): Path #27: Setup slack is -19.960 (VIOLATED)
+    Info (332115):    Slack        : -19.960 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.276
+Info (332115): Path #28: Setup slack is -19.957 (VIOLATED)
+    Info (332115):    Slack        : -19.957 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.273
+Info (332115): Path #29: Setup slack is -19.951 (VIOLATED)
+    Info (332115):    Slack        : -19.951 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.267
+Info (332115): Path #30: Setup slack is -19.945 (VIOLATED)
+    Info (332115):    Slack        : -19.945 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.261
+Info (332115): Path #31: Setup slack is -19.941 (VIOLATED)
+    Info (332115):    Slack        : -19.941 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.257
+Info (332115): Path #32: Setup slack is -19.928 (VIOLATED)
+    Info (332115):    Slack        : -19.928 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.244
+Info (332115): Path #33: Setup slack is -19.913 (VIOLATED)
+    Info (332115):    Slack        : -19.913 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.229
+Info (332115): Path #34: Setup slack is -19.912 (VIOLATED)
+    Info (332115):    Slack        : -19.912 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.228
+Info (332115): Path #35: Setup slack is -19.897 (VIOLATED)
+    Info (332115):    Slack        : -19.897 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.213
+Info (332115): Path #36: Setup slack is -19.894 (VIOLATED)
+    Info (332115):    Slack        : -19.894 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.210
+Info (332115): Path #37: Setup slack is -19.886 (VIOLATED)
+    Info (332115):    Slack        : -19.886 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.202
+Info (332115): Path #38: Setup slack is -19.878 (VIOLATED)
+    Info (332115):    Slack        : -19.878 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.194
+Info (332115): Path #39: Setup slack is -19.870 (VIOLATED)
+    Info (332115):    Slack        : -19.870 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.186
+Info (332115): Path #40: Setup slack is -19.868 (VIOLATED)
+    Info (332115):    Slack        : -19.868 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.184
+Info (332115): Path #41: Setup slack is -19.865 (VIOLATED)
+    Info (332115):    Slack        : -19.865 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.181
+Info (332115): Path #42: Setup slack is -19.865 (VIOLATED)
+    Info (332115):    Slack        : -19.865 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.181
+Info (332115): Path #43: Setup slack is -19.849 (VIOLATED)
+    Info (332115):    Slack        : -19.849 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.165
+Info (332115): Path #44: Setup slack is -19.824 (VIOLATED)
+    Info (332115):    Slack        : -19.824 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.140
+Info (332115): Path #45: Setup slack is -19.823 (VIOLATED)
+    Info (332115):    Slack        : -19.823 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.139
+Info (332115): Path #46: Setup slack is -19.808 (VIOLATED)
+    Info (332115):    Slack        : -19.808 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.124
+Info (332115): Path #47: Setup slack is -19.807 (VIOLATED)
+    Info (332115):    Slack        : -19.807 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.123
+Info (332115): Path #48: Setup slack is -19.802 (VIOLATED)
+    Info (332115):    Slack        : -19.802 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.118
+Info (332115): Path #49: Setup slack is -19.785 (VIOLATED)
+    Info (332115):    Slack        : -19.785 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.101
+Info (332115): Path #50: Setup slack is -19.779 (VIOLATED)
+    Info (332115):    Slack        : -19.779 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.095
+Info (332115): Path #51: Setup slack is -19.769 (VIOLATED)
+    Info (332115):    Slack        : -19.769 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.085
+Info (332115): Path #52: Setup slack is -19.766 (VIOLATED)
+    Info (332115):    Slack        : -19.766 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.082
+Info (332115): Path #53: Setup slack is -19.763 (VIOLATED)
+    Info (332115):    Slack        : -19.763 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.079
+Info (332115): Path #54: Setup slack is -19.750 (VIOLATED)
+    Info (332115):    Slack        : -19.750 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.066
+Info (332115): Path #55: Setup slack is -19.748 (VIOLATED)
+    Info (332115):    Slack        : -19.748 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.064
+Info (332115): Path #56: Setup slack is -19.729 (VIOLATED)
+    Info (332115):    Slack        : -19.729 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.045
+Info (332115): Path #57: Setup slack is -19.722 (VIOLATED)
+    Info (332115):    Slack        : -19.722 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.038
+Info (332115): Path #58: Setup slack is -19.716 (VIOLATED)
+    Info (332115):    Slack        : -19.716 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.032
+Info (332115): Path #59: Setup slack is -19.706 (VIOLATED)
+    Info (332115):    Slack        : -19.706 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.022
+Info (332115): Path #60: Setup slack is -19.702 (VIOLATED)
+    Info (332115):    Slack        : -19.702 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_regb[18]
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|memaddr_delta_rega[0]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.391
+    Info (332115):    Data Delay   : 51.018
+==== WORST 30 SETUP PATHS, FPU -> NON-FPU (result bus into CPU) ====
+Info (332115): Report Timing: Found 30 setup paths (0 violated).  Worst case slack is 3.616
+    Info (332115): -from [get_registers {*fpu_inst*}]
+    Info (332115): -to [remove_from_collection [all_registers] [get_registers {*fpu_inst*}]]
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail summary
+    Info (332115): -stdout
+Info (332115): Path #1: Setup slack is 3.616 
+    Info (332115):    Slack        : 3.616 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.554
+Info (332115): Path #2: Setup slack is 3.616 
+    Info (332115):    Slack        : 3.616 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.554
+Info (332115): Path #3: Setup slack is 3.667 
+    Info (332115):    Slack        : 3.667 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.503
+Info (332115): Path #4: Setup slack is 3.667 
+    Info (332115):    Slack        : 3.667 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.503
+Info (332115): Path #5: Setup slack is 3.812 
+    Info (332115):    Slack        : 3.812 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.358
+Info (332115): Path #6: Setup slack is 3.812 
+    Info (332115):    Slack        : 3.812 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.358
+Info (332115): Path #7: Setup slack is 3.853 
+    Info (332115):    Slack        : 3.853 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.317
+Info (332115): Path #8: Setup slack is 3.853 
+    Info (332115):    Slack        : 3.853 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.317
+Info (332115): Path #9: Setup slack is 3.867 
+    Info (332115):    Slack        : 3.867 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2165_OTERM2687_OTERM3653
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.305
+Info (332115): Path #10: Setup slack is 3.867 
+    Info (332115):    Slack        : 3.867 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2165_OTERM2687_OTERM3653
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.305
+Info (332115): Path #11: Setup slack is 3.898 
+    Info (332115):    Slack        : 3.898 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.272
+Info (332115): Path #12: Setup slack is 3.898 
+    Info (332115):    Slack        : 3.898 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.272
+Info (332115): Path #13: Setup slack is 3.918 
+    Info (332115):    Slack        : 3.918 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2165_OTERM2687_OTERM3653
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.254
+Info (332115): Path #14: Setup slack is 3.918 
+    Info (332115):    Slack        : 3.918 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2165_OTERM2687_OTERM3653
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.254
+Info (332115): Path #15: Setup slack is 3.934 
+    Info (332115):    Slack        : 3.934 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2725
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.503
+    Info (332115):    Data Delay   : 27.270
+Info (332115): Path #16: Setup slack is 3.934 
+    Info (332115):    Slack        : 3.934 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2725
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.503
+    Info (332115):    Data Delay   : 27.270
+Info (332115): Path #17: Setup slack is 3.943 
+    Info (332115):    Slack        : 3.943 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.227
+Info (332115): Path #18: Setup slack is 3.943 
+    Info (332115):    Slack        : 3.943 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.227
+Info (332115): Path #19: Setup slack is 3.964 
+    Info (332115):    Slack        : 3.964 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3673
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.208
+Info (332115): Path #20: Setup slack is 3.964 
+    Info (332115):    Slack        : 3.964 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3673
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.208
+Info (332115): Path #21: Setup slack is 3.968 
+    Info (332115):    Slack        : 3.968 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2159_OTERM2643_OTERM3575
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.202
+Info (332115): Path #22: Setup slack is 3.968 
+    Info (332115):    Slack        : 3.968 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2159_OTERM2643_OTERM3575
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.202
+Info (332115): Path #23: Setup slack is 3.985 
+    Info (332115):    Slack        : 3.985 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2725
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.503
+    Info (332115):    Data Delay   : 27.219
+Info (332115): Path #24: Setup slack is 3.985 
+    Info (332115):    Slack        : 3.985 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2725
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.503
+    Info (332115):    Data Delay   : 27.219
+Info (332115): Path #25: Setup slack is 3.989 
+    Info (332115):    Slack        : 3.989 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.181
+Info (332115): Path #26: Setup slack is 3.989 
+    Info (332115):    Slack        : 3.989 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.537
+    Info (332115):    Data Delay   : 27.181
+Info (332115): Path #27: Setup slack is 3.994 
+    Info (332115):    Slack        : 3.994 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[3]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.545
+    Info (332115):    Data Delay   : 27.168
+Info (332115): Path #28: Setup slack is 3.994 
+    Info (332115):    Slack        : 3.994 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3677
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[3]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.545
+    Info (332115):    Data Delay   : 27.168
+Info (332115): Path #29: Setup slack is 4.015 
+    Info (332115):    Slack        : 4.015 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3673
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.157
+Info (332115): Path #30: Setup slack is 4.015 
+    Info (332115):    Slack        : 4.015 
+    Info (332115):    From Node    : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|result_ex_reg[2]_OTERM1537_OTERM1885_OTERM2183_OTERM2727_OTERM3673
+    Info (332115):    To Node      : emu:emu|tg68k:tg68k_inst|tg68_din_r[2]
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 27.157
+==== WORST 30 SETUP PATHS, NON-FPU -> FPU (operands into FPU) ====
+Info (332115): Report Timing: Found 30 setup paths (30 violated).  Worst case slack is -29.331
+    Info (332115): -from [remove_from_collection [all_registers] [get_registers {*fpu_inst*}]]
+    Info (332115): -to [get_registers {*fpu_inst*}]
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail summary
+    Info (332115): -stdout
+Info (332115): Path #1: Setup slack is -29.331 (VIOLATED)
+    Info (332115):    Slack        : -29.331 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.503
+Info (332115): Path #2: Setup slack is -29.308 (VIOLATED)
+    Info (332115):    Slack        : -29.308 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.480
+Info (332115): Path #3: Setup slack is -29.277 (VIOLATED)
+    Info (332115):    Slack        : -29.277 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.449
+Info (332115): Path #4: Setup slack is -29.256 (VIOLATED)
+    Info (332115):    Slack        : -29.256 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.428
+Info (332115): Path #5: Setup slack is -29.244 (VIOLATED)
+    Info (332115):    Slack        : -29.244 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.439
+Info (332115): Path #6: Setup slack is -29.234 (VIOLATED)
+    Info (332115):    Slack        : -29.234 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.406
+Info (332115): Path #7: Setup slack is -29.221 (VIOLATED)
+    Info (332115):    Slack        : -29.221 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.416
+Info (332115): Path #8: Setup slack is -29.214 (VIOLATED)
+    Info (332115):    Slack        : -29.214 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.386
+Info (332115): Path #9: Setup slack is -29.211 (VIOLATED)
+    Info (332115):    Slack        : -29.211 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.383
+Info (332115): Path #10: Setup slack is -29.190 (VIOLATED)
+    Info (332115):    Slack        : -29.190 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.385
+Info (332115): Path #11: Setup slack is -29.180 (VIOLATED)
+    Info (332115):    Slack        : -29.180 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.352
+Info (332115): Path #12: Setup slack is -29.169 (VIOLATED)
+    Info (332115):    Slack        : -29.169 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.364
+Info (332115): Path #13: Setup slack is -29.159 (VIOLATED)
+    Info (332115):    Slack        : -29.159 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.331
+Info (332115): Path #14: Setup slack is -29.149 (VIOLATED)
+    Info (332115):    Slack        : -29.149 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.321
+Info (332115): Path #15: Setup slack is -29.147 (VIOLATED)
+    Info (332115):    Slack        : -29.147 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.342
+Info (332115): Path #16: Setup slack is -29.127 (VIOLATED)
+    Info (332115):    Slack        : -29.127 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.322
+Info (332115): Path #17: Setup slack is -29.124 (VIOLATED)
+    Info (332115):    Slack        : -29.124 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.319
+Info (332115): Path #18: Setup slack is -29.117 (VIOLATED)
+    Info (332115):    Slack        : -29.117 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.289
+Info (332115): Path #19: Setup slack is -29.093 (VIOLATED)
+    Info (332115):    Slack        : -29.093 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.265
+Info (332115): Path #20: Setup slack is -29.093 (VIOLATED)
+    Info (332115):    Slack        : -29.093 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.288
+Info (332115): Path #21: Setup slack is -29.085 (VIOLATED)
+    Info (332115):    Slack        : -29.085 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.257
+Info (332115): Path #22: Setup slack is -29.079 (VIOLATED)
+    Info (332115):    Slack        : -29.079 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.251
+Info (332115): Path #23: Setup slack is -29.072 (VIOLATED)
+    Info (332115):    Slack        : -29.072 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.267
+Info (332115): Path #24: Setup slack is -29.070 (VIOLATED)
+    Info (332115):    Slack        : -29.070 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.242
+Info (332115): Path #25: Setup slack is -29.062 (VIOLATED)
+    Info (332115):    Slack        : -29.062 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[11][0]~DUPLICATE
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.512
+    Info (332115):    Data Delay   : 60.257
+Info (332115): Path #26: Setup slack is -29.061 (VIOLATED)
+    Info (332115):    Slack        : -29.061 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.233
+Info (332115): Path #27: Setup slack is -29.055 (VIOLATED)
+    Info (332115):    Slack        : -29.055 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.227
+Info (332115): Path #28: Setup slack is -29.055 (VIOLATED)
+    Info (332115):    Slack        : -29.055 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.227
+Info (332115): Path #29: Setup slack is -29.052 (VIOLATED)
+    Info (332115):    Slack        : -29.052 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[1][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.535
+    Info (332115):    Data Delay   : 60.224
+Info (332115): Path #30: Setup slack is -29.040 (VIOLATED)
+    Info (332115):    Slack        : -29.040 (VIOLATED)
+    Info (332115):    From Node    : emu:emu|tg68k:tg68k_inst|TG68KdotC_Kernel:tg68k|regfile[8][0]
+    Info (332115):    To Node      : emu:emu|mc68881_fpu_lite:fpu_inst|mc68881_top:u_fpu|fp80_to_int_trunc~129_OTERM3213
+    Info (332115):    Launch Clock : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Latch Clock  : emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    Info (332115):    Relationship : 31.907
+    Info (332115):    Clock Skew   : -0.505
+    Info (332115):    Data Delay   : 60.242
+Info (23030): Evaluation of Tcl script scripts/sta_diag2.tcl was successful
+Info: Quartus Prime TimeQuest Timing Analyzer was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 5774 megabytes
+    Info: Processing ended: Thu May 28 15:22:11 2026
+    Info: Elapsed time: 00:00:07
+    Info: Total CPU time (on all processors): 00:00:08

@@ -1,0 +1,1625 @@
+<sld_project_info>
+  <project>
+    <hash md5_digest_80b="740bd4cd694dd999c430"/>
+  </project>
+  <file_info>
+    <file device="5CSEBA6U23I7" path="LBMacTwo.sof" usercode="0xFFFFFFFF"/>
+  </file_info>
+  <hub_info hub_ir_width="8" ir_width="4" node_addr_width="5" node_count="22"/>
+  <node_info>
+    <node hpath="emu:emu|dataController_top:dc0|ncr5380:scsi|altsource_probe:cp_pwr" instance_id="0" mfg_id="110" node_id="9" sld_node_info="0x486E00" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PWR2"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[0]"/>
+        <port name="probe[1]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[1]"/>
+        <port name="probe[2]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[2]"/>
+        <port name="probe[3]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[3]"/>
+        <port name="probe[4]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[4]"/>
+        <port name="probe[5]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[5]"/>
+        <port name="probe[6]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[6]"/>
+        <port name="probe[7]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[7]"/>
+        <port name="probe[8]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[8]"/>
+        <port name="probe[9]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[9]"/>
+        <port name="probe[10]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[10]"/>
+        <port name="probe[11]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[11]"/>
+        <port name="probe[12]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[12]"/>
+        <port name="probe[13]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[13]"/>
+        <port name="probe[14]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[14]"/>
+        <port name="probe[15]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[15]"/>
+        <port name="probe[16]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[16]"/>
+        <port name="probe[17]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[17]"/>
+        <port name="probe[18]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[18]"/>
+        <port name="probe[19]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[19]"/>
+        <port name="probe[20]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[20]"/>
+        <port name="probe[21]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[21]"/>
+        <port name="probe[22]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[22]"/>
+        <port name="probe[23]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[23]"/>
+        <port name="probe[24]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[24]"/>
+        <port name="probe[25]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[25]"/>
+        <port name="probe[26]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[26]"/>
+        <port name="probe[27]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[27]"/>
+        <port name="probe[28]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[28]"/>
+        <port name="probe[29]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[29]"/>
+        <port name="probe[30]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[30]"/>
+        <port name="probe[31]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_wrsnap[31]"/>
+        <port name="source_clk" source="emu:emu|dataController_top:dc0|ncr5380:scsi|clk"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_raw_tck" source="jtag.bp.emu_dc0_scsi_cp_pwr_raw_tck"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_tdi" source="jtag.bp.emu_dc0_scsi_cp_pwr_tdi"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_usr1" source="jtag.bp.emu_dc0_scsi_cp_pwr_usr1"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_cdr" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_sdr" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_e1dr" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_udr" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_cir" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_uir" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_tlr" source="jtag.bp.emu_dc0_scsi_cp_pwr_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_clr" source="jtag.bp.emu_dc0_scsi_cp_pwr_clr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ena" source="jtag.bp.emu_dc0_scsi_cp_pwr_ena"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_0_" source="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_0_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_1_" source="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_1_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_2_" source="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_2_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_3_" source="jtag.bp.emu_dc0_scsi_cp_pwr_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_out_0_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_out_1_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_out_2_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_ir_out_3_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_pwr_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dataController_top:dc0|ncr5380:scsi|altsource_probe:cp_psel" instance_id="1" mfg_id="110" node_id="9" sld_node_info="0x486E01" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PSEL"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[0]"/>
+        <port name="probe[1]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[1]"/>
+        <port name="probe[2]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[2]"/>
+        <port name="probe[3]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[3]"/>
+        <port name="probe[4]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[4]"/>
+        <port name="probe[5]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[5]"/>
+        <port name="probe[6]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[6]"/>
+        <port name="probe[7]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[7]"/>
+        <port name="probe[8]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[8]"/>
+        <port name="probe[9]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[9]"/>
+        <port name="probe[10]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[10]"/>
+        <port name="probe[11]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[11]"/>
+        <port name="probe[12]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[12]"/>
+        <port name="probe[13]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[13]"/>
+        <port name="probe[14]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[14]"/>
+        <port name="probe[15]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[15]"/>
+        <port name="probe[16]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[16]"/>
+        <port name="probe[17]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[17]"/>
+        <port name="probe[18]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[18]"/>
+        <port name="probe[19]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[19]"/>
+        <port name="probe[20]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[20]"/>
+        <port name="probe[21]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[21]"/>
+        <port name="probe[22]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[22]"/>
+        <port name="probe[23]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[23]"/>
+        <port name="probe[24]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[24]"/>
+        <port name="probe[25]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[25]"/>
+        <port name="probe[26]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[26]"/>
+        <port name="probe[27]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[27]"/>
+        <port name="probe[28]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[28]"/>
+        <port name="probe[29]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[29]"/>
+        <port name="probe[30]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[30]"/>
+        <port name="probe[31]" source="emu:emu|dataController_top:dc0|ncr5380:scsi|scsi:target[0].target|dbg_selsnap[31]"/>
+        <port name="source_clk" source="emu:emu|dataController_top:dc0|ncr5380:scsi|clk"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_raw_tck" source="jtag.bp.emu_dc0_scsi_cp_psel_raw_tck"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_tdi" source="jtag.bp.emu_dc0_scsi_cp_psel_tdi"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_usr1" source="jtag.bp.emu_dc0_scsi_cp_psel_usr1"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_cdr" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_sdr" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_e1dr" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_udr" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_cir" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_uir" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_tlr" source="jtag.bp.emu_dc0_scsi_cp_psel_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_clr" source="jtag.bp.emu_dc0_scsi_cp_psel_clr"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ena" source="jtag.bp.emu_dc0_scsi_cp_psel_ena"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_0_" source="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_0_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_1_" source="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_1_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_2_" source="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_2_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_3_" source="jtag.bp.emu_dc0_scsi_cp_psel_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_out_0_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_out_1_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_out_2_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_ir_out_3_"/>
+        <port name="jtag.bp.emu_dc0_scsi_cp_psel_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_padr" instance_id="2" mfg_id="110" node_id="9" sld_node_info="0x486E02" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PADR"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|cpuAddr_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_padr_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_tdi" source="jtag.bp.emu_dbg_min_inst_cp_padr_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_usr1" source="jtag.bp.emu_dbg_min_inst_cp_padr_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_padr_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_clr" source="jtag.bp.emu_dbg_min_inst_cp_padr_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ena" source="jtag.bp.emu_dbg_min_inst_cp_padr_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_padr_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_padr_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_psta" instance_id="3" mfg_id="110" node_id="9" sld_node_info="0x486E03" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PSTA"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|sta_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_psta_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_tdi" source="jtag.bp.emu_dbg_min_inst_cp_psta_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_usr1" source="jtag.bp.emu_dbg_min_inst_cp_psta_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_psta_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_clr" source="jtag.bp.emu_dbg_min_inst_cp_psta_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ena" source="jtag.bp.emu_dbg_min_inst_cp_psta_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_psta_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psta_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pact" instance_id="4" mfg_id="110" node_id="9" sld_node_info="0x486E04" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PACT"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|as_cycles[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pact_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pact_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pact_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pact_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_clr" source="jtag.bp.emu_dbg_min_inst_cp_pact_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ena" source="jtag.bp.emu_dbg_min_inst_cp_pact_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pact_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pact_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pvbl" instance_id="5" mfg_id="110" node_id="9" sld_node_info="0x486E05" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PVBL"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pvbl_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_clr" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ena" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pvbl_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pflp" instance_id="6" mfg_id="110" node_id="9" sld_node_info="0x486E06" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PFLP"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pflp_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pflp_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pflp_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pflp_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pflp_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_clr" source="jtag.bp.emu_dbg_min_inst_cp_pflp_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ena" source="jtag.bp.emu_dbg_min_inst_cp_pflp_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflp_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pioa" instance_id="7" mfg_id="110" node_id="9" sld_node_info="0x486E07" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIOA"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|iowait_data_addr[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pioa_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pioa_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pioa_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pioa_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_clr" source="jtag.bp.emu_dbg_min_inst_cp_pioa_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ena" source="jtag.bp.emu_dbg_min_inst_cp_pioa_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioa_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pioc" instance_id="8" mfg_id="110" node_id="9" sld_node_info="0x486E08" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIOC"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pioc_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pioc_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pioc_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pioc_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pioc_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_clr" source="jtag.bp.emu_dbg_min_inst_cp_pioc_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ena" source="jtag.bp.emu_dbg_min_inst_cp_pioc_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioc_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pirb" instance_id="9" mfg_id="110" node_id="9" sld_node_info="0x486E09" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIRB"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pirb_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pirb_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pirb_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pirb_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pirb_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_clr" source="jtag.bp.emu_dbg_min_inst_cp_pirb_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ena" source="jtag.bp.emu_dbg_min_inst_cp_pirb_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pirb_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pire" instance_id="10" mfg_id="110" node_id="9" sld_node_info="0x486E0A" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIRE"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pire_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pire_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pire_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pire_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pire_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_clr" source="jtag.bp.emu_dbg_min_inst_cp_pire_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ena" source="jtag.bp.emu_dbg_min_inst_cp_pire_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pire_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pire_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_psdh" instance_id="11" mfg_id="110" node_id="9" sld_node_info="0x486E0B" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PSDH"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|psdh_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_psdh_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_tdi" source="jtag.bp.emu_dbg_min_inst_cp_psdh_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_usr1" source="jtag.bp.emu_dbg_min_inst_cp_psdh_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_psdh_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_clr" source="jtag.bp.emu_dbg_min_inst_cp_psdh_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ena" source="jtag.bp.emu_dbg_min_inst_cp_psdh_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_psdh_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_prsr" instance_id="12" mfg_id="110" node_id="9" sld_node_info="0x486E0C" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PRSR"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|perg_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_prsr_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_tdi" source="jtag.bp.emu_dbg_min_inst_cp_prsr_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_usr1" source="jtag.bp.emu_dbg_min_inst_cp_prsr_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_prsr_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_clr" source="jtag.bp.emu_dbg_min_inst_cp_prsr_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ena" source="jtag.bp.emu_dbg_min_inst_cp_prsr_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsr_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_prsf" instance_id="13" mfg_id="110" node_id="9" sld_node_info="0x486E0D" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PRSF"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|prsf_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_prsf_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_tdi" source="jtag.bp.emu_dbg_min_inst_cp_prsf_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_usr1" source="jtag.bp.emu_dbg_min_inst_cp_prsf_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_prsf_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_clr" source="jtag.bp.emu_dbg_min_inst_cp_prsf_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ena" source="jtag.bp.emu_dbg_min_inst_cp_prsf_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_prsf_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pflo" instance_id="14" mfg_id="110" node_id="9" sld_node_info="0x486E0E" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PFLO"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pflo_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pflo_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pflo_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pflo_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pflo_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_clr" source="jtag.bp.emu_dbg_min_inst_cp_pflo_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ena" source="jtag.bp.emu_dbg_min_inst_cp_pflo_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflo_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pfla" instance_id="15" mfg_id="110" node_id="9" sld_node_info="0x486E0F" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PFLA"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pfla_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pfla_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pfla_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pfla_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pfla_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_clr" source="jtag.bp.emu_dbg_min_inst_cp_pfla_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ena" source="jtag.bp.emu_dbg_min_inst_cp_pfla_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfla_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pflf" instance_id="16" mfg_id="110" node_id="9" sld_node_info="0x486E10" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PFLF"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pflf_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pflf_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pflf_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pflf_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pflf_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_clr" source="jtag.bp.emu_dbg_min_inst_cp_pflf_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ena" source="jtag.bp.emu_dbg_min_inst_cp_pflf_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pflf_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pfl2" instance_id="17" mfg_id="110" node_id="9" sld_node_info="0x486E11" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PFL2"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pfl2_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_clr" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ena" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfl2_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pioh" instance_id="18" mfg_id="110" node_id="9" sld_node_info="0x486E12" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIOH"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pioh_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pioh_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pioh_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pioh_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pioh_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_clr" source="jtag.bp.emu_dbg_min_inst_cp_pioh_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ena" source="jtag.bp.emu_dbg_min_inst_cp_pioh_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pioh_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pifa" instance_id="19" mfg_id="110" node_id="9" sld_node_info="0x486E13" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIFA"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pifa_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pifa_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pifa_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pifa_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pifa_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_clr" source="jtag.bp.emu_dbg_min_inst_cp_pifa_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ena" source="jtag.bp.emu_dbg_min_inst_cp_pifa_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifa_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pifc" instance_id="20" mfg_id="110" node_id="9" sld_node_info="0x486E14" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PIFC"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pifc_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pifc_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pifc_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pifc_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pifc_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_clr" source="jtag.bp.emu_dbg_min_inst_cp_pifc_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ena" source="jtag.bp.emu_dbg_min_inst_cp_pifc_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pifc_tdo"/>
+      </outputs>
+    </node>
+    <node hpath="emu:emu|dbg_min:dbg_min_inst|altsource_probe:cp_pfst" instance_id="21" mfg_id="110" node_id="9" sld_node_info="0x486E15" version="0">
+      <parameters>
+        <parameter name="lpm_type" type="string" value="altsource_probe"/>
+        <parameter name="lpm_hint" type="string" value="UNUSED"/>
+        <parameter name="sld_auto_instance_index" type="string" value="YES"/>
+        <parameter name="sld_instance_index" type="dec" value="0"/>
+        <parameter name="SLD_NODE_INFO" type="dec" value="4746752"/>
+        <parameter name="sld_ir_width" type="dec" value="4"/>
+        <parameter name="instance_id" type="string" value="PFST"/>
+        <parameter name="probe_width" type="dec" value="32"/>
+        <parameter name="source_width" type="dec" value="1"/>
+        <parameter name="source_initial_value" type="string" value="0"/>
+        <parameter name="enable_metastability" type="string" value="NO"/>
+      </parameters>
+      <inputs>
+        <port name="probe[0]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[0]"/>
+        <port name="probe[1]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[1]"/>
+        <port name="probe[2]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[2]"/>
+        <port name="probe[3]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[3]"/>
+        <port name="probe[4]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[4]"/>
+        <port name="probe[5]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[5]"/>
+        <port name="probe[6]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[6]"/>
+        <port name="probe[7]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[7]"/>
+        <port name="probe[8]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[8]"/>
+        <port name="probe[9]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[9]"/>
+        <port name="probe[10]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[10]"/>
+        <port name="probe[11]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[11]"/>
+        <port name="probe[12]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[12]"/>
+        <port name="probe[13]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[13]"/>
+        <port name="probe[14]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[14]"/>
+        <port name="probe[15]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[15]"/>
+        <port name="probe[16]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[16]"/>
+        <port name="probe[17]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[17]"/>
+        <port name="probe[18]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[18]"/>
+        <port name="probe[19]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[19]"/>
+        <port name="probe[20]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[20]"/>
+        <port name="probe[21]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[21]"/>
+        <port name="probe[22]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[22]"/>
+        <port name="probe[23]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[23]"/>
+        <port name="probe[24]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[24]"/>
+        <port name="probe[25]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[25]"/>
+        <port name="probe[26]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[26]"/>
+        <port name="probe[27]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[27]"/>
+        <port name="probe[28]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[28]"/>
+        <port name="probe[29]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[29]"/>
+        <port name="probe[30]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[30]"/>
+        <port name="probe[31]" source="emu:emu|dbg_min:dbg_min_inst|pfst_r[31]"/>
+        <port name="source_clk" source="emu:emu|dbg_min:dbg_min_inst|clk"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_raw_tck" source="jtag.bp.emu_dbg_min_inst_cp_pfst_raw_tck"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_tdi" source="jtag.bp.emu_dbg_min_inst_cp_pfst_tdi"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_usr1" source="jtag.bp.emu_dbg_min_inst_cp_pfst_usr1"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_cdr" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_cdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_sdr" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_sdr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_e1dr" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_e1dr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_udr" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_udr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_cir" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_cir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_uir" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_uir"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_tlr" source="jtag.bp.emu_dbg_min_inst_cp_pfst_jtag_state_tlr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_clr" source="jtag.bp.emu_dbg_min_inst_cp_pfst_clr"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ena" source="jtag.bp.emu_dbg_min_inst_cp_pfst_ena"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_0_" source="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_1_" source="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_2_" source="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_3_" source="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_in_3_"/>
+      </inputs>
+      <outputs>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_out_0_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_out_1_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_out_2_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_ir_out_3_"/>
+        <port name="jtag.bp.emu_dbg_min_inst_cp_pfst_tdo"/>
+      </outputs>
+    </node>
+  </node_info>
+  <sld_infos>
+    <sld_info hpath="sld_hub:auto_hub|alt_sld_fab:\instrumentation_fabric_with_node_gen:instrumentation_fabric" library="alt_sld_fab" name="instrumentation_fabric">
+      <assignment_values>
+        <assignment_value text="QSYS_NAME alt_sld_fab HAS_SOPCINFO 1"/>
+      </assignment_values>
+      <parameters/>
+    </sld_info>
+  </sld_infos>
+</sld_project_info>

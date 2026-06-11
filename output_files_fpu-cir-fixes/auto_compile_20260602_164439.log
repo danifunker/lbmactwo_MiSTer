@@ -1,0 +1,287 @@
+[Tue Jun  2 16:44:39 EDT 2026] Waiting for existing Quartus to finish...
+[Tue Jun  2 16:44:39 EDT 2026] Starting compile
+Info: *******************************************************************
+Info: Running Quartus Prime Shell
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Tue Jun 02 16:44:39 2026
+Info: Command: quartus_sh --flow compile LBMacTwo
+Info: Quartus(args): compile LBMacTwo
+Info: Project Name = C:/Temp/mistercore/lbmactwo_MiSTer/LBMacTwo
+Info: Revision Name = LBMacTwo
+Info (293032): Detected changes in source files.
+    Info (293027): Source file: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/dbg_min.sv has changed.
+Info (293032): Detected changes in source files.
+    Info (293027): Source file: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/dbg_min.sv has changed.
+Info (293032): Detected changes in source files.
+    Info (293027): Source file: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/dbg_min.sv has changed.
+Info: *******************************************************************
+Info: Running Quartus Prime Shell
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Processing started: Tue Jun 02 16:44:41 2026
+Info: Command: quartus_sh -t sys/build_id.tcl compile LBMacTwo LBMacTwo
+Info: Quartus(args): compile LBMacTwo LBMacTwo
+Info (23030): Evaluation of Tcl script sys/build_id.tcl was successful
+Info: Quartus Prime Shell was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4774 megabytes
+    Info: Processing ended: Tue Jun 02 16:44:42 2026
+    Info: Elapsed time: 00:00:01
+    Info: Total CPU time (on all processors): 00:00:01
+Info: *******************************************************************
+Info: Running Quartus Prime Analysis & Synthesis
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Processing started: Tue Jun 02 16:44:43 2026
+Info: Command: quartus_map --read_settings_files=on --write_settings_files=off LBMacTwo -c LBMacTwo
+Info (20030): Parallel compilation is enabled and will use 12 of the 12 processors detected
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/pll.v
+    Info (12023): Found entity 1: pll File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/pll.v Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/pll/pll_0002.v
+    Info (12023): Found entity 1: pll_0002 File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/pll/pll_0002.v Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_hdmi.v
+    Info (12023): Found entity 1: pll_hdmi File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_hdmi.v Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_hdmi/pll_hdmi_0002.v
+    Info (12023): Found entity 1: pll_hdmi_0002 File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_hdmi/pll_hdmi_0002.v Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_audio.v
+    Info (12023): Found entity 1: pll_audio File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_audio.v Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_audio/pll_audio_0002.v
+    Info (12023): Found entity 1: pll_audio_0002 File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_audio/pll_audio_0002.v Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_cfg/pll_cfg.v
+    Info (12023): Found entity 1: pll_cfg File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_cfg/pll_cfg.v Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_cfg/pll_cfg_hdmi.v
+    Info (12023): Found entity 1: pll_cfg_hdmi File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_cfg/pll_cfg_hdmi.v Line: 16
+Info (12021): Found 1 design units, including 1 entities, in source file sys/pll_cfg/altera_pll_reconfig_top.v
+    Info (12023): Found entity 1: altera_pll_reconfig_top File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_cfg/altera_pll_reconfig_top.v Line: 16
+Info (12021): Found 3 design units, including 3 entities, in source file sys/sys_top.v
+    Info (12023): Found entity 1: sys_top File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sys_top.v Line: 22
+    Info (12023): Found entity 2: sync_fix File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sys_top.v Line: 1870
+    Info (12023): Found entity 3: csync File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sys_top.v Line: 1902
+Info (12021): Found 2 design units, including 1 entities, in source file sys/ascal.vhd
+    Info (12022): Found design unit 1: ascal-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/ascal.vhd Line: 269
+    Info (12023): Found entity 1: ascal File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/ascal.vhd Line: 114
+Info (12021): Found 2 design units, including 1 entities, in source file sys/pll_hdmi_adj.vhd
+    Info (12022): Found design unit 1: pll_hdmi_adj-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_hdmi_adj.vhd Line: 53
+    Info (12023): Found entity 1: pll_hdmi_adj File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/pll_hdmi_adj.vhd Line: 21
+Info (12021): Found 3 design units, including 3 entities, in source file sys/math.sv
+    Info (12023): Found entity 1: sys_udiv File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/math.sv Line: 3
+    Info (12023): Found entity 2: sys_umul File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/math.sv Line: 46
+    Info (12023): Found entity 3: sys_umuldiv File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/math.sv Line: 85
+Info (12021): Found 5 design units, including 5 entities, in source file sys/hq2x.sv
+    Info (12023): Found entity 1: Hq2x File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hq2x.sv Line: 13
+    Info (12023): Found entity 2: hq2x_in File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hq2x.sv Line: 226
+    Info (12023): Found entity 3: hq2x_buf File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hq2x.sv Line: 250
+    Info (12023): Found entity 4: DiffCheck File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hq2x.sv Line: 271
+    Info (12023): Found entity 5: Blend File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hq2x.sv Line: 298
+Info (12021): Found 1 design units, including 1 entities, in source file sys/scandoubler.v
+    Info (12023): Found entity 1: scandoubler File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/scandoubler.v Line: 22
+Info (12021): Found 1 design units, including 1 entities, in source file sys/scanlines.v
+    Info (12023): Found entity 1: scanlines File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/scanlines.v Line: 1
+Info (12021): Found 1 design units, including 1 entities, in source file sys/shadowmask.sv
+    Info (12023): Found entity 1: shadowmask File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/shadowmask.sv Line: 1
+Info (12021): Found 2 design units, including 2 entities, in source file sys/video_cleaner.sv
+    Info (12023): Found entity 1: video_cleaner File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_cleaner.sv Line: 12
+    Info (12023): Found entity 2: s_fix File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_cleaner.sv Line: 81
+Info (12021): Found 2 design units, including 2 entities, in source file sys/gamma_corr.sv
+    Info (12023): Found entity 1: gamma_corr File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/gamma_corr.sv Line: 1
+    Info (12023): Found entity 2: gamma_fast File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/gamma_corr.sv Line: 62
+Info (12021): Found 1 design units, including 1 entities, in source file sys/video_mixer.sv
+    Info (12023): Found entity 1: video_mixer File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_mixer.sv Line: 19
+Info (12021): Found 2 design units, including 2 entities, in source file sys/video_freak.sv
+    Info (12023): Found entity 1: video_freak File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_freak.sv Line: 16
+    Info (12023): Found entity 2: video_scale_int File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_freak.sv Line: 141
+Info (12021): Found 2 design units, including 2 entities, in source file sys/video_freezer.sv
+    Info (12023): Found entity 1: video_freezer File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_freezer.sv Line: 21
+    Info (12023): Found entity 2: sync_lock File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/video_freezer.sv Line: 80
+Info (12021): Found 2 design units, including 2 entities, in source file sys/arcade_video.v
+    Info (12023): Found entity 1: arcade_video File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/arcade_video.v Line: 29
+    Info (12023): Found entity 2: screen_rotate File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/arcade_video.v Line: 168
+Info (12021): Found 1 design units, including 1 entities, in source file sys/osd.v
+    Info (12023): Found entity 1: osd File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/osd.v Line: 4
+Info (12021): Found 1 design units, including 1 entities, in source file sys/vga_out.sv
+    Info (12023): Found entity 1: vga_out File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/vga_out.sv Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file sys/yc_out.sv
+    Info (12023): Found entity 1: yc_out File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/yc_out.sv Line: 28
+Info (12021): Found 1 design units, including 1 entities, in source file sys/i2c.v
+    Info (12023): Found entity 1: i2c File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/i2c.v Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file sys/alsa.sv
+    Info (12023): Found entity 1: alsa File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/alsa.sv Line: 22
+Info (12021): Found 1 design units, including 1 entities, in source file sys/i2s.v
+    Info (12023): Found entity 1: i2s File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/i2s.v Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file sys/spdif.v
+    Info (12023): Found entity 1: spdif File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/spdif.v Line: 33
+Info (12021): Found 2 design units, including 2 entities, in source file sys/audio_out.v
+    Info (12023): Found entity 1: audio_out File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/audio_out.v Line: 2
+    Info (12023): Found entity 2: aud_mix_top File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/audio_out.v Line: 258
+Info (12021): Found 3 design units, including 3 entities, in source file sys/iir_filter.v
+    Info (12023): Found entity 1: IIR_filter File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/iir_filter.v Line: 22
+    Info (12023): Found entity 2: iir_filter_tap File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/iir_filter.v Line: 148
+    Info (12023): Found entity 3: DC_blocker File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/iir_filter.v Line: 189
+Info (12021): Found 2 design units, including 2 entities, in source file sys/ltc2308.sv
+    Info (12023): Found entity 1: ltc2308 File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/ltc2308.sv Line: 28
+    Info (12023): Found entity 2: ltc2308_tape File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/ltc2308.sv Line: 105
+Info (12021): Found 1 design units, including 1 entities, in source file sys/sigma_delta_dac.v
+    Info (12023): Found entity 1: sigma_delta_dac File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sigma_delta_dac.v Line: 6
+Info (12021): Found 1 design units, including 1 entities, in source file sys/mt32pi.sv
+    Info (12023): Found entity 1: mt32pi File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/mt32pi.sv Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file sys/mcp23009.sv
+    Info (12023): Found entity 1: mcp23009 File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/mcp23009.sv Line: 5
+Info (12021): Found 1 design units, including 1 entities, in source file sys/f2sdram_safe_terminator.sv
+    Info (12023): Found entity 1: f2sdram_safe_terminator File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/f2sdram_safe_terminator.sv Line: 55
+Info (12021): Found 1 design units, including 1 entities, in source file sys/ddr_svc.sv
+    Info (12023): Found entity 1: ddr_svc File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/ddr_svc.sv Line: 23
+Info (12021): Found 2 design units, including 2 entities, in source file sys/sysmem.sv
+    Info (12023): Found entity 1: sysmem_lite File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sysmem.sv Line: 2
+    Info (12023): Found entity 2: sysmem_HPS_fpga_interfaces File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sysmem.sv Line: 241
+Info (12021): Found 1 design units, including 1 entities, in source file sys/sd_card.sv
+    Info (12023): Found entity 1: sd_card File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/sd_card.sv Line: 28
+Info (12021): Found 4 design units, including 4 entities, in source file sys/hps_io.sv
+    Info (12023): Found entity 1: hps_io File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hps_io.sv Line: 30
+    Info (12023): Found entity 2: ps2_device File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hps_io.sv Line: 716
+    Info (12023): Found entity 3: video_calc File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hps_io.sv Line: 859
+    Info (12023): Found entity 4: confstr_rom File: C:/Temp/mistercore/lbmactwo_MiSTer/sys/hps_io.sv Line: 1027
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/tg68k/tg68k_alu.vhd
+    Info (12022): Found design unit 1: TG68K_ALU-logic File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/tg68k/TG68K_ALU.vhd Line: 80
+    Info (12023): Found entity 1: TG68K_ALU File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/tg68k/TG68K_ALU.vhd Line: 30
+Info (12021): Found 1 design units, including 0 entities, in source file rtl/tg68k/tg68k_pack.vhd
+    Info (12022): Found design unit 1: TG68K_Pack File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/tg68k/TG68K_Pack.vhd Line: 26
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/tg68k/tg68kdotc_kernel.vhd
+    Info (12022): Found design unit 1: TG68KdotC_Kernel-logic File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 149
+    Info (12023): Found entity 1: TG68KdotC_Kernel File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 107
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/tg68k/tg68k.v
+    Info (12023): Found entity 1: tg68k File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/tg68k/tg68k.v Line: 5
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/sdram.v
+    Info (12023): Found entity 1: sdram File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/sdram.v Line: 22
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/sdram_arbiter.v
+    Info (12023): Found entity 1: sdram_arbiter File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/sdram_arbiter.v Line: 10
+Info (12021): Found 3 design units, including 3 entities, in source file rtl/scsi.v
+    Info (12023): Found entity 1: scsi File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/scsi.v Line: 6
+    Info (12023): Found entity 2: scsi_empty_cd File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/scsi.v Line: 814
+    Info (12023): Found entity 3: scsi_dpram File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/scsi.v Line: 1065
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/ncr5380.sv
+    Info (12023): Found entity 1: ncr5380 File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/ncr5380.sv Line: 45
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/floppy_track_encoder.v
+    Info (12023): Found entity 1: floppy_track_encoder File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/floppy_track_encoder.v Line: 12
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/floppy.v
+    Info (12023): Found entity 1: floppy File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/floppy.v Line: 61
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/ps2_kbd.sv
+    Info (12023): Found entity 1: ps2_kbd File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/ps2_kbd.sv Line: 6
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/adb.sv
+    Info (12023): Found entity 1: adb File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/adb.sv Line: 16
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/ps2_mouse.v
+    Info (12023): Found entity 1: ps2_mouse File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/ps2_mouse.v Line: 14
+Warning (10885): Verilog HDL Attribute warning at scc.v(113): synthesis attribute "keep" with value "1" has no object and is ignored File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/scc.v Line: 113
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/scc.v
+    Info (12023): Found entity 1: scc File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/scc.v Line: 18
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/uart/rxuart.v
+    Info (12023): Found entity 1: rxuart File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/uart/rxuart.v Line: 120
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/uart/txuart.v
+    Info (12023): Found entity 1: txuart File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/uart/txuart.v Line: 99
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/iwm.v
+    Info (12023): Found entity 1: iwm File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/iwm.v Line: 39
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/via6522.sv
+    Info (12023): Found entity 1: via6522 File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/via6522.sv Line: 16
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/addrdecoder.v
+    Info (12023): Found entity 1: addrDecoder File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/addrDecoder.v Line: 98
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/addrcontroller_top.v
+    Info (12023): Found entity 1: addrController_top File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/addrController_top.v Line: 1
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/hmmu.v
+    Info (12023): Found entity 1: hmmu File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/hmmu.v Line: 24
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/datacontroller_top.sv
+    Info (12023): Found entity 1: dataController_top File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/dataController_top.sv Line: 1
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/videotimer.v
+    Info (12023): Found entity 1: videoTimer File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/videoTimer.v Line: 2
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/videoshifter.v
+    Info (12023): Found entity 1: videoShifter File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/videoShifter.v Line: 1
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/rtc.v
+    Info (12023): Found entity 1: rtc File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/rtc.v Line: 30
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/dbg_min.sv
+    Info (12023): Found entity 1: dbg_min File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/dbg_min.sv Line: 11
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/nubus/nubus_arbiter.sv
+    Info (12023): Found entity 1: nubus_arbiter File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/nubus/nubus_arbiter.sv Line: 14
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/nubus/nubus_video_mdc824.sv
+    Info (12023): Found entity 1: nubus_video_mdc824 File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/nubus/nubus_video_mdc824.sv Line: 22
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/nubus/vram_ram.sv
+    Info (12023): Found entity 1: vram_ram File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/nubus/vram_ram.sv Line: 24
+Info (12021): Found 2 design units, including 0 entities, in source file rtl/mc68881/vhdl/mc68881_pkg.vhd
+    Info (12022): Found design unit 1: mc68881_pkg File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_pkg.vhd Line: 5
+    Info (12022): Found design unit 2: mc68881_pkg-body File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_pkg.vhd Line: 441
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_fp80_mul_unit.vhd
+    Info (12022): Found design unit 1: mc68881_fp80_mul_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_fp80_mul_unit.vhd Line: 27
+    Info (12023): Found entity 1: mc68881_fp80_mul_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_fp80_mul_unit.vhd Line: 12
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_fp80_addsub_unit.vhd
+    Info (12022): Found design unit 1: mc68881_fp80_addsub_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_fp80_addsub_unit.vhd Line: 32
+    Info (12023): Found entity 1: mc68881_fp80_addsub_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_fp80_addsub_unit.vhd Line: 16
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_divrem_unit.vhd
+    Info (12022): Found design unit 1: mc68881_divrem_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_divrem_unit.vhd Line: 56
+    Info (12023): Found entity 1: mc68881_divrem_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_divrem_unit.vhd Line: 7
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_modrem_post_unit.vhd
+    Info (12022): Found design unit 1: mc68881_modrem_post_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_modrem_post_unit.vhd Line: 49
+    Info (12023): Found entity 1: mc68881_modrem_post_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_modrem_post_unit.vhd Line: 7
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_packed_decimal_unit.vhd
+    Info (12022): Found design unit 1: mc68881_packed_decimal_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_packed_decimal_unit.vhd Line: 47
+    Info (12023): Found entity 1: mc68881_packed_decimal_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_packed_decimal_unit.vhd Line: 7
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_sgl_ops_unit.vhd
+    Info (12022): Found design unit 1: mc68881_sgl_ops_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_sgl_ops_unit.vhd Line: 22
+    Info (12023): Found entity 1: mc68881_sgl_ops_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_sgl_ops_unit.vhd Line: 7
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(963) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 963
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(964) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 964
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(965) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 965
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(966) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 966
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(967) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 967
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(968) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 968
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(969) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 969
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(970) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 970
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(971) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 971
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(972) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 972
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(973) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 973
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(974) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 974
+Warning (10335): Unrecognized synthesis attribute "rom_style" at rtl/mc68881/vhdl/mc68881_trig_unit.vhd(975) File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 975
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_trig_unit.vhd
+    Info (12022): Found design unit 1: mc68881_trig_unit-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 36
+    Info (12023): Found entity 1: mc68881_trig_unit File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_trig_unit.vhd Line: 7
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_alu.vhd
+    Info (12022): Found design unit 1: mc68881_alu-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_alu.vhd Line: 53
+    Info (12023): Found entity 1: mc68881_alu File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_alu.vhd Line: 7
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_top.vhd
+    Info (12022): Found design unit 1: mc68881_top-rtl File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_top.vhd Line: 63
+    Info (12023): Found entity 1: mc68881_top File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_top.vhd Line: 12
+Info (12021): Found 2 design units, including 1 entities, in source file rtl/mc68881/vhdl/mc68881_fpu_lite.vhd
+    Info (12022): Found design unit 1: mc68881_fpu_lite-wrapper File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_fpu_lite.vhd Line: 30
+    Info (12023): Found entity 1: mc68881_fpu_lite File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/mc68881/vhdl/mc68881_fpu_lite.vhd Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file rtl/asc.sv
+    Info (12023): Found entity 1: asc File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/asc.sv Line: 8
+Info (12021): Found 1 design units, including 1 entities, in source file lbmactwo.sv
+    Info (12023): Found entity 1: emu File: C:/Temp/mistercore/lbmactwo_MiSTer/LBMacTwo.sv Line: 20
+Error (10161): Verilog HDL error at dbg_min.sv(1916): object "fpu_data_out" is not declared. Verify the object name is correct. If the name is correct, declare the object. File: C:/Temp/mistercore/lbmactwo_MiSTer/rtl/dbg_min.sv Line: 1916
+Info (144001): Generated suppressed messages file C:/Temp/mistercore/lbmactwo_MiSTer/output_files/LBMacTwo.map.smsg
+Error: Quartus Prime Analysis & Synthesis was unsuccessful. 1 error, 14 warnings
+    Error: Peak virtual memory: 5018 megabytes
+    Error: Processing ended: Tue Jun 02 16:44:54 2026
+    Error: Elapsed time: 00:00:11
+    Error: Total CPU time (on all processors): 00:00:17
+Error (293001): Quartus Prime Full Compilation was unsuccessful. 3 errors, 14 warnings
+Error: Flow compile (for project C:/Temp/mistercore/lbmactwo_MiSTer/LBMacTwo) was not successful
+Error: ERROR: Error(s) found while running an executable. See report file(s) for error message(s). Message log indicates which executable was run last.
+
+Error (23031): Evaluation of Tcl script c:/intelfpga_lite/17.0/quartus/common/tcl/internal/qsh_flow.tcl unsuccessful
+Error: Quartus Prime Shell was unsuccessful. 10 errors, 14 warnings
+    Error: Peak virtual memory: 4712 megabytes
+    Error: Processing ended: Tue Jun 02 16:44:54 2026
+    Error: Elapsed time: 00:00:15
+    Error: Total CPU time (on all processors): 00:00:23
+[Tue Jun  2 16:44:54 EDT 2026] Compile exit=0 at Tue Jun  2 16:44:55 EDT 2026
+-rw-r--r-- 1 spam 197609      26 Jun  2 16:26 output_files/LBMacTwo.done
+-rw-r--r-- 1 spam 197609 3730172 Jun  2 16:26 output_files/LBMacTwo.rbf
+-rw-r--r-- 1 spam 197609 6711577 Jun  2 16:26 output_files/LBMacTwo.sof

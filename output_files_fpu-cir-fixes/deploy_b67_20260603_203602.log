@@ -1,0 +1,215 @@
+[20:36:02] === Verify build artifact ===
+[20:36:02] local rbf md5 = d1285647935bfbe224879230dddb889d
+[20:36:02] === SCP rbf to MiSTer ===
+d1285647935bfbe224879230dddb889d  /media/fat/_Unstable/LBMacTwo.rbf
+[20:36:04] === Clear stale mount state ===
+[20:36:04] === Cold-load LBMacTwo core ===
+HTTP 200
+[20:36:14]   shot: pre_mount.png md5=4e57cd4e937ed2853922280f1f3ce60e
+[20:36:14] === Mount Boot712.dsk via OSD ===
+<< indexStatus:y,n,0,0,
+<< coreRunning:LBMacTwo
+>> kbd:osd
+>> kbd:confirm
+>> kbd:left
+>> kbd:down
+>> kbd:confirm
+<< gameRunning:/Boot712_only.mgl
+[20:36:20] mount-issued at unixtime=1780533380
+[20:36:20] === Wait until t=15s ===
+[20:36:35] === Capture round 't015' ===
+[20:36:38]   shot: shot_t015.png md5=b5d8473072d6ff27266a1d371aaee96c
+[20:36:38]   cpu_state.tcl...
+           FLP: byte_cnt=11232  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=55875  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=70(0x46) side=1  step_cnt(wrap16)=70  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=18169  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=46578  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=71(0x47) side=1  step_cnt(wrap16)=71  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=18169  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=40199  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=71(0x47) side=1  step_cnt(wrap16)=71  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=18169  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=34792  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=71(0x47) side=1  step_cnt(wrap16)=71  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=18169  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=28376  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=71(0x47) side=1  step_cnt(wrap16)=71  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=18169  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=23959  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=71(0x47) side=1  step_cnt(wrap16)=71  staged=1  armDelayHi=0x00
+[20:36:44]   floppy_rate.tcl (5s gap)...
+[20:36:46] === Wait until t=30s ===
+[20:36:51] === Capture round 't030' ===
+[20:36:54]   shot: shot_t030.png md5=b5d8473072d6ff27266a1d371aaee96c
+[20:36:54]   cpu_state.tcl...
+           FLP: byte_cnt=62596  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=8220  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=35(0x23) side=1  step_cnt(wrap16)=109  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=62596  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=2814  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=35(0x23) side=1  step_cnt(wrap16)=109  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=976  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=61947  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=52(0x34) side=1  step_cnt(wrap16)=126  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=976  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=54619  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=52(0x34) side=1  step_cnt(wrap16)=126  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=976  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=47212  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=52(0x34) side=1  step_cnt(wrap16)=126  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=976  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=41799  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=52(0x34) side=1  step_cnt(wrap16)=126  staged=1  armDelayHi=0x00
+[20:37:00]   floppy_rate.tcl (5s gap)...
+[20:37:02] === Wait until t=45s ===
+[20:37:05] === Capture round 't045' ===
+[20:37:09]   shot: shot_t045.png md5=fe97a2de21b27882926dfb14ea907b90
+[20:37:09]   cpu_state.tcl...
+           FLP: byte_cnt=32004  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=32526  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=41(0x29) side=0  step_cnt(wrap16)=219  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=32004  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=22271  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=41(0x29) side=0  step_cnt(wrap16)=219  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=35705  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=15899  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=43(0x2B) side=0  step_cnt(wrap16)=221  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=35705  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=9516  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=43(0x2B) side=0  step_cnt(wrap16)=221  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=35705  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=3094  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=43(0x2B) side=0  step_cnt(wrap16)=221  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=65535  slot_miss_cnt=65534  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=65535  readDataLatch=0xFF(bit7=1/byte_avail)  staged=1  armDelayHi=0x7E
+           FLT: driveTrack=127(0x7F) side=1  step_cnt(wrap16)=65534  staged=1  armDelayHi=0x7F
+[20:37:15]   floppy_rate.tcl (5s gap)...
+[20:37:17] === Wait until t=60s ===
+[20:37:20] === Capture round 't060' ===
+[20:37:23]   shot: shot_t060.png md5=fe97a2de21b27882926dfb14ea907b90
+[20:37:23]   cpu_state.tcl...
+           FLP: byte_cnt=23153  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=62126  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=46(0x2E) side=1  step_cnt(wrap16)=224  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23153  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=52831  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=46(0x2E) side=1  step_cnt(wrap16)=224  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23153  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=47458  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=46(0x2E) side=1  step_cnt(wrap16)=224  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23153  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=40049  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=46(0x2E) side=1  step_cnt(wrap16)=224  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23153  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=34646  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=46(0x2E) side=1  step_cnt(wrap16)=224  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=28968  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=29249  readDataLatch=0xFE(bit7=1/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=46(0x2E) side=0  step_cnt(wrap16)=224  staged=1  armDelayHi=0x00
+[20:37:29]   floppy_rate.tcl (5s gap)...
+[20:37:32] === Wait until t=120s ===
+[20:38:20] === Capture round 't120' ===
+[20:38:24]   shot: shot_t120.png md5=fe97a2de21b27882926dfb14ea907b90
+[20:38:24]   cpu_state.tcl...
+           FLP: byte_cnt=16791  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=21097  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=61(0x3D) side=0  step_cnt(wrap16)=277  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=16791  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=15744  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=61(0x3D) side=0  step_cnt(wrap16)=277  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=16791  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=11250  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=61(0x3D) side=0  step_cnt(wrap16)=277  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23899  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=4872  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=64(0x40) side=1  step_cnt(wrap16)=280  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23899  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=62959  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=64(0x40) side=1  step_cnt(wrap16)=280  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=23899  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=56596  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=64(0x40) side=1  step_cnt(wrap16)=280  staged=1  armDelayHi=0x00
+[20:38:29]   floppy_rate.tcl (5s gap)...
+[20:38:32] === Wait until t=240s ===
+[20:40:20] === Capture round 't240' ===
+[20:40:24]   shot: shot_t240.png md5=fe97a2de21b27882926dfb14ea907b90
+[20:40:24]   cpu_state.tcl...
+           FLP: byte_cnt=31479  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=16896  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=30(0x1E) side=0  step_cnt(wrap16)=514  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=31479  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=6622  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=30(0x1E) side=0  step_cnt(wrap16)=514  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=38307  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=1203  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=30(0x1E) side=0  step_cnt(wrap16)=514  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=40986  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=59371  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=29(0x1D) side=0  step_cnt(wrap16)=515  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=40986  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=52987  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=29(0x1D) side=0  step_cnt(wrap16)=515  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=40986  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=45620  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=29(0x1D) side=0  step_cnt(wrap16)=515  staged=1  armDelayHi=0x00
+[20:40:30]   floppy_rate.tcl (5s gap)...
+[20:40:32] === Wait until t=360s (bomb time) ===
+[20:42:21] === Capture round 't360' ===
+[20:42:24]   shot: shot_t360.png md5=20fb6b756686bed52de309b34eaf8dd9
+[20:42:24]   cpu_state.tcl...
+           FLP: byte_cnt=12830  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=34285  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=22(0x16) side=1  step_cnt(wrap16)=596  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=12830  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=29869  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=22(0x16) side=1  step_cnt(wrap16)=596  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=12830  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=22460  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=22(0x16) side=1  step_cnt(wrap16)=596  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=12830  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=14094  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=22(0x16) side=1  step_cnt(wrap16)=596  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=12830  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=4781  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=22(0x16) side=1  step_cnt(wrap16)=596  staged=1  armDelayHi=0x00
+           FLP: byte_cnt=12830  slot_miss_cnt=0  (miss>0 + bytes stalled => SDRAM-feed starving the IWM byte slot)
+           IWM: sdram_grants=61961  readDataLatch=0x00(bit7=0/byte_avail)  staged=1  armDelayHi=0x00
+           FLT: driveTrack=22(0x16) side=1  step_cnt(wrap16)=596  staged=1  armDelayHi=0x00
+[20:42:30]   floppy_rate.tcl (5s gap)...
+[20:42:32] === DONE — capture dir: scratch/hang_capture/20260603_203602_floppy_rate ===
+total 232
+drwxr-xr-x 1 spam 197609     0 Jun  3 20:42 .
+drwxr-xr-x 1 spam 197609     0 Jun  3 20:36 ..
+-rw-r--r-- 1 spam 197609 13351 Jun  3 20:36 cpu_t015.txt
+-rw-r--r-- 1 spam 197609 13373 Jun  3 20:37 cpu_t030.txt
+-rw-r--r-- 1 spam 197609 13662 Jun  3 20:37 cpu_t045.txt
+-rw-r--r-- 1 spam 197609 13383 Jun  3 20:37 cpu_t060.txt
+-rw-r--r-- 1 spam 197609 15338 Jun  3 20:38 cpu_t120.txt
+-rw-r--r-- 1 spam 197609 15343 Jun  3 20:40 cpu_t240.txt
+-rw-r--r-- 1 spam 197609 16044 Jun  3 20:42 cpu_t360.txt
+-rw-r--r-- 1 spam 197609  6309 Jun  3 20:36 pre_mount.png
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:36 rate_t015.txt
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:37 rate_t030.txt
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:37 rate_t045.txt
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:37 rate_t060.txt
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:38 rate_t120.txt
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:40 rate_t240.txt
+-rw-r--r-- 1 spam 197609  1012 Jun  3 20:42 rate_t360.txt
+-rw-r--r-- 1 spam 197609  6839 Jun  3 20:36 shot_t015.png
+-rw-r--r-- 1 spam 197609  6839 Jun  3 20:36 shot_t030.png
+-rw-r--r-- 1 spam 197609  7607 Jun  3 20:37 shot_t045.png
+-rw-r--r-- 1 spam 197609  7607 Jun  3 20:37 shot_t060.png
+-rw-r--r-- 1 spam 197609  7607 Jun  3 20:38 shot_t120.png
+-rw-r--r-- 1 spam 197609  7607 Jun  3 20:40 shot_t240.png
+-rw-r--r-- 1 spam 197609  8567 Jun  3 20:42 shot_t360.png
+-rw-r--r-- 1 spam 197609  2010 Jun  3 20:42 timeline.log
+
+Summary of floppy-rate readings across boot:
+--- t015 ---
+--- t030 ---
+--- t045 ---
+--- t060 ---
+--- t120 ---
+--- t240 ---
+--- t360 ---

@@ -1,0 +1,17 @@
+Analysis & Synthesis Status : Successful - Wed Jun 10 06:11:42 2026
+Quartus Prime Version : 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+Revision Name : LBMacTwo
+Top-level Entity Name : sys_top
+Family : Cyclone V
+Logic utilization (in ALMs) : N/A
+Total registers : 32882
+Total pins : 145
+Total virtual pins : 0
+Total block memory bits : 1,768,895
+Total DSP Blocks : 53
+Total HSSI RX PCSs : 0
+Total HSSI PMA RX Deserializers : 0
+Total HSSI TX PCSs : 0
+Total HSSI PMA TX Serializers : 0
+Total PLLs : 3
+Total DLLs : 0

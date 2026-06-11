@@ -1,0 +1,53 @@
+[Fri Jun  5 20:26:38 EDT 2026] Waiting for existing Quartus to finish...
+[Fri Jun  5 20:26:38 EDT 2026] Starting compile
+Info: *******************************************************************
+Info: Running Quartus Prime Shell
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Fri Jun 05 20:26:38 2026
+Info: Command: quartus_sh --flow compile LBMacTwo
+Info: Quartus(args): compile LBMacTwo
+Info: Project Name = C:/Temp/mistercore/lbmactwo_MiSTer/LBMacTwo
+Info: Revision Name = LBMacTwo
+Info: *******************************************************************
+Info: Running Quartus Prime Shell
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Processing started: Fri Jun 05 20:26:40 2026
+Info: Command: quartus_sh -t sys/build_id.tcl compile LBMacTwo LBMacTwo
+Info: Quartus(args): compile LBMacTwo LBMacTwo
+Info (23030): Evaluation of Tcl script sys/build_id.tcl was successful
+Info: Quartus Prime Shell was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4775 megabytes
+    Info: Processing ended: Fri Jun 05 20:26:41 2026
+    Info: Elapsed time: 00:00:01
+    Info: Total CPU time (on all processors): 00:00:01
+Info (293003): Smart recompilation skipped module Analysis & Synthesis because it is not required
+Info (293003): Smart recompilation skipped module Fitter because it is not required
+Info (293003): Smart recompilation skipped module Assembler because it is not required
+Info (293026): Skipped module PowerPlay Power Analyzer due to the assignment FLOW_ENABLE_POWER_ANALYZER
+Info (293003): Smart recompilation skipped module TimeQuest Timing Analyzer because it is not required
+Info (18207): Some modules have been skipped due to smart recompilation. You can turn off smart recompilation under Compilation Process Settings in the Settings dialog to fully recompile your design
+Info (293000): Quartus Prime Full Compilation was successful. 0 errors, 0 warnings
+Info (23030): Evaluation of Tcl script c:/intelfpga_lite/17.0/quartus/common/tcl/internal/qsh_flow.tcl was successful
+Info: Quartus Prime Shell was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 4665 megabytes
+    Info: Processing ended: Fri Jun 05 20:26:42 2026
+    Info: Elapsed time: 00:00:04
+    Info: Total CPU time (on all processors): 00:00:10
+[Fri Jun  5 20:26:42 EDT 2026] Compile exit=0 at Fri Jun  5 20:26:42 EDT 2026
+-rw-r--r-- 1 spam 197609      26 Jun  5 20:26 output_files/LBMacTwo.done
+-rw-r--r-- 1 spam 197609 3754436 Jun  5 20:25 output_files/LBMacTwo.rbf
+-rw-r--r-- 1 spam 197609 6712690 Jun  5 20:25 output_files/LBMacTwo.sof
