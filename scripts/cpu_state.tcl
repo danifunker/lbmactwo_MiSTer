@@ -391,6 +391,26 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                 => DMA armed, no mismatch yet — transfer still in progress (or stalled mid-data)."
         }
     }
+    if {[info exists idx(PIFD)]} {
+        # 2026-06-10e live atomic pair: [31:16]=IF addr[15:0]  [15:0]=opcode word
+        set fp [rd $idx(PIFD)]
+        puts [format "           IF-PAIR: PC[15:0]=0x%04X opcode=0x%04X" \
+            [expr {($fp >> 16) & 0xFFFF}] [expr {$fp & 0xFFFF}]]
+    }
+    if {[info exists idx(PDRD)]} {
+        # 2026-06-10e live atomic pair: [31:16]=I/O addr[19:4]  [15:0]=read value.
+        # Full addr = 0x50F00000 | (addr_field << 4).
+        set dr [rd $idx(PDRD)]
+        set af  [expr {($dr >> 16) & 0xFFFF}]
+        set dv  [expr {$dr & 0xFFFF}]
+        set full [expr {0x50F00000 | ($af << 4)}]
+        set dev "?"
+        if {($full & 0xFFFFE000) == 0x50F10000} { set dev [format "SCSI reg %d" [expr {($full >> 4) & 7}]] }
+        if {($full & 0xFFFFE000) == 0x50F12000} { set dev "SCSI DACK" }
+        if {($full & 0xFFFFE000) == 0x50F00000} { set dev [format "VIA1 reg %d" [expr {($full >> 9) & 15}]] }
+        if {($full & 0xFFFFE000) == 0x50F02000} { set dev [format "VIA2 reg %d" [expr {($full >> 9) & 15}]] }
+        puts [format "           IO-RD: addr=0x%08X (%s) value=0x%04X" $full $dev $dv]
+    }
     if {[info exists idx(PSC4)]} {
         set s4 [rd $idx(PSC4)]
         set hs0 [expr {$s4 & 0xFF}]

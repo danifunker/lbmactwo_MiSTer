@@ -2141,22 +2141,29 @@ module dbg_min (
     // Same discriminator as the disk-side 0x0000/0x51C9 injections seen
     // in the journaled record (write stream capturing a neighbor cycle).
     //   [31:16] previous IF data   [15:0] last IF data before freeze
+    // REPURPOSED 2026-06-10e (was: freeze-coupled prev/last IF-data).
+    // PIFD is now a LIVE atomic {IF-addr[15:0], IF-data[15:0]} pair,
+    // committed together at the data-valid moment of each instruction
+    // fetch. Repeated JTAG samples of a stable poll loop enumerate its
+    // (PC, opcode) words — a remote disassembler for RAM code we cannot
+    // otherwise read (used on the Welcome READ(10) data_cnt=512 wedge).
     reg        ifd_wait;
     reg [15:0] ifd_last, ifd_prev;
     initial begin ifd_wait = 1'b0; ifd_last = 16'd0; ifd_prev = 16'd0; end
+    reg [31:0] pifd_pair;
+    initial pifd_pair = 32'd0;
     always @(posedge clk) begin
-        if (!rng_frozen) begin
-            if (pifa_if_cycle)
-                ifd_wait <= 1'b1;
-            else if (ifd_wait && mac_dout_valid) begin
-                ifd_prev <= ifd_last;
-                ifd_last <= cpu_din;
-                ifd_wait <= 1'b0;
-            end
+        if (pifa_if_cycle)
+            ifd_wait <= 1'b1;
+        else if (ifd_wait && mac_dout_valid) begin
+            ifd_prev  <= ifd_last;
+            ifd_last  <= cpu_din;
+            pifd_pair <= {cpuAddr[15:0], cpu_din};
+            ifd_wait  <= 1'b0;
         end
     end
     reg [31:0] pifd_r;
-    always @(posedge clk) pifd_r <= {ifd_prev, ifd_last};
+    always @(posedge clk) pifd_r <= pifd_pair;
 
     altsource_probe #(
         .instance_id ("PIFD"),
@@ -2165,19 +2172,42 @@ module dbg_min (
         .sld_auto_instance_index ("YES")
     ) cp_pifd (.probe(pifd_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
+    // PDRD (2026-06-10e): LIVE atomic {I/O-addr[19:4], data[15:0]} pair for
+    // the last DATA-space read in the 0x50Fxxxxx I/O region. Sampling the
+    // wedge loop enumerates which device registers it polls and the values
+    // it receives (addr[19:4]: 0x1005=SCSI reg5/BSR, 0x1004=CSR,
+    // 0x0260=VIA2 IFR, ...). Answers "what is the wait condition" directly.
+    reg [31:0] pdrd_r;
+    initial pdrd_r = 32'd0;
+    always @(posedge clk) begin
+        if (mac_dout_valid && cpuRW &&
+            (cpuFC == 3'b001 || cpuFC == 3'b101) &&
+            cpuAddr[31:20] == 12'h50F)
+            pdrd_r <= {cpuAddr[19:4], cpu_din};
+    end
     altsource_probe #(
-        .instance_id ("PRNG"),
-        .probe_width (32),
-        .source_width(4),
-        .sld_auto_instance_index ("YES")
-    ) cp_prng (.probe(prng_r), .source(rng_sel), .source_clk(clk), .source_ena(1'b1));
-
-    altsource_probe #(
-        .instance_id ("PRWF"),
+        .instance_id ("PDRD"),
         .probe_width (32),
         .source_width(1),
         .sld_auto_instance_index ("YES")
-    ) cp_prwf (.probe(prwf_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    ) cp_pdrd (.probe(pdrd_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+    // PRNG/PRWF retired 2026-06-10e — the runaway jump ring froze on its
+    // bench-era trigger long ago and its F-line evidence is documented in
+    // the handoffs; freed two slots for the live PIFD pair + PDRD.
+    // altsource_probe #(
+    //     .instance_id ("PRNG"),
+    //     .probe_width (32),
+    //     .source_width(4),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_prng (.probe(prng_r), .source(rng_sel), .source_clk(clk), .source_ena(1'b1));
+
+    // altsource_probe #(
+    //     .instance_id ("PRWF"),
+    //     .probe_width (32),
+    //     .source_width(1),
+    //     .sld_auto_instance_index ("YES")
+    // ) cp_prwf (.probe(prwf_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // ==== FPU CIR Response/Restore probes (PFRR / PFRW) -- build #14 =======
     // Build #13 found PIFA frozen at $4000D612 (FRESTORE opcode at $D60E)
