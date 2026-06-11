@@ -405,6 +405,15 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_op_pc			: std_logic_vector(31 downto 0);
 	signal cp_pc_restore_pending : std_logic;
 	signal cp_an_writeback	: std_logic;
+	-- cpGEN -(An) handling: the total transfer size is only known from
+	-- the FIRST transfer-primitive response (length field, bits 7:0 —
+	-- the FPU reports total remaining bytes, e.g. 96 for FMOVEM.X
+	-- fp0-fp7). On that response cp_ea_addr drops by the length so the
+	-- shared ASCENDING transfer loop produces the predec memory image,
+	-- and cp_predec_wb (1-cycle pulse) writes the dropped address back
+	-- to An — predec semantics with a single early writeback.
+	signal cp_predec_pend	: std_logic;
+	signal cp_predec_wb		: std_logic;
 	signal cp_branch_target	: std_logic_vector(31 downto 0);
 	signal cp_do_branch		: std_logic;
 	signal cp_cond_true		: std_logic;
@@ -647,6 +656,12 @@ PROCESS (clk, regfile, RDindex_A, RDindex_B, exec)
 				IF cp_an_writeback='1' THEN
 					regfile(conv_integer('1' & exe_opcode(2 downto 0))) <= cp_ea_addr;
 				END IF;
+				IF cp_predec_wb='1' THEN
+					-- cpGEN -(An): early An writeback of the dropped start
+					-- address (cp_ea_addr = original An - transfer length;
+					-- still unadvanced — the first +4 is cycles away).
+					regfile(conv_integer('1' & exe_opcode(2 downto 0))) <= cp_ea_addr;
+				END IF;
 				IF cp_fscc_writeback='1' THEN
 					regfile(conv_integer('0' & exe_opcode(2 downto 0)))(7 downto 0) <= (others => cp_cond_true);
 				END IF;
@@ -847,6 +862,8 @@ PROCESS (clk)
 				cp_mem_source <= '0';
 				cp_op_pc <= (others => '0');
 				cp_pc_restore_pending <= '0';
+				cp_predec_pend <= '0';
+				cp_predec_wb <= '0';
 				cp_save_fmt <= (others => '0');
 				cp_frame_cnt <= (others => '0');
 				cp_branch_target <= (others => '0');
@@ -917,6 +934,24 @@ PROCESS (clk)
 							cp_op_pc <= tmp_TG68_PC;
 					END CASE;
 					cp_pc_restore_pending <= '1';
+				ELSIF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "000"
+				   AND (exe_opcode(5 downto 3) = "010" OR exe_opcode(5 downto 3) = "011"
+				        OR exe_opcode(5 downto 3) = "100")
+				   AND cp_mem_source = '1' THEN
+					-- cpGEN (An)/(An)+/-(An): capture the An as the operand EA
+					-- (reg_QA selected via source_lowbits at dispatch — same
+					-- idiom as cpSAVE). d16/abs modes were already resolved by
+					-- cp_d16_pc_rd/_apply before reaching cp_write_opw. The
+					-- predec flavor still drops by the transfer length at the
+					-- first response (see cp_predec_pend).
+					cp_ea_addr <= reg_QA;
+				ELSIF micro_state = cp_idle_resp AND cp_predec_pend = '1'
+				   AND last_data_read(12) = '1' THEN
+					-- cpGEN -(An): first transfer primitive just decoded; its
+					-- length field (bits 7:0, total bytes — FMOVEM reports the
+					-- whole list) positions the ascending writer so the predec
+					-- memory image ends exactly at the original An.
+					cp_ea_addr <= cp_ea_addr - (x"000000" & last_data_read(7 downto 0));
 				ELSIF micro_state = cp_save_decode AND exe_opcode(5 downto 3) /= "100" THEN
 					-- Control-mode cpSAVE: the frame writer is the shared
 					-- DESCENDING loop (predec order), so seed it with the TOP
@@ -946,21 +981,42 @@ PROCESS (clk)
 					-- d16 word lives at sndOPC+2, hence the +2.
 					cp_ea_addr <= TG68_PC + 2;
 				ELSIF micro_state = cp_d16_pc_apply THEN
-					-- d16 just landed in last_data_read after cp_d16_pc_rd's
-					-- bus access. Add sign-extended d16 to cp_ea_addr to
-					-- form the PC-relative EA.
-					cp_ea_addr <= cp_ea_addr +
-						(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
-						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
-						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
-						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
-						 last_data_read(15 downto 0));
-				ELSIF micro_state = cp_xfer_mem_rd_store THEN
-					-- cpGEN memory source: advance by 4 (one long-word)
-					-- per iteration. The HIGH read at cp_ea_addr+0 and
-					-- LOW read at cp_ea_addr+2 are sourced via the
-					-- memaddr_delta_rega override above; the registered
-					-- cp_ea_addr only needs to step between iterations.
+					-- Extension word just landed in last_data_read after
+					-- cp_d16_pc_rd's bus access. Apply the mode's base:
+					--   (d16,An):  reg_QA + sext(d16)
+					--   (xxx).W:   sext(ext word), no base
+					--   (d16,PC):  cp_ea_addr (seeded with the ext word's
+					--              address) + sext(d16) — original path.
+					IF exe_opcode(5 downto 3) = "101" THEN
+						cp_ea_addr <= reg_QA +
+							(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15 downto 0));
+					ELSIF exe_opcode(5 downto 3) = "111" AND exe_opcode(2 downto 0) = "000" THEN
+						cp_ea_addr <=
+							(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15 downto 0));
+					ELSE
+						cp_ea_addr <= cp_ea_addr +
+							(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+							 last_data_read(15 downto 0));
+					END IF;
+				ELSIF micro_state = cp_xfer_mem_rd_store
+				   OR micro_state = cp_xfer_mem_wr_done THEN
+					-- cpGEN memory operand: advance by 4 (one long-word)
+					-- per iteration, both directions. The HIGH access at
+					-- cp_ea_addr+0 and LOW access at cp_ea_addr+2 are
+					-- sourced via the memaddr_delta_rega override; the
+					-- registered cp_ea_addr only steps between iterations
+					-- (multi-long formats loop one long per Response round).
 					cp_ea_addr <= cp_ea_addr + 4;
 				END IF;
 				-- FScc memory: capture EA from addr when ea_only resolves
@@ -981,10 +1037,48 @@ PROCESS (clk)
 				-- Also clear on idle as a belt-and-braces fallback so the
 				-- flag never persists across a subsequent F-line that
 				-- isn't FSAVE/FRESTORE.
+				--
+				-- cpGEN memory-EA modes also arm the restore (middle branch;
+				-- it must outrank the idle-clear since it fires at decode
+				-- time, when micro_state is still idle). TG68_PC at decode =
+				-- address of the command word, so resume = +2 (cmd) + size
+				-- of the EA extension words. (d16,PC) keeps its original
+				-- no-restore exit — HW-validated — so it is excluded.
 				IF next_micro_state = cp_mem_refetch AND cp_pc_restore_pending = '1' THEN
 					cp_pc_restore_pending <= '0';
+				ELSIF decodeOPC = '1' AND opcode(15 downto 12) = "1111"
+				   AND opcode(11 downto 9) /= "000" AND cpu(1) = '1'
+				   AND opcode(8 downto 6) = "000" THEN
+					IF opcode(5 downto 3) = "010" OR opcode(5 downto 3) = "011"
+					   OR opcode(5 downto 3) = "100" THEN
+						-- (An)/(An)+/-(An): no extension words
+						cp_op_pc <= TG68_PC + 2;
+						cp_pc_restore_pending <= '1';
+					ELSIF opcode(5 downto 3) = "101"
+					   OR (opcode(5 downto 3) = "111" AND opcode(2 downto 0) = "000") THEN
+						-- (d16,An) / (xxx).W: one extension word
+						cp_op_pc <= TG68_PC + 4;
+						cp_pc_restore_pending <= '1';
+					END IF;
 				ELSIF micro_state = idle THEN
 					cp_pc_restore_pending <= '0';
+				END IF;
+				-- cpGEN -(An) bookkeeping: arm at decode, fire on the first
+				-- transfer-primitive response (the cp_ea_addr drop happens in
+				-- the EA chain above at the same edge; cp_predec_wb writes
+				-- the dropped address to An one cycle later, while cp_ea_addr
+				-- is still at the adjusted start).
+				cp_predec_wb <= '0';
+				IF micro_state = cp_idle_resp AND cp_predec_pend = '1'
+				   AND last_data_read(12) = '1' THEN
+					cp_predec_pend <= '0';
+					cp_predec_wb <= '1';
+				ELSIF decodeOPC = '1' AND opcode(15 downto 12) = "1111"
+				   AND opcode(11 downto 9) /= "000" AND cpu(1) = '1'
+				   AND opcode(8 downto 6) = "000" AND opcode(5 downto 3) = "100" THEN
+					cp_predec_pend <= '1';
+				ELSIF micro_state = idle THEN
+					cp_predec_pend <= '0';
 				END IF;
 				-- FBcc branch target computation (save before CIR accesses corrupt tmp_TG68_PC)
 				IF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "010" THEN
@@ -1212,6 +1306,21 @@ PROCESS (clk)
 					data_write_tmp(15 downto 0) <= opcode(15 downto 0);
 				ELSIF exec(opcCPcmd)='1' THEN
 					data_write_tmp(15 downto 0) <= sndOPC;
+				ELSIF micro_state = cp_write_opw THEN
+					-- OpWord CIR data, reloaded unconditionally. The
+					-- exec(opcCPopw) flag set by the F-line dispatch only
+					-- lasts one state, so dispatches that route through an
+					-- EA-resolution state first (cp_d16_pc_rd/_apply) lose
+					-- it and the extension-word read leaks into
+					-- data_write_tmp — the OpWord CIR then received the d16
+					-- word. Whenever that word's bits 8:6 weren't 000 the
+					-- FPU latched a bogus instr type and answered BUSY
+					-- forever (seen: FMOVE.L FP3,(xxx).W, ext $1B00 → type
+					-- "100" = cpSAVE wedge; the original (d16,PC) path only
+					-- survived because small displacements decode as cpGEN).
+					-- The OpWord bus write runs DURING the state after
+					-- cp_write_opw, consuming the value latched here.
+					data_write_tmp(15 downto 0) <= exe_opcode(15 downto 0);
 				-- (cp_xfer_to writes drive the bus via combinational
 				-- data_write_muxin path, bypassing data_write_tmp.)
 				ELSIF micro_state = cp_except_ack THEN
@@ -1259,6 +1368,18 @@ PROCESS (clk)
 				ELSIF micro_state = cp_restore_idle THEN
 					-- Forward memory read data for CIR write
 					data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
+				ELSIF micro_state = cp_xfer_mem_wr_hi THEN
+					-- FPU→memory store: HIGH word for the write that runs
+					-- during cp_xfer_mem_wr_lo.
+					data_write_tmp(15 downto 0) <= cp_xfer_data(31 downto 16);
+				ELSIF micro_state = cp_xfer_mem_wr_lo THEN
+					-- LOW word for the write that runs during
+					-- cp_xfer_mem_wr_done.
+					data_write_tmp(15 downto 0) <= cp_xfer_data(15 downto 0);
+				ELSIF micro_state = cp_xfer_mem_wr_done THEN
+					-- Hold across the LOW write's completion (same clobber
+					-- hazard as the cp_save_wr_mem hold above).
+					data_write_tmp <= data_write_tmp;
 				ELSIF micro_state = cp_save_decode THEN
 					-- Load format word for null frame write
 					data_write_tmp(15 downto 0) <= cp_save_fmt;
@@ -1448,12 +1569,14 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 					memaddr_delta_rega <= ea_data;
 					memaddr_delta_regb <= memaddr_a;
 				ELSIF set_cp_memaddr='1' THEN
-					-- For the LOW-word read of a cpGEN memory operand
-					-- (cp_xfer_mem_rd_store's bus cycle), use cp_ea_addr+2
-					-- since the registered cp_ea_addr only advances after
-					-- the clkena that ends the current state — too late
-					-- for the bus cycle that starts at the SAME edge.
-					IF next_micro_state = cp_xfer_mem_rd_store THEN
+					-- For the LOW-word access of a cpGEN memory operand
+					-- (cp_xfer_mem_rd_store's read / cp_xfer_mem_wr_done's
+					-- write), use cp_ea_addr+2 since the registered
+					-- cp_ea_addr only advances after the clkena that ends
+					-- the current state — too late for the bus cycle that
+					-- starts at the SAME edge.
+					IF next_micro_state = cp_xfer_mem_rd_store
+					   OR next_micro_state = cp_xfer_mem_wr_done THEN
 						memaddr_delta_rega <= cp_ea_addr + 2;
 					ELSE
 						memaddr_delta_rega <= cp_ea_addr;
@@ -3683,19 +3806,50 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					datatype <= "01"; -- word for CIR access
 					IF opcode(8 downto 6)="000" THEN
 						-- cpGEN: general coprocessor instruction.
-						-- Dn EA (mode 000): existing direct path, source from reg_QB.
-						-- An EA (mode 001): illegal for FMOVE EA<->FPn, FPU will trap.
-						-- (d16,PC) (mode 111, reg 010): fetch d16 first, compute
-						--   PC-relative EA, then enter CIR dialog with
-						--   cp_mem_source='1' so cp_xfer_mem_rd_* fires.
-						-- Other memory modes (010,011,100,101,110,111/other):
-						--   not implemented yet; would need their own EA fetch.
-						set(opcCPopw) <= '1';
+						-- Dn EA (mode 000): direct path, source from reg_QB.
+						-- (An) (mode 010): EA = reg_QA, captured at cp_write_opw.
+						-- (d16,An) (101) / (xxx).W (111,000): bespoke third-word
+						--   read via cp_d16_pc_rd, base applied in
+						--   cp_d16_pc_apply (reg_QA / zero / PC by mode).
+						-- (d16,PC) (111,010): original PC-relative path.
+						-- All memory modes set cp_mem_source so the dialog
+						-- routes transfers to/from memory at cp_ea_addr —
+						-- BOTH directions (cp_xfer_mem_rd_* reads,
+						-- cp_xfer_mem_wr_* writes). Multi-long formats (.D/.X)
+						-- loop one long per Response round; cp_ea_addr
+						-- advances +4 each round.
+						-- Remaining modes ((An)+/-(An)/An/#imm/d8 forms): not
+						-- implemented — clean F-line trap instead of the old
+						-- behavior (dialog ran with a Dn transfer + the EA
+						-- extension words executed as instructions; MacsBug's
+						-- FMOVE.L fpcr,-$25A(A5) class of wedge).
 						IF opcode(5 downto 3) = "111" AND opcode(2 downto 0) = "010" THEN
+							set(opcCPopw) <= '1';
 							cp_mem_source_set <= '1';
 							next_micro_state <= cp_d16_pc_rd;
-						ELSE
+						ELSIF opcode(5 downto 3) = "101"
+						   OR (opcode(5 downto 3) = "111" AND opcode(2 downto 0) = "000") THEN
+							set(opcCPopw) <= '1';
+							cp_mem_source_set <= '1';
+							source_lowbits <= '1';
+							next_micro_state <= cp_d16_pc_rd;
+						ELSIF opcode(5 downto 3) = "010" OR opcode(5 downto 3) = "011"
+						   OR opcode(5 downto 3) = "100" THEN
+							-- (An) / (An)+ / -(An): EA = reg_QA, captured at
+							-- cp_write_opw. (An)+ writes An back (= EA + total)
+							-- at the NULL-done exit; -(An) drops cp_ea_addr by
+							-- the FPU-reported transfer length on the first
+							-- response and writes An back early (cp_predec_*).
+							set(opcCPopw) <= '1';
+							cp_mem_source_set <= '1';
+							source_lowbits <= '1';
 							next_micro_state <= cp_write_opw;
+						ELSIF opcode(5 downto 3) = "000" THEN
+							set(opcCPopw) <= '1';
+							next_micro_state <= cp_write_opw;
+						ELSE
+							trap_1111 <= '1';
+							trapmake <= '1';
 						END IF;
 					ELSIF opcode(8 downto 6)="100" THEN
 						-- cpSAVE: save coprocessor state.
@@ -4808,12 +4962,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						IF last_data_read(15) = '1' THEN
 							next_micro_state <= cp_read_resp;   -- BUSY, come again
 						ELSIF cp_mem_source = '1' THEN
-							-- NULL "done" after a cpGEN memory-source xfer.
+							-- NULL "done" after a cpGEN memory xfer.
 							-- The natural prefetch consumed d16 into
 							-- last_opc_read; do a fresh instruction fetch
 							-- at TG68_PC before falling to idle so the
 							-- setopcode that fires next loads the actual
 							-- next-instruction word, not the d16 value.
+							-- (An)+ flavor: postincrement writeback — An
+							-- gets cp_ea_addr, which has advanced by the
+							-- total bytes transferred.
+							IF exe_opcode(8 downto 6) = "000"
+							   AND exe_opcode(5 downto 3) = "011" THEN
+								cp_an_writeback <= '1';
+							END IF;
 							next_micro_state <= cp_mem_refetch;
 						ELSIF cp_pc_restore_pending = '1' THEN
 							-- NULL "done" after cpRESTORE. Same prefetch
@@ -4939,11 +5100,57 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				WHEN cp_xfer_from_done =>
 					-- state=01 (idle). LOW word from prior cp_xfer_from_store
-					-- access just landed in last_data_read; capture it and
-					-- commit the assembled 32-bit value to regfile[opcode(2:0)]
-					-- via cp_dn_writeback.
+					-- access just landed; cp_xfer_data now holds the full
+					-- long. Destination by EA class:
+					--   Dn (cp_mem_source=0): commit to regfile via
+					--     cp_dn_writeback (original path).
+					--   memory (cp_mem_source=1): stage the long out to
+					--     cp_ea_addr via cp_xfer_mem_wr_* — the FPU→memory
+					--     direction (FMOVE.L fpcr,d16(An), FMOVE.X FPn,(An),
+					--     FMOVEM register dumps...). Multi-long operands
+					--     loop: the FPU keeps presenting the transfer
+					--     primitive until its word count drains, one long
+					--     (and one cp_ea_addr+4) per Response round.
 					setstate <= "01";
-					cp_dn_writeback <= '1';
+					IF cp_mem_source = '1' THEN
+						next_micro_state <= cp_xfer_mem_wr_hi;
+					ELSE
+						cp_dn_writeback <= '1';
+						next_micro_state <= cp_read_resp;
+					END IF;
+
+				-- ====================================================
+				-- cpGEN FPU→memory operand store. Mirror of
+				-- cp_xfer_mem_rd_* with the bus direction flipped: two
+				-- word WRITES at cp_ea_addr / cp_ea_addr+2 from
+				-- cp_xfer_data (assembled by cp_xfer_from_*). Same
+				-- 1-cycle setstate pipeline: each state's setstate=11
+				-- runs the bus write DURING the next state, consuming
+				-- the data_write_tmp value latched at this state's end.
+				-- ====================================================
+
+				WHEN cp_xfer_mem_wr_hi =>
+					-- Queue the HIGH-word write at cp_ea_addr. The
+					-- data_write_tmp mux loads cp_xfer_data(31:16) at the
+					-- edge ending this state.
+					set_cp_memaddr <= '1';
+					setstate <= "11";
+					datatype <= "01";
+					next_micro_state <= cp_xfer_mem_wr_lo;
+
+				WHEN cp_xfer_mem_wr_lo =>
+					-- HIGH write runs this cycle. Queue the LOW-word write
+					-- at cp_ea_addr+2 (memaddr_delta_rega override keyed
+					-- on next_micro_state = cp_xfer_mem_wr_done).
+					set_cp_memaddr <= '1';
+					setstate <= "11";
+					datatype <= "01";
+					next_micro_state <= cp_xfer_mem_wr_done;
+
+				WHEN cp_xfer_mem_wr_done =>
+					-- LOW write runs this cycle; release the bus after.
+					-- cp_ea_addr += 4 at this state's end (registered).
+					setstate <= "01";
 					next_micro_state <= cp_read_resp;
 
 				WHEN cp_xfer_to | cp_xfer_from =>

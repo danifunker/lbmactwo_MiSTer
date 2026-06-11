@@ -63,6 +63,7 @@ package TG68K_Pack is
 				  cp_fscc_wr_mem, cp_fdbcc_disp, cp_fdbcc_dec, cp_branch_apply,
 				  cp_fdbcc_eval, cp_ftrapcc_eval,
 				  cp_read_resp_wait,
+				  cp_xfer_mem_wr_hi, cp_xfer_mem_wr_lo, cp_xfer_mem_wr_done,
 				  cp_except_ack, cp_except_trap);
 	
 	constant opcMOVE				: integer := 0; --

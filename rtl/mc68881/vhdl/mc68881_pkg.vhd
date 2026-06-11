@@ -331,7 +331,11 @@ package mc68881_pkg is
     CIR_PENDING_XFER_SRC,
     CIR_PENDING_XFER_SRC_WAIT,
     CIR_PENDING_XFER_SRC_WAIT2,
-    CIR_PENDING_XFER_SRC_WAIT3
+    CIR_PENDING_XFER_SRC_WAIT3,
+    -- FMOVEM FPn-list sequencer (appended so existing 'pos debug
+    -- decodings stay stable). One register per XFER session.
+    CIR_MOVEM_NEXT,
+    CIR_MOVEM_COMMIT
   );
 
   -- AN-947 response primitive format (MC68881 native bus encoding).

@@ -272,6 +272,23 @@ architecture rtl of mc68881_top is
   signal frame_format_word_reg : std_logic_vector(15 downto 0) := (others => '0');
   signal cir_operand_read_data : std_logic_vector(31 downto 0) := (others => '0');
   signal cir_regselect_word    : std_logic_vector(15 downto 0) := (others => '0');
+
+  -- FMOVEM FPn-list (static masks) through the CIR dialog.
+  -- The list is sequenced one register per CIR_XFER_SRC/DST session
+  -- (3 long-words of raw .X each); the host kernel transfers one long
+  -- per Response round either way, so it never sees session boundaries.
+  -- Transfer order matches Musashi (lowest memory address first):
+  --   control/postinc (cmd mode "10"): scan list bit 0->7, reg = 7-bit#.
+  --   predecrement    (cmd mode "00"): scan list bit 7->0, reg = bit#.
+  -- Dynamic (Dn) lists need the Register Select dialog: unimplemented,
+  -- answered with an F-line exception primitive.
+  signal cir_movem_active     : std_logic := '0';
+  signal cir_movem_list       : std_logic_vector(7 downto 0) := (others => '0');
+  signal cir_movem_predec     : std_logic := '0';
+  signal cir_movem_reg        : natural range 0 to 7 := 0;
+  signal cir_movem_longs_left : natural range 0 to 24 := 0;  -- across ALL remaining regs (drives the response length field, which the kernel's predec EA-drop reads on the first round)
+  signal cir_movem_wr_req     : std_logic := '0';            -- 1-cycle: commit staging -> FPn (mem->reg direction)
+  signal cir_movem_wr_idx     : natural range 0 to 7 := 0;
   signal cir_operand_addr_reg  : std_logic_vector(31 downto 0) := (others => '0');
   signal cir_instaddr_reg      : std_logic_vector(31 downto 0) := (others => '0');
 
@@ -2733,6 +2750,17 @@ begin
       sys_ctrl_save_req_reg <= '0';
       sys_ctrl_restore_req_reg <= '0';
 
+      -- FMOVEM mem→FPn commit from the CIR dialog: raw .X repack of the
+      -- 3 staged longs into the current list register (1-cycle pulse
+      -- from cir_dialog_proc during CIR_MOVEM_COMMIT; cir_operand_staging
+      -- has been stable since the prior edge). Bit-exact, no conversion.
+      if cir_movem_wr_req = '1' then
+        fp_reg_file_reg(cir_movem_wr_idx) <=
+          cir_operand_staging(31 downto 16) &
+          cir_operand_staging(63 downto 32) &
+          cir_operand_staging(95 downto 64);
+      end if;
+
       -- Keep cir_response_reg tracking FSM-based primitives when no
       -- conditional dialog result is pending.
       if cir_response_pending_reg = '0' then
@@ -3961,6 +3989,18 @@ begin
       -- The dialog proc transitions to CIR_XFER_DST from CIR_DECODE; we detect
       -- that transition on the next edge (CIR_XFER_DST with word_idx=0).
       if cir_state_reg = CIR_XFER_DST and cir_xfer_word_idx = 0
+         and cir_operand_read_done = '0' and cir_movem_active = '1' then
+        -- FMOVEM FPn→memory: raw .X repack of the current list register
+        -- (identical layout to the CIR_SRC_EXTENDED case below; no
+        -- conversion, registers move bit-exact).
+        cir_operand_staging(31 downto 16) <=
+          fp_reg_file_reg(cir_movem_reg)(79 downto 64);
+        cir_operand_staging(15 downto 0) <= (others => '0');
+        cir_operand_staging(63 downto 32) <=
+          fp_reg_file_reg(cir_movem_reg)(63 downto 32);
+        cir_operand_staging(95 downto 64) <=
+          fp_reg_file_reg(cir_movem_reg)(31 downto 0);
+      elsif cir_state_reg = CIR_XFER_DST and cir_xfer_word_idx = 0
          and cir_operand_read_done = '0' and cir_is_fpctl_move = '1' then
         -- FMOVE.L FPctl → Dn: bypass the FP-to-int conversion path and
         -- place the selected control register's value into the staging
@@ -4020,6 +4060,8 @@ begin
 
   -- CIR dialog state machine — drives FSM state transitions.
   cir_dialog_proc : process(clk, reset_n)
+    variable movem_cnt : natural range 0 to 8;
+    variable movem_sel : natural range 0 to 7;
   begin
     if reset_n = '0' then
       cir_state_reg <= CIR_IDLE;
@@ -4038,6 +4080,10 @@ begin
       pending_launch_reg <= '0';
       pending_skip_valid_reg <= 0;
       cir_fpctl_commit <= '0';
+      cir_movem_active <= '0';
+      cir_movem_list <= (others => '0');
+      cir_movem_longs_left <= 0;
+      cir_movem_wr_req <= '0';
     elsif rising_edge(clk) then
       cir_launch_alu <= '0';  -- default: clear one-shot pulse
       cir_flags_consumed <= '0';
@@ -4048,10 +4094,15 @@ begin
       packed_restore_wr <= '0';
       pending_launch_reg <= '0';  -- default: clear one-shot pulse
       cir_fpctl_commit <= '0';    -- default: clear one-shot pulse
+      cir_movem_wr_req <= '0';    -- default: clear one-shot pulse
 
       case cir_state_reg is
 
         when CIR_IDLE =>
+          -- Belt-and-braces: a dialog abort must never leave the FMOVEM
+          -- sequencer armed (it would misroute the next single FMOVE's
+          -- staging load).
+          cir_movem_active <= '0';
           -- cpGEN: standard protocol (both OpWord + Command written)
           if cir_opword_written = '1' and cir_command_written = '1' and
              (cir_instr_type = CIR_TYPE_CPGEN) then
@@ -4095,7 +4146,30 @@ begin
           end if;
 
         when CIR_DECODE =>
-          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          if cir_command_reg(15 downto 14) = "11" then
+            -- FMOVEM FPn-list (command opclass 110 = mem→regs, 111 =
+            -- regs→mem; direction already in cir_direction = bit 13).
+            -- Mode bits 12:11: x0 = static list, x1 = dynamic (Dn) list.
+            if cir_command_reg(11) = '1' then
+              -- Dynamic list needs the Register Select dialog -> F-line.
+              cir_exc_vector <= CIR_VEC_FLINE;
+              cir_state_reg <= CIR_EXCEPT_PRE;
+            elsif cir_command_reg(7 downto 0) = x"00" then
+              cir_state_reg <= CIR_IDLE;  -- empty list: no-op
+            else
+              cir_movem_active <= '1';
+              cir_movem_predec <= not cir_command_reg(12);
+              cir_movem_list   <= cir_command_reg(7 downto 0);
+              movem_cnt := 0;
+              for i in 0 to 7 loop
+                if cir_command_reg(i) = '1' then
+                  movem_cnt := movem_cnt + 1;
+                end if;
+              end loop;
+              cir_movem_longs_left <= 3 * movem_cnt;
+              cir_state_reg <= CIR_MOVEM_NEXT;
+            end if;
+          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
             -- B-4 fix: lite variant doesn't implement this op. Return an
             -- F-line exception primary so the CPU can take an emulator
             -- trap (vector 11) and a software FPSP-style handler can
@@ -4131,13 +4205,28 @@ begin
           -- Wait for host to write operand words via Operand CIR.
           -- cir_operand_word_arrived is pulsed by the bus write process.
           if cir_operand_word_arrived = '1' then
+            if cir_movem_active = '1' and cir_movem_longs_left /= 0 then
+              cir_movem_longs_left <= cir_movem_longs_left - 1;
+            end if;
             if cir_xfer_word_idx + 1 >= cir_xfer_word_count then
-              -- All words received.  Transition to CIR_XFER_SRC_WAIT
-              -- for two hold cycles so the format conversion path
-              -- (cir_operand_staging -> operand_reg) has 4 clock periods
-              -- to settle at 33 MHz (MCP=4, 121.2ns budget).
-              cir_xfer_word_idx <= cir_xfer_word_idx + 1;
-              cir_state_reg <= CIR_XFER_SRC_WAIT;
+              if cir_movem_active = '1' then
+                -- FMOVEM mem→FPn: all 3 longs of the current register
+                -- staged. Commit via cir_movem_wr_req (consumed by the
+                -- register-file owner during CIR_MOVEM_COMMIT — raw .X
+                -- repack, no conversion latency) and move to the next
+                -- list register.
+                cir_movem_wr_req <= '1';
+                cir_movem_wr_idx <= cir_movem_reg;
+                cir_xfer_word_idx <= cir_xfer_word_idx + 1;
+                cir_state_reg <= CIR_MOVEM_COMMIT;
+              else
+                -- All words received.  Transition to CIR_XFER_SRC_WAIT
+                -- for two hold cycles so the format conversion path
+                -- (cir_operand_staging -> operand_reg) has 4 clock periods
+                -- to settle at 33 MHz (MCP=4, 121.2ns budget).
+                cir_xfer_word_idx <= cir_xfer_word_idx + 1;
+                cir_state_reg <= CIR_XFER_SRC_WAIT;
+              end if;
             else
               cir_xfer_word_idx <= cir_xfer_word_idx + 1;
             end if;
@@ -4270,6 +4359,9 @@ begin
         when CIR_XFER_DST =>
           -- Host reads operand words via CIR_ADDR_OPERAND.
           if cir_operand_read_done = '1' then
+            if cir_movem_active = '1' and cir_movem_longs_left /= 0 then
+              cir_movem_longs_left <= cir_movem_longs_left - 1;
+            end if;
             if cir_xfer_word_idx + 1 >= cir_xfer_word_count then
               -- Hold state one extra cycle so d_out_comb returns staging
               -- data through the dsack assertion window.  Don't increment
@@ -4281,7 +4373,13 @@ begin
           end if;
 
         when CIR_XFER_DST_WAIT =>
-          cir_state_reg <= CIR_IDLE;
+          if cir_movem_active = '1' then
+            -- FMOVEM FPn→mem: current register fully read; sequence the
+            -- next list register (or finish there).
+            cir_state_reg <= CIR_MOVEM_NEXT;
+          else
+            cir_state_reg <= CIR_IDLE;
+          end if;
 
         when CIR_COND_EVAL =>
           -- Launch condition evaluation through alu_control_proc.
@@ -4478,6 +4576,52 @@ begin
             end if;
           end if;
 
+        when CIR_MOVEM_NEXT =>
+          -- FMOVEM sequencer: pick the next list register in
+          -- lowest-memory-address-first order and run a standard 3-long
+          -- XFER session for it. Response shows BUSY for the one cycle
+          -- spent here, which the host treats as "come again".
+          if cir_movem_list = x"00" then
+            cir_movem_active <= '0';
+            cir_state_reg <= CIR_IDLE;
+          else
+            if cir_movem_predec = '0' then
+              -- control/postinc list convention: lowest set bit first,
+              -- register = 7 - bit#.
+              movem_sel := 0;
+              for i in 7 downto 0 loop
+                if cir_movem_list(i) = '1' then
+                  movem_sel := i;
+                end if;
+              end loop;
+              cir_movem_reg <= 7 - movem_sel;
+            else
+              -- predec list convention: highest set bit first,
+              -- register = bit#.
+              movem_sel := 0;
+              for i in 0 to 7 loop
+                if cir_movem_list(i) = '1' then
+                  movem_sel := i;
+                end if;
+              end loop;
+              cir_movem_reg <= movem_sel;
+            end if;
+            cir_movem_list(movem_sel) <= '0';
+            cir_xfer_word_idx <= 0;
+            cir_xfer_word_count <= 3;
+            if cir_direction = '1' then
+              cir_state_reg <= CIR_XFER_DST;   -- FPn → memory
+            else
+              cir_state_reg <= CIR_XFER_SRC;   -- memory → FPn
+            end if;
+          end if;
+
+        when CIR_MOVEM_COMMIT =>
+          -- One settle cycle: the last staged long was written at the
+          -- edge entering this state; cir_movem_wr_req (set with it) is
+          -- consumed by the register-file owner at the edge ending it.
+          cir_state_reg <= CIR_MOVEM_NEXT;
+
         -- MC68882 pending instruction pipeline states.
         when CIR_PENDING_DECODE =>
           -- Mirrors CIR_DECODE but for the pending instruction.
@@ -4562,16 +4706,31 @@ begin
         cir_response_prim <= CIR_PRIM_BUSY;
       when CIR_XFER_SRC =>
         -- AN-947: Evaluate EA + Transfer Data, CPU→FPU (CA=1, DR=0, len=bytes)
-        cir_response_prim <= "1001" & "0110" &
-          std_logic_vector(to_unsigned(cir_xfer_word_count * 4, 8));
+        -- FMOVEM: length = total bytes across ALL remaining list
+        -- registers, not just the current 3-long session — the host
+        -- kernel's predecrement EA-drop reads this field on the first
+        -- Response round.
+        if cir_movem_active = '1' then
+          cir_response_prim <= "1001" & "0110" &
+            std_logic_vector(to_unsigned(cir_movem_longs_left * 4, 8));
+        else
+          cir_response_prim <= "1001" & "0110" &
+            std_logic_vector(to_unsigned(cir_xfer_word_count * 4, 8));
+        end if;
       when CIR_XFER_SRC_WAIT =>
         cir_response_prim <= CIR_PRIM_BUSY;
       when CIR_XFER_SRC_WAIT2 =>
         cir_response_prim <= CIR_PRIM_BUSY;
       when CIR_XFER_DST =>
         -- AN-947: Evaluate EA + Transfer Data, FPU→CPU (CA=1, DR=1, len=bytes)
-        cir_response_prim <= "1011" & "0010" &
-          std_logic_vector(to_unsigned(cir_xfer_word_count * 4, 8));
+        -- FMOVEM: total remaining bytes (see CIR_XFER_SRC note).
+        if cir_movem_active = '1' then
+          cir_response_prim <= "1011" & "0010" &
+            std_logic_vector(to_unsigned(cir_movem_longs_left * 4, 8));
+        else
+          cir_response_prim <= "1011" & "0010" &
+            std_logic_vector(to_unsigned(cir_xfer_word_count * 4, 8));
+        end if;
       when CIR_XFER_DST_WAIT =>
         cir_response_prim <= CIR_PRIM_BUSY;
       when CIR_COND_EVAL =>
@@ -4601,6 +4760,9 @@ begin
           std_logic_vector(to_unsigned(pending_xfer_word_count * 4, 8));
       when CIR_PENDING_XFER_SRC_WAIT | CIR_PENDING_XFER_SRC_WAIT2
          | CIR_PENDING_XFER_SRC_WAIT3 =>
+        cir_response_prim <= CIR_PRIM_BUSY;
+      when CIR_MOVEM_NEXT | CIR_MOVEM_COMMIT =>
+        -- One-cycle FMOVEM sequencing gaps: host sees BUSY, comes again.
         cir_response_prim <= CIR_PRIM_BUSY;
     end case;
   end process;
