@@ -55,6 +55,16 @@ module via6522 (
     input  wire        cb2_i,
     output wire        cb2_t,
 
+    // Level-driven IFR overlays (Snow-style). While high, the CA2/CB2 IFR
+    // flags read 1 and contribute to IRQ regardless of the edge-latched
+    // state; when the level drops, only the edge latch (if any) remains.
+    // Mac II VIA2 uses these for SCSI: ca2_lvl_i = DRQ, cb2_lvl_i = 5380
+    // IRQ — the HD SC driver POLLS these IFR bits between pseudo-DMA
+    // chunks, and a pure edge model deadlocks (a still-latched 5380 IRQ
+    // produces no new edge). Tie 0 where unused (VIA1).
+    input  wire        ca2_lvl_i,
+    input  wire        cb2_lvl_i,
+
     output wire        irq,
     output wire        sr_active, // shift register armed and counting
 
@@ -205,8 +215,13 @@ module via6522 (
                    1'b0 : 1'b1;
     end
 
+    // Effective flags = edge-latched flags OR the level overlays (bit 0 =
+    // CA2, bit 3 = CB2). Used for the IRQ line and the IFR readout; the
+    // edge-latch clear protocols (ORA/ORB access, IFR write) are unchanged.
+    wire [6:0] irq_flags_eff = irq_flags | {3'b000, cb2_lvl_i, 2'b00, ca2_lvl_i};
+
     always @(*) begin
-        if ((irq_flags & irq_mask) == 7'h00) begin
+        if ((irq_flags_eff & irq_mask) == 7'h00) begin
             irq_out = 1'b0;
         end else begin
             irq_out = 1'b1;
@@ -432,7 +447,7 @@ module via6522 (
                 data_out <= pcr;
             end
             4'hD: begin // IFR
-                data_out <= {irq_out, irq_flags};
+                data_out <= {irq_out, irq_flags_eff};
             end
             4'hE: begin // IER
                 data_out <= {1'b1, irq_mask};

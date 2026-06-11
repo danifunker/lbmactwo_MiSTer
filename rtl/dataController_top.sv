@@ -419,6 +419,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		//-- handshake pins
 		.ca1_i      (via1_ca1),
 		.ca2_i      (rtc_cko),
+		.ca2_lvl_i  (1'b0),      // level overlays unused on VIA1
+		.cb2_lvl_i  (1'b0),
 
 		.cb1_i      (kbdclk),
 		.cb2_i      (cb2_i),
@@ -559,6 +561,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		//-- handshake pins
 		.ca1_i      (via2_ca1),
 		.ca2_i      (~scsiDREQ), // CA2: SCSI DRQ (IFR bit 0), falling edge on assert
+		.ca2_lvl_i  (scsiDREQ),  // level overlay: IFR bit 0 reads 1 while DRQ high
+		.cb2_lvl_i  (scsiIRQ),   // level overlay: IFR bit 3 reads 1 while IRQ latched
 
 		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)
 		.cb2_i      (~scsiIRQ),  // CB2: SCSI IRQ (IFR bit 3), falling edge on assert
