@@ -7,6 +7,79 @@ handoff (`docs/handoff_fpu_timing_closure_2026-06-10.md`).*
 
 ---
 
+## 2026-06-10 session 3 — TWO more stacked wedges found on HW; the big one is the missing VIA2 SCSI IRQ/DRQ wiring (commits `4f9506b`, `b760944`)
+
+HW validation of `4376c8f` un-stacked two FURTHER wedges. Each fix moved
+the wedge exactly as predicted; the probes named each next culprit.
+
+### Round 2 (`4f9506b`) — response length-field consistency
+
+With the CD fixed (probes: EMPTY-CD IDLE/req=0 ✓), the boot re-wedged at
+Welcome with the **disk target (t0)** in DATA_OUT. Cause: our responses'
+own length fields disagreed with the bytes served — INQUIRY claimed 37
+bytes (additional-length 32; the standard response is 36/addl=31, which is
+what real drives and Snow return) and MODE SENSE's mode-data-length header
+byte was 0 while serving raw alloc. Drivers that trust those fields
+under-read and the target holds REQ. Fixed: INQUIRY 36, MODE SENSE
+clamped to 12 with header 11. Enforced invariant: **a response serves
+exactly what its own length fields promise, clamped by alloc**.
+
+### Round 3 (`b760944`) — the HD SC 4.3 driver wedge: 5380 IRQ/DRQ never reached VIA2
+
+Round-2 retest wedged again at Welcome — **new, sharper signature**
+(upgraded probes: PSCW now routes DATA_OUT, PSC6 = last opcode):
+
+- t0 parked in DATA_OUT at **data_cnt=512 of a tlen=35 READ(10)** —
+  exactly the first HPS 512-byte block boundary (REQ pause while the
+  next sector is fetched from SD).
+- `dreq=1` re-asserted and **ignored**; zero DACK reads in any PADR
+  sample; I/O completions frozen; CPU free-running in a RAM poll loop at
+  0x1120A-0x11218 reading CSR/BSR.
+- The RAM loop is the **on-disk HD SC 4.3 driver** (Apple_Driver43
+  partition, DDM: ddBlock=64 ddSize=19). Extracted blocks 64-82 and
+  disassembled with capstone (M68K): the driver's ISR/event machinery
+  (+11ca) and its wait loop (+13e0) sleep on **VIA2 IFR flags** between
+  pseudo-DMA chunks, re-reading SCSI status only after the flag sets.
+- Mac II wiring (ground truth Snow `macii/via2.rs`): **VIA2 CA2 = IFR
+  bit 0 = SCSI DRQ; VIA2 CB2 = IFR bit 3 = SCSI IRQ.** Our
+  dataController_top had `ca2_i(1'b1)` / `cb2_i(1'b1)` and ncr5380 had
+  NO IRQ latch at all (`bsr_irq` combinational, `bsr_eodma` constant 0).
+  The driver slept on flags that could never set. Wedge at the first REQ
+  pause, forever. **This also explains the disk-dependence**: minimal
+  bench .hda images carry no Driver43 partition, so they run the ROM's
+  polled driver and never hit this; real Apple-formatted disks load the
+  async HD SC driver at boot and wedge at Welcome.
+- MAME macii note: its `scsi_irq` handler is EMPTY — MAME instead
+  implements the *other* real-HW mechanism (DACK access without DRQ →
+  bus error → driver's retry handler). Both are hardware-faithful paths;
+  we implemented Snow's (IRQ/DRQ flags), keeping our indefinite DACK
+  stall (`c616bf3`).
+
+Fixes in `b760944` (ncr5380.sv + dataController_top.sv):
+`dma_armed` on Start-DMA-Send/Initiator-Receive writes; `irq_latch` on
+phase-match falling edge while `MR.DMA & armed` (cleared by reg-7 read /
+bus reset); `BSR.IRQ` = latch; `BSR.EODMA` = bus-not-in-data-phase
+(Snow semantics); `ca2_i = ~scsiDREQ`, `cb2_i = ~scsiIRQ` (VIA2 PCR=0 →
+negative-edge inputs, flags latch on assertion).
+
+Probe deck for validation (20/20 slots): PSCS re-enabled (last SCSI reg
+read + value, decoded name), PSWL re-enabled carrying the IRQ-machine
+live state in [13:8] (irq_latch/armed/eodma/dreq/pmatch/dma_en), PSNC
+count now counts BOTH DACK directions, PSCW routes DATA_OUT targets,
+PSC6 last-opcode.
+
+### Validation state
+
+Round-3 RBF building at session end. Protocol unchanged (fresh
+HD20SC_scsifix_test.vhd from scratch/, boot, Welcome→Finder, clean
+shutdown, `hda_match_sources.py` → zero COPY runs). **Launch the bare
+.rbf via Remote API** (`POST /api/launch {"path":".../LBMacTwo.rbf"}`) —
+the core auto-remounts the test disk from saved config; the user has
+forbidden .mgl launches. Re-scp the pristine image after every wedged
+attempt (each wedge dirties it).
+
+---
+
 ## 2026-06-10 session 2 — ROOT CAUSE FOUND + FIXED (commit `4376c8f`, HW validation pending)
 
 User symptom: most Mac OS disks hang at "Welcome to Macintosh"; once a disk
