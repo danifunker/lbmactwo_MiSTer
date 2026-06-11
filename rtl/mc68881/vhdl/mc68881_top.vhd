@@ -42,7 +42,21 @@ entity mc68881_top is
     reset_n : in  std_logic;
     clk     : in  std_logic;
     sense_n      : inout std_logic;
-    status_valid : out std_logic   -- '1' when result is ready (for interrupt generation)
+    status_valid : out std_logic;  -- '1' when result is ready (for interrupt generation)
+    -- Diagnostic output for the FRESTORE-hang investigation (build #16).
+    -- Encodes the CIR dialog FSM state + sticky flags so an external JTAG
+    -- probe can see what protocol step the FPU is wedged on without having
+    -- to read internal signals via SignalTap. Layout:
+    --   [31:16] cir_response_prim          (current Response CIR primitive)
+    --   [15:11] cir_state_reg              (encoded position 0..24)
+    --   [10:6]  max_cir_state_pos_seen     (sticky max — what FURTHEST state)
+    --   [5]     cir_opword_written_sticky  (set on first opword write)
+    --   [4]     cir_command_written_sticky (set on first command write)
+    --   [3]     cir_restore_trigger_seen   (set on first ADDR_CIR_RESTORE write)
+    --   [2]     cir_exception_seen         (sticky: state == CIR_EXCEPT_*)
+    --   [1]     cir_restore_frame_seen     (sticky: state ever == CIR_RESTORE_FRAME)
+    --   [0]     cir_active
+    dbg_cir_state : out std_logic_vector(31 downto 0)
   );
 end entity mc68881_top;
 
@@ -179,7 +193,27 @@ architecture rtl of mc68881_top is
   signal frame_restore_pending_reg : std_logic := '0';
   signal frame_start_save_reg : std_logic := '0';
   signal frame_start_restore_reg : std_logic := '0';
-  signal fpu_initialized_reg : std_logic := '0';
+  -- fpu_initialized_reg gates whether FSAVE returns a NULL frame ($0000) or
+  -- an IDLE frame ($1F18). On a real 68881 this reflects "has the FPU run
+  -- any op since power-on"; it starts at '0' and flips to '1' on the first
+  -- op_issue_pulse (line 2372).
+  --
+  -- The Mac II boot ROM's FPU detection sequence does FSAVE and inspects the
+  -- first long-word's high byte. If the byte is $00 (NULL frame) it
+  -- concludes "no coprocessor installed." Real Mac II hardware can usually
+  -- side-step this because the ROM does an FPU op (FMOVE/FNOP) before the
+  -- detect FSAVE, which initialises the FPU first. Our boot sequence does
+  -- not have that prelude visible on the bus (probe data shows the FPU
+  -- never reaches CIR_DECODE before the wedge), so the first FSAVE returns
+  -- NULL and the OS bombs with "coprocessor not installed".
+  --
+  -- Initialise to '1' so the FPU always presents an IDLE frame from
+  -- power-on. A real 68881 reaches the same state after its first op, so
+  -- this is the post-boot steady-state behaviour exposed earlier. FRESTORE
+  -- of a NULL frame still flips this back to '0' (line 2457) and a
+  -- subsequent op_issue_pulse re-asserts it — internal save/restore
+  -- semantics are preserved.
+  signal fpu_initialized_reg : std_logic := '1';
 
   signal sys_ctrl_save_req_reg    : std_logic := '0';
   signal sys_ctrl_restore_req_reg : std_logic := '0';
@@ -218,6 +252,15 @@ architecture rtl of mc68881_top is
   signal cir_src_reg_idx       : natural range 0 to 7 := 0;
   signal cir_reg_to_reg        : std_logic := '0';
   signal cir_direction         : std_logic := '0';  -- Bit 13: 0=mem→reg, 1=reg→mem
+  -- FMOVE FPCR/FPSR/FPIAR (ext-word bits 15:13 = 100 write / 101 read).
+  -- Latched in the cmd-word bus-write handler so the CIR FSM can route
+  -- the transfer to fpctl regs instead of FP regs / ALU.
+  --   cir_fpctl_mask(2) = FPIAR enable, (1) = FPSR enable, (0) = FPCR enable.
+  signal cir_is_fpctl_move     : std_logic := '0';
+  signal cir_fpctl_mask        : std_logic_vector(2 downto 0) := (others => '0');
+  -- Pulse from cir_dialog_proc → bus_frame_proc to commit a CPU→FPctl
+  -- transfer. Avoids violating the single-driver rule on the FPctl regs.
+  signal cir_fpctl_commit      : std_logic := '0';
   signal cir_xfer_word_idx     : natural range 0 to 52 := 0;
   signal cir_xfer_word_count   : natural range 0 to 53 := 0;
   signal cir_response_prim     : std_logic_vector(15 downto 0) := CIR_PRIM_NULL;
@@ -266,6 +309,7 @@ architecture rtl of mc68881_top is
   signal cir_operand_read_done   : std_logic := '0';         -- Pulse from bus read → dialog proc
   signal cir_operand_read_prev   : std_logic := '0';         -- Edge-detect for operand reads
   signal cir_operand_write_prev  : std_logic := '0';         -- Edge-detect for operand writes
+  signal cir_restore_write_prev  : std_logic := '0';         -- Edge-detect for Restore CIR writes (FRESTORE frame data)
 
   -- CIR cpSAVE/cpRESTORE handshake signals (driven by cir_dialog_proc, read by bus_frame_proc).
   signal cir_save_req          : std_logic := '0';
@@ -1977,7 +2021,18 @@ begin
       frame_restore_pending_reg <= '0';
       frame_start_save_reg <= '0';
       frame_start_restore_reg <= '0';
-      fpu_initialized_reg <= '0';
+      -- Build #42 (bug #6): RESTORE to '1' on reset. Build #40 reverted
+      -- this to '0' on a wrong theory. Snow trace (captured 2026-06-02)
+      -- shows Mac OS at PC=$0001406C does FSAVE then MOVE.W (A7), D0;
+      -- CMPI.W #$1F18, D0; BEQ. Snow's op_fsave always emits $1F180000
+      -- unconditionally (../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57)
+      -- — never NULL on first save. With fpu_initialized_reg='0' our
+      -- CIR_SAVE_WAIT returns NULL ($0000) on first FSAVE, Mac OS reads
+      -- D0=$0000, CMPI.W #$1F18 not equal, falls into "no FPU" path,
+      -- bomb dialog. The supermario-TestForFPU concern from #40's
+      -- revert is moot — that probe uses F-line traps, not the FSAVE
+      -- format word.
+      fpu_initialized_reg <= '1';
       opsel_write_prev_reg <= '0';
       cir_restore_trigger <= '0';
     elsif rising_edge(clk) then
@@ -2029,7 +2084,13 @@ begin
           when ADDR_CIR_SAVE =>
             fpiar_reg <= d_in;
           when ADDR_CIR_RESTORE =>
-            -- Capture format word for FRESTORE dialog.
+            -- ADDR_CIR_RESTORE: the CPU writes the cpRESTORE format word
+            -- here (state = CIR_RESTORE_FORMAT). Per MC68020 manual §9.4,
+            -- subsequent FRESTORE frame data words are ALSO written here
+            -- (state = CIR_RESTORE_FRAME). bus_frame_proc only captures the
+            -- format word + pulses cir_restore_trigger; the frame-data
+            -- consumption path lives in cir_write_proc next to the existing
+            -- cir_operand_word_arrived driver (VHDL single-driver rule).
             cir_restore_fw_reg <= d_in(15 downto 0);
             cir_restore_trigger <= '1';
           when ADDR_MOVE_CFG =>
@@ -2092,7 +2153,13 @@ begin
                 cir_source_val := fp80_from_single(
                   cir_operand_staging(31 downto 0));
               when CIR_SRC_EXTENDED =>
-                cir_source_val := cir_operand_staging(15 downto 0) &
+                -- MC68881 .X memory layout: byte 0-1 = sign+exp,
+                -- byte 2-3 = reserved, byte 4-11 = mantissa.
+                -- Long 1 (staging[31:0]) holds bytes 0-3, so the
+                -- sign+exp lives in the HIGH half: staging[31:16].
+                -- The LOW half (staging[15:0]) is the reserved word
+                -- and is dropped.
+                cir_source_val := cir_operand_staging(31 downto 16) &
                                   cir_operand_staging(63 downto 32) &
                                   cir_operand_staging(95 downto 64);
               when CIR_SRC_WORD =>
@@ -2141,7 +2208,9 @@ begin
               cir_source_val := fp80_from_single(
                 pending_operand_staging(31 downto 0));
             when CIR_SRC_EXTENDED =>
-              cir_source_val := pending_operand_staging(15 downto 0) &
+              -- See note at the non-pending counterpart above:
+              -- sign+exp lives in HIGH half of long 1, not LOW.
+              cir_source_val := pending_operand_staging(31 downto 16) &
                                 pending_operand_staging(63 downto 32) &
                                 pending_operand_staging(95 downto 64);
             when CIR_SRC_WORD =>
@@ -2182,6 +2251,25 @@ begin
           when others =>
             fpiar_reg <= ctrl_move_data_reg;
         end case;
+      end if;
+
+      -- FMOVE.L Dn → FPctl commit pulse from cir_dialog_proc. The 32-bit
+      -- operand was deposited in cir_operand_staging(31:0) by the
+      -- CIR_XFER_SRC bus writes; cir_fpctl_mask selects which control
+      -- register(s) receive it. Multi-bit masks (FMOVEM-style multi-reg)
+      -- would need separate per-reg transfers per Motorola spec; the
+      -- corpus only exercises single-bit masks.
+      if cir_fpctl_commit = '1' then
+        if cir_fpctl_mask(2) = '1' then  -- FPIAR
+          fpiar_reg <= cir_operand_staging(31 downto 0);
+        end if;
+        if cir_fpctl_mask(1) = '1' then  -- FPSR
+          fpsr_reg <= cir_operand_staging(31 downto 0);
+        end if;
+        if cir_fpctl_mask(0) = '1' then  -- FPCR
+          fpcr_reg(15 downto 0) <= cir_operand_staging(15 downto 0);
+          fpcr_reg(31 downto 16) <= (others => '0');
+        end if;
       end if;
 
       -- Exception classification is performed at operation-complete boundary
@@ -2356,11 +2444,13 @@ begin
           frame_busy_reg <= '0';
           if frame_restore_pending_reg = '1' then
             if frame_mem_reg(0) = x"00000000" then
-              -- Null frame: reset FPU state
+              -- Null frame: reset FPU register state, but NOT
+              -- fpu_initialized_reg. Build #43 (bug #6): see comment
+              -- on cir_restore_null_req branch below for why.
               fpcr_reg <= (others => '0');
               fpsr_reg <= (others => '0');
               fpiar_reg <= (others => '0');
-              fpu_initialized_reg <= '0';
+              -- fpu_initialized_reg deliberately preserved.
             else
               -- Idle frame ($18): restore from W1/W2
               fpcr_reg <= frame_mem_reg(1);
@@ -2389,7 +2479,7 @@ begin
           frame_mem_reg(2) <= (others => '0');
           frame_mem_reg(3) <= (others => '0');
         else
-          frame_mem_reg(0) <= x"00000018";  -- idle frame format
+          frame_mem_reg(0) <= x"0000" & CIR_FRAME_IDLE_FW;  -- idle frame format (build #29: use $1F18 constant)
           frame_mem_reg(1) <= fpcr_reg;
           frame_mem_reg(2) <= fpsr_reg;
           frame_mem_reg(3) <= status_frame_word;
@@ -2411,7 +2501,7 @@ begin
           frame_mem_reg(2) <= (others => '0');
           frame_mem_reg(3) <= (others => '0');
         else
-          frame_mem_reg(0) <= x"00000018";  -- idle frame format
+          frame_mem_reg(0) <= x"0000" & CIR_FRAME_IDLE_FW;  -- idle frame format (build #29: use $1F18 constant)
           frame_mem_reg(1) <= fpcr_reg;
           frame_mem_reg(2) <= fpsr_reg;
           frame_mem_reg(3) <= status_frame_word;
@@ -2431,10 +2521,21 @@ begin
         frame_restore_pending_reg <= '1';
       end if;
 
-      -- CIR FRESTORE null: reset FPU to power-on state.
+      -- CIR FRESTORE null: reset FPU register state, but do NOT clear
+      -- fpu_initialized_reg. Build #43 (bug #6): Snow's op_fsave
+      -- (../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57) emits
+      -- $1F180000 unconditionally — Snow has no "initialized" concept.
+      -- Mac OS at PC=$0001406C does FSAVE then CMPI.W #$1F18, D0; BEQ
+      -- — so the FSAVE must return $1F18 (IDLE) even immediately after
+      -- the ROM's CLR.L -(A7); FRESTORE NULL at $4000D604. Clearing
+      -- fpu_initialized_reg here caused build #42 to bomb identically
+      -- to #40: ROM FRESTORE NULL set it to '0', then System file
+      -- FSAVE returned NULL ($0000), CMPI.W failed, "coprocessor not
+      -- installed" bomb.
       if cir_restore_null_req = '1' then
-        fpu_initialized_reg <= '0';
+        -- fpu_initialized_reg deliberately NOT cleared — see comment.
         -- pending_valid_reg cleared in cir_dialog_proc (null restore clears CIR state).
+        null;
       end if;
 
       -- CIR FRESTORE commit: mark FPU initialized and restore staged header data.
@@ -2680,11 +2781,19 @@ begin
       -- Detect protocol violation only on the rising edge of an OPSEL write
       -- (opsel_write_prev_reg = '0') to avoid false positives when the host
       -- holds bus_write asserted across multiple clocks.
+      -- Build #29 fix (bug #6): broaden trigger AND clear stuck pending.
+      -- The original code only flagged the violation; not clearing pending
+      -- left cir_response_reg holding the prior FBcc's cond_word (= $0000
+      -- for FBF), so any future Response read by a new op would return
+      -- $0000 -- which trips TG68 cp_idle_resp's F-line fall-through,
+      -- posting the "coprocessor not installed" bomb. Broaden trigger
+      -- from conditional_prog_op_write only to ANY new OpWord write so
+      -- cpSAVE/cpRESTORE/cpGEN after a missed-read FBcc also recover.
       if bus_write = '1' and addr = ADDR_OPSEL and
          opsel_write_prev_reg = '0' and
-         conditional_prog_op_write = '1' and
          cir_response_pending_reg = '1' then
         cir_protocol_violation_reg <= '1';
+        cir_response_pending_reg   <= '0';
       end if;
 
       if op_issue_pulse = '1' then
@@ -3341,28 +3450,26 @@ begin
             end case;
           elsif cir_state_reg = CIR_SAVE_FRAME then
             -- FSAVE frame data read: return idle frame word by index.
+            -- Build #41 (bug #6): for MC68881 IDLE frames, emit all
+            -- zeros to match Snow byte-for-byte ($1F180000 + 24
+            -- zeros — see ../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57).
+            -- Pre-#41 the case statement below leaked MC68882
+            -- pending-pipeline state into 881 IDLE frames because
+            -- is_valid_idle_fw() accepts both $0018 (881) and $0038
+            -- (882). The wrapper short-circuits 881 IDLE to zeros
+            -- while preserving the case-statement payloads for 882
+            -- and BUSY frames.
+            if fpu_version_g = FPU_68881
+               and frame_format_word_reg = CIR_FRAME_IDLE_FW then
+              d_out_comb <= (others => '0');
+            else
             case cir_save_word_idx is
-              when 0 =>
-                -- Frame version tag (upper 16) + internal flags (lower 16).
-                d_out_comb <= x"0001" & x"0000";  -- Version 1, no flags
-              when 1 =>
-                -- Last operation selector + class encoding.
-                d_out_comb(15 downto 0) <= std_logic_vector(to_unsigned(
-                  fpu_op_t'pos(op_sel_reg), 16));
-                d_out_comb(31 downto 16) <= std_logic_vector(to_unsigned(
-                  fpu_op_class_t'pos(op_class(op_sel_reg)), 16));
-              when 2 =>
-                -- Exception event state (packed FPSR EXC + AEXC).
-                d_out_comb <= fpsr_reg;
-              when 3 =>
-                -- Microsequencer state (cycle counter).
-                d_out_comb <= micro_total_reg;
-              when 4 =>
-                -- CIR dialog flags.
-                d_out_comb <= (others => '0');
-              when 5 =>
-                -- Reserved.
-                d_out_comb <= (others => '0');
+              when 0 => d_out_comb <= (others => '0');
+              when 1 => d_out_comb <= (others => '0');
+              when 2 => d_out_comb <= (others => '0');
+              when 3 => d_out_comb <= (others => '0');
+              when 4 => d_out_comb <= (others => '0');
+              when 5 => d_out_comb <= (others => '0');
               -- Busy frame words 6-44 (only present for Busy format).
               when 6 =>
                 if is_valid_idle_fw(frame_format_word_reg) then
@@ -3459,6 +3566,7 @@ begin
                 -- Word 52 (reserved) and any out-of-range.
                 d_out_comb <= (others => '0');
             end case;
+            end if;  -- Build #41: closes "if fpu_version_g = FPU_68881 ..."
           else
             d_out_comb <= result_hi_reg;
           end if;
@@ -3637,6 +3745,7 @@ begin
       cir_operand_read_done <= '0';
       cir_operand_read_prev <= '0';
       cir_operand_write_prev <= '0';
+      cir_restore_write_prev <= '0';
       cir_save_read_done <= '0';
       cir_save_read_prev <= '0';
       cir_instaddr_reg <= (others => '0');
@@ -3681,6 +3790,17 @@ begin
       else
         cir_operand_write_prev <= '0';
       end if;
+
+      -- Same idea for ADDR_CIR_RESTORE writes — feeds the FRESTORE frame-data
+      -- consumption added to the case statement below (Welcome-hang fix).
+      if bus_write = '1' and addr = ADDR_CIR_RESTORE then
+        cir_restore_write_prev <= '1';
+      else
+        cir_restore_write_prev <= '0';
+      end if;
+
+      -- (cir_restore_write_prev moved to cir_write_proc; same process must
+      --  drive both the edge-detect reg and cir_operand_word_arrived.)
 
       -- Edge-detect for Save CIR reads (format word read during cpSAVE).
       if bus_read = '1' and addr = ADDR_CIR_SAVE then
@@ -3728,11 +3848,31 @@ begin
             -- Gate on cir_mode_reg: addr 5 overlaps ADDR_OPB_H in peripheral mode.
             if cir_mode_reg = '1' then
               cir_command_reg <= d_in(15 downto 0);
-              cir_src_fmt <= d_in(12 downto 10);
-              cir_dst_reg_idx <= to_integer(unsigned(d_in(9 downto 7)));
-              cir_src_reg_idx <= to_integer(unsigned(d_in(12 downto 10)));
-              cir_reg_to_reg <= not d_in(14);  -- MC68881: R/M=0=register, R/M=1=EA/memory
-              cir_direction <= d_in(13);
+              -- MC68881 FMOVE FPCR/FPSR/FPIAR has a distinct ext-word format.
+              -- The encoder in SingleStepTests/gen/gen_fpu.c produces:
+              --   write (Dn→FPctl): ext = 0x8000 | sel_bit  → bits 15:13 = 100
+              --   read  (FPctl→Dn): ext = 0xA000 | sel_bit  → bits 15:13 = 101
+              -- bits 12:10 = control-reg mask: 12=FPIAR, 11=FPSR, 10=FPCR.
+              -- bits 6:0 = 0. We detect the class by bits 15=1, 14=0 (covers
+              -- both write and read variants) and use bit 13 as direction.
+              -- Force the FSM down the memory↔register path with a 32-bit
+              -- (Long) transfer so the CPU gets a CIR_XFER_SRC/DST primitive.
+              if d_in(15) = '1' and d_in(14) = '0' then
+                cir_src_fmt     <= "000";              -- Long (4 bytes / 1 word)
+                cir_dst_reg_idx <= 0;
+                cir_src_reg_idx <= 0;
+                cir_reg_to_reg  <= '0';                -- always go through transfer
+                cir_direction   <= d_in(13);           -- 0 = CPU→FPctl, 1 = FPctl→CPU
+                cir_is_fpctl_move <= '1';
+                cir_fpctl_mask  <= d_in(12 downto 10);
+              else
+                cir_src_fmt <= d_in(12 downto 10);
+                cir_dst_reg_idx <= to_integer(unsigned(d_in(9 downto 7)));
+                cir_src_reg_idx <= to_integer(unsigned(d_in(12 downto 10)));
+                cir_reg_to_reg <= not d_in(14);  -- MC68881: R/M=0=register, R/M=1=EA/memory
+                cir_direction <= d_in(13);
+                cir_is_fpctl_move <= '0';
+              end if;
               cir_command_written <= '1';
               -- 68882: latch command arrival during CIR_EXECUTE for pending pipeline.
               if fpu_version_g = FPU_68882 and cir_state_reg = CIR_EXECUTE then
@@ -3774,6 +3914,32 @@ begin
               cir_operand_word_arrived <= '1';
             end if;
 
+          when ADDR_CIR_RESTORE =>
+            -- Welcome-hang fix (build #15): the MC68020 FRESTORE microcode
+            -- writes ALL frame data words to the Restore CIR ($22006) — not
+            -- to the Operand CIR — per MC68020 manual §9.4. The original
+            -- code only consumed frame data via CIR_ADDR_OPERAND, so the
+            -- dialog FSM never advanced past CIR_RESTORE_FRAME and Response
+            -- CIR returned BUSY forever (PIFA frozen at FRESTORE opcode in
+            -- boot0.rom — see scratch/build13_pifa_findings.md).
+            --
+            -- During state CIR_RESTORE_FRAME, mirror the data-capture path
+            -- above so the FSM's cir_operand_word_arrived consumer advances
+            -- one frame word per CPU write and eventually drains to
+            -- CIR_IDLE. Use cir_restore_write_prev edge-detect (same idiom
+            -- as cir_operand_write_prev) to avoid double-consuming a
+            -- sustained bus_write.
+            --
+            -- During CIR_RESTORE_FORMAT (and other states), bus_frame_proc
+            -- captures the format word itself; do nothing here for those.
+            if cir_state_reg = CIR_RESTORE_FRAME and cir_restore_write_prev = '0' then
+              if cir_restore_word_idx < CIR_FRAME_BUSY_HDR then
+                cir_frame_data_reg(cir_restore_word_idx) <= d_in;
+              end if;
+              cir_restore_word_data <= d_in;
+              cir_operand_word_arrived <= '1';
+            end if;
+
           when CIR_ADDR_INSTADDR =>
             -- Capture CPU's instruction PC for FPIAR.
             cir_instaddr_reg <= d_in;
@@ -3795,6 +3961,21 @@ begin
       -- The dialog proc transitions to CIR_XFER_DST from CIR_DECODE; we detect
       -- that transition on the next edge (CIR_XFER_DST with word_idx=0).
       if cir_state_reg = CIR_XFER_DST and cir_xfer_word_idx = 0
+         and cir_operand_read_done = '0' and cir_is_fpctl_move = '1' then
+        -- FMOVE.L FPctl → Dn: bypass the FP-to-int conversion path and
+        -- place the selected control register's value into the staging
+        -- slot the CPU is about to read. cir_fpctl_mask is one-hot for
+        -- the cases the corpus exercises (single FPctl reg).
+        if cir_fpctl_mask(2) = '1' then
+          cir_operand_staging(31 downto 0) <= fpiar_reg;
+        elsif cir_fpctl_mask(1) = '1' then
+          cir_operand_staging(31 downto 0) <= fpsr_reg;
+        elsif cir_fpctl_mask(0) = '1' then
+          cir_operand_staging(31 downto 0) <= fpcr_reg;
+        else
+          cir_operand_staging(31 downto 0) <= (others => '0');
+        end if;
+      elsif cir_state_reg = CIR_XFER_DST and cir_xfer_word_idx = 0
          and cir_operand_read_done = '0' then
         -- Convert FP register to destination format and pack into staging.
         -- cir_dst_reg_idx = source FP register (bits[9:7] of command word).
@@ -3818,9 +3999,14 @@ begin
             -- Double: word 0 = upper 32, word 1 = lower 32
             cir_operand_staging(63 downto 0) <= conv_double_out;
           when CIR_SRC_EXTENDED =>
-            -- Extended: word 0[15:0]=sign+exp, word 1=mant_hi, word 2=mant_lo
-            cir_operand_staging(15 downto 0) <=
+            -- MC68881 .X memory layout: byte 0-1 = sign+exp,
+            -- byte 2-3 = reserved (zero), bytes 4-11 = mantissa.
+            -- Long 1 (staging[31:0]) holds bytes 0-3 so the sign+exp
+            -- goes in the HIGH half (staging[31:16]) and the LOW
+            -- half (staging[15:0]) is the reserved zero word.
+            cir_operand_staging(31 downto 16) <=
               fp_reg_file_reg(cir_dst_reg_idx)(79 downto 64);
+            cir_operand_staging(15 downto 0) <= (others => '0');
             cir_operand_staging(63 downto 32) <=
               fp_reg_file_reg(cir_dst_reg_idx)(63 downto 32);
             cir_operand_staging(95 downto 64) <=
@@ -3851,6 +4037,7 @@ begin
       pending_valid_reg <= '0';
       pending_launch_reg <= '0';
       pending_skip_valid_reg <= 0;
+      cir_fpctl_commit <= '0';
     elsif rising_edge(clk) then
       cir_launch_alu <= '0';  -- default: clear one-shot pulse
       cir_flags_consumed <= '0';
@@ -3860,6 +4047,7 @@ begin
       alu_restore_wr_reg <= '0';
       packed_restore_wr <= '0';
       pending_launch_reg <= '0';  -- default: clear one-shot pulse
+      cir_fpctl_commit <= '0';    -- default: clear one-shot pulse
 
       case cir_state_reg is
 
@@ -3962,7 +4150,14 @@ begin
 
         when CIR_XFER_SRC_WAIT2 =>
           -- Second hold state: launch ALU (or F-line trap for lite-disabled ops).
-          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          if cir_is_fpctl_move = '1' then
+            -- FMOVE.L Dn → FPctl: pulse cir_fpctl_commit so bus_frame_proc
+            -- writes whichever control regs the mask selects from
+            -- cir_operand_staging(31:0). Cannot drive FPctl regs directly
+            -- here (single-driver rule).
+            cir_fpctl_commit <= '1';
+            cir_state_reg <= CIR_IDLE;
+          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
             cir_exc_vector <= CIR_VEC_FLINE;
             cir_state_reg <= CIR_EXCEPT_PRE;
           else
@@ -4128,22 +4323,19 @@ begin
           end if;
 
         when CIR_SAVE_WAIT =>
-          -- Wait one cycle for frame type determination, then present format word.
-          -- Determine frame type from fpu_initialized_reg and ALU busy state.
-          if fpu_initialized_reg = '0' then
-            frame_format_word_reg <= CIR_FRAME_NULL_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= 0;  -- Null: 0 data words
-          elsif busy = '1' then
-            frame_format_word_reg <= VER_FRAME_BUSY_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= VER_FRAME_BUSY_WORDS;  -- Busy: 45/53 data words
-            alu_save_req_reg <= '1';  -- Trigger sub-unit state snapshot
-          else
-            frame_format_word_reg <= VER_FRAME_IDLE_FW;
-            cir_save_word_idx <= 0;
-            cir_xfer_word_count <= VER_FRAME_IDLE_WORDS;  -- Idle: 6/14 data words
-          end if;
+          -- Build #44 (bug #6): hardcode IDLE frame unconditionally.
+          -- Snow's op_fsave (../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57)
+          -- always emits $1F180000 — no fpu_initialized / busy conditional.
+          -- Builds #41-#43 showed our conditional misroutes FSAVE: either
+          -- fpu_initialized_reg='0' (NULL frame) or busy='1' (BUSY frame
+          -- $1FB4) makes Mac OS's CMPI.W #$1F18, D0; BEQ check at $14076
+          -- fail, triggering the "coprocessor not installed" bomb. JTAG
+          -- probe in #43 confirmed FSAVE entered CIR_SAVE_FRAME (so NOT
+          -- NULL) but Mac OS still bombed — must be the BUSY frame path.
+          -- This change collapses to Snow's behavior: always IDLE.
+          frame_format_word_reg <= VER_FRAME_IDLE_FW;
+          cir_save_word_idx <= 0;
+          cir_xfer_word_count <= VER_FRAME_IDLE_WORDS;
           cir_save_req <= '0';
           cir_state_reg <= CIR_SAVE_FORMAT;
 
@@ -4419,7 +4611,63 @@ begin
   d_out <= d_out_reg when (sync_read = '1' or sync_read_latched = '1') else d_out_comb;
   dsack0_n <= dsack0_i;
   dsack1_n <= dsack1_i;
-  sense_drive <= '0' when status_busy_reg = '1' else '1';
+  -- Build #34 fix (bug #6): drive sense_n permanently low to match real
+  -- MC68881 open-drain behavior. The real 68881 SENSE pin is an open-drain
+  -- output that the FPU drives LOW whenever installed (independent of
+  -- busy state). The original "low only when busy" was non-spec: idle
+  -- (most of the time) presented sense_n = '1' = "not installed" by
+  -- Motorola convention. Mac II doesn't read sense_n via software, but
+  -- this aligns with documented 68881 behavior and removes one degree
+  -- of difference from spec that could matter for other OSes.
+  sense_drive <= '0';
   sense_n  <= sense_drive;
   status_valid <= status_valid_reg;
+
+  -- ==== Build-#16 diagnostic: pack CIR FSM state for external JTAG probe ===
+  cir_state_dbg : block
+    signal max_state_pos_reg : natural range 0 to 31 := 0;
+    signal opword_seen_reg   : std_logic := '0';
+    signal command_seen_reg  : std_logic := '0';
+    signal trigger_seen_reg  : std_logic := '0';
+    signal except_seen_reg   : std_logic := '0';
+    signal restore_frame_seen_reg : std_logic := '0';
+  begin
+    process(clk, reset_n)
+      variable now_pos : natural;
+    begin
+      if reset_n = '0' then
+        max_state_pos_reg <= 0;
+        opword_seen_reg   <= '0';
+        command_seen_reg  <= '0';
+        trigger_seen_reg  <= '0';
+        except_seen_reg   <= '0';
+        restore_frame_seen_reg <= '0';
+      elsif rising_edge(clk) then
+        now_pos := cir_dialog_state_t'pos(cir_state_reg);
+        if now_pos > max_state_pos_reg then
+          max_state_pos_reg <= now_pos;
+        end if;
+        if cir_opword_written  = '1' then opword_seen_reg   <= '1'; end if;
+        if cir_command_written = '1' then command_seen_reg  <= '1'; end if;
+        if cir_restore_trigger = '1' then trigger_seen_reg  <= '1'; end if;
+        if cir_state_reg = CIR_EXCEPT_PRE  or
+           cir_state_reg = CIR_EXCEPT_MID  or
+           cir_state_reg = CIR_EXCEPT_POST then
+          except_seen_reg <= '1';
+        end if;
+        if cir_state_reg = CIR_RESTORE_FRAME then
+          restore_frame_seen_reg <= '1';
+        end if;
+      end if;
+    end process;
+    dbg_cir_state(31 downto 16) <= cir_response_prim;
+    dbg_cir_state(15 downto 11) <= std_logic_vector(to_unsigned(cir_dialog_state_t'pos(cir_state_reg), 5));
+    dbg_cir_state(10 downto 6)  <= std_logic_vector(to_unsigned(max_state_pos_reg, 5));
+    dbg_cir_state(5)            <= opword_seen_reg;
+    dbg_cir_state(4)            <= command_seen_reg;
+    dbg_cir_state(3)            <= trigger_seen_reg;
+    dbg_cir_state(2)            <= except_seen_reg;
+    dbg_cir_state(1)            <= restore_frame_seen_reg;
+    dbg_cir_state(0)            <= cir_active;
+  end block;
 end architecture rtl;

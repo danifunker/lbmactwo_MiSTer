@@ -10,6 +10,7 @@ module scsi
 	// scsi interface
 	input 	  rst, // bus reset from initiator
 	input 	  sel,
+	input 	  bus_busy, // another device currently holds the bus (its BSY)
 	input 	  atn, // initiator requests to send a message
 	output 	  bsy, // target holds bus
 
@@ -18,6 +19,7 @@ module scsi
 	output 	  io,
 
 	output 	  req,
+	output 	  req_bus,   // bus-visible REQ (stays up across HPS block fetches in data phases)
 	input 	  ack, // initiator acknowledges a request
 	input     host_csr_rd, // pulse: host read the Current SCSI Bus Status reg (REQ poll)
 	input     host_data_rd, // pulse: host read the SCSI data register via /DACK (next byte)
@@ -54,7 +56,15 @@ module scsi
 	input         dbg_dma_long,    // ncr5380 dma_longword_latched
 	input  [7:0]  dbg_dma_lowbyte, // ncr5380 dma_write_low_byte (intended odd byte)
 	output [31:0] dbg_wrsnap,      // captured first-word-write snapshot
-	output [31:0] dbg_selsnap      // selection/command handshake observability
+	output [31:0] dbg_selsnap,     // selection/command handshake observability
+
+	// JTAG debug: multi-block WRITE stall observability (2026-06-10). Live
+	// snapshot of the data-transfer state so the 16KB (32-block) result write
+	// can be caught mid-stall: which block (data_cnt), phase, the io_wr/io_ack
+	// block-flush handshake, the double-buffer select, and tlen.
+	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
+	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen[5:0] [31]=req
+	output [31:0] dbg_wrstall
 );
 
 // SCSI device id
@@ -201,7 +211,13 @@ assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase =
 wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
-	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_complete;
+	// A zero-length transfer (e.g. INQUIRY with allocation length 0, or a
+	// WRITE with transfer length 0) must complete immediately: data_complete
+	// only sets on an ACK edge, which never comes when the initiator expects
+	// no data — REQ would be held forever (same deadlock class as the
+	// allocation-length over-serve).
+	wire data_done = data_complete || (data_len == 32'd0);
+	wire data_phase_complete = ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN)) && data_done;
 	// REQ assertion. Previously this was gated on !sel ("wait for the initiator
 	// to drop SEL before the first REQ"). But the reference implementations
 	// (Snow's NCR5380, MAME) assert REQ as soon as the target is selected and
@@ -214,6 +230,21 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// `phase != PHASE_IDLE` already prevents REQ during the IDLE->selection
 	// sampling window, so REQ now comes up on selection like the references.
 	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
+
+	// Bus-VISIBLE REQ (CSR bit 5 / BSR DRQ): stays asserted across the HPS
+	// 512-byte block-boundary fetches in the data phases. Real drives never
+	// drop REQ mid-command for ~ms, and both oracles guarantee the same
+	// observable (Snow pre-buffers whole responses; MAME synthesizes DRQ
+	// from its FIFO). The System-7-era HD SC 4.3 driver polls CSR/BSR
+	// between 512-byte pseudo-DMA chunks — when it saw our dead bus it
+	// concluded the transfer died and parked forever (the Welcome wedge at
+	// data_cnt=512). Flow control is unaffected: the DACK path still stalls
+	// the CPU via `req` (DTACK gate) until the buffer half is really valid,
+	// so a premature data access waits instead of reading stale bytes.
+	// Non-data phases keep the io_busy suppression (status byte must not
+	// be offered while a flush/fetch is still in flight).
+	assign req_bus = (phase != PHASE_IDLE) && !ack && !data_phase_complete &&
+	                 ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN) || !io_busy);
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -262,8 +293,12 @@ wire [7:0] request_sense_dout_next2 = (data_cnt_next2 == 32'd0)?8'h70:(data_cnt_
 wire [7:0] request_sense_dout_next3 = (data_cnt_next3 == 32'd0)?8'h70:(data_cnt_next3 == 32'd7)?8'h0a:8'h00;
 
 // output of inquiry command, identify as "SEAGATE ST225N"
+// additional-length byte = 31 -> standard 36-byte INQUIRY response (5 + 31),
+// matching real drives and Snow. It was 32 (=37 total): a driver that reads
+// the standard 36 bytes then left 1 unserved byte on the target -> REQ held
+// forever -> the post-clamp Welcome wedge of 2026-06-10c.
 wire [7:0] inquiry_dout =
-		(data_cnt == 32'd4 )?8'd32:  // length
+		(data_cnt == 32'd4 )?8'd31:  // additional length
 
 		(data_cnt == 32'd8 )?" ":(data_cnt == 32'd9 )?"S":
 		(data_cnt == 32'd10)?"E":(data_cnt == 32'd11)?"A":
@@ -283,7 +318,7 @@ wire [31:0] data_cnt_next = data_cnt + 32'd1;
 wire [31:0] data_cnt_next2 = data_cnt + 32'd2;
 wire [31:0] data_cnt_next3 = data_cnt + 32'd3;
 wire [7:0] inquiry_dout_next =
-		(data_cnt_next == 32'd4 )?8'd32:
+		(data_cnt_next == 32'd4 )?8'd31:
 		(data_cnt_next == 32'd8 )?" ":(data_cnt_next == 32'd9 )?"S":
 		(data_cnt_next == 32'd10)?"E":(data_cnt_next == 32'd11)?"A":
 		(data_cnt_next == 32'd12)?"G":(data_cnt_next == 32'd13)?"A":
@@ -299,7 +334,7 @@ wire [7:0] inquiry_dout_next =
 		(data_cnt_next == 32'd30)?"5":(data_cnt_next == 32'd31)?"N" + {5'd0, ID}:
 		8'h00;
 wire [7:0] inquiry_dout_next2 =
-		(data_cnt_next2 == 32'd4 )?8'd32:
+		(data_cnt_next2 == 32'd4 )?8'd31:
 		(data_cnt_next2 == 32'd8 )?" ":(data_cnt_next2 == 32'd9 )?"S":
 		(data_cnt_next2 == 32'd10)?"E":(data_cnt_next2 == 32'd11)?"A":
 		(data_cnt_next2 == 32'd12)?"G":(data_cnt_next2 == 32'd13)?"A":
@@ -315,7 +350,7 @@ wire [7:0] inquiry_dout_next2 =
 		(data_cnt_next2 == 32'd30)?"5":(data_cnt_next2 == 32'd31)?"N" + {5'd0, ID}:
 		8'h00;
 wire [7:0] inquiry_dout_next3 =
-		(data_cnt_next3 == 32'd4 )?8'd32:
+		(data_cnt_next3 == 32'd4 )?8'd31:
 		(data_cnt_next3 == 32'd8 )?" ":(data_cnt_next3 == 32'd9 )?"S":
 		(data_cnt_next3 == 32'd10)?"E":(data_cnt_next3 == 32'd11)?"A":
 		(data_cnt_next3 == 32'd12)?"G":(data_cnt_next3 == 32'd13)?"A":
@@ -376,7 +411,13 @@ wire [7:0] read_capacity_dout_next3 =
 		(data_cnt_next3 == 32'd6 )?8'd2:
 		8'h00;
 
+// MODE SENSE(6): 4-byte header + 8-byte block descriptor = 12 bytes.
+// Header byte 0 = mode data length = total-1 = 11, so a driver that trusts
+// the length field reads exactly what we serve (it was 0, which told
+// length-honoring drivers "nothing follows the header" while we kept
+// serving — REQ-held wedge class).
 wire [7:0] mode_sense_dout =
+		(data_cnt == 32'd0 )?8'd11:
 		(data_cnt == 32'd3 )?8'd8:
 		(data_cnt == 32'd5 )?capacity[23:16]:
 		(data_cnt == 32'd6 )?capacity[15:8]:
@@ -384,6 +425,7 @@ wire [7:0] mode_sense_dout =
 		(data_cnt == 32'd10 )?8'd2:
 		8'h00;
 wire [7:0] mode_sense_dout_next =
+		(data_cnt_next == 32'd0 )?8'd11:
 		(data_cnt_next == 32'd3 )?8'd8:
 		(data_cnt_next == 32'd5 )?capacity[23:16]:
 		(data_cnt_next == 32'd6 )?capacity[15:8]:
@@ -391,6 +433,7 @@ wire [7:0] mode_sense_dout_next =
 		(data_cnt_next == 32'd10 )?8'd2:
 		8'h00;
 wire [7:0] mode_sense_dout_next2 =
+		(data_cnt_next2 == 32'd0 )?8'd11:
 		(data_cnt_next2 == 32'd3 )?8'd8:
 		(data_cnt_next2 == 32'd5 )?capacity[23:16]:
 		(data_cnt_next2 == 32'd6 )?capacity[15:8]:
@@ -398,6 +441,7 @@ wire [7:0] mode_sense_dout_next2 =
 		(data_cnt_next2 == 32'd10 )?8'd2:
 		8'h00;
 wire [7:0] mode_sense_dout_next3 =
+		(data_cnt_next3 == 32'd0 )?8'd11:
 		(data_cnt_next3 == 32'd3 )?8'd8:
 		(data_cnt_next3 == 32'd5 )?capacity[23:16]:
 		(data_cnt_next3 == 32'd6 )?capacity[15:8]:
@@ -415,11 +459,14 @@ assign io_lba = lba;
 
 // generate an io_rd signal whenever the first byte of a 512 byte block is required
 // start fetching the next sector when the 20th byte is read, and it's not the last sector
-wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_cnt[8:0] == 9'd20 && data_cnt[31:9] != ({7'd0, tlen} - 1'd1))) && !data_complete);
+wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_cnt[8:0] == 9'd20 && data_cnt[31:9] != ({7'd0, tlen} - 1'd1))) && !data_complete && (data_len != 32'd0));
 
 // generate an io_wr signal whenever a 512 byte block has been received or when the status
-// phase of a write command has been reached
-wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt != 0)) || (phase == PHASE_STATUS_OUT)) && cmd_write);
+// phase of a write command has been reached.
+// data_len != 0 guard: a zero-length WRITE reaches STATUS_OUT without any
+// data phase; without the guard the STATUS_OUT clause would flush a stale
+// sector-buffer block (the previous READ's data) to the command's LBA.
+wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt != 0)) || (phase == PHASE_STATUS_OUT)) && cmd_write && (data_len != 32'd0));
 
 always @(posedge clk) begin
 	reg old_rd, old_wr;
@@ -502,11 +549,32 @@ reg        data_complete;
 // And some have a fixed length idependent from any header field.
 // The data transfer has finished once the data counter reaches this
 // number.
+//
+// Allocation-length clamping (2026-06-10, SCSI corruption root cause):
+// tlen6's 0->256 mapping is the READ/WRITE(6) block-count convention and does
+// NOT apply to allocation lengths — for INQUIRY alloc 0 means "no data", for
+// REQUEST SENSE it means 4 bytes (pre-SCSI-2 convention). Undo it here.
+wire [31:0] alloc_len = (tlen == 16'd256) ? 32'd0 : {16'd0, tlen};
+wire [31:0] sense_len = (tlen == 16'd256) ? 32'd4 : {16'd0, tlen};
+// A real target returns min(allocation length, actual response size) and then
+// switches to STATUS; the initiator detects the early phase change via the
+// BSR phase-mismatch bit. Serving the raw allocation length (previous
+// behavior) DEADLOCKS the bus whenever the initiator transfers fewer bytes
+// than it asked for: the target holds REQ with leftover bytes while the Mac
+// polls BSR for a phase change that never comes (the 2026-06-10 Welcome
+// hang). Actual sizes: INQUIRY = 5 + additional-length(31) = 36 bytes — the
+// STANDARD response size (matches real drives and Snow; serving 37 left one
+// unread byte for drivers that read the standard 36 -> 2026-06-10c wedge);
+// MODE SENSE(6) = 12 bytes (4 header + 8 block descriptor, header says 11);
+// REQUEST SENSE = 8 + additional-length(0x0a) = 18 bytes.
 wire [31:0] data_len =
 		 cmd_read_capacity?32'd8:
 		 cmd_read?{ 7'd0, tlen, 9'd0 }:   // read command length is in 512 bytes blocks
 		 cmd_write?{ 7'd0, tlen, 9'd0 }:  // write command length is in 512 bytes blocks
-		 { 16'd0, tlen };                 // inquiry etc have length in bytes
+		 cmd_inquiry?((alloc_len < 32'd36) ? alloc_len : 32'd36):
+		 cmd_mode_sense?((alloc_len < 32'd12) ? alloc_len : 32'd12):
+		 cmd_request_sense?((sense_len < 32'd18) ? sense_len : 32'd18):
+		 { 16'd0, tlen };                 // mode select etc have length in bytes
 
 always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
@@ -637,7 +705,13 @@ always @(posedge clk) begin
 		phase <= PHASE_IDLE;
 	end else begin
 		if(phase == PHASE_IDLE) begin
-			if(sel && din[ID] && mounted)  // own id on bus during selection?
+			// Own id on bus during selection? Real SCSI selection requires a
+			// FREE bus (SEL asserted, BSY false): while another device holds
+			// BSY its dout is wired-ORed onto the data bus, so a stray bit in
+			// that byte could otherwise "select" this target mid-dialog and
+			// two targets would then consume the shared ACK stream in
+			// parallel (command/LBA corruption -> misdirected writes).
+			if(sel && din[ID] && mounted && !bus_busy)
 				phase <= PHASE_CMD_IN;
 		end
 
@@ -667,11 +741,11 @@ always @(posedge clk) begin
 		end
 
 		else if(phase == PHASE_DATA_OUT) begin
-			if(data_complete) phase <= PHASE_STATUS_OUT;
+			if(data_done) phase <= PHASE_STATUS_OUT;
 		end
 
 		else if(phase == PHASE_DATA_IN) begin
-			if(data_complete) phase <= PHASE_STATUS_OUT;
+			if(data_done) phase <= PHASE_STATUS_OUT;
 		end
 
 		else if(phase == PHASE_STATUS_OUT) begin
@@ -779,6 +853,10 @@ end
 assign dbg_wrsnap = { 4'd0, dbg_b1_seen, dbg_b0_seen, dbg_long_l, dbg_word_l,
                       dbg_low_l, dbg_b1, dbg_b0 };
 
+// Multi-block WRITE stall snapshot (2026-06-10). Live data-transfer state.
+assign dbg_wrstall = { req, tlen[5:0], cmd_write, sd_buff_sel, io_busy,
+                       io_ack, io_wr, data_complete, phase, data_cnt[15:0] };
+
 // ---- Selection/command handshake observability (PSEL probe) -----------
 // Live state {phase,sel,bsy,req,ack} plus sticky high-water/counters that
 // SURVIVE bus reset (no rst clause) so they accumulate across the
@@ -816,16 +894,20 @@ module scsi_empty_cd
 	input      clk,
 	input      rst,
 	input      sel,
+	input      bus_busy, // another device currently holds the bus (its BSY)
 	input      ack,
 	output     bsy,
 	output     msg,
 	output     cd,
 	output     io,
 	output     req,
+	output     req_bus,  // bus-visible REQ (no HPS backing here: identical to req)
 	input  [7:0] din,
 	output [7:0] dout,
 	output [15:0] dout_pair,
-	output [15:0] dout_pair_next
+	output [15:0] dout_pair_next,
+	output [2:0] dbg_phase   // JTAG debug: live phase (this target had ZERO
+	                         // visibility while it wedged the 2026-06-10 hang)
 );
 
 parameter [2:0] ID = 3;
@@ -852,9 +934,14 @@ reg        data_complete;
 assign msg = (phase == PHASE_MESSAGE_OUT);
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
-	wire data_phase_complete = (phase == PHASE_DATA_OUT) && data_complete;
+	// data_len == 0 (e.g. INQUIRY alloc 0): complete the data phase without
+	// waiting for an ACK that will never come (see scsi.v data_done).
+	wire data_done = data_complete || (data_len == 32'd0);
+	wire data_phase_complete = (phase == PHASE_DATA_OUT) && data_done;
 	assign req = (phase != PHASE_IDLE) && !ack && !data_phase_complete;
+	assign req_bus = req;   // no HPS backing: visible REQ == flow REQ
 assign bsy = (phase != PHASE_IDLE);
+assign dbg_phase = phase;
 
 wire [7:0] op_code = cmd[0];
 wire [2:0] cmd_group = op_code[7:5];
@@ -863,9 +950,22 @@ wire       cmd10_cpl = ((cmd_group == 3'b010) || (cmd_group == 3'b001)) && (cmd_
 wire       cmd_cpl = cmd6_cpl || cmd10_cpl;
 wire       cmd_inquiry = (op_code == 8'h12);
 wire       cmd_request_sense = (op_code == 8'h03);
-wire [31:0] cmd6_len = (cmd[4] == 8'h00) ? 32'd256 : {24'd0, cmd[4]};
-wire [31:0] data_len = cmd_inquiry ? cmd6_len :
-                       cmd_request_sense ? cmd6_len :
+// Allocation length from the CDB. The 0->256 mapping used previously is the
+// READ/WRITE(6) block-count convention and does NOT apply here: for INQUIRY
+// alloc 0 means "no data", for REQUEST SENSE it means 4 bytes (pre-SCSI-2).
+//
+// A real device returns min(allocation length, actual response size) and then
+// switches to STATUS. Serving the raw allocation length (previous behavior)
+// DEADLOCKED the bus when the Mac transferred fewer bytes than it asked for:
+// this target held REQ with leftover bytes forever while the Mac polled BSR
+// waiting for the end-of-data phase change — the 2026-06-10 "Welcome to
+// Macintosh" hang (System 6 boot-time SCSI mount scan selecting ID3).
+// Actual sizes: INQUIRY = 5 + additional-length(0x31) = 54 bytes;
+// REQUEST SENSE = 8 + additional-length(0x0a) = 18 bytes.
+wire [31:0] cmd6_alloc = {24'd0, cmd[4]};
+wire [31:0] sense_alloc = (cmd[4] == 8'h00) ? 32'd4 : cmd6_alloc;
+wire [31:0] data_len = cmd_inquiry ? ((cmd6_alloc < 32'd54) ? cmd6_alloc : 32'd54) :
+                       cmd_request_sense ? ((sense_alloc < 32'd18) ? sense_alloc : 32'd18) :
                        32'd0;
 
 	wire [7:0] inquiry_dout =
@@ -1033,7 +1133,10 @@ always @(posedge clk) begin
 		phase <= PHASE_IDLE;
 	end else begin
 		if (phase == PHASE_IDLE) begin
-			if (sel && din[ID])
+			// Selection requires a FREE bus (see scsi.v selection comment):
+			// while another device holds BSY, its dout is wired-ORed onto
+			// din and a stray bit 3 would spuriously select this target.
+			if (sel && din[ID] && !bus_busy)
 				phase <= PHASE_CMD_IN;
 		end else if (phase == PHASE_CMD_IN) begin
 			if (cmd_cpl) begin
@@ -1046,7 +1149,7 @@ always @(posedge clk) begin
 				end
 			end
 		end else if (phase == PHASE_DATA_OUT) begin
-			if (data_complete)
+			if (data_done)
 				phase <= PHASE_STATUS_OUT;
 		end else if (phase == PHASE_STATUS_OUT) begin
 			if (status_sent)

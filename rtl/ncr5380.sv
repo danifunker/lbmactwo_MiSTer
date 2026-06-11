@@ -60,6 +60,11 @@ module ncr5380
 	input         dma_longword,
 	input         dma_second_word,
 	output        dreq,
+	// Latched 5380 interrupt (phase-mismatch during armed DMA). On the Mac II
+	// this drives VIA2 CB2 (IFR bit 3); DREQ drives VIA2 CA2 (IFR bit 0). The
+	// HD SC 4.3 driver's async path SLEEPS on those VIA2 flags between
+	// pseudo-DMA chunks — without them it polls the IFR forever (Welcome wedge).
+	output        o_irq,
 	input  [15:0] wdata,
 	output [15:0] rdata,
 
@@ -92,7 +97,23 @@ module ncr5380
 	output      [15:0] dbg_scsi4,
 	// JTAG debug: per-target command-type bitmap
 	//   [15:8] target1 dbg_cmd   [7:0] target0 dbg_cmd
-	output      [15:0] dbg_scsi5
+	output      [15:0] dbg_scsi5,
+	// JTAG debug: target0 (boot disk, ID6) multi-block WRITE stall snapshot.
+	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
+	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req
+	output      [31:0] dbg_scsi_wr,
+	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
+	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
+	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
+	//   [11]=dma_word_latched [12]=dma_longword_latched [13]=longword_second_pending
+	//   [17:14]=tcr [31:18]=dma_wr_count (i_dma_wr OR i_dma_rd pulses — both
+	//   pseudo-DMA directions since 2026-06-10d)
+	output      [31:0] dbg_ncr,
+	// JTAG debug: write loss-mechanism + IRQ-machine state (2026-06-10d).
+	//   [7:0]=blind_wr_count (i_dma_wr while dreq==0 => Mac wrote w/o DREQ = blind)
+	//   [13]=irq_latch [12]=dma_armed [11]=bsr_eodma [10]=dreq [9]=bsr_pmatch [8]=dma_en
+	//   [31:16]=req_drop_count (scsi_req 1->0 edges while dma_en — REQ pauses)
+	output      [31:0] dbg_ncr2
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -307,16 +328,93 @@ module ncr5380
 		end
 	end
 
+	/* Latched 5380 interrupt + DMA-armed tracking (2026-06-10d).
+	 * Starting a DMA transfer (write to Start DMA Send / Start DMA Initiator
+	 * Receive) arms the phase-mismatch monitor; while MR.DMA_MODE is set and
+	 * armed, a FALLING edge of phase-match latches IRQ — this is how drivers
+	 * detect that a pseudo-DMA transfer ended (target moved to STATUS).
+	 * Reading the RESET PARITY/INTERRUPT register (reg 7) clears it.
+	 * Mirrors Snow controller.rs (IRQ on dma_armed && prev_pmatch && !pmatch).
+	 */
+	reg  irq_latch;
+	reg  dma_armed;
+	reg  pmatch_d;
+	wire rst_rd = bus_cs & ~dack & ior & (bus_rs == `RREG_RST);
+	reg  old_rst_rd;
+	always @(posedge clk or posedge reset) begin
+		if (reset) begin
+			irq_latch  <= 1'b0;
+			dma_armed  <= 1'b0;
+			pmatch_d   <= 1'b1;
+			old_rst_rd <= 1'b0;
+		end else begin
+			old_rst_rd <= rst_rd;
+			pmatch_d   <= bsr_pmatch;
+			if (!mr[`MR_DMA_MODE])
+				dma_armed <= 1'b0;
+			else if (reg_wr && (bus_rs == `WREG_DMAS || bus_rs == `WREG_IDMAR))
+				dma_armed <= 1'b1;
+			if (~old_rst_rd & rst_rd)
+				irq_latch <= 1'b0;
+			if (mr[`MR_DMA_MODE] && dma_armed && pmatch_d && !bsr_pmatch) begin
+				irq_latch <= 1'b1;
+				dma_armed <= 1'b0;
+			end
+			if (scsi_rst) begin
+				irq_latch <= 1'b0;
+				dma_armed <= 1'b0;
+			end
+		end
+	end
+	assign o_irq = irq_latch;
+
+	/* Deferred bus-visible REQ (Snow controller.rs `set_req` semantics).
+	 * The SCSI Manager's between-chunk settle loop (decoded live from the
+	 * System's polled TIB engine, RAM 0x1120A: `btst #5,CSR / beq exit /
+	 * btst #3,BSR / bne loop`) exits only when a CSR read returns REQ=0.
+	 * On a real 5380 + drive the per-byte handshake gives it that window;
+	 * Snow instead DEFERS every REQ assertion until the next CSR read
+	 * ("MacII has a race condition where it will get stuck if REQ is
+	 * immediately set on a Data -> Status transition"). Mirror Snow: when
+	 * bus-visible REQ rises, hide it from CSR until one full CSR read
+	 * completes (that read returns REQ=0 and disarms; the next shows 1).
+	 * BSR.DRQ is NOT deferred (Snow's get_drq includes the pending REQ),
+	 * so DRQ-polled transfer loops and DACK pacing are unaffected.
+	 */
+	reg req_deferred;
+	reg old_req_bus_d;
+	reg old_csr_rd_d;
+	always @(posedge clk or posedge reset) begin
+		if (reset) begin
+			req_deferred  <= 1'b0;
+			old_req_bus_d <= 1'b0;
+			old_csr_rd_d  <= 1'b0;
+		end else begin
+			old_req_bus_d <= scsi_req_bus;
+			old_csr_rd_d  <= csr_rd;
+			if (~old_req_bus_d & scsi_req_bus)
+				req_deferred <= 1'b1;       // new REQ: hidden until a CSR read
+			else if (req_deferred & old_csr_rd_d & ~csr_rd)
+				req_deferred <= 1'b0;       // CSR read completed: reveal REQ
+			if (!scsi_req_bus)
+				req_deferred <= 1'b0;
+		end
+	end
+
 	/* CSR (read only). We don't do parity */
-	assign csr = { scsi_rst, scsi_bsy, scsi_req, scsi_msg,
-	               scsi_cd, scsi_io, scsi_sel, 1'b0 };	
+	assign csr = { scsi_rst, scsi_bsy, scsi_req_bus & ~req_deferred, scsi_msg,
+	               scsi_cd, scsi_io, scsi_sel, 1'b0 };
 
 	/* Bus and Status register */
 	/* BSR (read only). We don't do a few things... */
-	wire bsr_eodma = 1'b0;	/* We don't do EOP */
-	wire bsr_dmarq = scsi_req & dma_en;
+	/* End-of-DMA: Snow semantics — asserted whenever the bus is NOT in a
+	 * data phase (free/STATUS/MESSAGE). Drivers check this after pseudo-DMA
+	 * chunks; the Snow oracle boots everything with exactly this rule.
+	 * (Real chip latches the EOP pin; we have no EOP.) */
+	wire bsr_eodma = ~(scsi_bsy & ~scsi_cd & ~scsi_msg);
+	wire bsr_dmarq = scsi_req_bus & dma_en;
 	wire bsr_perr = 1'b0;	/* We don't do parity */
-	wire bsr_irq = scsi_req & dma_en & ~bsr_pmatch;
+	wire bsr_irq = irq_latch;
 	wire bsr_pmatch = 
 	         tcr[`TCR_A_MSG] == scsi_msg &&
 	         tcr[`TCR_A_CD ] == scsi_cd  &&
@@ -349,6 +447,7 @@ module ncr5380
 
 	/* Mux target signals */
 	reg scsi_cd, scsi_io, scsi_msg, scsi_req;
+	reg scsi_req_bus;  // bus-visible REQ (no HPS-fetch dropouts in data phases)
 
 	always begin
 		integer i;
@@ -356,6 +455,7 @@ module ncr5380
 		scsi_io = 0;
 		scsi_msg = 0;
 		scsi_req = 0;
+		scsi_req_bus = 0;
 		din = 8'h00;
 		din_pair = 16'h0000;
 		din_pair_next = 16'h0000;
@@ -366,6 +466,7 @@ module ncr5380
 				scsi_io = target_io[i];
 				scsi_msg = target_msg[i];
 				scsi_req = target_req[i];
+				scsi_req_bus = target_req_bus[i];
 				din = target_dout[i];
 				din_pair = target_dout_pair[i];
 				din_pair_next = target_dout_pair_next[i];
@@ -377,6 +478,7 @@ module ncr5380
 			scsi_io = empty_cd_io;
 			scsi_msg = empty_cd_msg;
 			scsi_req = empty_cd_req;
+			scsi_req_bus = empty_cd_req_bus;
 			din = empty_cd_dout;
 			din_pair = empty_cd_dout_pair;
 			din_pair_next = empty_cd_dout_pair_next;
@@ -391,6 +493,7 @@ module ncr5380
 	wire [7:0]      target_cmd[DEVS];
 	wire [31:0]     target_wrsnap[DEVS];   // JTAG debug: first-word-write capture
 	wire [31:0]     target_selsnap[DEVS];  // JTAG debug: selection/command handshake
+	wire [31:0]     target_wrstall[DEVS];  // JTAG debug: multi-block write-stall snapshot
 	wire [DEVS-1:0] target_bsy;
 
 	// Count SCSI bus resets (Mac asserting ICR.RST) -- the abort/retry signal.
@@ -411,6 +514,7 @@ module ncr5380
 	wire [DEVS-1:0] target_io;
 	wire [DEVS-1:0] target_cd;
 	wire [DEVS-1:0] target_req;
+	wire [DEVS-1:0] target_req_bus;  // bus-visible REQ (continuity across HPS fetches)
 	wire      [7:0] target_dout[DEVS];
 	wire     [15:0] target_dout_pair[DEVS];
 	wire     [15:0] target_dout_pair_next[DEVS];
@@ -422,9 +526,11 @@ module ncr5380
 	wire empty_cd_io;
 	wire empty_cd_cd;
 	wire empty_cd_req;
+	wire empty_cd_req_bus;
 	wire [7:0] empty_cd_dout;
 	wire [15:0] empty_cd_dout_pair;
 	wire [15:0] empty_cd_dout_pair_next;
+	wire [2:0] empty_cd_phase;
 	wire empty_cd_active = ENABLE_EMPTY_CD && empty_cd_bsy;
 
 	scsi_empty_cd #(.ID(3'd3)) empty_cd
@@ -432,16 +538,19 @@ module ncr5380
 		.clk    ( clk ),
 		.rst    ( scsi_rst ),
 		.sel    ( ENABLE_EMPTY_CD ? scsi_sel : 1'b0 ),
+		.bus_busy ( |target_bsy ),
 		.ack    ( scsi_ack ),
 		.bsy    ( empty_cd_bsy  ),
 		.msg    ( empty_cd_msg  ),
 		.cd     ( empty_cd_cd   ),
 		.io     ( empty_cd_io   ),
 		.req    ( empty_cd_req  ),
+		.req_bus( empty_cd_req_bus ),
 		.dout   ( empty_cd_dout ),
 		.dout_pair ( empty_cd_dout_pair ),
 		.dout_pair_next ( empty_cd_dout_pair_next ),
-		.din    ( scsi_bus_data )
+		.din    ( scsi_bus_data ),
+		.dbg_phase ( empty_cd_phase )
 	);
 
 	generate
@@ -453,6 +562,9 @@ module ncr5380
 				.clk    ( clk ),
 				.rst    ( scsi_rst ),
 				.sel    ( scsi_sel ),
+				// Own bsy bit is harmless here: the selection gate is only
+				// evaluated in PHASE_IDLE, where this target's bsy is 0.
+				.bus_busy ( (|target_bsy) | empty_cd_active ),
 				.atn    ( scsi_atn ),
 
 				.ack    ( scsi_ack ),
@@ -464,6 +576,7 @@ module ncr5380
 				.cd     ( target_cd[i]   ),
 				.io     ( target_io[i]   ),
 				.req    ( target_req[i]  ),
+				.req_bus( target_req_bus[i] ),
 				.dout   ( target_dout[i] ),
 				.dout_pair ( target_dout_pair[i] ),
 				.dout_pair_next ( target_dout_pair_next[i] ),
@@ -492,7 +605,8 @@ module ncr5380
 				.dbg_dma_long( dma_longword_latched ),
 				.dbg_dma_lowbyte( dma_write_low_byte ),
 				.dbg_wrsnap( target_wrsnap[i] ),
-				.dbg_selsnap( target_selsnap[i] )
+				.dbg_selsnap( target_selsnap[i] ),
+				.dbg_wrstall( target_wrstall[i] )
 			);
 		end
 	endgenerate
@@ -509,8 +623,72 @@ module ncr5380
 	                    target_mounted[1:0], icr[`ICR_A_DATA],
 	                    scsi_bus_data };
 
-	assign dbg_scsi2 = { 2'b0, target_phase[1], target_phase[0],
-	                     io_rd[1:0], io_wr[1:0], io_ack[1:0] };
+	// NOTE: the previously-spare bits [15:14]/[7:6] now carry the empty-CD
+	// target's live phase + REQ (it had zero probe visibility while it wedged
+	// the 2026-06-10 Welcome hang). Phase fields for the disk targets remain
+	// at [13:11]/[10:8] as dbg_min expects.
+	//   [15:14] = empty_cd_phase[1:0]   [7] = empty_cd_phase[2]   [6] = empty_cd_req
+	assign dbg_scsi2 = { empty_cd_phase[1:0], target_phase[1], target_phase[0],
+	                     empty_cd_phase[2], empty_cd_req, io_rd[1:0], io_wr[1:0], io_ack[1:0] };
+
+	// Capture whichever target is in a DATA phase — DATA_IN (3, writes) takes
+	// priority, then DATA_OUT (2, reads — added 2026-06-10c: the post-clamp
+	// wedge parked t0 in DATA_OUT and the old mux only routed DATA_IN, hiding
+	// the wedged dialog's data_cnt/tlen). Default is target 1 when neither is
+	// in a data phase (the OSD-mounted disk has landed on either slot).
+	assign dbg_scsi_wr = (target_phase[1] == 3'd3) ? target_wrstall[1] :
+	                     (target_phase[0] == 3'd3) ? target_wrstall[0] :
+	                     (target_phase[1] == 3'd2) ? target_wrstall[1] :
+	                     (target_phase[0] == 3'd2) ? target_wrstall[0] :
+	                     target_wrstall[1];
+
+	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
+	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:
+	// 2048 bytes => 512 longword / 1024 word / 2048 byte writes (cross-check vs
+	// dma_word/longword_latched).
+	// Counts BOTH pseudo-DMA directions since 2026-06-10d (was write-only):
+	// rising edges of i_dma_wr OR i_dma_rd — shows whether the host is
+	// actively consuming a read (DACK reads) during a stall.
+	reg [13:0] dma_wr_count;
+	always @(posedge clk) begin
+		if (reset) dma_wr_count <= 14'd0;
+		else if ((~old_dma_wr & i_dma_wr) | (~old_dma_rd & i_dma_rd))
+			dma_wr_count <= dma_wr_count + 14'd1;
+	end
+	assign dbg_ncr = { dma_wr_count, tcr[3:0], dma_longword_second_pending,
+	                   dma_longword_latched, dma_word_latched, bsr_pmatch,
+	                   mr[`MR_DMA_MODE], dma_ack_holdoff, dma_ack_busy, dma_ack,
+	                   dma_en, scsi_ack, scsi_req, dreq };
+
+	// Write loss-mechanism confirmation (2026-06-10):
+	//   blind_wr_count = host wrote a pseudo-DMA byte/word (i_dma_wr) while DREQ
+	//                    was LOW — i.e. ignored flow control => BLIND writes; these
+	//                    are the bytes the 1-word NCR buffer can't hold => lost.
+	//   req_drop_count = target REQ fell while DMA active — the HPS-flush pauses
+	//                    that, under blind writes, drop bytes.
+	reg [15:0] blind_wr_count;
+	reg [15:0] req_drop_count;
+	reg        old_scsi_req_dbg;
+	always @(posedge clk) begin
+		if (reset) begin
+			blind_wr_count   <= 16'd0;
+			req_drop_count   <= 16'd0;
+			old_scsi_req_dbg <= 1'b0;
+		end else begin
+			old_scsi_req_dbg <= scsi_req;
+			if (~old_dma_wr & i_dma_wr & ~dreq & (blind_wr_count != 16'hFFFF))
+				blind_wr_count <= blind_wr_count + 16'd1;
+			if (old_scsi_req_dbg & ~scsi_req & dma_en) req_drop_count <= req_drop_count + 16'd1;
+		end
+	end
+	// [15:8] repurposed 2026-06-10d for the IRQ-machine live state (blind
+	// writes proved zero in validation, 8 bits of count suffice):
+	//   [15:14]=0 [13]=irq_latch [12]=dma_armed [11]=bsr_eodma [10]=dreq
+	//   [9]=bsr_pmatch [8]=dma_en
+	assign dbg_ncr2 = { req_drop_count,
+	                    req_deferred, scsi_req_bus, irq_latch, dma_armed,
+	                    bsr_eodma, dreq, bsr_pmatch, dma_en,
+	                    blind_wr_count[7:0] };
 
 	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
 

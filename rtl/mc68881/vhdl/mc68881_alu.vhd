@@ -332,9 +332,12 @@ begin
     modrem_add_rm    <= FP_RND_NEAREST;
     modrem_add_rp    <= FP_PREC_EXTENDED;
     divrem_save_data    <= (others => '0');
-    divrem_save_addr    <= 0;
-    divrem_restore_addr <= 0;
-    divrem_restore_wr   <= '0';
+    -- Note: divrem_save_addr / divrem_restore_addr / divrem_restore_wr are
+    -- driven by the concurrent assignments below (mux on save_addr/restore_addr
+    -- range). In lite mode there is no divrem_inst that consumes them, so the
+    -- values are unused — but we MUST NOT also drive them from here, else
+    -- ghdl-synth's multi-driver check fires (Quartus tolerates the conflict
+    -- but the canonical convert_to_verilog.sh flow does not).
   end generate;
 
   gen_sglops_full : if not fpu_lite generate

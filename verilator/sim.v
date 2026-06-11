@@ -59,6 +59,9 @@ module emu
 	output        debug_write_valid,  // Write bus cycle completed
 	output [31:0] debug_write_addr,   // Write address
 	output [15:0] debug_write_data,   // Write data
+	output        debug_cirrd_valid,  // FPU CIR read cycle completed (FC=7, $22000-$2203F)
+	output [31:0] debug_cirrd_addr,   // CIR read address
+	output [15:0] debug_cirrd_data,   // CIR read data (as seen by the CPU)
 
 	// RAM debug outputs
 	output [24:0] debug_ram_addr,
@@ -291,7 +294,7 @@ module emu
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
-	assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
+	assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
@@ -412,7 +415,7 @@ module emu
 			fpu_data_hold <= 16'h0000;
 			fpu_data_hold_valid <= 1'b0;
 		end else if (!_cpuAS && selectFPU && _cpuRW) begin
-			fpu_data_hold <= fpu_data_out[15:0];
+			fpu_data_hold <= fpu_d_to_cpu;
 			fpu_data_hold_valid <= 1'b1;
 		end else if (!_cpuAS && !selectFPU) begin
 			fpu_data_hold_valid <= 1'b0;
@@ -420,7 +423,7 @@ module emu
 	end
 
 	wire [15:0] cpu_data_in = cpu_berr_inhibit ? cpu_berr_data[15:0] :
-	                          selectFPU ? fpu_data_out[15:0] :
+	                          selectFPU ? fpu_d_to_cpu :
 	                          fpu_data_hold_valid ? fpu_data_hold :
 	                          dataControllerDataOut;
 
@@ -433,6 +436,79 @@ module emu
 	                               (cpuAddr[5:1] == 5'd3) ? 5'd28 :
 	                               cpuAddr[5:1];
 
+	// -------------------- 16-bit ↔ 32-bit FPU bus adapter -----------------
+	// Ported from SingleStepTests/cpu_fpu/cpu_fpu_tests.v. TG68K has a
+	// 16-bit data bus and splits .L into 2 word transfers; mc68881_top's
+	// Operand CIR is a 32-bit register and expects ONE transfer per
+	// long-word (per AN-947 / M68020 PRM §9):
+	//   - WRITES (CPU→FPU): latch the first 16-bit half into fpu_wr_hi.
+	//     Suppress cs_n on the first half (FPU sees nothing) and fake a
+	//     DSACK back to TG68K. On the second half, drive
+	//     d_in = {fpu_wr_hi, cpuDataOut} as a single 32-bit transfer and
+	//     let the FPU's DSACK pass through.
+	//   - READS (FPU→CPU): on the first half, let the FPU strobe normally
+	//     and latch the full 32-bit d_out into fpu_rd_latch. TG68K gets
+	//     the HIGH word. On the second half, suppress cs_n (FPU doesn't
+	//     advance), fake DSACK, return the LOW half from the latch.
+	// Non-Operand CIR accesses pass through unchanged (16-bit semantics).
+	wire fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
+	reg        fpu_xfer_phase;   // 0 = first half (HIGH), 1 = second half (LOW)
+	reg [15:0] fpu_wr_hi;
+	reg [31:0] fpu_rd_latch;
+	reg        fpu_prev_as_for_phase;
+	// Flip phase on the END of each FPU operand bus cycle (AS-rising edge
+	// while addressed at operand) so phase is stable throughout each cycle.
+	wire fpu_bus_end_edge = fpuAddrMatch && fpu_is_operand_cycle
+	                        && _cpuAS && !fpu_prev_as_for_phase;
+	always @(posedge clk_sys) begin
+		if (!_cpuReset) begin
+			fpu_xfer_phase        <= 1'b0;
+			fpu_wr_hi             <= 16'h0000;
+			fpu_rd_latch          <= 32'h0000_0000;
+			fpu_prev_as_for_phase <= 1'b1;
+		end else begin
+			fpu_prev_as_for_phase <= _cpuAS;
+			// Capture at the END of each access (AS-rising edge), when the
+			// FPU has just dsacked and data is valid. Latches simultaneously
+			// with the phase flip.
+			if (fpu_bus_end_edge && fpu_xfer_phase == 1'b0) begin
+				if (!_cpuRW) fpu_wr_hi    <= cpuDataOut;
+				else         fpu_rd_latch <= fpu_data_out;
+			end
+			if (fpu_bus_end_edge)
+				fpu_xfer_phase <= ~fpu_xfer_phase;
+		end
+	end
+
+	// WRITES: FPU active on phase=1 (second half); READS: active on phase=0.
+	wire fpu_active_phase = _cpuRW ? !fpu_xfer_phase : fpu_xfer_phase;
+	wire fpu_cs_n_eff = fpu_is_operand_cycle
+	                    ? ~(fpuAddrMatch && fpu_active_phase)
+	                    : ~fpuAddrMatch;
+	wire [31:0] fpu_d_in_eff = (fpu_is_operand_cycle && !_cpuRW)
+	                           ? {fpu_wr_hi, cpuDataOut}
+	                           : {16'h0000, cpuDataOut};
+	// TG68K-side DSACK: fake during the inactive phase, pass-through during
+	// the active phase.
+	wire fpu_inactive_phase_act = fpuAddrMatch && fpu_is_operand_cycle
+	                              && !_cpuAS && !fpu_active_phase;
+	wire eff_fpu_dsack0_n = fpu_inactive_phase_act ? 1'b0 : fpu_dsack0_n;
+	wire eff_fpu_dsack1_n = fpu_inactive_phase_act ? 1'b1 : fpu_dsack1_n;
+	// TG68K read mux:
+	//  - Non-Operand: FPU's d_out[15:0] (16-bit response/save/etc).
+	//  - Operand phase=0: HIGH word direct from FPU's d_out[31:16].
+	//  - Operand phase=1: LOW word from the latch.
+	wire [15:0] fpu_d_to_cpu = fpu_is_operand_cycle
+	                           ? (fpu_xfer_phase ? fpu_rd_latch[15:0]
+	                                             : fpu_data_out[31:16])
+	                           : fpu_data_out[15:0];
+	// Size encoding: derive from longword + UDS/LDS.
+	wire [1:0] fpu_size_n =
+	    _cpuAS                     ? 2'b11 :  // idle
+	    tg68_longword              ? 2'b00 :  // .L
+	    (!_cpuUDS && !_cpuLDS)     ? 2'b10 :  // .W
+	                                 2'b01;   // .B
+
 `ifdef USE_FPU_STUB
 	// CIR-protocol no-op stub (Makefile: USE_FPU_STUB=1). Accepts writes,
 	// always returns "done". Doesn't compute anything; useful when running
@@ -441,11 +517,11 @@ module emu
 		.clk          ( clk_sys              ),
 		.reset_n      ( _cpuReset            ),
 		.a_in         ( cpuAddr[5:1]         ),  // stub doesn't need remap
-		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_in         ( fpu_d_in_eff         ),
 		.d_out        ( fpu_data_out         ),
-		.size_n       ( 2'b01                ),
+		.size_n       ( fpu_size_n           ),
 		.as_n         ( _cpuAS               ),
-		.cs_n         ( ~fpuAddrMatch        ),
+		.cs_n         ( fpu_cs_n_eff         ),
 		.rw           ( _cpuRW               ),
 		.ds_n         ( _cpuUDS & _cpuLDS    ),
 		.dsack0_n     ( fpu_dsack0_n         ),
@@ -461,11 +537,11 @@ module emu
 		.clk          ( clk_sys              ),
 		.reset_n      ( _cpuReset            ),
 		.a_in         ( fpu_addr_remapped    ),
-		.d_in         ( {16'h0000, cpuDataOut} ),
+		.d_in         ( fpu_d_in_eff         ),
 		.d_out        ( fpu_data_out         ),
-		.size_n       ( 2'b01                ),
+		.size_n       ( fpu_size_n           ),
 		.as_n         ( _cpuAS               ),
-		.cs_n         ( ~fpuAddrMatch        ),
+		.cs_n         ( fpu_cs_n_eff         ),
 		.rw           ( _cpuRW               ),
 		.ds_n         ( _cpuUDS & _cpuLDS    ),
 		.dsack0_n     ( fpu_dsack0_n         ),
@@ -487,6 +563,11 @@ module emu
 	reg [31:0] write_addr;
 	reg [15:0] write_data;
 
+	// FPU CIR read capture (FSAVE frame / response reads are otherwise invisible)
+	reg        cirrd_valid;
+	reg [31:0] cirrd_addr;
+	reg [15:0] cirrd_data;
+
 	// Capture VIA read data while AS is still asserted
 	reg [15:0] via_rd_data_r;
 	always @(posedge clk_sys) begin
@@ -505,6 +586,7 @@ module emu
 		end else begin
 			fetch_valid <= 0;
 			write_valid <= 0;
+			cirrd_valid <= 0;
 			prev_as_n <= tg68_as_n;
 
 			// Capture on AS rising edge (bus cycle complete)
@@ -520,6 +602,12 @@ module emu
 					write_addr <= tg68_a;
 					write_data <= tg68_dout[15:0];
 					write_valid <= 1;
+				end else if (tg68_rw && cpuFC == 3'b111 &&
+				             tg68_a[31:16] == 16'h0002 && tg68_a[15:6] == 10'h080) begin
+					// FPU CIR read ($22000-$2203F): log what the CPU saw
+					cirrd_addr <= tg68_a;
+					cirrd_data <= fpu_d_to_cpu;
+					cirrd_valid <= 1;
 				end
 				// Uncomment for VIA bus read debugging:
 				// if (tg68_rw && tg68_a[31:20] == 12'h50F)
@@ -536,6 +624,9 @@ module emu
 	assign debug_write_valid = write_valid;
 	assign debug_write_addr = write_addr;
 	assign debug_write_data = write_data;
+	assign debug_cirrd_valid = cirrd_valid;
+	assign debug_cirrd_addr = cirrd_addr;
+	assign debug_cirrd_data = cirrd_data;
 	assign debug_berr = berr_out;
 
 	addrController_top ac0

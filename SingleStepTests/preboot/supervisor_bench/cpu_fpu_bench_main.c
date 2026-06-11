@@ -87,6 +87,29 @@ static u8 *build_program(const CpuFpuTestSpec *t) {
     u8 *p = entry;
     int n;
 
+    /* Reset the FPU to a known state before each test. The 68881 keeps its
+     * condition codes (FPSR.FPCC), rounding/precision (FPCR), and FP data
+     * registers across instructions, so without this a test's result can
+     * depend on the test that ran before it. That order-dependence produced
+     * a real false failure on hardware: FCMP+FDBOR (-29,31) #075 returned 42
+     * in the full run but 99 in isolation (an FDBcc condition-timing/stale-
+     * FPCC sensitivity on real silicon).
+     *
+     * Reset via a NULL-frame FRESTORE — the MC68881-documented way to reset
+     * the coprocessor to its power-on state (clears FPCR/FPSR/FPIAR AND the
+     * internal protocol state machine). An earlier attempt that just wrote
+     * FMOVE.L #0,FPCR/FPSR fixed #075 but desynced the state machine, making
+     * the *next* FDBcc (e.g. #073 FDBUEQ) take a Line-1111 trap — writing the
+     * registers changes their values but does not reset the state machine.
+     *
+     *   CLR.L -(A7)        push a null state frame (size byte = 0)
+     *   FRESTORE (A7)+     reset FPU from it (A7 rebalanced)
+     *   FNOP               sync barrier: wait for the reset to retire
+     * Raw bytes since the payload is built -m68020 (no assembler FPU). */
+    p = put_w(p, 0x42A7);                       /* CLR.L -(A7)     */
+    p = put_w(p, 0xF35F);                       /* FRESTORE (A7)+  */
+    p = put_w(p, 0xF280); p = put_w(p, 0x0000); /* FNOP            */
+
     for (n = 1; n < 8; n++) p = put_w(p, (u16)(0x7000 | (n << 9)));     /* MOVEQ #0,Dn (D1..D7) */
     for (n = 0; n < 6; n++) p = put_w(p, (u16)(0x91C8 | (n << 9) | n)); /* SUBA.L An,An (A0..A5) */
     p = emit_movea_l_imm_to_an(p, 6, (u32) &scratch_ram[0]);
@@ -243,6 +266,12 @@ void bench_main(void) {
         jw_puts(w, ",\"vec\":");       jw_putul(w, crashed_vec);
         jw_puts(w, ",\"pass\":");      jw_putul(w, (u32)pass);
         jw_puts(w, "}\n");
+
+        /* Per-test durability: re-write the current partial batch to disk
+         * after every line (no `written` advance). If the bench hard-locks
+         * mid-run, /Results.jsonl ends exactly at the last completed test —
+         * so a lockup is localizable to a single test post-mortem. */
+        jw_commit_line(w);
     }
 
     wipe_screen();

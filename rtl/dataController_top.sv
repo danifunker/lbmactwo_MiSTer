@@ -48,6 +48,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// RAM/ROM:
 	input videoBusControl,
 	input cpuBusControl,
+	// this SDRAM slot started with the CPU's own read command at its t=0
+	// (registered in LBMacTwo.sv) — the only slots whose memoryLatch tail
+	// may be captured as CPU read data. See cpu_data comment below.
+	input cpuSlotOwned,
 	input [15:0] memoryDataIn,
 	output [15:0] memoryDataOut,
 	input memoryLatch,
@@ -116,6 +120,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi3,
 	output           [15:0] dbg_scsi4,
 	output           [15:0] dbg_scsi5,
+	output           [31:0] dbg_scsi_wr,   // target0 multi-block write-stall snapshot
+	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
+	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
+	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
 	output           [31:0] dbg_adb,
 	output           [17:0] dbg_adb2,
 	output           [31:0] dbg_adb3,   // last 4 bytes CPU READ from VIA1 SR
@@ -131,7 +139,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [6:0]  dbg_iwm_arm_high,
 	output           [6:0]  dbg_flp_track,
 	output                  dbg_flp_side,
-	output           [15:0] dbg_flp_step_cnt
+	output           [15:0] dbg_flp_step_cnt,
+
+	// PIRQ probe: per-source IRQ assert signals (active-low) for edge counting
+	// in dbg_min. These are the inputs to the _cpuIPL priority cascade.
+	output                  dbg_via1_irq_n,
+	output                  dbg_via2_irq_n,
+	output                  dbg_scc_irq_n
 );
 
 	// CPU reset generation
@@ -176,9 +190,22 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		!_viaIrq  ? 3'b110 :  // VIA1 → IPL 1
 		3'b111;
 
+	// JTAG-debug taps on the unencoded source signals.
+	assign dbg_via1_irq_n = _viaIrq;
+	assign dbg_via2_irq_n = _via2Irq;
+	assign dbg_scc_irq_n  = _sccIrq;
 
+
+	// Latch SDRAM read data ONLY from a slot the CPU's own read command
+	// started (cpuSlotOwned, registered at the slot's t=0 in LBMacTwo.sv).
+	// The old `cpuBusControl && memoryLatch` gate latched EVERY CPU-slot
+	// tail — including slots whose SDRAM transaction was a refresh or a
+	// neighbor master's, leaving the PREVIOUS transaction's word (legacy
+	// slot-0 video fetch, or the CPU's own prior fetch) in cpu_data. That
+	// neighbor word reaching the CPU = the journal 0x51C9/0x0000 disk
+	// corruption and the mid-pseudo-DMA F-line (vec 11) stray trap.
 	reg [15:0] cpu_data;
-	always @(posedge clk32) if (cpuBusControl && memoryLatch) cpu_data <= memoryDataIn;
+	always @(posedge clk32) if (cpuSlotOwned && memoryLatch) cpu_data <= memoryDataIn;
 
 	// CPU-side data output mux
 	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
@@ -188,12 +215,19 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
 							  selectSCSI ? scsiDataOut :
-							  (cpuBusControl && memoryLatch) ? memoryDataIn : cpu_data;
+							  (cpuSlotOwned && memoryLatch) ? memoryDataIn : cpu_data;
 
 	// Memory-side
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
+	// Latched 5380 interrupt → VIA2 CB2 (IFR bit 3); DREQ → VIA2 CA2 (IFR
+	// bit 0). Mac II wiring per Snow macii/via2.rs. Active-low into the VIA:
+	// the OS programs VIA2 PCR=0 (input, negative edge), so the flag latches
+	// on assertion. The HD SC 4.3 driver's async path sleeps on these flags
+	// between pseudo-DMA chunks — unwired, it polls the IFR forever (the
+	// Welcome wedge at every HPS 512-byte REQ pause).
+	wire scsiIRQ;
 	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
@@ -206,6 +240,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dma_longword(cpuLongword),
 		.dma_second_word(cpuAddrRegLo[0]),
 		.dreq(scsiDREQ),
+		.o_irq(scsiIRQ),
 		.wdata(cpuDataIn),
 		.rdata(scsiDataOut),
 
@@ -225,7 +260,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_scsi2(dbg_scsi2),
 		.dbg_scsi3(dbg_scsi3),
 		.dbg_scsi4(dbg_scsi4),
-		.dbg_scsi5(dbg_scsi5)
+		.dbg_scsi5(dbg_scsi5),
+		.dbg_scsi_wr(dbg_scsi_wr),
+		.dbg_ncr(dbg_ncr),
+		.dbg_ncr2(dbg_ncr2)
 	);
 
 	// ASC (Apple Sound Chip)
@@ -382,6 +420,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		//-- handshake pins
 		.ca1_i      (via1_ca1),
 		.ca2_i      (rtc_cko),
+		.ca2_lvl_i  (1'b0),      // level overlays unused on VIA1
+		.cb2_lvl_i  (1'b0),
 
 		.cb1_i      (kbdclk),
 		.cb2_i      (cb2_i),
@@ -389,6 +429,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cb2_t      (cb2_t),
 
 		.irq        (viaIrq),
+		.dbg_irq_state (),
 		.sr_active  (via1_sr_active),
 
 		// Snow-style timer-based SR completion
@@ -521,14 +562,17 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via2_ca1),
-		.ca2_i      (1'b1),      // CA2 not used
+		.ca2_i      (~scsiDREQ), // CA2: SCSI DRQ (IFR bit 0), falling edge on assert
+		.ca2_lvl_i  (scsiDREQ),  // level overlay: IFR bit 0 reads 1 while DRQ high
+		.cb2_lvl_i  (scsiIRQ),   // level overlay: IFR bit 3 reads 1 while IRQ latched
 
 		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)
-		.cb2_i      (1'b1),      // CB2 not used
+		.cb2_i      (~scsiIRQ),  // CB2: SCSI IRQ (IFR bit 3), falling edge on assert
 		.cb2_o      (),
 		.cb2_t      (),
 
 		.irq        (via2Irq),
+		.dbg_irq_state (dbg_via2_irq),
 		.sr_active  (),          // not used for VIA2
 
 		.sr_ext_complete (1'b0),

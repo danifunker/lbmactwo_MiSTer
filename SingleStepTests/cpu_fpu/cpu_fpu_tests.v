@@ -45,6 +45,7 @@ module cpu_fpu_tests
    output [31:0] dbg_d1,
    output [31:0] dbg_data_write_muxin,
    output [15:0] dbg_data_in,
+   output [15:0] dbg_cp_save_fmt,
    output [31:0] dbg_last_data_read,
    output [31:0] dbg_data_read,
    output [1:0]  dbg_state,
@@ -87,6 +88,7 @@ module cpu_fpu_tests
    assign dbg_d1 = ({cpu.tg68k.regfile_n2[1], 8'h00} | {24'h0, cpu.tg68k.regfile_n1[1]});
    assign dbg_data_write_muxin = cpu.tg68k.data_write_muxin;
    assign dbg_data_in = cpu.tg68k.data_in;
+   assign dbg_cp_save_fmt = cpu.tg68k.cp_save_fmt;
    assign dbg_last_data_read = cpu.tg68k.last_data_read;
    assign dbg_data_read = cpu.tg68k.data_read;
    assign dbg_state = cpu.tg68k.state;
@@ -187,9 +189,16 @@ module cpu_fpu_tests
    reg [15:0] fpu_wr_hi;
    reg [31:0] fpu_rd_latch;
    reg        prev_as_for_phase;
-   // Aggregation only applies to the Operand CIR register (addr 8, after
-   // the remap above). Response (remap → 13), Command (5), OpWord (4) etc.
-   // are single 16-bit transfers; pass them straight through to the FPU.
+   // Aggregation applies to the Operand CIR register (addr 8, after the
+   // remap above) for ALL operand transfers — FMOVE.L AND FSAVE/FRESTORE
+   // frame data. The MC68881 Operand CIR is a 32-bit register: each
+   // cir_save_word_idx advance corresponds to one long-word transfer
+   // (= 2 16-bit beats on the CPU bus per AN-947 / M68020 PRM §9).
+   // Earlier session disabled the split for SAVE/RESTORE frame states —
+   // that was wrong; the underlying bug was a misaligned word count in
+   // mc68881_pkg.vhd (now CIR_FRAME_IDLE_WORDS = 6 long-words, matching
+   // upstream). With the count right, the split works correctly: 12
+   // CPU word reads → 6 phase-0 FPU accesses → 6 widx advances.
    wire       fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
    // Flip phase on the END of each FPU operand bus cycle (AS-rising edge
    // while addressed at operand). This way phase is stable throughout each

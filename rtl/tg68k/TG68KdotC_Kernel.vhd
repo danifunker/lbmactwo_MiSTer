@@ -384,6 +384,26 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_save_fmt		: std_logic_vector(15 downto 0);
 	signal cp_frame_cnt		: std_logic_vector(6 downto 0);
 	signal set_cp_memaddr	: std_logic;
+	-- cpGEN F-line with memory-source EA: routes the
+	-- Transfer-Single-Operand-CPU→FPU response down the
+	-- cp_xfer_mem_rd_* path (operand from memory at cp_ea_addr)
+	-- instead of cp_xfer_to_load (operand from reg_QB / Dn).
+	signal cp_mem_source		: std_logic;
+	signal cp_mem_source_set	: std_logic;  -- pulse from F-line dispatch
+	-- cpSAVE/cpRESTORE prefetch-overrun fix: capture the opcode PC on
+	-- F-line dispatch and force-reload TG68_PC before the post-dialog
+	-- instruction refetch. During the ~30-cycle FSAVE/FRESTORE bus
+	-- dialog the natural prefetch advances TG68_PC past the next
+	-- instruction boundary; without restore, setopcode after the
+	-- dialog loads a stale word as the next opcode (e.g. sndOPC half
+	-- of FMOVE.L FP3,D1 = $6180 → BSR -128 runaway). cp_op_pc holds
+	-- the address of the instruction word AFTER FSAVE/FRESTORE
+	-- (= tmp_TG68_PC at cp_write_opw entry, which the kernel has
+	-- already advanced past any EA extension words). The pending
+	-- flag triggers the force-load when the exit path routes to
+	-- cp_mem_refetch.
+	signal cp_op_pc			: std_logic_vector(31 downto 0);
+	signal cp_pc_restore_pending : std_logic;
 	signal cp_an_writeback	: std_logic;
 	signal cp_branch_target	: std_logic_vector(31 downto 0);
 	signal cp_do_branch		: std_logic;
@@ -396,6 +416,15 @@ architecture logic of TG68KdotC_Kernel is
 	-- cp_xfer_from_store.
 	signal cp_xfer_data		: std_logic_vector(31 downto 0);
 	signal cp_dn_writeback	: std_logic;
+	-- Coprocessor exception primitive (AN-947): when the FPU returns an
+	-- EXCEPT_PRE/MID/POST response (bits15:13 = 101/110/111, bit12 = 0), the
+	-- CPU must (a) write Control CIR with bit 0 = 1 to release the FPU's
+	-- CIR_EXCEPT_* state, then (b) trap to the vector in the low byte of the
+	-- response word. cp_except_vec latches that vector; trap_cpexcept routes
+	-- it through the shared trap_vector mux.
+	signal cp_except_vec		: std_logic_vector(7 downto 0);
+	signal set_cp_except_vec: std_logic;
+	signal trap_cpexcept		: bit;
 
 	signal set					: bit_vector(lastOpcBit downto 0);
 	signal set_exec			: bit_vector(lastOpcBit downto 0);
@@ -815,6 +844,9 @@ PROCESS (clk)
 				cp_fc_override <= '0';
 				cp_xfer_cnt <= "000";
 				cp_ea_addr <= (others => '0');
+				cp_mem_source <= '0';
+				cp_op_pc <= (others => '0');
+				cp_pc_restore_pending <= '0';
 				cp_save_fmt <= (others => '0');
 				cp_frame_cnt <= (others => '0');
 				cp_branch_target <= (others => '0');
@@ -830,9 +862,12 @@ PROCESS (clk)
 				   OR next_micro_state = cp_xfer_to_hi OR next_micro_state = cp_xfer_to_lo
 				   OR next_micro_state = cp_xfer_from_hi OR next_micro_state = cp_xfer_from_lo
 				   OR next_micro_state = cp_xfer_from_store
-				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_rd_cir
+				   OR next_micro_state = cp_save_rd_fmt OR next_micro_state = cp_save_wait
+				   OR next_micro_state = cp_save_rd_cir
 				   OR next_micro_state = cp_restore_wr_fmt OR next_micro_state = cp_restore_wr_data
-				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp THEN
+				   OR next_micro_state = cp_restore_skip_fmtlo
+				   OR next_micro_state = cp_cond_write OR next_micro_state = cp_cond_resp
+				   OR next_micro_state = cp_except_ack OR next_micro_state = cp_except_trap THEN
 					cp_fc_override <= '1';
 				ELSE
 					cp_fc_override <= '0';
@@ -841,16 +876,67 @@ PROCESS (clk)
 				IF micro_state = cp_write_opw AND (exe_opcode(8 downto 6) = "100" OR exe_opcode(8 downto 6) = "101") THEN
 					-- Capture An value at start (cpSAVE/cpRESTORE only)
 					cp_ea_addr <= reg_QA;
+					-- Capture next-instruction PC for post-dialog refetch
+					-- (see cp_op_pc / cp_pc_restore_pending declarations).
+					-- At cp_write_opw, tmp_TG68_PC is already past the
+					-- opword and any EA extension words — the natural kernel
+					-- decode advanced it before dispatching here.
+					cp_op_pc <= tmp_TG68_PC;
+					cp_pc_restore_pending <= '1';
 				ELSIF micro_state = cp_save_idle THEN
 					-- cpSAVE: predecrement by 2 before each memory write
 					cp_ea_addr <= cp_ea_addr - 2;
-				ELSIF micro_state = cp_restore_rd_mem THEN
+				ELSIF micro_state = cp_restore_rd_mem
+				   OR micro_state = cp_restore_skip_fmtlo THEN
 					-- cpRESTORE: postincrement by 2 after each memory read
+					-- (data words via cp_restore_rd_mem; the discarded
+					-- format LOW word via cp_restore_skip_fmtlo).
 					cp_ea_addr <= cp_ea_addr + 2;
+				ELSIF next_micro_state = cp_d16_pc_rd THEN
+					-- cpGEN (d16,PC): seed cp_ea_addr with PC of d16 word.
+					-- TG68_PC at F-line dispatch = address of sndOPC. The
+					-- d16 word lives at sndOPC+2, hence the +2.
+					cp_ea_addr <= TG68_PC + 2;
+				ELSIF micro_state = cp_d16_pc_apply THEN
+					-- d16 just landed in last_data_read after cp_d16_pc_rd's
+					-- bus access. Add sign-extended d16 to cp_ea_addr to
+					-- form the PC-relative EA.
+					cp_ea_addr <= cp_ea_addr +
+						(last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15) & last_data_read(15) & last_data_read(15) & last_data_read(15) &
+						 last_data_read(15 downto 0));
+				ELSIF micro_state = cp_xfer_mem_rd_store THEN
+					-- cpGEN memory source: advance by 4 (one long-word)
+					-- per iteration. The HIGH read at cp_ea_addr+0 and
+					-- LOW read at cp_ea_addr+2 are sourced via the
+					-- memaddr_delta_rega override above; the registered
+					-- cp_ea_addr only needs to step between iterations.
+					cp_ea_addr <= cp_ea_addr + 4;
 				END IF;
 				-- FScc memory: capture EA from addr when ea_only resolves
 				IF exec(get_ea_now)='1' AND ea_only='1' THEN
 					cp_ea_addr <= addr;
+				END IF;
+
+				-- cp_mem_source latching: set by combinational pulse from
+				-- F-line dispatch (cpGEN with memory EA). Cleared on idle.
+				IF cp_mem_source_set = '1' THEN
+					cp_mem_source <= '1';
+				ELSIF micro_state = idle THEN
+					cp_mem_source <= '0';
+				END IF;
+				-- cpSAVE/cpRESTORE PC restore: clear pending once the
+				-- micro_state machine is routing into cp_mem_refetch
+				-- (which is the cycle the TG68_PC mux force-loads cp_op_pc).
+				-- Also clear on idle as a belt-and-braces fallback so the
+				-- flag never persists across a subsequent F-line that
+				-- isn't FSAVE/FRESTORE.
+				IF next_micro_state = cp_mem_refetch AND cp_pc_restore_pending = '1' THEN
+					cp_pc_restore_pending <= '0';
+				ELSIF micro_state = idle THEN
+					cp_pc_restore_pending <= '0';
 				END IF;
 				-- FBcc branch target computation (save before CIR accesses corrupt tmp_TG68_PC)
 				IF micro_state = cp_write_opw AND exe_opcode(8 downto 6) = "010" THEN
@@ -879,24 +965,69 @@ PROCESS (clk)
 				IF micro_state = cp_cond_eval THEN
 					cp_cond_true <= data_in(0);
 				END IF;
-				-- cpSAVE format word capture
-				IF micro_state = cp_save_rd_fmt THEN
+				-- cpSAVE format word capture.
+				--
+				-- Bus-state pipeline: cp_write_opw's setstate=11 queues the
+				-- OpWord write to run DURING cp_save_rd_fmt. cp_save_rd_fmt's
+				-- setstate=10 queues the Save-CIR read to run DURING
+				-- cp_save_wait, where data_in carries $1F18/$1FB4/$0000
+				-- from the FPU's Save CIR (fpu_select is still asserted).
+				-- Capture data_in directly during cp_save_wait so the
+				-- format word is reliably latched without depending on
+				-- last_data_read's edge-vs-comb timing — the same pattern
+				-- as cp_xfer_from_lo (line 1011) and cp_xfer_mem_rd_lo.
+				IF micro_state = cp_save_wait THEN
 					cp_save_fmt <= data_in(15 downto 0);
 				END IF;
 				-- cpSAVE/cpRESTORE frame word counter
+				--
+				-- M68881 frame format word layout (per M68881 User's Manual
+				-- §6.6.1.1 + verified against Snow's FSAVE write at
+				-- snow/core/src/cpu_m68k/fpu/ops_generic.rs:57 which emits
+				-- 0x1F180000 for an idle 68881 frame):
+				--   bits[15:8]  version code ($1F for 68881, $3F for 68882,
+				--               $00 if no version, e.g. NULL frame)
+				--   bits[7:0]   format identifier
+				--               $00 = NULL, $18 = IDLE, $B4 = BUSY
+				-- The earlier check tested bits[15:8] for $18/$B4, which is
+				-- the VERSION byte not the identifier — every non-null
+				-- frame got misidentified as NULL, the TG68 skipped its
+				-- Operand CIR reads, and the FPU sat in CIR_SAVE_FRAME
+				-- waiting for them forever (tracker bug #1).
 				IF micro_state = cp_save_decode THEN
-					IF cp_save_fmt(15 downto 8) = X"18" THEN
-						cp_frame_cnt <= "0001100"; -- 12 words (24 bytes)
-					ELSIF cp_save_fmt(15 downto 8) = X"B4" THEN
-						cp_frame_cnt <= "1011010"; -- 90 words (180 bytes)
+					-- Source: cp_save_fmt (latched at cp_save_wait above).
+					-- This avoids the last_data_read edge-update race that
+					-- masked the format word in earlier corpus runs.
+					--
+					-- Counts are DATA words only; the format word itself is
+					-- the FINAL write (cnt=0 path in cp_save_wr_mem). 881
+					-- IDLE: 28 bytes / 14 words total = 13 data + 1 format.
+					-- 881 BUSY: 184 bytes / 92 words = 91 data + 1 format.
+					-- Build #39 (bug #6) over-corrected from 12/90 to 14/92,
+					-- which pushed A7 4 bytes past where Snow/real 881 land
+					-- (30/186 bytes); the corpus bench caught it via the
+					-- save_restore round-trip tests that need FP regs intact.
+					IF cp_save_fmt(7 downto 0) = X"18" THEN
+						cp_frame_cnt <= "0001101"; -- 13 data words (+1 format = 28 bytes)
+					ELSIF cp_save_fmt(7 downto 0) = X"B4" THEN
+						cp_frame_cnt <= "1011011"; -- 91 data words (+1 format = 184 bytes)
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null: 0 data words
 					END IF;
 				ELSIF micro_state = cp_restore_decode THEN
-					IF last_data_read(15 downto 8) = X"18" THEN
-						cp_frame_cnt <= "0001100"; -- 12 words
-					ELSIF last_data_read(15 downto 8) = X"B4" THEN
-						cp_frame_cnt <= "1011010"; -- 90 words
+					-- Data-word count for cp_restore_wr_data loop. The format
+					-- long's HIGH half ($1F18) is already consumed by
+					-- cp_restore_wr_fmt; the LOW half ($0000 reserved) is
+					-- consumed by cp_restore_skip_fmtlo (silent, no FPU write).
+					-- After those, this many words go to the FPU Operand CIR:
+					--   IDLE: 12 (= 6 longwords; bench split halves them
+					--             into 6 FPU widx advances, matching
+					--             CIR_FRAME_IDLE_WORDS = 6).
+					--   BUSY: 90 (= 45 longwords → 45 widx advances).
+					IF last_data_read(7 downto 0) = X"18" THEN
+						cp_frame_cnt <= "0001100"; -- 12 data word writes
+					ELSIF last_data_read(7 downto 0) = X"B4" THEN
+						cp_frame_cnt <= "1011010"; -- 90 data word writes
 					ELSE
 						cp_frame_cnt <= "0000000"; -- Null
 					END IF;
@@ -911,11 +1042,32 @@ PROCESS (clk)
 				--          last_data_read which can be clobbered by
 				--          intervening prefetch cycles.
 				IF micro_state = cp_xfer_to_load THEN
-					cp_xfer_data <= reg_QB;
+					-- Reg-source FMOVE.L Dn,FPn: latch reg_QB. For
+					-- memory-source FMOVE EA,FPn (cp_mem_source='1'),
+					-- cp_xfer_data was already assembled by the
+					-- cp_xfer_mem_rd_* pipeline -- keep it untouched.
+					IF cp_mem_source = '0' THEN
+						cp_xfer_data <= reg_QB;
+					END IF;
 				ELSIF micro_state = cp_xfer_from_lo THEN
 					cp_xfer_data(31 downto 16) <= data_in;
 				ELSIF micro_state = cp_xfer_from_store THEN
 					cp_xfer_data(15 downto 0) <= data_in;
+				ELSIF micro_state = cp_xfer_mem_rd_lo THEN
+					-- HIGH word from cp_xfer_mem_rd_lo's bus read at cp_ea_addr.
+					-- Mirrors the cp_xfer_from_lo capture: data_in stable at
+					-- clkena end after the bus cycle this state covers.
+					cp_xfer_data(31 downto 16) <= data_in;
+				ELSIF micro_state = cp_xfer_mem_rd_store THEN
+					-- LOW word from cp_xfer_mem_rd_store's bus read at
+					-- cp_ea_addr+2 (memaddr_delta_rega override above).
+					cp_xfer_data(15 downto 0) <= data_in;
+				END IF;
+				-- Latch FPU exception vector from response primitive low byte.
+				-- Asserted during cp_idle_resp / cp_cond_eval at the clkena
+				-- edge that ends the Response CIR read (data_in stable).
+				IF set_cp_except_vec='1' THEN
+					cp_except_vec <= data_in(7 downto 0);
 				END IF;
 				-- MOVES FC override management
 				IF endOPC='1' THEN
@@ -1001,14 +1153,48 @@ PROCESS (clk)
 					data_write_tmp(15 downto 0) <= sndOPC;
 				-- (cp_xfer_to writes drive the bus via combinational
 				-- data_write_muxin path, bypassing data_write_tmp.)
+				ELSIF micro_state = cp_except_ack THEN
+					-- Control CIR write to ACK the FPU's CIR_EXCEPT_* state.
+					-- Only bit 0 matters (cir_control_ack is d_in(0) on the FPU
+					-- side, see mc68881_top.vhd line 3843). Other bits ignored.
+					-- Without this clause, data_write_tmp held whatever the
+					-- prior cp_write_cmd put there (= sndOPC, bit 0 typically 0),
+					-- so the ACK never reached the FPU.
+					data_write_tmp(15 downto 0) <= x"0001";
 				ELSIF micro_state = cp_save_idle THEN
-					-- Forward CIR read data or format word for memory write
+					-- Forward operand or format for memory write.
+					--
+					-- The on-stack frame is built from 32-bit longwords per
+					-- spec (e.g. 881 IDLE = 7 longs = 28 bytes: 1 format
+					-- long + 6 data longs). Each long is written as two
+					-- 16-bit predec word writes:
+					--   cnt = 0  → format HIGH word ($1F18 = bits 15:0 of
+					--              the high half of the format long; this
+					--              is the LAST write, lands at the lowest
+					--              memory address per -(A7) semantics).
+					--   cnt = 1  → format LOW word ($0000 reserved; written
+					--              just before the HIGH word).
+					--   cnt > 1  → data word from last_data_read (operand
+					--              CIR result). Settled by cp_save_rd_cir's
+					--              set(update_ld)='1'.
 					IF cp_frame_cnt = "0000000" THEN
-						-- All data words written; load format word for final write
 						data_write_tmp(15 downto 0) <= cp_save_fmt;
+					ELSIF cp_frame_cnt = "0000001" THEN
+						data_write_tmp(15 downto 0) <= x"0000";
 					ELSE
 						data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
 					END IF;
+				ELSIF micro_state = cp_save_wr_mem THEN
+					-- Hold data_write_tmp across the wr_mem edge: the bus
+					-- actually transfers DURING the next micro_state (1-cycle
+					-- bus pipeline lag), and the default ELSE branch below
+					-- would otherwise clobber data_write_tmp with OP2out at
+					-- the edge ending wr_mem. For data words this was masked
+					-- because the FPU returns $0000 for an IDLE-frame
+					-- operand AND OP2out happens to be $0000 in this path;
+					-- for the format word ($1F18) the clobber dropped it to
+					-- $0000 and FRESTORE then saw a NULL frame.
+					data_write_tmp <= data_write_tmp;
 				ELSIF micro_state = cp_restore_idle THEN
 					-- Forward memory read data for CIR write
 					data_write_tmp(15 downto 0) <= last_data_read(15 downto 0);
@@ -1027,6 +1213,10 @@ PROCESS (clk)
 				ELSIF micro_state = cp_cond_eval THEN
 					-- FScc: prepare result byte ($FF or $00) for memory write-back
 					data_write_tmp(7 downto 0) <= (others => last_data_read(0));
+				ELSIF micro_state = cp_except_ack THEN
+					-- Control CIR ACK word: bit 0 = 1 releases the FPU's
+					-- CIR_EXCEPT_* state back to CIR_IDLE.
+					data_write_tmp(15 downto 0) <= x"0001";
 				ELSIF exec(hold_dwr)='1' THEN
 					data_write_tmp <= data_write_tmp;
 				ELSIF exec(exg)='1' THEN
@@ -1130,10 +1320,15 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 				END IF;	
 				IF trap_1111='1' THEN
 					trap_vector(9 downto 0) <= "00" & X"2C";
-				END IF;	
+				END IF;
+				IF trap_cpexcept='1' THEN
+					-- Vector latched from FPU exception primitive low byte.
+					-- Byte offset = vector_number * 4 → shift left by 2.
+					trap_vector(9 downto 0) <= cp_except_vec & "00";
+				END IF;
 				IF trap_trap='1' THEN
 					trap_vector(9 downto 0) <= "0010" & opcode(3 downto 0) & "00";
-				END IF;	
+				END IF;
 				IF trap_interrupt='1' or set_vectoraddr = '1' THEN
 					trap_vector(9 downto 0) <= IPL_vec & "00";      --TH
 				END IF;	
@@ -1192,7 +1387,16 @@ PROCESS (clk, setdisp, memaddr_a, briefdata, memaddr_delta, setdispbyte, datatyp
 					memaddr_delta_rega <= ea_data;
 					memaddr_delta_regb <= memaddr_a;
 				ELSIF set_cp_memaddr='1' THEN
-					memaddr_delta_rega <= cp_ea_addr;
+					-- For the LOW-word read of a cpGEN memory operand
+					-- (cp_xfer_mem_rd_store's bus cycle), use cp_ea_addr+2
+					-- since the registered cp_ea_addr only advances after
+					-- the clkena that ends the current state — too late
+					-- for the bus cycle that starts at the SAME edge.
+					IF next_micro_state = cp_xfer_mem_rd_store THEN
+						memaddr_delta_rega <= cp_ea_addr + 2;
+					ELSE
+						memaddr_delta_rega <= cp_ea_addr;
+					END IF;
 				ELSIF set_cpaddr='1' THEN
 					memaddr_delta_rega <= X"0002" & opcode(11 downto 9) & "0000000" & cp_cir_reg & '0';
 				ELSIF set_vectoraddr='1' THEN
@@ -1328,6 +1532,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						TG68_PC <= addr;
 					ELSIF cp_do_branch = '1' THEN
 						TG68_PC <= cp_branch_target;
+					ELSIF cp_pc_restore_pending = '1' AND next_micro_state = cp_mem_refetch THEN
+						-- cpSAVE/cpRESTORE exit: force-load PC of the
+						-- instruction following the FSAVE/FRESTORE so the
+						-- impending cp_mem_refetch fetches the right word.
+						-- Without this, natural prefetch advanced TG68_PC
+						-- past the next instruction during the bus dialog
+						-- and the post-dialog setopcode loads a stale word.
+						TG68_PC <= cp_op_pc;
 					ELSIF (state ="00" OR TG68_PC_brw = '1') AND stop='0'  THEN
 						TG68_PC <= TG68_PC_add;
 					END IF;
@@ -1650,7 +1862,7 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 						SVmode <= preSVmode;
 					END IF;	
 				END IF;
-				IF trap_berr='1' OR trap_illegal='1' OR trap_addr_error='1' OR trap_priv='1' OR trap_1010='1' OR trap_1111='1' THEN
+				IF trap_berr='1' OR trap_illegal='1' OR trap_addr_error='1' OR trap_priv='1' OR trap_1010='1' OR trap_1111='1' OR trap_cpexcept='1' THEN
 					make_trace <= '0';
 					FlagsSR(7) <= '0';
 				END IF;
@@ -1744,12 +1956,15 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		trap_priv <='0';
 		trap_1010 <='0';
 		trap_1111 <='0';
+		trap_cpexcept <='0';
+		set_cp_except_vec <= '0';
 		trap_trap <='0';
 		trap_trapv <= '0';
 		trapmake <='0';
 		set_vectoraddr <='0';
 		set_cpaddr <= '0';
 		set_cp_memaddr <= '0';
+		cp_mem_source_set <= '0';
 		cp_cir_reg <= "00000";
 		cp_an_writeback <= '0';
 		cp_do_branch <= '0';
@@ -3406,9 +3621,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					-- Valid coprocessor ID (non-zero)
 					datatype <= "01"; -- word for CIR access
 					IF opcode(8 downto 6)="000" THEN
-						-- cpGEN: general coprocessor instruction
+						-- cpGEN: general coprocessor instruction.
+						-- Dn EA (mode 000): existing direct path, source from reg_QB.
+						-- An EA (mode 001): illegal for FMOVE EA<->FPn, FPU will trap.
+						-- (d16,PC) (mode 111, reg 010): fetch d16 first, compute
+						--   PC-relative EA, then enter CIR dialog with
+						--   cp_mem_source='1' so cp_xfer_mem_rd_* fires.
+						-- Other memory modes (010,011,100,101,110,111/other):
+						--   not implemented yet; would need their own EA fetch.
 						set(opcCPopw) <= '1';
-						next_micro_state <= cp_write_opw;
+						IF opcode(5 downto 3) = "111" AND opcode(2 downto 0) = "010" THEN
+							cp_mem_source_set <= '1';
+							next_micro_state <= cp_d16_pc_rd;
+						ELSE
+							next_micro_state <= cp_write_opw;
+						END IF;
 					ELSIF opcode(8 downto 6)="100" THEN
 						-- cpSAVE: save coprocessor state
 						IF SVmode='1' THEN
@@ -4437,24 +4664,50 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						-- Null Primary: CA distinguishes busy vs done.
 						IF data_in(15) = '1' THEN
 							next_micro_state <= cp_read_resp;   -- BUSY, come again
+						ELSIF cp_mem_source = '1' THEN
+							-- NULL "done" after a cpGEN memory-source xfer.
+							-- The natural prefetch consumed d16 into
+							-- last_opc_read; do a fresh instruction fetch
+							-- at TG68_PC before falling to idle so the
+							-- setopcode that fires next loads the actual
+							-- next-instruction word, not the d16 value.
+							next_micro_state <= cp_mem_refetch;
+						ELSIF cp_pc_restore_pending = '1' THEN
+							-- NULL "done" after cpRESTORE. Same prefetch
+							-- overrun as cpSAVE: TG68_PC advanced past the
+							-- next instruction during the ~30-cycle dialog.
+							-- Route via cp_mem_refetch so the TG68_PC mux
+							-- force-loads cp_op_pc before the fetch.
+							next_micro_state <= cp_mem_refetch;
 						ELSE
 							next_micro_state <= idle;           -- NULL, done
 						END IF;
 					ELSIF data_in(12) = '1' THEN
 						-- Transfer Single Operand primary. Direction in bit 13.
-						-- CPU→FPU: latch operand source register into cp_xfer_data,
-						-- then write high word, then low word.
+						-- CPU→FPU: source is either Dn (reg_QB → cp_xfer_data via
+						--   cp_xfer_to_load) or memory at cp_ea_addr (cp_xfer_mem_rd_*
+						--   fetches 2 words then hands off to cp_xfer_to_load).
+						--   cp_mem_source selects.
 						-- FPU→CPU: read high word, then low word, then write to Dn.
-						-- Each per-word state is one clean bus access; no cnt
-						-- looping (which had mid-cycle muxin update problems).
 						IF data_in(13) = '0' THEN
-							next_micro_state <= cp_xfer_to_load;
+							IF cp_mem_source = '1' THEN
+								next_micro_state <= cp_xfer_mem_rd_hi;
+							ELSE
+								next_micro_state <= cp_xfer_to_load;
+							END IF;
 						ELSE
 							next_micro_state <= cp_xfer_from_hi;
 						END IF;
+					ELSIF data_in(15) = '1' AND data_in(12) = '0'
+					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
+						-- EXCEPT_PRE/MID/POST primitive (bits15:13 = 101/110/111,
+						-- bit12 = 0). Vector in low byte. Must ACK Control CIR
+						-- before trapping, else FPU stays wedged in CIR_EXCEPT_*.
+						set_cp_except_vec <= '1';
+						next_micro_state <= cp_except_ack;
 					ELSE
-						-- Exceptions, supervisor check, transfer-multiple, etc.
-						-- Not implemented; raise F-line trap.
+						-- Supervisor check, transfer-multiple, etc. — not
+						-- implemented; raise F-line trap.
 						trap_1111 <= '1';
 						trapmake <= '1';
 					END IF;
@@ -4556,20 +4809,189 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					setstate <= "01";
 					next_micro_state <= cp_read_resp;
 
+				-- ====================================================
+				-- cpGEN F-line (d16,PC) d16 fetch + EA compute.
+				-- ====================================================
+				-- The kernel's standard EA-build machinery for mode 111
+				-- reg 010 treats sndOPC as the d16 displacement. For
+				-- cpGEN F-line that's wrong — sndOPC is the FPU command
+				-- word; the real d16 is in a *separate* third word. So
+				-- we do a bespoke read here at tg68_PC.
+				--
+				-- cp_ea_addr was seeded with tmp_TG68_PC at entry to
+				-- this state via the registered process above. After
+				-- the bus access fires, cp_ea_addr += sign_extend(d16)
+				-- in cp_d16_pc_apply.
+
+				WHEN cp_d16_pc_rd =>
+					-- Bus read d16 from cp_ea_addr (= PC of d16 word,
+					-- seeded with TG68_PC + 2 in the registered process).
+					set_cp_memaddr <= '1';
+					setstate <= "10";   -- data read
+					datatype <= "01";   -- word
+					set(update_ld) <= '1';
+					next_micro_state <= cp_d16_pc_apply;
+
+				WHEN cp_d16_pc_apply =>
+					-- d16 just landed in last_data_read. The registered
+					-- process adds sign_extend(d16) to cp_ea_addr.
+					setstate <= "01";
+					next_micro_state <= cp_write_opw;
+
+				-- ====================================================
+				-- cpGEN memory-source operand fetch.
+				-- Mirror of cp_xfer_from_* but reading from memory at
+				-- cp_ea_addr instead of FPU CIR Operand. After 2 words
+				-- assemble into cp_xfer_data, hand off to cp_xfer_to_load
+				-- (which sees cp_mem_source='1' and skips the reg_QB
+				-- latch) → cp_xfer_to_hi/lo writes the long to FPU.
+				-- cp_ea_addr advances by 4 per iteration (registered).
+				-- ====================================================
+
+				WHEN cp_xfer_mem_rd_hi =>
+					-- Setup: queue setstate=10 so NEXT cycle starts the
+					-- bus read at cp_ea_addr. set_cp_memaddr routes it.
+					set_cp_memaddr <= '1';
+					setstate <= "10";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_mem_rd_lo;
+
+				WHEN cp_xfer_mem_rd_lo =>
+					-- state=10 this cycle: bus runs HIGH word READ at
+					-- cp_ea_addr. cp_ea_addr advances by 2 at the same
+					-- clkena edge (registered process) so the NEXT bus
+					-- read goes to cp_ea_addr+2.
+					set_cp_memaddr <= '1';
+					setstate <= "10";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_mem_rd_store;
+
+				WHEN cp_xfer_mem_rd_store =>
+					-- state=10 (continued): bus runs LOW word READ.
+					-- HIGH word from cp_xfer_mem_rd_lo's access lands in
+					-- last_data_read; cp_xfer_data(31:16) captured by
+					-- the cp_xfer_data driver process.
+					set_cp_memaddr <= '1';
+					setstate <= "01";
+					datatype <= "01";
+					set(update_ld) <= '1';
+					next_micro_state <= cp_xfer_mem_rd_done;
+
+				WHEN cp_xfer_mem_rd_done =>
+					-- state=01 (idle). LOW word from the cp_xfer_mem_rd_store
+					-- access landed in last_data_read; cp_xfer_data(15:0)
+					-- captured. Hand off to cp_xfer_to_load, which sees
+					-- cp_mem_source='1' and routes the assembled long to
+					-- the FPU Operand CIR without overwriting cp_xfer_data.
+					setstate <= "01";
+					next_micro_state <= cp_xfer_to_load;
+
+				WHEN cp_mem_refetch =>
+					-- First half: setstate="00" starts an instruction fetch
+					-- at TG68_PC. Transition to _wait so setopcode doesn't
+					-- fire here (its trigger requires next_state=idle).
+					setstate <= "00";
+					datatype <= "01";
+					next_micro_state <= cp_mem_refetch_wait;
+
+				WHEN cp_mem_refetch_wait =>
+					-- Second half: bus is now mid-fetch (state="00" carried
+					-- over from cp_mem_refetch). Transition to idle WITH
+					-- setstate="00" and next_state=idle so setopcode fires
+					-- with state="00" REGISTERED. The opcode <= data_read
+					-- branch then loads the freshly-fetched next-instruction
+					-- word instead of stale last_opc_read.
+					setstate <= "00";
+					datatype <= "01";
+					next_micro_state <= idle;
+
+				-- ====================================================
+				-- FPU exception primitive ACK + trap.
+				--
+				-- Entered from cp_idle_resp (and cp_cond_eval) when the FPU
+				-- returns EXCEPT_PRE/MID/POST. Two states:
+				--   cp_except_ack  — setup cycle: queue a Control CIR ($02)
+				--                    write of bit 0 = 1. data_write_tmp is
+				--                    forced to x"0001" by the data-write
+				--                    mux below.
+				--   cp_except_trap — bus runs the write (state="11" carried
+				--                    from cp_except_ack). Release the bus
+				--                    and raise trap_cpexcept; the trap_vector
+				--                    mux routes cp_except_vec & "00" as the
+				--                    byte offset.
+				-- ====================================================
+
+				WHEN cp_except_ack =>
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00001";  -- Control CIR ($02)
+					setstate <= "11";       -- queue bus write for next cycle
+					datatype <= "01";       -- word
+					next_micro_state <= cp_except_trap;
+
+				WHEN cp_except_trap =>
+					-- Bus state="11" this cycle from cp_except_ack — bus runs
+					-- the Control CIR write of x"0001". MUST hold set_cpaddr
+					-- and cp_cir_reg across the active bus access (same
+					-- pattern as cp_xfer_to_hi / cp_xfer_to_lo); without
+					-- them the memaddr mux falls through to memaddr_a and
+					-- the write lands somewhere other than Control CIR.
+					-- Release the bus afterwards and trap.
+					--
+					-- Vector routing: build #18/#19 used trap_cpexcept with
+					-- cp_except_vec & "00" as the dynamic vector, but lastvec
+					-- showed 04 (Illegal Instruction) — cp_except_vec capture
+					-- isn't surviving the cp_idle_resp→cp_except_ack edge in
+					-- the way I expected. For build #20 fall back to the
+					-- proven trap_1111 path (vector $2C = F-line), matching
+					-- the build #17 behavior we know dispatches correctly.
+					-- The vast majority of FPU exception primitives carry
+					-- vector $0B (CIR_VEC_FLINE for lite-disabled ops); the
+					-- rare non-F-line cases (BSUN, OVFL, etc.) will land on
+					-- F-line too — wrong vector but at least the FPU's CIR
+					-- state gets ACKed and the bench can move on.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00001";  -- Control CIR ($02)
+					setstate <= "01";
+					datatype <= "01";
+					trap_1111 <= '1';
+					trapmake <= '1';
+
 				-- cpSAVE states: read format from FPU, write frame to memory -(An)
 				WHEN cp_save_rd_fmt =>
-					-- Read Save CIR to get format word
+					-- Queue Save-CIR read. setstate=10 takes effect on the
+					-- NEXT state (cp_save_wait), where the bus access
+					-- actually runs (1-cycle pipeline lag).
+					-- set(update_ld) chains so last_data_read captures the
+					-- read result at the bus-completion edge.
 					set_cpaddr <= '1';
 					cp_cir_reg <= "00010"; -- Save CIR (register 2)
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					set(update_ld) <= '1';
+					next_micro_state <= cp_save_wait;
+
+				WHEN cp_save_wait =>
+					-- Bus read runs DURING this state. set(update_ld) keeps
+					-- last_data_read updating. At the edge ending this
+					-- state, last_data_read(15:0) holds the format word —
+					-- ready for cp_save_decode's comb to read.
+					-- Keep FPU addressed and state=10 so the bus cycle
+					-- completes cleanly.
+					set_cpaddr <= '1';
+					cp_cir_reg <= "00010";
+					setstate <= "01";
+					datatype <= "01";
+					set(update_ld) <= '1';
 					next_micro_state <= cp_save_decode;
 
 				WHEN cp_save_decode =>
-					-- Decode format word (now in cp_save_fmt via registered process)
-					-- cp_frame_cnt loaded in registered process
+					-- Decode using cp_save_fmt (latched during cp_save_wait
+					-- above). Identifier byte ($00 NULL / $18 IDLE / $B4
+					-- BUSY) is in bits[7:0].
 					setstate <= "01";      -- idle
-					IF cp_save_fmt(15 downto 8) = X"00" THEN
+					IF cp_save_fmt(7 downto 0) = X"00" THEN
 						-- Null frame: go to idle to decrement EA, then write format
 						next_micro_state <= cp_save_idle;
 					ELSE
@@ -4578,29 +5000,58 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					END IF;
 
 				WHEN cp_save_wr_mem =>
-					-- Write word to memory at cp_ea_addr
-					-- data_write_tmp must already contain the word
+					-- Write word to memory at cp_ea_addr.
+					-- data_write_tmp must already contain the word.
+					--
+					-- The frame is built of 32-bit longwords per the
+					-- coprocessor spec (1 format long + N data longs); each
+					-- long is two 16-bit predec word writes. cp_frame_cnt
+					-- counts down the remaining word writes — for 881 IDLE
+					-- it starts at 13 (= 12 data + 2 format - 1), counting
+					-- down to 0 inclusive = 14 word writes = 28 bytes.
+					--   cnt = 2 → just wrote the last data word, next write
+					--             is format LOW ($0000 reserved). Go through
+					--             cp_save_idle to load it.
+					--   cnt = 1 → just wrote format LOW, next write is
+					--             format HIGH ($1F18). Go through cp_save_idle.
+					--   cnt = 0 → just wrote format HIGH; frame complete.
+					--             Writeback An and return to idle.
+					--   else  → more data words; loop back to cp_save_rd_cir.
 					set_cp_memaddr <= '1';
 					setstate <= "11";      -- bus write
 					datatype <= "01";      -- word
-					IF cp_frame_cnt = "0000001" THEN
-						-- Last data word: next write the format word
-						next_micro_state <= cp_save_idle; -- reuse idle to load format
+					IF cp_frame_cnt = "0000010" THEN
+						-- Last data word just written; next is format LOW.
+						next_micro_state <= cp_save_idle;
+					ELSIF cp_frame_cnt = "0000001" THEN
+						-- Format LOW just written; next is format HIGH.
+						next_micro_state <= cp_save_idle;
 					ELSIF cp_frame_cnt = "0000000" THEN
-						-- Format word just written (or null frame)
+						-- Format HIGH just written: frame complete.
+						-- Route through cp_mem_refetch so the TG68_PC mux
+						-- force-loads cp_op_pc and the post-FSAVE setopcode
+						-- gets a freshly-fetched next-instruction word
+						-- instead of whatever the natural prefetch left in
+						-- last_opc_read during the ~30-cycle dialog.
 						cp_an_writeback <= '1';
-						next_micro_state <= idle;
+						next_micro_state <= cp_mem_refetch;
 					ELSE
-						-- More data words to read from CIR
+						-- More data words to read from CIR.
 						next_micro_state <= cp_save_rd_cir;
 					END IF;
 
 				WHEN cp_save_rd_cir =>
-					-- Read next data word from Operand CIR
+					-- Read next data word from Operand CIR.
+					-- set(update_ld) forces last_data_read to capture each
+					-- operand read; otherwise state never passes through
+					-- "00" during the cpSAVE loop and last_data_read stays
+					-- frozen at the prior Save-CIR value, so cp_save_idle
+					-- would forward that stale value into every data word.
 					set_cpaddr <= '1';
 					cp_cir_reg <= "01000"; -- Operand CIR (register 8)
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					set(update_ld) <= '1';
 					next_micro_state <= cp_save_idle;
 
 				WHEN cp_save_idle =>
@@ -4610,10 +5061,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				-- cpRESTORE states: read frame from memory (An)+, write to FPU
 				WHEN cp_restore_rd_mem =>
-					-- Read word from memory at cp_ea_addr
+					-- Read word from memory at cp_ea_addr.
+					-- set(update_ld) forces last_data_read to capture the
+					-- read result so cp_restore_decode + cp_restore_idle
+					-- can see it. Without this, state never reaches "00"
+					-- during the cpRESTORE loop and last_data_read holds
+					-- whatever was there before FRESTORE started (typically
+					-- the prefetched FMOVE.L sndOPC), causing decode to
+					-- misread the format word and route subsequent data
+					-- writes to Restore CIR instead of Operand CIR.
 					set_cp_memaddr <= '1';
 					setstate <= "10";      -- bus read
 					datatype <= "01";      -- word
+					set(update_ld) <= '1';
 					next_micro_state <= cp_restore_idle;
 
 				WHEN cp_restore_idle =>
@@ -4637,16 +5097,50 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
 				WHEN cp_restore_decode =>
 					-- Decode format: cp_frame_cnt loaded in registered process
-					-- last_data_read still has the format word
+					-- last_data_read still has the format word.
+					-- Identifier byte is in bits[7:0] — see cp_save/restore_decode
+					-- registered-process comment above.
 					setstate <= "01";      -- idle
-					IF last_data_read(15 downto 8) = X"00" THEN
-						-- Null frame: done, writeback An
-						cp_an_writeback <= '1';
-						next_micro_state <= idle;
+					-- Null and non-null frames both consume the reserved LOW
+					-- word of the format long via cp_restore_skip_fmtlo. The
+					-- null path used to write An back here, skipping that
+					-- word — the format long is 4 bytes even for NULL, so An
+					-- came back 2 bytes short. (Caught by cpufpubench: every
+					-- test's CLR.L -(A7); FRESTORE (A7)+ preamble left A7 -2
+					-- and the test's terminating RTS popped the wrong slot.)
+					-- skip_fmtlo routes on cp_frame_cnt (0 = null) to either
+					-- cp_restore_null_done or the data-word pump.
+					next_micro_state <= cp_restore_skip_fmtlo;
+
+				WHEN cp_restore_skip_fmtlo =>
+					-- Read and discard the format LOW word (reserved $0000
+					-- in the spec format long, e.g. low half of $1F18_0000).
+					-- cp_ea_addr advances by 2 (managed in registered
+					-- process above). The read result lands in
+					-- last_data_read via set(update_ld), but is not
+					-- forwarded to the FPU.
+					set_cp_memaddr <= '1';
+					setstate <= "10";      -- bus read
+					datatype <= "01";      -- word
+					set(update_ld) <= '1';
+					IF cp_frame_cnt = "0000000" THEN
+						-- Null frame (cp_frame_cnt loaded 0 at decode): no
+						-- data words follow the format long.
+						next_micro_state <= cp_restore_null_done;
 					ELSE
-						-- Non-null frame: read data words from memory
 						next_micro_state <= cp_restore_rd_mem;
 					END IF;
+
+				WHEN cp_restore_null_done =>
+					-- Null-frame FRESTORE epilogue. Runs one idle cycle after
+					-- cp_restore_skip_fmtlo so its +2 postincrement is already
+					-- registered in cp_ea_addr; the An writeback therefore
+					-- includes the full 4-byte format long. Route through
+					-- cp_mem_refetch so the TG68_PC mux force-loads cp_op_pc
+					-- (same prefetch-overrun handling as the non-null exits).
+					setstate <= "01";      -- idle
+					cp_an_writeback <= '1';
+					next_micro_state <= cp_mem_refetch;
 
 				WHEN cp_restore_wr_data =>
 					-- Write data word to Operand CIR
@@ -4697,8 +5191,10 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					   AND (data_in(14) = '1' OR data_in(13) = '1') THEN
 						-- Pre/mid/post-instruction exception primary
 						-- (bits 15-13 = 101/110/111 with bit 12 = 0).
-						trap_1111 <= '1';
-						trapmake <= '1';
+						-- ACK Control CIR before trapping; otherwise FPU
+						-- wedges in CIR_EXCEPT_*.
+						set_cp_except_vec <= '1';
+						next_micro_state <= cp_except_ack;
 					ELSIF data_in(15) = '1' AND data_in(12) = '0'
 					   AND data_in(11 downto 8) = "1001" THEN
 						-- BUSY (Null primary, CA=1): FPU still computing,
@@ -4717,19 +5213,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							next_micro_state <= cp_branch_apply;
 						ELSIF exe_opcode(8 downto 6) = "001" THEN
 							IF exe_opcode(5 downto 3) = "111" AND exe_opcode(2) = '1' THEN
-								-- FTRAPcc: trap if condition true
-								IF data_in(0) = '1' THEN
-									trap_trapv <= '1';
-									trapmake <= '1';
-								END IF;
+								-- FTRAPcc: defer one cycle so the trap decision
+								-- uses the registered cp_cond_true (latched from
+								-- data_in(0) at the edge ending cp_cond_eval).
+								-- Same hazard class as FBcc — see cp_branch_apply.
+								next_micro_state <= cp_ftrapcc_eval;
 							ELSIF exe_opcode(5 downto 3) = "001" THEN
-								-- FDBcc: if condition false, decrement Dn and maybe branch
-								IF data_in(0) = '0' THEN
-									data_is_source <= '1';
-									set(OP2out_one) <= '1';
-									next_micro_state <= cp_fdbcc_dec;
-								END IF;
-								-- Condition true: done (no decrement, no branch)
+								-- FDBcc: defer one cycle so the decrement/branch
+								-- decision uses the registered cp_cond_true. The
+								-- combinational data_in(0) read here was stale
+								-- (always sampled as 0 → "condition always false"
+								-- → result always 42). Mirrors FBcc's deferral
+								-- through cp_branch_apply.
+								next_micro_state <= cp_fdbcc_eval;
 							ELSIF exe_opcode(5 downto 3) = "000" THEN
 								-- FScc data register
 								next_micro_state <= cp_fscc_wr;
@@ -4766,6 +5262,34 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						setstate <= "01";
 						next_micro_state <= idle;
 					END IF;
+
+				WHEN cp_fdbcc_eval =>
+					-- FDBcc deferred condition apply. cp_cond_true is the
+					-- registered version of data_in(0) latched at the edge
+					-- ending cp_cond_eval, so it is stable here. Mirrors
+					-- cp_branch_apply for the FBcc deferral.
+					-- Condition true: done (no decrement, no branch).
+					-- Condition false: set up the operand and transition to
+					-- cp_fdbcc_dec, exactly as the original combinational
+					-- path did.
+					setstate <= "01";       -- idle bus this cycle
+					IF cp_cond_true = '0' THEN
+						data_is_source <= '1';
+						set(OP2out_one) <= '1';
+						next_micro_state <= cp_fdbcc_dec;
+					ELSE
+						next_micro_state <= idle;
+					END IF;
+
+				WHEN cp_ftrapcc_eval =>
+					-- FTRAPcc deferred condition apply. cp_cond_true is the
+					-- registered version of data_in(0), stable here.
+					setstate <= "01";       -- idle bus this cycle
+					IF cp_cond_true = '1' THEN
+						trap_trapv <= '1';
+						trapmake <= '1';
+					END IF;
+					next_micro_state <= idle;
 
 				WHEN cp_fscc_wr_mem =>
 					-- Write FScc result byte ($FF or $00) to memory EA

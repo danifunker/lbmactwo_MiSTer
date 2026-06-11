@@ -365,15 +365,48 @@ package mc68881_pkg is
   constant CIR_SRC_BYTE          : std_logic_vector(2 downto 0) := "110";
   constant CIR_SRC_FPN           : std_logic_vector(2 downto 0) := "111";
 
-  -- FSAVE frame format words (MC68881).
+  -- FSAVE frame format words (per M68881 User's Manual §6.6.1.1).
+  -- bits[15:8] = version code ($1F = 68881, $3F = 68882, $00 = NULL)
+  -- bits[7:0]  = format identifier ($00 NULL, $18 IDLE, $B4 BUSY)
+  -- Mac OS 7 boot-time FPU detection inspects the version byte to identify
+  -- the coprocessor — if it reads $00 it concludes "no coprocessor
+  -- installed" and posts a system-error alert. Earlier builds (#22-#23)
+  -- shipped these with the version byte at $00, which is why build #23 got
+  -- the OS to GUI but immediately tripped the "coprocessor not installed"
+  -- bomb dialog (tracker bug #6).
   constant CIR_FRAME_NULL_FW     : std_logic_vector(15 downto 0) := x"0000";
-  constant CIR_FRAME_IDLE_FW     : std_logic_vector(15 downto 0) := x"0018";
-  constant CIR_FRAME_BUSY_FW     : std_logic_vector(15 downto 0) := x"00B4";
-  constant CIR_FRAME_IDLE_WORDS  : natural := 6;   -- 24 bytes / 4
-  constant CIR_FRAME_BUSY_WORDS  : natural := 45;  -- 180 bytes / 4
+  -- Build #41 (bug #6): Snow's op_fsave at
+  --   ../snow/core/src/cpu_m68k/fpu/ops_generic.rs:57
+  -- writes 0x1F180000 at the top of the IDLE frame ($1F = version
+  -- byte). Build #40's revert to $0018 was based on a misreading of
+  -- Snow — restore the $1F version byte so Mac OS frame-inspection
+  -- sees a valid 68881 marker.
+  constant CIR_FRAME_IDLE_FW     : std_logic_vector(15 downto 0) := x"1F18";
+  constant CIR_FRAME_BUSY_FW     : std_logic_vector(15 downto 0) := x"1FB4";
+  -- Word count is in 32-bit LONG-WORD units (cir_save_word_idx
+  -- increments once per host long-word read of Operand CIR — the
+  -- Operand CIR is a 32-bit register per the upstream protocol;
+  -- see ../../../68881-fpga/docs/plans/2026-03-03-s7-coprocessor-
+  -- interface-design.md "CIR Register Map"). 881 IDLE = 28-byte
+  -- frame = 1 format long + 6 data longs = 6 data-word advances
+  -- on cir_save_word_idx. 881 BUSY = 184-byte frame = 1 format
+  -- long + 45 data longs = 45 data-word advances.
+  --
+  -- Build #41 changed IDLE from 6 → 13 with the diagnosis that
+  -- "the FPU exited CIR_SAVE_FRAME after 6 reads and the CPU's
+  -- remaining 7 reads fell through" — that was a misread. Those
+  -- "remaining" reads are the phase=1 halves of long-word reads
+  -- which the corpus bench's pseudo-DMA correctly handles via the
+  -- fpu_rd_latch (the FPU shouldn't count them). With cnt=13 the
+  -- FPU saw 7 widx advances (half of the 13 word reads) and stayed
+  -- in CIR_SAVE_FRAME, jamming subsequent FMOVE.L instructions.
+  -- Reverting to 6 (the upstream value) restores the spec protocol.
+  constant CIR_FRAME_IDLE_WORDS  : natural := 6;   -- 24 bytes data / 4
+  constant CIR_FRAME_BUSY_WORDS  : natural := 45;  -- 180 bytes data / 4
   constant CIR_FRAME_BUSY_HDR    : natural := 12;  -- Header words 0-11 (operands + metadata)
 
   -- FSAVE frame format words (MC68882).
+  -- Build #40 revert: $3F38/$3FD4 → $0038/$00D4 (no version byte).
   constant CIR_FRAME_IDLE_FW_82     : std_logic_vector(15 downto 0) := x"0038";
   constant CIR_FRAME_BUSY_FW_82     : std_logic_vector(15 downto 0) := x"00D4";
   constant CIR_FRAME_IDLE_WORDS_82  : natural := 14;  -- 56 bytes / 4
@@ -2842,12 +2875,20 @@ package body mc68881_pkg is
 
   function is_valid_idle_fw(fw : std_logic_vector) return boolean is
   begin
-    return fw = CIR_FRAME_IDLE_FW or fw = CIR_FRAME_IDLE_FW_82;
+    -- Build #41 (bug #6): accept legacy no-version-byte frames
+    -- ($0018/$0038) on FRESTORE in addition to the Snow-matching
+    -- versioned frames ($1F18/$3F38) we emit on FSAVE post-#41.
+    -- Keeps the FPU able to consume frames from older saves and
+    -- third-party producers.
+    return fw = CIR_FRAME_IDLE_FW    or fw = CIR_FRAME_IDLE_FW_82
+        or fw = x"0018"              or fw = x"0038";
   end function;
 
   function is_valid_busy_fw(fw : std_logic_vector) return boolean is
   begin
-    return fw = CIR_FRAME_BUSY_FW or fw = CIR_FRAME_BUSY_FW_82;
+    -- Build #41 (bug #6): see is_valid_idle_fw comment.
+    return fw = CIR_FRAME_BUSY_FW    or fw = CIR_FRAME_BUSY_FW_82
+        or fw = x"00B4"              or fw = x"00D4";
   end function;
 
   function idle_words_for_fw(fw : std_logic_vector) return natural is

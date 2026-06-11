@@ -486,6 +486,79 @@ wire [4:0] fpu_addr_remapped = (cpuAddr[5:1] == 5'd0) ? 5'd13 :
                                (cpuAddr[5:1] == 5'd3) ? 5'd28 :
                                cpuAddr[5:1];
 
+// -------------------- 16-bit ↔ 32-bit FPU bus adapter -----------------
+// Ported from SingleStepTests/cpu_fpu/cpu_fpu_tests.v. TG68K has a
+// 16-bit data bus and splits .L into 2 word transfers; the FPU's
+// Operand CIR is a 32-bit register and expects ONE transfer per
+// long-word (per AN-947 / M68020 PRM §9):
+//   - WRITES (CPU→FPU): latch the first 16-bit half into fpu_wr_hi.
+//     Suppress cs_n on the first half (FPU sees nothing) and fake a
+//     DSACK back to TG68K. On the second half, drive
+//     d_in = {fpu_wr_hi, cpuDataOut} as a single 32-bit transfer and
+//     let the FPU's DSACK pass through.
+//   - READS (FPU→CPU): on the first half, let the FPU strobe normally
+//     and latch the full 32-bit d_out into fpu_rd_latch. TG68K gets
+//     the HIGH word. On the second half, suppress cs_n (FPU doesn't
+//     advance), fake DSACK, return the LOW half from the latch.
+// Non-Operand CIR accesses pass through unchanged (16-bit semantics).
+wire fpu_is_operand_cycle = (fpu_addr_remapped == 5'd8);
+reg        fpu_xfer_phase;   // 0 = first half (HIGH), 1 = second half (LOW)
+reg [15:0] fpu_wr_hi;
+reg [31:0] fpu_rd_latch;
+reg        fpu_prev_as_for_phase;
+// Flip phase on the END of each FPU operand bus cycle (AS-rising edge
+// while addressed at operand) so phase is stable throughout each cycle.
+wire fpu_bus_end_edge = fpuAddrMatch && fpu_is_operand_cycle
+                        && _cpuAS && !fpu_prev_as_for_phase;
+always @(posedge clk_sys) begin
+	if (!_cpuReset) begin
+		fpu_xfer_phase        <= 1'b0;
+		fpu_wr_hi             <= 16'h0000;
+		fpu_rd_latch          <= 32'h0000_0000;
+		fpu_prev_as_for_phase <= 1'b1;
+	end else begin
+		fpu_prev_as_for_phase <= _cpuAS;
+		// Capture at the END of each access (AS-rising edge), when the
+		// FPU has just dsacked and data is valid. Latches simultaneously
+		// with the phase flip.
+		if (fpu_bus_end_edge && fpu_xfer_phase == 1'b0) begin
+			if (!_cpuRW) fpu_wr_hi    <= cpuDataOut;
+			else         fpu_rd_latch <= fpu_data_out;
+		end
+		if (fpu_bus_end_edge)
+			fpu_xfer_phase <= ~fpu_xfer_phase;
+	end
+end
+
+// WRITES: FPU active on phase=1 (second half); READS: active on phase=0.
+wire fpu_active_phase = _cpuRW ? !fpu_xfer_phase : fpu_xfer_phase;
+wire fpu_cs_n_eff = fpu_is_operand_cycle
+                    ? ~(fpuAddrMatch && fpu_active_phase)
+                    : ~fpuAddrMatch;
+wire [31:0] fpu_d_in_eff = (fpu_is_operand_cycle && !_cpuRW)
+                           ? {fpu_wr_hi, cpuDataOut}
+                           : {16'h0000, cpuDataOut};
+// TG68K-side DSACK: fake during the inactive phase, pass-through during
+// the active phase.
+wire fpu_inactive_phase_act = fpuAddrMatch && fpu_is_operand_cycle
+                              && !_cpuAS && !fpu_active_phase;
+wire eff_fpu_dsack0_n = fpu_inactive_phase_act ? 1'b0 : fpu_dsack0_n;
+wire eff_fpu_dsack1_n = fpu_inactive_phase_act ? 1'b1 : fpu_dsack1_n;
+// TG68K read mux:
+//  - Non-Operand: FPU's d_out[15:0] (16-bit response/save/etc).
+//  - Operand phase=0: HIGH word direct from FPU's d_out[31:16].
+//  - Operand phase=1: LOW word from the latch.
+wire [15:0] fpu_d_to_cpu = fpu_is_operand_cycle
+                           ? (fpu_xfer_phase ? fpu_rd_latch[15:0]
+                                             : fpu_data_out[31:16])
+                           : fpu_data_out[15:0];
+// Size encoding: derive from longword + UDS/LDS.
+wire [1:0] fpu_size_n =
+    _cpuAS                     ? 2'b11 :  // idle
+    tg68_longword              ? 2'b00 :  // .L
+    (!_cpuUDS && !_cpuLDS)     ? 2'b10 :  // .W
+                                 2'b01;   // .B
+
 
 // video timing signals (Mac Plus legacy - still needed by addrController_top)
 wire hsync, vsync, _hblank, _vblank, loadPixels, vid_alt;
@@ -527,10 +600,53 @@ assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 // asserts, so this always releases within ~1-2 SDRAM cycles. Writes and the
 // turbo fast path are unchanged.
 wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
-wire mac_is_sdram_read    = (!_ramOE || !_romOE);
-wire ram_or_rom_dtack     = (mac_is_sdram_read && !arb_mac_dout_valid) ? 1'b1
-                                                                       : ram_or_rom_dtack_raw;
-assign      _cpuDTACK = selectFPU ? (fpu_dsack0_n & fpu_dsack1_n) :
+
+// SLOT-OWNED READ HANDSHAKE (2026-06-10 — the vec-11 / journal-corruption fix).
+//
+// The old gate `(!_ramOE || !_romOE) && !arb_mac_dout_valid` had two holes,
+// caught red-handed by the PIFD probe (CPU fetched 0x1ED8 where ROM holds
+// 0x51CD ⇒ the DBF's $FFFA displacement decoded as an F-line opcode ⇒ the
+// bench's vector-11 stray trap; same mechanism corrupted journal-buffer
+// READS, so the CPU wrote 0x51C9/0x0000 neighbor words to disk):
+//
+//  1. `!_ramOE || !_romOE` BLINKS with the busCycle interleave (video 0 /
+//     CPU 1 / floppy 2 / CPU 3): during off-slots the gate term vanishes
+//     and raw turbo DTACK passes, so a CPU whose s4 DTACK-sample lands in
+//     an off-slot bypasses the coherency hold entirely.
+//  2. arb_mac_dout_valid counted SDRAM t=0 boundaries while arb_mac_oe was
+//     high — but arb_mac_oe is a MUX of CPU + legacy-video + floppy slot
+//     fetches with different addresses, so the count could be satisfied by
+//     a neighbor master's slot while sdram_dout held that master's word.
+//
+// Misaligned cycles are rare in ordinary code (bus cycles phase-lock to
+// the interleave) but the NCR pseudo-DMA loop completes each DACK cycle on
+// DREQ timing, randomizing the phase of the following fetch — which is why
+// the corruption clustered in the 16KB journal writes.
+//
+// Fix: DTACK for an SDRAM read is held until a slot that STARTED with the
+// CPU's own read command at its t=0 (busPhase 0 of a cpuBusControl
+// busCycle) has completed (its clk8_en_p tail, where the SDRAM word is in
+// sdram_dout and dataController latches cpu_data). The decode is AS-scoped
+// (selectRAM/ROM, non-blinking). Worst case adds ~2 busCycles of wait on a
+// misaligned read; a CPU slot always arrives, so this cannot wedge.
+reg  slot0_mark;          // busPhase==0 marker (the clk after clk8_en_p)
+reg  sdram_slot_cpu_rd;   // this SDRAM slot started with the CPU's read cmd
+reg  cpu_sdram_rd_done;   // an owned slot has completed for this bus cycle
+wire cpu_sdram_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
+always @(posedge clk_sys) begin
+	slot0_mark <= clk8_en_p;
+	if (slot0_mark)
+		sdram_slot_cpu_rd <= cpuBusControl && cpu_sdram_rd_cycle;
+	if (_cpuAS)
+		cpu_sdram_rd_done <= 1'b0;
+	else if (sdram_slot_cpu_rd && clk8_en_p)
+		cpu_sdram_rd_done <= 1'b1;
+end
+
+wire mac_is_sdram_read    = cpu_sdram_rd_cycle;
+wire ram_or_rom_dtack     = (mac_is_sdram_read && !cpu_sdram_rd_done) ? 1'b1
+                                                                      : ram_or_rom_dtack_raw;
+assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
@@ -643,7 +759,7 @@ always @(posedge clk_sys) begin
 		fpu_data_hold <= 16'h0000;
 		fpu_data_hold_valid <= 1'b0;
 	end else if (!_cpuAS && selectFPU && _cpuRW) begin
-		fpu_data_hold <= fpu_data_out[15:0];
+		fpu_data_hold <= fpu_d_to_cpu;
 		fpu_data_hold_valid <= 1'b1;
 	end else if (!_cpuAS && !selectFPU) begin
 		fpu_data_hold_valid <= 1'b0;
@@ -651,7 +767,7 @@ always @(posedge clk_sys) begin
 end
 
 wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
-                          selectFPU ? fpu_data_out[15:0] :
+                          selectFPU ? fpu_d_to_cpu :
                           fpu_data_hold_valid ? fpu_data_hold :
                           dataControllerDataOut;
 
@@ -695,25 +811,28 @@ wire berr_inhibit_active;
 wire [31:0] berr_data_out;
 
 // MC68881 FPU - CIR dialog mode (coprocessor protocol via TG68K)
-// Data bus: TG68K is 16-bit; CIR protocol uses d_in[15:0] for writes, d_out[15:0] for reads
-// size_n=2'b01 indicates word-sized (16-bit) transfers (active-low encoding)
+// Data bus: TG68K is 16-bit; non-Operand CIR accesses use d_in/d_out[15:0].
+// Operand CIR accesses are 32-bit and go through the bus adapter above
+// (fpu_d_in_eff / fpu_d_to_cpu / fpu_cs_n_eff / eff_fpu_dsack*).
 // sense_n is an inout driven by the FPU internally to indicate presence
 
+wire [31:0] fpu_dbg_cir_state;
 mc68881_fpu_lite fpu_inst (
 	.clk        ( clk_sys              ),
 	.reset_n    ( _cpuReset            ),
 	.a_in       ( fpu_addr_remapped    ),
-	.d_in       ( {16'h0000, cpuDataOut} ),
+	.d_in       ( fpu_d_in_eff         ),
 	.d_out      ( fpu_data_out         ),
-	.size_n     ( 2'b01                ),  // word-sized transfers
+	.size_n     ( fpu_size_n           ),
 	.as_n       ( _cpuAS               ),
-	.cs_n       ( ~fpuAddrMatch        ),
+	.cs_n       ( fpu_cs_n_eff         ),
 	.rw         ( _cpuRW               ),
 	.ds_n       ( _cpuUDS & _cpuLDS    ),  // active when either byte lane selected
 	.dsack0_n   ( fpu_dsack0_n         ),
 	.dsack1_n   ( fpu_dsack1_n         ),
 	.sense_n    ( fpu_sense_n          ),
-	.status_valid (                    )
+	.status_valid (                    ),
+	.dbg_cir_state ( fpu_dbg_cir_state )
 );
 
 addrController_top ac0
@@ -833,6 +952,9 @@ wire [15:0] dbg_card_irq_cnt;
 wire [15:0] dbg_card_ack_cnt;
 wire        dbg_card_vbl_en;
 wire        dbg_asc_irq_n;
+wire        dbg_via1_irq_n;
+wire        dbg_via2_irq_n;
+wire        dbg_scc_irq_n;
 
 dataController_top #(SCSI_DEVS) dc0
 (
@@ -873,6 +995,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.selectASC(selectASC),
 	.cpuAddrASC(cpuAddr[12:0]),
 	.cpuBusControl(cpuBusControl),
+	.cpuSlotOwned(sdram_slot_cpu_rd),
 	.videoBusControl(videoBusControl),
 	.memoryDataOut(memoryDataOut),
 	.memoryDataIn(sdram_do),
@@ -905,6 +1028,9 @@ dataController_top #(SCSI_DEVS) dc0
 	.ascAudioLeft(asc_audio_l),
 	.ascAudioRight(asc_audio_r),
 	.dbg_asc_irq_n(dbg_asc_irq_n),
+	.dbg_via1_irq_n(dbg_via1_irq_n),
+	.dbg_via2_irq_n(dbg_via2_irq_n),
+	.dbg_scc_irq_n(dbg_scc_irq_n),
 
 	// floppy disk interface
 	.insertDisk({dsk_ext_ins, dsk_int_ins}),
@@ -934,6 +1060,10 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi3(dbg_scsi3),
 	.dbg_scsi4(dbg_scsi4),
 	.dbg_scsi5(dbg_scsi5),
+	.dbg_scsi_wr(dbg_scsi_wr),
+	.dbg_ncr(dbg_ncr),
+	.dbg_ncr2(dbg_ncr2),
+	.dbg_via2_irq(dbg_via2_irq),
 	.dbg_adb(dbg_adb),
 	.dbg_adb2(dbg_adb2),
 	.dbg_adb3(dbg_adb3),
@@ -955,6 +1085,10 @@ wire [15:0] dbg_scsi2;
 wire [15:0] dbg_scsi3;
 wire [15:0] dbg_scsi4;
 wire [15:0] dbg_scsi5;
+wire [31:0] dbg_scsi_wr;   // target0 multi-block write-stall snapshot
+wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
+wire [31:0] dbg_ncr2;
+wire [31:0] dbg_via2_irq;      // NCR5380 write loss-mechanism counters
 wire [31:0] dbg_adb;
 wire [17:0] dbg_adb2;
 wire [31:0] dbg_adb3;
@@ -1301,7 +1435,9 @@ dbg_min dbg_min_inst (
 	.selectNuBus    (selectNuBus),
 	.fpu_dsack0_n   (fpu_dsack0_n),
 	.fpu_dsack1_n   (fpu_dsack1_n),
-	.mac_dout_valid (arb_mac_dout_valid),
+	// Rewired 2026-06-10 to the slot-owned read-done flag (the signal that
+	// now gates DTACK); the arbiter's blind-counted valid is vestigial.
+	.mac_dout_valid (cpu_sdram_rd_done),
 	.video_en       (dbg_video_en),
 	.vram_wr_cnt    (dbg_vram_wr_cnt),
 	.vram_fetch_cnt (dbg_vram_fetch_cnt),
@@ -1316,6 +1452,10 @@ dbg_min dbg_min_inst (
 	.scsi_dbg3      (dbg_scsi3),
 	.scsi_dbg4      (dbg_scsi4),
 	.scsi_dbg5      (dbg_scsi5),
+	.scsi_dbg_wr    (dbg_scsi_wr),
+	.scsi_dbg_ncr   (dbg_ncr),
+	.scsi_dbg_ncr2  (dbg_ncr2),
+	.via2_irq_state (dbg_via2_irq),
 	.sd_buff_dout   (sd_buff_dout),
 	.sd_buff_addr   (sd_buff_addr),
 	.sd_buff_wr     (sd_buff_wr),
@@ -1323,6 +1463,8 @@ dbg_min dbg_min_inst (
 	.berr           (berr_out),
 	.ioctl_wr       (ioctl_write),
 	.ioctl_idx      (dio_index[7:0]),
+	.ioctl_addr     (ioctl_addr),
+	.ioctl_data     (ioctl_data),
 	.dbg_adb        (dbg_adb),
 	.dbg_adb2       (dbg_adb2),
 	.dbg_adb3       (dbg_adb3),
@@ -1346,7 +1488,16 @@ dbg_min dbg_min_inst (
 	.flp_track      (dbg_flp_track),
 	.flp_side       (dbg_flp_side),
 	.flp_step_cnt   (dbg_flp_step_cnt),
-	.cpu_dout       (cpuDataOut)
+	.cpu_dout       (cpuDataOut),
+	.cpu_din        (cpu_data_in),
+	.via1_irq_n     (dbg_via1_irq_n),
+	.via2_irq_n     (dbg_via2_irq_n),
+	.scc_irq_n      (dbg_scc_irq_n),
+	.selectSCC      (selectSCC),
+	.selectVIA      (selectVIA),
+	.selectVIA2     (selectVIA2),
+	.selectIWM      (selectIWM),
+	.fpu_dbg_cir_state(fpu_dbg_cir_state)
 );
 
 endmodule
