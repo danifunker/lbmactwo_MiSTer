@@ -228,6 +228,7 @@ localparam CONF_STR = {
 	"O6,Debug Overlay,Off,On;",
 	"O13,NuBus Video,Color,B&W;",
 	"-;",
+	"RE,Interrupt (NMI / MacsBug);",
 	"R0,Reset & Apply CPU+Memory;",
 	"-;",
 	"v,0;", // [optional] config version 0-99.
@@ -445,7 +446,8 @@ wire clk8_en_p, clk8_en_n;
 wire clk16_en_p, clk16_en_n;
 wire _cpuVMA, _cpuVPA, _cpuDTACK;
 wire E_rising, E_falling;
-wire [2:0] _cpuIPL;
+wire [2:0] _cpuIPL;       // final IPL to CPU (programmer's-switch NMI applied below)
+wire [2:0] _cpuIPL_dc;    // raw IPL from dataController (VIA1 / VIA2 / SCC)
 wire [2:0] cpuFC;
 wire [7:0] cpuAddrHi;
 wire [31:0] cpuAddr;
@@ -651,6 +653,34 @@ assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
                         ram_or_rom_dtack;
+
+// ── Programmer's switch / Level-7 NMI (debug aid, ported from MacLC) ────────
+// An OSD button (status[14], the "RE" momentary trigger) fires a non-maskable
+// Level-7 interrupt so MacsBug can break into a HUNG system — the core has no
+// other way in (it otherwise generates only IPL 1/2/4). The 68k takes the
+// level-7 autovector through the same FC=7/VPA path that already serves the
+// normal interrupts (selectFPU cycles are carved out and unaffected). The
+// latch clears on the level-7 IACK (addr[19:16]=$F, addr[3:1]=7) so it fires
+// exactly ONCE and never masks levels 1/2/4; a ~2 ms timeout backstop
+// releases it if the CPU can't ack (e.g. it is already running at mask 7).
+wire       nmi_iack  = (cpuFC == 3'b111) && !_cpuAS &&
+                       (cpuAddr[19:16] == 4'hF) && (cpuAddr[3:1] == 3'b111);
+reg        nmi_req   = 1'b0;
+reg        nmi_btn_d = 1'b0;
+reg [15:0] nmi_to    = 16'd0;
+always @(posedge clk_sys) begin
+	nmi_btn_d <= status[14];
+	if (status[14] && !nmi_btn_d) begin
+		nmi_req <= 1'b1;
+		nmi_to  <= 16'hFFFF;
+	end else if (nmi_req) begin
+		if (nmi_iack || nmi_to == 16'd0)
+			nmi_req <= 1'b0;
+		else
+			nmi_to <= nmi_to - 1'b1;
+	end
+end
+assign _cpuIPL = nmi_req ? 3'b000 : _cpuIPL_dc;
 
 // Debug LED tracking - extended duration for visibility
 reg [27:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
@@ -970,7 +1000,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.configRAMSize(configRAMSize),
 	._systemReset(n_reset),
 	._cpuReset(_cpuReset),
-	._cpuIPL(_cpuIPL),
+	._cpuIPL(_cpuIPL_dc),
 	._cpuUDS(_cpuUDS),
 	._cpuLDS(_cpuLDS),
 	._cpuRW(_cpuRW),
