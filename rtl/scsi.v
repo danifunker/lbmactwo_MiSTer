@@ -19,6 +19,7 @@ module scsi
 	output 	  io,
 
 	output 	  req,
+	output 	  req_bus,   // bus-visible REQ (stays up across HPS block fetches in data phases)
 	input 	  ack, // initiator acknowledges a request
 	input     host_csr_rd, // pulse: host read the Current SCSI Bus Status reg (REQ poll)
 	input     host_data_rd, // pulse: host read the SCSI data register via /DACK (next byte)
@@ -229,6 +230,21 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// `phase != PHASE_IDLE` already prevents REQ during the IDLE->selection
 	// sampling window, so REQ now comes up on selection like the references.
 	assign req = (phase != PHASE_IDLE) && !ack && !io_busy && !data_phase_complete;
+
+	// Bus-VISIBLE REQ (CSR bit 5 / BSR DRQ): stays asserted across the HPS
+	// 512-byte block-boundary fetches in the data phases. Real drives never
+	// drop REQ mid-command for ~ms, and both oracles guarantee the same
+	// observable (Snow pre-buffers whole responses; MAME synthesizes DRQ
+	// from its FIFO). The System-7-era HD SC 4.3 driver polls CSR/BSR
+	// between 512-byte pseudo-DMA chunks — when it saw our dead bus it
+	// concluded the transfer died and parked forever (the Welcome wedge at
+	// data_cnt=512). Flow control is unaffected: the DACK path still stalls
+	// the CPU via `req` (DTACK gate) until the buffer half is really valid,
+	// so a premature data access waits instead of reading stale bytes.
+	// Non-data phases keep the io_busy suppression (status byte must not
+	// be offered while a flush/fetch is still in flight).
+	assign req_bus = (phase != PHASE_IDLE) && !ack && !data_phase_complete &&
+	                 ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN) || !io_busy);
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -885,6 +901,7 @@ module scsi_empty_cd
 	output     cd,
 	output     io,
 	output     req,
+	output     req_bus,  // bus-visible REQ (no HPS backing here: identical to req)
 	input  [7:0] din,
 	output [7:0] dout,
 	output [15:0] dout_pair,
@@ -922,6 +939,7 @@ assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase =
 	wire data_done = data_complete || (data_len == 32'd0);
 	wire data_phase_complete = (phase == PHASE_DATA_OUT) && data_done;
 	assign req = (phase != PHASE_IDLE) && !ack && !data_phase_complete;
+	assign req_bus = req;   // no HPS backing: visible REQ == flow REQ
 assign bsy = (phase != PHASE_IDLE);
 assign dbg_phase = phase;
 

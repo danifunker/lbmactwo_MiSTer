@@ -369,7 +369,7 @@ module ncr5380
 	assign o_irq = irq_latch;
 
 	/* CSR (read only). We don't do parity */
-	assign csr = { scsi_rst, scsi_bsy, scsi_req, scsi_msg,
+	assign csr = { scsi_rst, scsi_bsy, scsi_req_bus, scsi_msg,
 	               scsi_cd, scsi_io, scsi_sel, 1'b0 };
 
 	/* Bus and Status register */
@@ -379,7 +379,7 @@ module ncr5380
 	 * chunks; the Snow oracle boots everything with exactly this rule.
 	 * (Real chip latches the EOP pin; we have no EOP.) */
 	wire bsr_eodma = ~(scsi_bsy & ~scsi_cd & ~scsi_msg);
-	wire bsr_dmarq = scsi_req & dma_en;
+	wire bsr_dmarq = scsi_req_bus & dma_en;
 	wire bsr_perr = 1'b0;	/* We don't do parity */
 	wire bsr_irq = irq_latch;
 	wire bsr_pmatch = 
@@ -414,6 +414,7 @@ module ncr5380
 
 	/* Mux target signals */
 	reg scsi_cd, scsi_io, scsi_msg, scsi_req;
+	reg scsi_req_bus;  // bus-visible REQ (no HPS-fetch dropouts in data phases)
 
 	always begin
 		integer i;
@@ -421,6 +422,7 @@ module ncr5380
 		scsi_io = 0;
 		scsi_msg = 0;
 		scsi_req = 0;
+		scsi_req_bus = 0;
 		din = 8'h00;
 		din_pair = 16'h0000;
 		din_pair_next = 16'h0000;
@@ -431,6 +433,7 @@ module ncr5380
 				scsi_io = target_io[i];
 				scsi_msg = target_msg[i];
 				scsi_req = target_req[i];
+				scsi_req_bus = target_req_bus[i];
 				din = target_dout[i];
 				din_pair = target_dout_pair[i];
 				din_pair_next = target_dout_pair_next[i];
@@ -442,6 +445,7 @@ module ncr5380
 			scsi_io = empty_cd_io;
 			scsi_msg = empty_cd_msg;
 			scsi_req = empty_cd_req;
+			scsi_req_bus = empty_cd_req_bus;
 			din = empty_cd_dout;
 			din_pair = empty_cd_dout_pair;
 			din_pair_next = empty_cd_dout_pair_next;
@@ -477,6 +481,7 @@ module ncr5380
 	wire [DEVS-1:0] target_io;
 	wire [DEVS-1:0] target_cd;
 	wire [DEVS-1:0] target_req;
+	wire [DEVS-1:0] target_req_bus;  // bus-visible REQ (continuity across HPS fetches)
 	wire      [7:0] target_dout[DEVS];
 	wire     [15:0] target_dout_pair[DEVS];
 	wire     [15:0] target_dout_pair_next[DEVS];
@@ -488,6 +493,7 @@ module ncr5380
 	wire empty_cd_io;
 	wire empty_cd_cd;
 	wire empty_cd_req;
+	wire empty_cd_req_bus;
 	wire [7:0] empty_cd_dout;
 	wire [15:0] empty_cd_dout_pair;
 	wire [15:0] empty_cd_dout_pair_next;
@@ -506,6 +512,7 @@ module ncr5380
 		.cd     ( empty_cd_cd   ),
 		.io     ( empty_cd_io   ),
 		.req    ( empty_cd_req  ),
+		.req_bus( empty_cd_req_bus ),
 		.dout   ( empty_cd_dout ),
 		.dout_pair ( empty_cd_dout_pair ),
 		.dout_pair_next ( empty_cd_dout_pair_next ),
@@ -536,6 +543,7 @@ module ncr5380
 				.cd     ( target_cd[i]   ),
 				.io     ( target_io[i]   ),
 				.req    ( target_req[i]  ),
+				.req_bus( target_req_bus[i] ),
 				.dout   ( target_dout[i] ),
 				.dout_pair ( target_dout_pair[i] ),
 				.dout_pair_next ( target_dout_pair_next[i] ),
