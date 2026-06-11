@@ -244,15 +244,14 @@ module dbg_min (
     always @(posedge clk)
         scsi_r <= {sdwr_seen, sdrd_seen, img_seen, 1'b0, scsi_last_reg, scsi_last_rd};
 
-    // PSCS disabled to free fit budget for PIRQ (per-source IRQ counters).
-    // The "last SCSI read" diagnosis isn't load-bearing for the post-Phase-1
-    // busy-loop investigation.
-    // altsource_probe #(
-    //     .instance_id ("PSCS"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSCS RE-ENABLED 2026-06-10d for the Welcome READ(10) wedge: shows which
+    // SCSI register the driver's poll loop reads and the VALUE it receives.
+    altsource_probe #(
+        .instance_id ("PSCS"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pscs (.probe(scsi_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // NCR5380 selection diagnosis.
     //   sel_ids     : sticky OR of every ID byte driven while SEL asserted
@@ -377,15 +376,15 @@ module dbg_min (
     initial begin pswl_r = 32'd0; end
     always @(posedge clk)
         pswl_r <= scsi_dbg_ncr2;
-    // PSWL disabled 2026-06-10c — freed the JTAG slot for PSC3 (empty-CD phase
-    // visibility). The loss-mechanism question is answered: blind_wr_count==0,
-    // the Mac honors DREQ; req_drop_count is just HPS flush throttling.
-    // altsource_probe #(
-    //     .instance_id ("PSWL"),
-    //     .probe_width (32),
-    //     .source_width(1),
-    //     .sld_auto_instance_index ("YES")
-    // ) cp_pswl (.probe(pswl_r), .source(), .source_clk(clk), .source_ena(1'b1));
+    // PSWL RE-ENABLED 2026-06-10d. dbg_ncr2[15:8] now carries the 5380
+    // IRQ-machine live state: [13]=irq_latch [12]=dma_armed [11]=bsr_eodma
+    // [10]=dreq [9]=bsr_pmatch [8]=dma_en; [7:0]=blind_wr_count(low8).
+    altsource_probe #(
+        .instance_id ("PSWL"),
+        .probe_width (32),
+        .source_width(1),
+        .sld_auto_instance_index ("YES")
+    ) cp_pswl (.probe(pswl_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
     // Per-target REQ/ACK observations (sticky, from scsi.v dbg_hs).
     reg [31:0] scsi4_r;

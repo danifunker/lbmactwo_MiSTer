@@ -273,8 +273,15 @@ for {set s 1} {$s <= 6} {incr s} {
         set img  [expr {($sc >> 24) & 0x3}]
         set sdrd [expr {($sc >> 26) & 0x3}]
         set sdwr [expr {($sc >> 28) & 0x3}]
-        puts [format "           SCSI: last_reg_off=0x%02X last_read=0x%04X | img_mounted_seen=%d sd_rd_seen=%d sd_wr_seen=%d" \
-            $sreg $rdv $img $sdrd $sdwr]
+        set regnum [expr {($sreg >> 4) & 0x7}]
+        set regnm "?"
+        switch $regnum {
+            0 {set regnm "CDR(data)"} 1 {set regnm "ICR"} 2 {set regnm "MR"}
+            3 {set regnm "TCR"} 4 {set regnm "CSR(bus-status)"} 5 {set regnm "BSR(dma-status)"}
+            6 {set regnm "IDR(input-data)"} 7 {set regnm "RESET-IRQ"}
+        }
+        puts [format "           SCSI-RD: last_reg_off=0x%02X (reg %u = %s) value=0x%04X | img_seen=%d sd_rd_seen=%d sd_wr_seen=%d" \
+            $sreg $regnum $regnm $rdv $img $sdrd $sdwr]
     }
     if {[info exists idx(PSC2)]} {
         set s2 [rd $idx(PSC2)]
@@ -354,7 +361,7 @@ for {set s 1} {$s <= 6} {incr s} {
         set bytes_w  [expr {$wrcnt*2}]
         puts [format "           NCR-DMA: dreq=%u scsi_req=%u scsi_ack=%u | dma_en=%u dma_ack=%u dma_ack_busy=%u holdoff=%u" \
             $dreq $sreq $sack $dmaen $dmaack $ackbusy $holdoff]
-        puts [format "                 mr_dma_mode=%u pmatch=%u word_l=%u long_l=%u long2nd=%u tcr=0x%X  dma_wr_count=%u (=%u B word / %u B longword)" \
+        puts [format "                 mr_dma_mode=%u pmatch=%u word_l=%u long_l=%u long2nd=%u tcr=0x%X  dma_rw_count=%u (rd+wr DACK pulses; =%u B word / %u B longword)" \
             $mrdma $pmatch $wordl $longl $long2nd $tcr $wrcnt $bytes_w $bytes_lw]
         if {$sreq==1 && $dreq==0 && $dmaen==0} {
             puts "                 => DREQ stopped because dma_en=0: the Mac CLEARED DMA mode (MR_DMA_MODE)"
@@ -367,18 +374,21 @@ for {set s 1} {$s <= 6} {incr s} {
     }
     if {[info exists idx(PSWL)]} {
         set wl [rd $idx(PSWL)]
-        set blindwr  [expr {$wl & 0xFFFF}]
+        set blindwr  [expr {$wl & 0xFF}]
+        set dmaen2   [expr {($wl >> 8) & 1}]
+        set pmatch2  [expr {($wl >> 9) & 1}]
+        set dreq2    [expr {($wl >> 10) & 1}]
+        set eodma    [expr {($wl >> 11) & 1}]
+        set armed    [expr {($wl >> 12) & 1}]
+        set irqlatch [expr {($wl >> 13) & 1}]
         set reqdrops [expr {($wl >> 16) & 0xFFFF}]
-        puts [format "           WR-LOSS: blind_wr_count=%u (i_dma_wr while DREQ=0)  req_drop_count=%u (REQ pauses during DMA)" \
-            $blindwr $reqdrops]
-        if {$blindwr > 0} {
-            puts "                 => blind_wr_count>0 CONFIRMS the Mac does BLIND pseudo-DMA writes (ignores DREQ)."
-            puts "                    Those $blindwr writes hit a 1-word NCR buffer with no flow control => bytes LOST."
-            puts "                    With req_drop_count=$reqdrops REQ pauses (HPS flushes), the loss correlates => fix = keep"
-            puts "                    the target accepting bytes across flushes (deeper write buffer / continuous REQ)."
-        } else {
-            puts "                 => blind_wr_count=0: the Mac is NOT blind-writing (it honors DREQ). The overrun must"
-            puts "                    come from DREQ asserting when it shouldn't — investigate the dreq/holdoff gating instead."
+        puts [format "           IRQ-MACHINE: irq_latch=%u dma_armed=%u eodma=%u dreq=%u pmatch=%u dma_en=%u | blind_wr(low8)=%u req_drop=%u" \
+            $irqlatch $armed $eodma $dreq2 $pmatch2 $dmaen2 $blindwr $reqdrops]
+        if {$irqlatch} {
+            puts "                 => 5380 IRQ LATCHED (phase-mismatch fired) — VIA2 CB2 flag should be set; if the"
+            puts "                    Mac still spins, it is not reading VIA2 IFR or the CB2 polarity/edge is wrong."
+        } elseif {$armed} {
+            puts "                 => DMA armed, no mismatch yet — transfer still in progress (or stalled mid-data)."
         }
     }
     if {[info exists idx(PSC4)]} {

@@ -60,6 +60,11 @@ module ncr5380
 	input         dma_longword,
 	input         dma_second_word,
 	output        dreq,
+	// Latched 5380 interrupt (phase-mismatch during armed DMA). On the Mac II
+	// this drives VIA2 CB2 (IFR bit 3); DREQ drives VIA2 CA2 (IFR bit 0). The
+	// HD SC 4.3 driver's async path SLEEPS on those VIA2 flags between
+	// pseudo-DMA chunks — without them it polls the IFR forever (Welcome wedge).
+	output        o_irq,
 	input  [15:0] wdata,
 	output [15:0] rdata,
 
@@ -101,10 +106,12 @@ module ncr5380
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
 	//   [11]=dma_word_latched [12]=dma_longword_latched [13]=longword_second_pending
-	//   [17:14]=tcr [31:18]=dma_wr_count (i_dma_wr pulses since selection)
+	//   [17:14]=tcr [31:18]=dma_wr_count (i_dma_wr OR i_dma_rd pulses — both
+	//   pseudo-DMA directions since 2026-06-10d)
 	output      [31:0] dbg_ncr,
-	// JTAG debug: write loss-mechanism confirmation.
-	//   [15:0]=blind_wr_count (i_dma_wr while dreq==0 => Mac wrote w/o DREQ = blind)
+	// JTAG debug: write loss-mechanism + IRQ-machine state (2026-06-10d).
+	//   [7:0]=blind_wr_count (i_dma_wr while dreq==0 => Mac wrote w/o DREQ = blind)
+	//   [13]=irq_latch [12]=dma_armed [11]=bsr_eodma [10]=dreq [9]=bsr_pmatch [8]=dma_en
 	//   [31:16]=req_drop_count (scsi_req 1->0 edges while dma_en — REQ pauses)
 	output      [31:0] dbg_ncr2
 );
@@ -321,16 +328,60 @@ module ncr5380
 		end
 	end
 
+	/* Latched 5380 interrupt + DMA-armed tracking (2026-06-10d).
+	 * Starting a DMA transfer (write to Start DMA Send / Start DMA Initiator
+	 * Receive) arms the phase-mismatch monitor; while MR.DMA_MODE is set and
+	 * armed, a FALLING edge of phase-match latches IRQ — this is how drivers
+	 * detect that a pseudo-DMA transfer ended (target moved to STATUS).
+	 * Reading the RESET PARITY/INTERRUPT register (reg 7) clears it.
+	 * Mirrors Snow controller.rs (IRQ on dma_armed && prev_pmatch && !pmatch).
+	 */
+	reg  irq_latch;
+	reg  dma_armed;
+	reg  pmatch_d;
+	wire rst_rd = bus_cs & ~dack & ior & (bus_rs == `RREG_RST);
+	reg  old_rst_rd;
+	always @(posedge clk or posedge reset) begin
+		if (reset) begin
+			irq_latch  <= 1'b0;
+			dma_armed  <= 1'b0;
+			pmatch_d   <= 1'b1;
+			old_rst_rd <= 1'b0;
+		end else begin
+			old_rst_rd <= rst_rd;
+			pmatch_d   <= bsr_pmatch;
+			if (!mr[`MR_DMA_MODE])
+				dma_armed <= 1'b0;
+			else if (reg_wr && (bus_rs == `WREG_DMAS || bus_rs == `WREG_IDMAR))
+				dma_armed <= 1'b1;
+			if (~old_rst_rd & rst_rd)
+				irq_latch <= 1'b0;
+			if (mr[`MR_DMA_MODE] && dma_armed && pmatch_d && !bsr_pmatch) begin
+				irq_latch <= 1'b1;
+				dma_armed <= 1'b0;
+			end
+			if (scsi_rst) begin
+				irq_latch <= 1'b0;
+				dma_armed <= 1'b0;
+			end
+		end
+	end
+	assign o_irq = irq_latch;
+
 	/* CSR (read only). We don't do parity */
 	assign csr = { scsi_rst, scsi_bsy, scsi_req, scsi_msg,
-	               scsi_cd, scsi_io, scsi_sel, 1'b0 };	
+	               scsi_cd, scsi_io, scsi_sel, 1'b0 };
 
 	/* Bus and Status register */
 	/* BSR (read only). We don't do a few things... */
-	wire bsr_eodma = 1'b0;	/* We don't do EOP */
+	/* End-of-DMA: Snow semantics — asserted whenever the bus is NOT in a
+	 * data phase (free/STATUS/MESSAGE). Drivers check this after pseudo-DMA
+	 * chunks; the Snow oracle boots everything with exactly this rule.
+	 * (Real chip latches the EOP pin; we have no EOP.) */
+	wire bsr_eodma = ~(scsi_bsy & ~scsi_cd & ~scsi_msg);
 	wire bsr_dmarq = scsi_req & dma_en;
 	wire bsr_perr = 1'b0;	/* We don't do parity */
-	wire bsr_irq = scsi_req & dma_en & ~bsr_pmatch;
+	wire bsr_irq = irq_latch;
 	wire bsr_pmatch = 
 	         tcr[`TCR_A_MSG] == scsi_msg &&
 	         tcr[`TCR_A_CD ] == scsi_cd  &&
@@ -554,10 +605,14 @@ module ncr5380
 	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:
 	// 2048 bytes => 512 longword / 1024 word / 2048 byte writes (cross-check vs
 	// dma_word/longword_latched).
+	// Counts BOTH pseudo-DMA directions since 2026-06-10d (was write-only):
+	// rising edges of i_dma_wr OR i_dma_rd — shows whether the host is
+	// actively consuming a read (DACK reads) during a stall.
 	reg [13:0] dma_wr_count;
 	always @(posedge clk) begin
 		if (reset) dma_wr_count <= 14'd0;
-		else if (~old_dma_wr & i_dma_wr) dma_wr_count <= dma_wr_count + 14'd1;
+		else if ((~old_dma_wr & i_dma_wr) | (~old_dma_rd & i_dma_rd))
+			dma_wr_count <= dma_wr_count + 14'd1;
 	end
 	assign dbg_ncr = { dma_wr_count, tcr[3:0], dma_longword_second_pending,
 	                   dma_longword_latched, dma_word_latched, bsr_pmatch,
@@ -580,11 +635,19 @@ module ncr5380
 			old_scsi_req_dbg <= 1'b0;
 		end else begin
 			old_scsi_req_dbg <= scsi_req;
-			if (~old_dma_wr & i_dma_wr & ~dreq) blind_wr_count <= blind_wr_count + 16'd1;
+			if (~old_dma_wr & i_dma_wr & ~dreq & (blind_wr_count != 16'hFFFF))
+				blind_wr_count <= blind_wr_count + 16'd1;
 			if (old_scsi_req_dbg & ~scsi_req & dma_en) req_drop_count <= req_drop_count + 16'd1;
 		end
 	end
-	assign dbg_ncr2 = { req_drop_count, blind_wr_count };
+	// [15:8] repurposed 2026-06-10d for the IRQ-machine live state (blind
+	// writes proved zero in validation, 8 bits of count suffice):
+	//   [15:14]=0 [13]=irq_latch [12]=dma_armed [11]=bsr_eodma [10]=dreq
+	//   [9]=bsr_pmatch [8]=dma_en
+	assign dbg_ncr2 = { req_drop_count,
+	                    2'b00, irq_latch, dma_armed, bsr_eodma, dreq,
+	                    bsr_pmatch, dma_en,
+	                    blind_wr_count[7:0] };
 
 	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
 

@@ -220,6 +220,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
+	// Latched 5380 interrupt → VIA2 CB2 (IFR bit 3); DREQ → VIA2 CA2 (IFR
+	// bit 0). Mac II wiring per Snow macii/via2.rs. Active-low into the VIA:
+	// the OS programs VIA2 PCR=0 (input, negative edge), so the flag latches
+	// on assertion. The HD SC 4.3 driver's async path sleeps on these flags
+	// between pseudo-DMA chunks — unwired, it polls the IFR forever (the
+	// Welcome wedge at every HPS 512-byte REQ pause).
+	wire scsiIRQ;
 	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
@@ -232,6 +239,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dma_longword(cpuLongword),
 		.dma_second_word(cpuAddrRegLo[0]),
 		.dreq(scsiDREQ),
+		.o_irq(scsiIRQ),
 		.wdata(cpuDataIn),
 		.rdata(scsiDataOut),
 
@@ -550,10 +558,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via2_ca1),
-		.ca2_i      (1'b1),      // CA2 not used
+		.ca2_i      (~scsiDREQ), // CA2: SCSI DRQ (IFR bit 0), falling edge on assert
 
 		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)
-		.cb2_i      (1'b1),      // CB2 not used
+		.cb2_i      (~scsiIRQ),  // CB2: SCSI IRQ (IFR bit 3), falling edge on assert
 		.cb2_o      (),
 		.cb2_t      (),
 
