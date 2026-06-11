@@ -28,7 +28,7 @@ for line in open(sys.argv[1]):
 if not words:
     sys.exit("no IFPAIR samples")
 
-print(f"=== {sum(c.total() for c in words.values())} IF samples, "
+print(f"=== {sum(sum(c.values()) for c in words.values())} IF samples, "
       f"{len(words)} distinct PCs ===")
 lo = min(words)
 hi = max(words)

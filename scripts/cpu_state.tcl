@@ -382,9 +382,11 @@ for {set s 1} {$s <= 6} {incr s} {
         set eodma    [expr {($wl >> 11) & 1}]
         set armed    [expr {($wl >> 12) & 1}]
         set irqlatch [expr {($wl >> 13) & 1}]
+        set reqbus2  [expr {($wl >> 14) & 1}]
+        set reqdefer [expr {($wl >> 15) & 1}]
         set reqdrops [expr {($wl >> 16) & 0xFFFF}]
-        puts [format "           IRQ-MACHINE: irq_latch=%u dma_armed=%u eodma=%u dreq=%u pmatch=%u dma_en=%u | blind_wr(low8)=%u req_drop=%u" \
-            $irqlatch $armed $eodma $dreq2 $pmatch2 $dmaen2 $blindwr $reqdrops]
+        puts [format "           IRQ-MACHINE: irq_latch=%u dma_armed=%u eodma=%u dreq=%u pmatch=%u dma_en=%u req_bus=%u req_DEFERRED=%u | blind_wr(low8)=%u req_drop=%u" \
+            $irqlatch $armed $eodma $dreq2 $pmatch2 $dmaen2 $reqbus2 $reqdefer $blindwr $reqdrops]
         if {$irqlatch} {
             puts "                 => 5380 IRQ LATCHED (phase-mismatch fired) — VIA2 CB2 flag should be set; if the"
             puts "                    Mac still spins, it is not reading VIA2 IFR or the CB2 polarity/edge is wrong."

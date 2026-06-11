@@ -368,8 +368,41 @@ module ncr5380
 	end
 	assign o_irq = irq_latch;
 
+	/* Deferred bus-visible REQ (Snow controller.rs `set_req` semantics).
+	 * The SCSI Manager's between-chunk settle loop (decoded live from the
+	 * System's polled TIB engine, RAM 0x1120A: `btst #5,CSR / beq exit /
+	 * btst #3,BSR / bne loop`) exits only when a CSR read returns REQ=0.
+	 * On a real 5380 + drive the per-byte handshake gives it that window;
+	 * Snow instead DEFERS every REQ assertion until the next CSR read
+	 * ("MacII has a race condition where it will get stuck if REQ is
+	 * immediately set on a Data -> Status transition"). Mirror Snow: when
+	 * bus-visible REQ rises, hide it from CSR until one full CSR read
+	 * completes (that read returns REQ=0 and disarms; the next shows 1).
+	 * BSR.DRQ is NOT deferred (Snow's get_drq includes the pending REQ),
+	 * so DRQ-polled transfer loops and DACK pacing are unaffected.
+	 */
+	reg req_deferred;
+	reg old_req_bus_d;
+	reg old_csr_rd_d;
+	always @(posedge clk or posedge reset) begin
+		if (reset) begin
+			req_deferred  <= 1'b0;
+			old_req_bus_d <= 1'b0;
+			old_csr_rd_d  <= 1'b0;
+		end else begin
+			old_req_bus_d <= scsi_req_bus;
+			old_csr_rd_d  <= csr_rd;
+			if (~old_req_bus_d & scsi_req_bus)
+				req_deferred <= 1'b1;       // new REQ: hidden until a CSR read
+			else if (req_deferred & old_csr_rd_d & ~csr_rd)
+				req_deferred <= 1'b0;       // CSR read completed: reveal REQ
+			if (!scsi_req_bus)
+				req_deferred <= 1'b0;
+		end
+	end
+
 	/* CSR (read only). We don't do parity */
-	assign csr = { scsi_rst, scsi_bsy, scsi_req_bus, scsi_msg,
+	assign csr = { scsi_rst, scsi_bsy, scsi_req_bus & ~req_deferred, scsi_msg,
 	               scsi_cd, scsi_io, scsi_sel, 1'b0 };
 
 	/* Bus and Status register */
@@ -653,8 +686,8 @@ module ncr5380
 	//   [15:14]=0 [13]=irq_latch [12]=dma_armed [11]=bsr_eodma [10]=dreq
 	//   [9]=bsr_pmatch [8]=dma_en
 	assign dbg_ncr2 = { req_drop_count,
-	                    2'b00, irq_latch, dma_armed, bsr_eodma, dreq,
-	                    bsr_pmatch, dma_en,
+	                    req_deferred, scsi_req_bus, irq_latch, dma_armed,
+	                    bsr_eodma, dreq, bsr_pmatch, dma_en,
 	                    blind_wr_count[7:0] };
 
 	assign dbg_scsi3 = { target_hs[1], target_hs[0] };
