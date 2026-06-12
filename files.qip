@@ -29,3 +29,4 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/vram_ram.sv
 set_global_assignment -name QIP_FILE rtl/mc68881/mc68881.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/asc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE LBMacTwo.sv
+set_global_assignment -name SDC_FILE LBMacTwo.sdc
