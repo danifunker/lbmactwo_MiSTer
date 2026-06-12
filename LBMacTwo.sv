@@ -219,7 +219,7 @@ localparam CONF_STR = {
 	"-;",
 	"SC0,IMGVHDHDA,Mount SCSI-6;",
 	"SC1,IMGVHDHDA,Mount SCSI-5;",
-	"SC2,NVR,Mount PRAM;",
+	"SC2,NVR,Mount PRAM (reboots);",
 	"-;",
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
@@ -446,12 +446,22 @@ always @(posedge clk_sys) begin
 
 		// event latches
 		if (img_mounted[VD_PRAM] && !old_mnt2) begin
-			pram_ena <= (img_size != 0);
-			if (img_size != 0) begin
+			// Only accept a real PRAM image: a .NVR is exactly 512 bytes
+			// (allow a little slack). Anything big is a DISK mounted into
+			// the PRAM slot by accident (e.g. an old .mgl with type="s"
+			// index="2" — iotest.mgl does this): loading it would feed
+			// garbage PRAM, and the OSD-open flush would overwrite its
+			// sector 0 (the Driver Descriptor Map) with PRAM bytes =
+			// instant disk corruption. Refuse: no load, never flushed,
+			// boot released immediately.
+			if (img_size != 0 && img_size <= 64'd4096) begin
+				pram_ena          <= 1'b1;
 				pram_load_pending <= 1'b1;        // load runs -> P_LD_B1 sets pram_ready
 				pram_late_load    <= pram_ready;  // boot already released? reboot after load
+			end else begin
+				pram_ena   <= 1'b0;               // unmount report / not a PRAM image
+				pram_ready <= 1'b1;               // release the boot now
 			end
-			else pram_ready <= 1'b1;              // unmount report: release the boot now
 		end
 		if (OSD_STATUS && !old_osd && pram_dirty && pram_ena) pram_flush_pending <= 1'b1;
 		if (status[15] && !old_rstpram) pram_clr_pending <= 1'b1;
