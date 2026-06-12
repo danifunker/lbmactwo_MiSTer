@@ -144,7 +144,9 @@ module scc
 	reg		eom_latch_b;
 	reg		tx_empty_latch_a;
 	reg		tx_empty_latch_b;
-	/* Sync/Hunt latches (RR0 bit 4) - receiver in hunt mode = line idle */
+	/* Sync/Hunt latches (RR0 bit 4) - receiver in hunt mode = line idle.
+	 * Load-bearing for 7.x AppleTalk boot - see the DO NOT "CLEAN UP" block
+	 * at the RR0 assembly + docs/advisory_scc_localtalk_2026-06-12.md. */
 	reg		sync_hunt_a;
 	reg		sync_hunt_b;
 	wire		cts_ip_a;
@@ -795,6 +797,28 @@ module scc
 	end
 `endif
 	/* RR0 */
+	/* ============================ DO NOT "CLEAN UP" ============================
+	 * Three RR0 bits below are LOAD-BEARING for every System 7.x boot with
+	 * AppleTalk enabled in PRAM (the LAP Manager .MPP lapENQ transmit worker
+	 * polls them; docs/advisory_scc_localtalk_2026-06-12.md, MAME-validated):
+	 *
+	 *   bit 4 Sync/Hunt  (sync_hunt_*) — gate at worker entry: btst #4. Must
+	 *         read 1 on an idle line ("receiver hunting") or every LLAP send
+	 *         takes the defer path and parks the boot on an SCC ext/status
+	 *         interrupt this core never raises -> unbounded "Welcome to
+	 *         Macintosh" / INIT-parade hang (the 0xA44C4 ltlk wedge).
+	 *   bit 6 Tx Underrun/EOM (eom_latch_*) — must SET on transmit underrun
+	 *         (shifter+buffer empty after WR0=$C0 reset), or the frame-tail
+	 *         poll deadlocks the same way.
+	 *   bit 2 Tx Empty (tx_empty_latch_*) — must be truthful; forcing it 0
+	 *         (old MacLC post-loopback hack) deadlocks the per-byte poll.
+	 *
+	 * MacLC's scc.v diverged here once (datasheet-async-purity cleanup,
+	 * a89c671 era) and wedged 7.x boot forever; it re-converged to THIS file's
+	 * semantics 2026-06-12. This scc.v is the canonical copy — port changes
+	 * both ways deliberately, and smoke-test a 7.x boot before shipping SCC
+	 * changes.
+	 * ========================================================================= */
 	assign rr0_a = { 1'b0, /* Break */
 			 eom_latch_a, /* Tx Underrun/EOM - use latch instead of hardcoded 1 */
 			 1'b1, /* CTS - hardcode to 1 (always ready) for now */
@@ -1194,6 +1218,7 @@ end
 			// ltlk's SDLC end-of-frame poll clears the latch (WR0=$C0) then
 			// spins with no timeout until it sets again; a latch that never
 			// sets wedges LocalTalk transmit (and System 7 boot).
+			// MAME-validated on MacLC: docs/advisory_scc_localtalk_2026-06-12.md
 			if (!tx_busy_a && !tx_buffer_full_a) begin
 				eom_latch_a <= 1'b1;
 			end
