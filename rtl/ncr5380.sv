@@ -704,7 +704,10 @@ module ncr5380
 	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
 	// JTAG In-System Source/Probe primitives are Altera/Quartus-only; exclude
 	// them from the Verilator build (SIMULATION) so the sim still elaborates.
-`ifndef SIMULATION
+	// Gated on DBG_PROBES (left undefined in production) so the ISSP footprint
+	// is stripped from normal hardware builds too — matches the top-level
+	// dbg_min gate in LBMacTwo.sv. Define DBG_PROBES to re-enable for HW debug.
+`ifdef DBG_PROBES
 	altsource_probe #(
 		.instance_id ("PWR2"),
 		.probe_width (32),

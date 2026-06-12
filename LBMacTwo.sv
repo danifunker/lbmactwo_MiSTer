@@ -1707,6 +1707,11 @@ sdram_arbiter arbiter (
 );
 
 // Minimal JTAG CPU-state probes to diagnose the early-boot hang.
+// Stripped from production builds: `DBG_PROBES is left undefined so the ISSP
+// instrumentation — and, importantly, its timing-closure footprint — is removed
+// from the bitstream. Re-enable for hardware debug by defining DBG_PROBES (e.g.
+// a qsf `set_global_assignment -name VERILOG_MACRO "DBG_PROBES=1"`).
+`ifdef DBG_PROBES
 dbg_min dbg_min_inst (
 	.clk            (clk_sys),
 	.cpuAddr        (cpuAddr),
@@ -1786,5 +1791,6 @@ dbg_min dbg_min_inst (
 	.selectIWM      (selectIWM),
 	.fpu_dbg_cir_state(fpu_dbg_cir_state)
 );
+`endif
 
 endmodule
