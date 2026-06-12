@@ -1,9 +1,13 @@
 # Handoff: PRAM persistence, MDC824 8bpp + 512x384, SCSI inquiry strings
 
-**Date:** 2026-06-11 · **Branch:** `7-1-2-boot-working`
-**Status:** RTL complete, Verilator-linted, Quartus elaboration checked.
-**NOT yet hardware-validated** — needs a full 35–65 min bitstream build + boot
-test on the DE10-Nano. This doc is the test plan + the things to watch.
+**Date:** 2026-06-11 (updated 2026-06-12) · **Branch:** `7-1-2-boot-working`
+**Status:** RTL complete; **built clean 2026-06-12 (RBF md5 `8262e433`,
+LABs 4125/4191, ALMs 85%, RAM 491/553) and deployed to
+`/media/fat/_Unstable/LBMacTwo.rbf`**. A blank 512-byte
+`/media/fat/games/LBMacTwo/pram.NVR` was pre-created for the PRAM mount.
+**Boot/feature validation on the DE10-Nano still pending** — this doc is the
+test plan + the things to watch. (The first 2026-06-12 build failed to fit by
+18 LABs; see the UPDATE in §2 for the root cause and fix, commit `26ae82e`.)
 
 ---
 
@@ -84,20 +88,42 @@ is a 1.2 MB framebuffer — that needs the SDRAM framebuffer path back.
 
 ## 2. Build-time checks (do these on the next Quartus compile)
 
+**2026-06-12 UPDATE — first build FAILED to fit: 4209 LABs needed / 4191 in
+the device.** Root cause (from the map report, not the features themselves):
+`rtc:pram` never inferred as RAM — 2347 ALUTs + 2145 registers of fabric for
+the 256-byte array (reads/writes scattered through the protocol case + the
+async save port), and the new `pram_buf[0:255]` byte staging array (async
+readback muxes) had the same disease, while 64 M10K blocks sat free. Fixed in
+commit `26ae82e`: both arrays restructured into canonical BRAM templates —
+rtc `pram[]` is a true-dual-port M10K (port A = serial engine with a 2-clock
+read-commit pipeline + 1-clock `ser_we` write pulse; port B = host load
+write / save read on one shared address), and the staging buffer is now
+`pram_buf16[0:127]` (128x16, single write port + single registered read port,
+scsi_dpram's proven 1-cycle hps_io readback latency). `pram_save_data` is now
+**registered (valid 2 clocks after the address)** — the save FSM is a 3-state
+issue/wait/capture loop per byte. No Mac-visible protocol or .NVR format
+change.
+
 1. **RBF md5 changed** vs `af36828` baseline (see
    `project_incremental_compile_drops_changes` memory — confirm the build
    picked the edits up).
 2. **fit.rpt: `vram_ram:vram_inst` must show 3,145,728 bits / 384 M10K.**
-   History: a 256 KB attempt was once *duplicated* by the M10K mapper
-   (2 reads + 1 write → two arrays) and overflowed the device. The current
-   template mapped 128 KB to exactly 128 blocks (no duplication) — verify the
-   same at 384. If it duplicates: restructure port A to the canonical
-   TDP-old-data template with an external write-through bypass mux, or step
-   down to 320 KB (163840 words, still covers 8bpp@640x480).
-3. Total M10K should land ≈ 489/553; ALMs were 87% before this change (the
-   new logic is small: PRAM FSM + muxes). Watch routing/timing — if the fit
+   (The 2026-06-12 map confirmed exactly 3,145,728 bits, no duplication.)
+3. **map/fit.rpt: `rtc:pram` must show 2,048 block memory bits** (one M10K)
+   and a few-dozen ALUTs, NOT ~2347 ALUTs / 2145 regs. Likewise the
+   `pram_buf16` staging RAM (2,048 bits) at the `emu` level. If either falls
+   back to logic again, the LAB overflow returns.
+4. **Fitter LABs ≤ 4191.** The M10K conversion frees roughly 300+ LABs of
+   register/mux pressure, so there should now be real headroom.
+5. Total M10K should land ≈ 490/553; watch routing/timing — if the fit
    degrades the FPU paths further, that interacts with the **paused FPU
    timing-closure work** (`docs/handoff_fpu_timing_closure_2026-06-10.md`).
+6. Future LAB headroom if ever needed again: the MDC824 CLUT (256x24,
+   ~6K registers + async read mux in `nubus_video_mdc824.sv`) could move to
+   M10K the same way, BUT its read is in the per-pixel path — it needs a
+   pipeline stage added to the video output (and matched sync/DE delay), so
+   it is NOT a mechanical change. Also `dbg_min` probes (~633 ALUTs/1621
+   regs) can be trimmed if debugging is done.
 
 ## 3. Hardware test plan
 
