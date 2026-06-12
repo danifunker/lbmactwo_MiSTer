@@ -72,6 +72,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// RTC
 	input [32:0] timestamp,
 
+	// PRAM persistence passthrough (LBMacTwo.sv PRAM FSM <-> rtc pram[])
+	input        pram_load_wr,
+	input  [7:0] pram_load_addr,
+	input  [7:0] pram_load_data,
+	input  [7:0] pram_save_addr,
+	output [7:0] pram_save_data,
+	output       pram_wr_stb,
+
 	// video:
 	output pixelOut,
 	input _hblank,
@@ -592,7 +600,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.ck         (rtcck),
 		.dat_i      (rtcdat_i),
 		.dat_o      (rtcdat_o),
-		.cko        (rtc_cko)
+		.cko        (rtc_cko),
+
+		.pram_load_wr   (pram_load_wr),
+		.pram_load_addr (pram_load_addr),
+		.pram_load_data (pram_load_data),
+		.pram_save_addr (pram_save_addr),
+		.pram_save_data (pram_save_data),
+		.pram_wr_stb    (pram_wr_stb)
 	);
 
 	wire _ADBint;

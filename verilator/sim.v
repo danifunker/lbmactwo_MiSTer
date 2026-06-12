@@ -700,7 +700,7 @@ module emu
 	wire        sim_vram_scan_rd;
 	wire [15:0] sim_vram_scan_data;
 
-	vram_ram #(.AW(16)) sim_vram_inst (   // 2^16 words = 128 KB (matches hardware)
+	vram_ram #(.WORDS(196608)) sim_vram_inst (   // 384 KB (matches hardware)
 		.clk    (clk_sys),
 		// Port A — CPU read/write (card FSM)
 		.addr   (sim_vram_addr),
@@ -750,6 +750,7 @@ module emu
 
 		.overlay_en(1'b0),
 		.monochrome(1'b0),
+		.monitor_512(1'b0),   // sim always models the 640x480 13" monitor
 
 		.ioctl_wr(ioctl_wr),
 		.ioctl_addr(ioctl_addr),
@@ -811,6 +812,14 @@ module emu
 		.serialRTS(serialRTS),
 
 		.timestamp(timestamp),
+
+		// PRAM persistence: no HPS NVRAM image in sim — tie off
+		.pram_load_wr(1'b0),
+		.pram_load_addr(8'd0),
+		.pram_load_data(8'd0),
+		.pram_save_addr(8'd0),
+		.pram_save_data(),
+		.pram_wr_stb(),
 
 		._hblank(_hblank),
 		._vblank(_vblank),

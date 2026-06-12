@@ -36,7 +36,16 @@ module rtc (
 	input         ck,
 	input         dat_i,
 	output reg    dat_o,
-	output reg    cko
+	output reg    cko,
+
+	// PRAM persistence: host-side access for the HPS NVRAM image
+	// (load/save FSM in LBMacTwo.sv, MacLC-style "Mount PRAM" slot).
+	input         pram_load_wr,    // pulse: pram[pram_load_addr] <= pram_load_data
+	input   [7:0] pram_load_addr,
+	input   [7:0] pram_load_data,
+	input   [7:0] pram_save_addr,  // async read port for the save path
+	output  [7:0] pram_save_data,
+	output reg    pram_wr_stb      // pulse: the Mac wrote a PRAM byte (image dirty)
 );
 
 reg   [2:0] bit_cnt;
@@ -58,6 +67,11 @@ reg         writeprotect;
 
 // 256-byte XPRAM
 reg   [7:0] pram[256];
+
+// Save path: combinational read from a host-registered address
+// (the PRAM FSM in LBMacTwo.sv registers the address one cycle ahead,
+// same contract as MacLC's egret_wrapper pram_save_data).
+assign pram_save_data = pram[pram_save_addr];
 
 // Initialize PRAM with Mac II defaults
 integer i;
@@ -118,6 +132,8 @@ wire [4:0] scmd = cmd0[6:2];
 wire [7:0] ext_addr = {cmd0[2:0], cmd1[6:2]};
 
 always @(posedge clk) begin
+	pram_wr_stb <= 1'b0;   // default; pulsed below on Mac-side PRAM writes
+
 	if (reset) begin
 		bit_cnt <= 0;
 		receiving <= 1;
@@ -242,11 +258,17 @@ always @(posedge clk) begin
 												5'h01, 5'h05: secs[15:8]  <= byte_in;
 												5'h02, 5'h06: secs[23:16] <= byte_in;
 												5'h03, 5'h07: secs[31:24] <= byte_in;
-												5'h08, 5'h09, 5'h0A, 5'h0B: pram[{3'b000, scmd}] <= byte_in;
+												5'h08, 5'h09, 5'h0A, 5'h0B: begin
+													pram[{3'b000, scmd}] <= byte_in;
+													pram_wr_stb <= 1'b1;
+												end
 												5'h10, 5'h11, 5'h12, 5'h13,
 												5'h14, 5'h15, 5'h16, 5'h17,
 												5'h18, 5'h19, 5'h1A, 5'h1B,
-												5'h1C, 5'h1D, 5'h1E, 5'h1F: pram[{3'b000, scmd}] <= byte_in;
+												5'h1C, 5'h1D, 5'h1E, 5'h1F: begin
+													pram[{3'b000, scmd}] <= byte_in;
+													pram_wr_stb <= 1'b1;
+												end
 												default: ;
 											endcase
 										end
@@ -261,9 +283,17 @@ always @(posedge clk) begin
 							end
 
 								2'd2: begin
-									// Third byte - extended write data
+									// Third byte - extended write data.
+									// Write-protect gates XPRAM writes too (MAME
+									// macrtc.cpp blocks all i!=13 writes; Snow
+									// rtc.rs checks writeprotect on the extended
+									// path) - only the WP register itself is
+									// always writable.
 									cmd_bytes <= 3;
-									pram[ext_addr] <= byte_in;
+									if (!writeprotect) begin
+										pram[ext_addr] <= byte_in;
+										pram_wr_stb <= 1'b1;
+									end
 `ifdef SIMULATION
 									if ($test$plusargs("rtc_debug"))
 										$display("[RTC_WR_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h wp=%b",
@@ -279,6 +309,13 @@ always @(posedge clk) begin
 			end
 		end
 	end
+
+	// Host-side PRAM image load ("Mount PRAM" FSM in LBMacTwo.sv; also the
+	// OSD PRAM-reset clear). Placed after the serial path so a same-cycle
+	// host write wins; deliberately outside the reset branch — the mounted
+	// image loads exactly while the system is still held in reset.
+	if (pram_load_wr)
+		pram[pram_load_addr] <= pram_load_data;
 end
 
 endmodule
