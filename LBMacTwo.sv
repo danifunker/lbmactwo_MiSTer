@@ -379,11 +379,40 @@ assign sd_lba[VD_PRAM] = 32'd0;             // single 512B sector at LBA 0
 assign sd_rd [VD_PRAM] = pram_rd;
 assign sd_wr [VD_PRAM] = pram_wr_req;
 
-reg  [7:0] pram_buf[0:255];                 // staging buffer <-> SD sector
-// FPGA->HPS readback during save: 16-bit word = {odd byte, even byte}; pad.
-assign sd_buff_din[VD_PRAM] = (sd_buff_addr < 8'd128)
-        ? {pram_buf[{sd_buff_addr[6:0],1'b1}], pram_buf[{sd_buff_addr[6:0],1'b0}]}
-        : 16'h0000;
+localparam [3:0] P_IDLE=0, P_LD_RD=1, P_LD_DAT=2, P_LD_ADDR=3,
+                 P_FILL=4, P_SV_WR=5, P_SV_DAT=6, P_CLR=7, P_RST=8,
+                 P_LD_B0=9, P_LD_B1=10, P_FILL2=11, P_FILL3=12;
+reg  [3:0] pst;
+reg  [8:0] pcnt;
+reg  [6:0] rst_hold;
+
+// Staging buffer <-> SD sector: 128x16 BRAM words, word = {odd byte, even
+// byte}. NOT a byte array — the old reg[7:0] buf[0:255] with async reads
+// cost ~2K registers + wide muxes and helped blow the 2026-06-12 LAB
+// budget. Single write port (SD capture / save pack / PRAM clear are
+// mutually exclusive in time) + single registered read port shared by the
+// HPS readback and the load FSM — the same 1-cycle readback latency
+// scsi_dpram already proves against hps_io on the SCSI save path.
+(* ramstyle = "no_rw_check" *) reg [15:0] pram_buf16[0:127];
+reg [15:0] pbuf_q;
+reg  [7:0] fill_lo;        // even-byte latch while packing save words
+
+// read port (load FSM states steal the address; HPS only reads during save)
+wire pram_loading = (pst == P_LD_ADDR) || (pst == P_LD_B0) || (pst == P_LD_B1);
+wire [6:0] pbuf_raddr = pram_loading ? pcnt[7:1] : sd_buff_addr[6:0];
+always @(posedge clk_sys)
+	pbuf_q <= pram_buf16[pbuf_raddr];
+assign sd_buff_din[VD_PRAM] = (sd_buff_addr < 8'd128) ? pbuf_q : 16'h0000;
+
+// write port
+always @(posedge clk_sys) begin
+	if (pram_ack && sd_buff_wr && sd_buff_addr < 8'd128)
+		pram_buf16[sd_buff_addr[6:0]] <= sd_buff_dout;             // SD capture
+	else if (pst == P_FILL3 && pcnt[0])
+		pram_buf16[pcnt[7:1]] <= {pram_save_data, fill_lo};        // save pack
+	else if (pst == P_CLR)
+		pram_buf16[pcnt[7:1]] <= 16'h0000;                         // PRAM reset
+end
 
 reg        pram_ena;                        // a save image is mounted (size>0)
 reg        pram_dirty;                      // PRAM changed since last save
@@ -393,12 +422,6 @@ reg        old_pack, old_osd, old_mnt2, old_rstpram;
 reg        pram_ready;        // releases n_reset: pram[] loaded (or no image / timed out)
 reg [31:0] pram_rdy_cnt;      // ready backstop so a missing image never hangs boot
 reg        pram_force_reset;  // "Reset PRAM & Core" -> system reset pulse
-
-localparam [3:0] P_IDLE=0, P_LD_RD=1, P_LD_DAT=2, P_LD_CPY=3,
-                 P_FILL=4, P_SV_WR=5, P_SV_DAT=6, P_CLR=7, P_RST=8;
-reg  [3:0] pst;
-reg  [8:0] pcnt;
-reg  [6:0] rst_hold;
 
 always @(posedge clk_sys) begin
 	if (~pll_locked) begin
@@ -413,12 +436,8 @@ always @(posedge clk_sys) begin
 		old_mnt2    <= img_mounted[VD_PRAM];
 		old_rstpram <= status[15];
 		pram_load_wr <= 1'b0;                  // default low; pulsed in copy/clear
-
-		// PRAM SD-read capture (only while HPS services our slot)
-		if (pram_ack && sd_buff_wr && sd_buff_addr < 8'd128) begin
-			pram_buf[{sd_buff_addr[6:0],1'b0}] <= sd_buff_dout[7:0];
-			pram_buf[{sd_buff_addr[6:0],1'b1}] <= sd_buff_dout[15:8];
-		end
+		// (SD-sector capture into pram_buf16 lives in the dedicated BRAM
+		// write-port block above, not here.)
 
 		// Mac-side clock-chip PRAM writes mark the image dirty
 		if (pram_wr_stb) pram_dirty <= 1'b1;
@@ -461,23 +480,43 @@ always @(posedge clk_sys) begin
 			end
 		end
 
-		// ---- LOAD: SD sector -> pram_buf -> rtc pram[] ----
+		// ---- LOAD: SD sector -> pram_buf16 -> rtc pram[] (2 bytes/word) ----
+		// pbuf_q is a registered BRAM read: P_LD_ADDR presents the word
+		// address, the data is valid one state later, then the two bytes
+		// stream into the rtc load port. pcnt stays byte-granular (+2/word).
 		P_LD_RD:  if (pram_ack) begin pram_rd <= 1'b0; pst <= P_LD_DAT; end
-		P_LD_DAT: if (old_pack && !pram_ack) begin pcnt <= 0; pst <= P_LD_CPY; end
-		P_LD_CPY: begin
+		P_LD_DAT: if (old_pack && !pram_ack) begin pcnt <= 0; pst <= P_LD_ADDR; end
+		P_LD_ADDR: pst <= P_LD_B0;                 // pbuf_q latches this edge
+		P_LD_B0: begin                             // even byte = low half
 			pram_load_wr   <= 1'b1;
-			pram_load_addr <= pcnt[7:0];
-			pram_load_data <= pram_buf[pcnt[7:0]];
-			if (pcnt == 9'd255) begin pram_dirty <= 0; pram_ena <= 1; pram_ready <= 1'b1; pst <= P_IDLE; end
-			else pcnt <= pcnt + 1'b1;
+			pram_load_addr <= {pcnt[7:1], 1'b0};
+			pram_load_data <= pbuf_q[7:0];
+			pst <= P_LD_B1;
+		end
+		P_LD_B1: begin                             // odd byte = high half
+			pram_load_wr   <= 1'b1;
+			pram_load_addr <= {pcnt[7:1], 1'b1};
+			pram_load_data <= pbuf_q[15:8];
+			if (pcnt[7:1] == 7'd127) begin
+				pram_dirty <= 0; pram_ena <= 1; pram_ready <= 1'b1; pst <= P_IDLE;
+			end else begin
+				pcnt <= pcnt + 9'd2; pst <= P_LD_ADDR;
+			end
 		end
 
-		// ---- SAVE: rtc pram[] -> pram_buf -> SD sector ----
+		// ---- SAVE: rtc pram[] -> pram_buf16 -> SD sector ----
+		// rtc pram_save_data is registered (valid 2 clocks after the
+		// address), so each byte is a 3-state issue/wait/capture loop; odd
+		// bytes commit a 16-bit word via the BRAM write-port block above.
 		P_FILL: begin
-			pram_save_addr <= pcnt[7:0];               // addr for capture next cycle
-			if (pcnt != 0) pram_buf[pcnt[7:0] - 8'd1] <= pram_save_data;
-			if (pcnt == 9'd256) pst <= P_SV_WR;
-			else pcnt <= pcnt + 1'b1;
+			pram_save_addr <= pcnt[7:0];
+			pst <= P_FILL2;
+		end
+		P_FILL2: pst <= P_FILL3;                   // rtc port-B q latches this edge
+		P_FILL3: begin
+			if (!pcnt[0]) fill_lo <= pram_save_data;
+			if (pcnt == 9'd255) pst <= P_SV_WR;
+			else begin pcnt <= pcnt + 9'd1; pst <= P_FILL; end
 		end
 		P_SV_WR: begin
 			pram_wr_req <= 1'b1;
@@ -490,11 +529,10 @@ always @(posedge clk_sys) begin
 		end
 
 		// ---- Reset PRAM & Core ----
-		P_CLR: begin                                   // zero rtc pram[] + pram_buf
-			pram_load_wr   <= 1'b1;
-			pram_load_addr <= pcnt[7:0];
+		P_CLR: begin                                   // zero rtc pram[] byte-wise
+			pram_load_wr   <= 1'b1;                    // (pram_buf16 word-clears in
+			pram_load_addr <= pcnt[7:0];               //  the write-port block above)
 			pram_load_data <= 8'h00;
-			pram_buf[pcnt[7:0]] <= 8'h00;
 			if (pcnt == 9'd255) begin
 				if (pram_ena) begin pram_rst_after <= 1; pst <= P_SV_WR; end
 				else pst <= P_RST;

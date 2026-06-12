@@ -43,8 +43,8 @@ module rtc (
 	input         pram_load_wr,    // pulse: pram[pram_load_addr] <= pram_load_data
 	input   [7:0] pram_load_addr,
 	input   [7:0] pram_load_data,
-	input   [7:0] pram_save_addr,  // async read port for the save path
-	output  [7:0] pram_save_data,
+	input   [7:0] pram_save_addr,  // save read port; data REGISTERED, valid 2
+	output  [7:0] pram_save_data,  //   clocks after pram_save_addr is set
 	output reg    pram_wr_stb      // pulse: the Mac wrote a PRAM byte (image dirty)
 );
 
@@ -65,13 +65,43 @@ reg   [1:0] cmd_len;    // total bytes expected for this command
 // Write protect
 reg         writeprotect;
 
-// 256-byte XPRAM
-reg   [7:0] pram[256];
+// 256-byte XPRAM — true-dual-port BRAM (M10K), NOT fabric registers.
+// Port A = the serial protocol engine (single read+write site, one shared
+// address). Port B = the host/HPS NVRAM image (load write / save read,
+// mutually exclusive FSM phases in LBMacTwo.sv, one shared address).
+// Keeping each port in its own always block with a single address is what
+// lets Quartus infer one M10K; the previous in-place reads/writes scattered
+// through the protocol case fell back to ~2K registers + 256:1 muxes
+// (2347 ALUTs / 2145 regs in the 2026-06-12 map) and blew the LAB budget.
+(* ramstyle = "no_rw_check" *) reg [7:0] pram[256];
 
-// Save path: combinational read from a host-registered address
-// (the PRAM FSM in LBMacTwo.sv registers the address one cycle ahead,
-// same contract as MacLC's egret_wrapper pram_save_data).
-assign pram_save_data = pram[pram_save_addr];
+// --- Port A: serial engine ----------------------------------------------
+// Reads are ISSUED (ser_raddr + 2-cycle countdown) instead of consumed
+// in place; the RTC serial bit period is microseconds, so the 2-clock BRAM
+// latency is invisible to the host protocol. Writes pulse ser_we for one
+// clock. A command is either a read or a write, never both in flight, so
+// the port-A address muxes on ser_we.
+reg  [7:0] ser_raddr;
+reg  [1:0] ser_rpend;     // 2=addr issued, 1=ser_q valid, commit to dout
+reg        ser_we;
+reg  [7:0] ser_waddr;
+reg  [7:0] ser_wdata;
+reg  [7:0] ser_q;
+
+wire [7:0] a_addr = ser_we ? ser_waddr : ser_raddr;
+always @(posedge clk) begin
+	if (ser_we) pram[a_addr] <= ser_wdata;
+	ser_q <= pram[a_addr];
+end
+
+// --- Port B: host (HPS NVRAM image) --------------------------------------
+reg  [7:0] pram_save_q;
+wire [7:0] b_addr = pram_load_wr ? pram_load_addr : pram_save_addr;
+always @(posedge clk) begin
+	if (pram_load_wr) pram[b_addr] <= pram_load_data;
+	pram_save_q <= pram[b_addr];
+end
+assign pram_save_data = pram_save_q;
 
 // Initialize PRAM with Mac II defaults
 integer i;
@@ -133,6 +163,15 @@ wire [7:0] ext_addr = {cmd0[2:0], cmd1[6:2]};
 
 always @(posedge clk) begin
 	pram_wr_stb <= 1'b0;   // default; pulsed below on Mac-side PRAM writes
+	ser_we      <= 1'b0;   // default; pulsed for one clock per PRAM write
+
+	// Port-A read commit pipeline: 2 clocks after a read is issued, ser_q
+	// holds pram[ser_raddr]; move it into the response shifter.
+	if (ser_rpend != 2'd0) begin
+		ser_rpend <= ser_rpend - 2'd1;
+		if (ser_rpend == 2'd1)
+			dout <= ser_q;
+	end
 
 	if (reset) begin
 		bit_cnt <= 0;
@@ -143,6 +182,7 @@ always @(posedge clk) begin
 		cmd_len <= 1;
 		ck_d <= 0;
 		writeprotect <= 0;
+		ser_rpend <= 0;
 	end
 	else begin
 
@@ -200,17 +240,23 @@ always @(posedge clk) begin
 								// Standard read: command complete after 1 byte
 								if (byte_is_read && !byte_is_extended) begin
 									receiving <= 0;
-									// Prepare read response
+									// Prepare read response (PRAM cases issue a
+									// port-A BRAM read; commit pipeline above
+									// lands it in dout 2 clocks later, long
+									// before the next serial bit)
 									case (byte_in[6:2])
 										5'h00, 5'h04: dout <= secs[7:0];
 										5'h01, 5'h05: dout <= secs[15:8];
 										5'h02, 5'h06: dout <= secs[23:16];
 										5'h03, 5'h07: dout <= secs[31:24];
-										5'h08, 5'h09, 5'h0A, 5'h0B: dout <= pram[{3'b000, byte_in[6:2]}];
+										5'h08, 5'h09, 5'h0A, 5'h0B,
 										5'h10, 5'h11, 5'h12, 5'h13,
 										5'h14, 5'h15, 5'h16, 5'h17,
 										5'h18, 5'h19, 5'h1A, 5'h1B,
-										5'h1C, 5'h1D, 5'h1E, 5'h1F: dout <= pram[{3'b000, byte_in[6:2]}];
+										5'h1C, 5'h1D, 5'h1E, 5'h1F: begin
+											ser_raddr <= {3'b000, byte_in[6:2]};
+											ser_rpend <= 2'd2;
+										end
 										default: dout <= 8'h00;
 									endcase
 									`ifdef SIMULATION
@@ -236,9 +282,10 @@ always @(posedge clk) begin
 								if (cmd_len == 2'd2) begin
 									// Command complete (standard write or extended read)
 									if (cmd0[6:3] == 4'b0111) begin
-										// Extended read - prepare response
+										// Extended read - issue port-A BRAM read
 										receiving <= 0;
-										dout <= pram[{cmd0[2:0], byte_in[6:2]}];
+										ser_raddr <= {cmd0[2:0], byte_in[6:2]};
+										ser_rpend <= 2'd2;
 `ifdef SIMULATION
 										if ($test$plusargs("rtc_debug"))
 											$display("[RTC_RD_EXT] cmd0=%02h cmd1=%02h addr=%02h data=%02h",
@@ -258,15 +305,14 @@ always @(posedge clk) begin
 												5'h01, 5'h05: secs[15:8]  <= byte_in;
 												5'h02, 5'h06: secs[23:16] <= byte_in;
 												5'h03, 5'h07: secs[31:24] <= byte_in;
-												5'h08, 5'h09, 5'h0A, 5'h0B: begin
-													pram[{3'b000, scmd}] <= byte_in;
-													pram_wr_stb <= 1'b1;
-												end
+												5'h08, 5'h09, 5'h0A, 5'h0B,
 												5'h10, 5'h11, 5'h12, 5'h13,
 												5'h14, 5'h15, 5'h16, 5'h17,
 												5'h18, 5'h19, 5'h1A, 5'h1B,
 												5'h1C, 5'h1D, 5'h1E, 5'h1F: begin
-													pram[{3'b000, scmd}] <= byte_in;
+													ser_we    <= 1'b1;
+													ser_waddr <= {3'b000, scmd};
+													ser_wdata <= byte_in;
 													pram_wr_stb <= 1'b1;
 												end
 												default: ;
@@ -291,7 +337,9 @@ always @(posedge clk) begin
 									// always writable.
 									cmd_bytes <= 3;
 									if (!writeprotect) begin
-										pram[ext_addr] <= byte_in;
+										ser_we    <= 1'b1;
+										ser_waddr <= ext_addr;
+										ser_wdata <= byte_in;
 										pram_wr_stb <= 1'b1;
 									end
 `ifdef SIMULATION
@@ -310,12 +358,9 @@ always @(posedge clk) begin
 		end
 	end
 
-	// Host-side PRAM image load ("Mount PRAM" FSM in LBMacTwo.sv; also the
-	// OSD PRAM-reset clear). Placed after the serial path so a same-cycle
-	// host write wins; deliberately outside the reset branch — the mounted
-	// image loads exactly while the system is still held in reset.
-	if (pram_load_wr)
-		pram[pram_load_addr] <= pram_load_data;
+	// (Host-side PRAM image load/save lives on BRAM port B above — it works
+	// even while the system is held in reset, which is exactly when the
+	// mounted image streams in.)
 end
 
 endmodule
