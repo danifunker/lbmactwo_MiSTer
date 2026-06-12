@@ -418,16 +418,18 @@ reg        pram_ena;                        // a save image is mounted (size>0)
 reg        pram_dirty;                      // PRAM changed since last save
 reg        pram_rst_after;                  // pulse reset after the current save
 reg        pram_load_pending, pram_flush_pending, pram_clr_pending;
+reg        pram_late_load;   // image loaded AFTER boot released -> reboot to apply
 reg        old_pack, old_osd, old_mnt2, old_rstpram;
 reg        pram_ready;        // releases n_reset: pram[] loaded (or no image / timed out)
-reg [31:0] pram_rdy_cnt;      // ready backstop so a missing image never hangs boot
-reg        pram_force_reset;  // "Reset PRAM & Core" -> system reset pulse
+reg [31:0] pram_rdy_cnt;      // ready backstop so a missing image never delays boot long
+reg        pram_force_reset;  // "Reset PRAM & Core" / late PRAM load -> system reset pulse
 
 always @(posedge clk_sys) begin
 	if (~pll_locked) begin
 		pst <= P_IDLE; pram_rd <= 0; pram_wr_req <= 0; pram_load_wr <= 0;
 		pram_ena <= 0; pram_dirty <= 0; pram_force_reset <= 0; pram_rst_after <= 0;
 		pram_load_pending <= 0; pram_flush_pending <= 0; pram_clr_pending <= 0;
+		pram_late_load <= 0;
 		old_pack <= 0; old_osd <= 0; old_mnt2 <= 0; old_rstpram <= 0; rst_hold <= 0;
 		pram_ready <= 0; pram_rdy_cnt <= 0;
 	end else begin
@@ -445,21 +447,27 @@ always @(posedge clk_sys) begin
 		// event latches
 		if (img_mounted[VD_PRAM] && !old_mnt2) begin
 			pram_ena <= (img_size != 0);
-			if (img_size != 0) pram_load_pending <= 1'b1;  // load runs -> P_LD_CPY sets pram_ready
-			else               pram_ready        <= 1'b1;  // no image: release the boot now
+			if (img_size != 0) begin
+				pram_load_pending <= 1'b1;        // load runs -> P_LD_B1 sets pram_ready
+				pram_late_load    <= pram_ready;  // boot already released? reboot after load
+			end
+			else pram_ready <= 1'b1;              // unmount report: release the boot now
 		end
 		if (OSD_STATUS && !old_osd && pram_dirty && pram_ena) pram_flush_pending <= 1'b1;
 		if (status[15] && !old_rstpram) pram_clr_pending <= 1'b1;
 
-		// PRAM-ready gate. n_reset holds the machine until the slot-2 mount
-		// status is known: a real image releases it via the load FSM
-		// (P_LD_CPY); a no-image (size==0) report releases it in the mount
-		// handler above. MiSTer's auto-mount of the save image can take many
-		// seconds, so no short timeout — this long backstop only covers the
-		// pathological "no mount status ever" case so boot can't hang
-		// (~31.3MHz: 1.9e9 cyc ≈ 60s).
+		// PRAM-ready gate. n_reset holds the machine briefly so an
+		// auto-remounted PRAM image can load before the ROM's first clock-chip
+		// read. HW-MEASURED 2026-06-12: MiSTer sends NO img_mounted event at
+		// core load for an empty S-slot (no config/<core>.s2), so the original
+		// MacLC-style 60s "mount status will surely come" backstop turned
+		// EVERY imageless core start into a ~60s black screen. The backstop is
+		// now short (~3s @31.3344MHz, concurrent with ROM load + RAM clear);
+		// a load that lands later (slow auto-remount, or a manual mount while
+		// running) self-heals via pram_late_load -> P_RST: the Mac reboots
+		// once and reads the freshly loaded PRAM.
 		if (!pram_ready) begin
-			if (pram_rdy_cnt >= 32'd1_900_000_000) pram_ready <= 1'b1;
+			if (pram_rdy_cnt >= 32'd94_000_000) pram_ready <= 1'b1;
 			else pram_rdy_cnt <= pram_rdy_cnt + 1'b1;
 		end
 
@@ -498,7 +506,12 @@ always @(posedge clk_sys) begin
 			pram_load_addr <= {pcnt[7:1], 1'b1};
 			pram_load_data <= pbuf_q[15:8];
 			if (pcnt[7:1] == 7'd127) begin
-				pram_dirty <= 0; pram_ena <= 1; pram_ready <= 1'b1; pst <= P_IDLE;
+				pram_dirty <= 0; pram_ena <= 1; pram_ready <= 1'b1;
+				// Image landed after the Mac already started booting (late
+				// auto-remount or manual mount): reboot once so the ROM
+				// reads the loaded PRAM instead of the defaults.
+				pst <= pram_late_load ? P_RST : P_IDLE;
+				pram_late_load <= 0;
 			end else begin
 				pcnt <= pcnt + 9'd2; pst <= P_LD_ADDR;
 			end
