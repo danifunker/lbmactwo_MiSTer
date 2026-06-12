@@ -84,10 +84,10 @@ set_multicycle_path -hold 1 \
 # stays tightly constrained (see operand_reg exclusion above).
 set_multicycle_path -setup 2 \
     -from [get_registers {*|mc68881_top:u_fpu|operand_reg* *|TG68KdotC_Kernel:tg68k|regfile*}] \
-    -to   [get_registers {*|mc68881_top:u_fpu|fp80_to_int_trunc* *|mc68881_top:u_fpu|Equal* *|mc68881_top:u_fpu|Shift* *|mc68881_top:u_fpu|Add* *|mc68881_top:u_fpu|LessThan*}]
+    -to   [get_registers {*|mc68881_top:u_fpu|fp80_to_int_trunc* *|mc68881_top:u_fpu|Equal* *|mc68881_top:u_fpu|Shift* *|mc68881_top:u_fpu|Add* *|mc68881_top:u_fpu|LessThan* *|mc68881_top:u_fpu|Mux*}]
 set_multicycle_path -hold 1 \
     -from [get_registers {*|mc68881_top:u_fpu|operand_reg* *|TG68KdotC_Kernel:tg68k|regfile*}] \
-    -to   [get_registers {*|mc68881_top:u_fpu|fp80_to_int_trunc* *|mc68881_top:u_fpu|Equal* *|mc68881_top:u_fpu|Shift* *|mc68881_top:u_fpu|Add* *|mc68881_top:u_fpu|LessThan*}]
+    -to   [get_registers {*|mc68881_top:u_fpu|fp80_to_int_trunc* *|mc68881_top:u_fpu|Equal* *|mc68881_top:u_fpu|Shift* *|mc68881_top:u_fpu|Add* *|mc68881_top:u_fpu|LessThan* *|mc68881_top:u_fpu|Mux*}]
 
 # Exception-classification operand staging: exc_event_{result,opa,opb}_reg
 # capture regfile / conversion-cone values at dispatch (sources stable for a
