@@ -61,3 +61,46 @@ set fpu_dp_to [get_registers {
 
 set_multicycle_path -setup 7 -from $fpu_dp_from -to $fpu_dp_to
 set_multicycle_path -hold  6 -from $fpu_dp_from -to $fpu_dp_to
+
+# operand_hi16_reg (sign+exponent word of an extended/packed operand) has a
+# single consumer: the cpGEN dispatch's packed-decimal path (packed_word :=
+# operand_hi16_reg & operand_reg, mc68881_top.vhd ~2961) and the conversion
+# cone hanging off it. It is written by the FIRST long of the CIR operand
+# transfer and consumed at dispatch — two-plus full CPU bus cycles
+# (>= 12 clk_sys) later. Its conversion cone misses one period by ~10ns;
+# -setup 2 closes it with margin while demanding far less stability than
+# the FSM actually provides.
+set_multicycle_path -setup 2 \
+    -from [get_registers {*|mc68881_top:u_fpu|operand_hi16_reg*}]
+set_multicycle_path -hold 1 \
+    -from [get_registers {*|mc68881_top:u_fpu|operand_hi16_reg*}]
+
+# operand_reg -> the conversion-engine intermediate registers (synthesis-
+# named after the in-process variables' expression loci: fp80_to_int_trunc~N,
+# Equal*~N). These engines (FINT/FINTRZ, packed encode/decode) capture their
+# first pipeline variables at dispatch or later — multiple cycles after the
+# final operand-CIR write. Endpoint scope deliberately EXCLUDES result_* /
+# fp_reg_file_reg so the single-cycle cir_move deferred-copy of operand_reg
+# stays tightly constrained (see operand_reg exclusion above).
+set_multicycle_path -setup 2 \
+    -from [get_registers {*|mc68881_top:u_fpu|operand_reg* *|TG68KdotC_Kernel:tg68k|regfile*}] \
+    -to   [get_registers {*|mc68881_top:u_fpu|fp80_to_int_trunc* *|mc68881_top:u_fpu|Equal* *|mc68881_top:u_fpu|Shift* *|mc68881_top:u_fpu|Add* *|mc68881_top:u_fpu|LessThan*}]
+set_multicycle_path -hold 1 \
+    -from [get_registers {*|mc68881_top:u_fpu|operand_reg* *|TG68KdotC_Kernel:tg68k|regfile*}] \
+    -to   [get_registers {*|mc68881_top:u_fpu|fp80_to_int_trunc* *|mc68881_top:u_fpu|Equal* *|mc68881_top:u_fpu|Shift* *|mc68881_top:u_fpu|Add* *|mc68881_top:u_fpu|LessThan*}]
+
+# Exception-classification operand staging: exc_event_{result,opa,opb}_reg
+# capture regfile / conversion-cone values at dispatch (sources stable for a
+# full CPU-paced dialog beforehand). DATA registers only — the
+# exc_event_valid_reg handshake bit is a strict single-cycle set/clear and is
+# deliberately NOT relaxed.
+set_multicycle_path -setup 2 \
+    -from [get_registers {*|mc68881_top:u_fpu|*}] \
+    -to   [remove_from_collection \
+              [get_registers {*|mc68881_top:u_fpu|exc_event_*}] \
+              [get_registers {*|mc68881_top:u_fpu|exc_event_valid_reg*}]]
+set_multicycle_path -hold 1 \
+    -from [get_registers {*|mc68881_top:u_fpu|*}] \
+    -to   [remove_from_collection \
+              [get_registers {*|mc68881_top:u_fpu|exc_event_*}] \
+              [get_registers {*|mc68881_top:u_fpu|exc_event_valid_reg*}]]
