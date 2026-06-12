@@ -292,79 +292,43 @@ wire [7:0] request_sense_dout_next  = (data_cnt_next  == 32'd0)?8'h70:(data_cnt_
 wire [7:0] request_sense_dout_next2 = (data_cnt_next2 == 32'd0)?8'h70:(data_cnt_next2 == 32'd7)?8'h0a:8'h00;
 wire [7:0] request_sense_dout_next3 = (data_cnt_next3 == 32'd0)?8'h70:(data_cnt_next3 == 32'd7)?8'h0a:8'h00;
 
-// output of inquiry command, identify as "SEAGATE ST225N"
+// output of inquiry command, identify as "MiSTer  VIRTUAL DISKx" (x = SCSI ID)
+//   vendor  (bytes  8-15): "MiSTer  "        (8 chars, space-padded)
+//   product (bytes 16-31): "VIRTUAL DISKx   " (16 chars, x = '0'+ID)
 // additional-length byte = 31 -> standard 36-byte INQUIRY response (5 + 31),
 // matching real drives and Snow. It was 32 (=37 total): a driver that reads
 // the standard 36 bytes then left 1 unserved byte on the target -> REQ held
 // forever -> the post-clamp Welcome wedge of 2026-06-10c.
-wire [7:0] inquiry_dout =
-		(data_cnt == 32'd4 )?8'd31:  // additional length
+function [7:0] inquiry_byte;
+	input [31:0] cnt;
+	begin
+		inquiry_byte =
+			(cnt == 32'd4 )?8'd31:  // additional length
 
-		(data_cnt == 32'd8 )?" ":(data_cnt == 32'd9 )?"S":
-		(data_cnt == 32'd10)?"E":(data_cnt == 32'd11)?"A":
-		(data_cnt == 32'd12)?"G":(data_cnt == 32'd13)?"A":
-		(data_cnt == 32'd14)?"T":(data_cnt == 32'd15)?"E":
-		(data_cnt == 32'd16)?" ":(data_cnt == 32'd17)?" ":
-		(data_cnt == 32'd18)?" ":(data_cnt == 32'd19)?" ":
-		(data_cnt == 32'd20)?" ":(data_cnt == 32'd21)?" ":
-		(data_cnt == 32'd22)?" ":(data_cnt == 32'd23)?" ":
-		(data_cnt == 32'd24)?" ":(data_cnt == 32'd25)?" ":
+			(cnt == 32'd8 )?"M":(cnt == 32'd9 )?"i":
+			(cnt == 32'd10)?"S":(cnt == 32'd11)?"T":
+			(cnt == 32'd12)?"e":(cnt == 32'd13)?"r":
+			(cnt == 32'd14)?" ":(cnt == 32'd15)?" ":
 
-		(data_cnt == 32'd26)?"S":(data_cnt == 32'd27)?"T":
-		(data_cnt == 32'd28)?"2":(data_cnt == 32'd29)?"2":
-		(data_cnt == 32'd30)?"5":(data_cnt == 32'd31)?"N" + {5'd0, ID}: // TESTING. ElectronAsh.
-		8'h00;
+			(cnt == 32'd16)?"V":(cnt == 32'd17)?"I":
+			(cnt == 32'd18)?"R":(cnt == 32'd19)?"T":
+			(cnt == 32'd20)?"U":(cnt == 32'd21)?"A":
+			(cnt == 32'd22)?"L":(cnt == 32'd23)?" ":
+			(cnt == 32'd24)?"D":(cnt == 32'd25)?"I":
+			(cnt == 32'd26)?"S":(cnt == 32'd27)?"K":
+			(cnt == 32'd28)?"0" + {5'd0, ID}:
+			(cnt == 32'd29)?" ":(cnt == 32'd30)?" ":
+			(cnt == 32'd31)?" ":
+			8'h00;
+	end
+endfunction
 wire [31:0] data_cnt_next = data_cnt + 32'd1;
 wire [31:0] data_cnt_next2 = data_cnt + 32'd2;
 wire [31:0] data_cnt_next3 = data_cnt + 32'd3;
-wire [7:0] inquiry_dout_next =
-		(data_cnt_next == 32'd4 )?8'd31:
-		(data_cnt_next == 32'd8 )?" ":(data_cnt_next == 32'd9 )?"S":
-		(data_cnt_next == 32'd10)?"E":(data_cnt_next == 32'd11)?"A":
-		(data_cnt_next == 32'd12)?"G":(data_cnt_next == 32'd13)?"A":
-		(data_cnt_next == 32'd14)?"T":(data_cnt_next == 32'd15)?"E":
-		(data_cnt_next == 32'd16)?" ":(data_cnt_next == 32'd17)?" ":
-		(data_cnt_next == 32'd18)?" ":(data_cnt_next == 32'd19)?" ":
-		(data_cnt_next == 32'd20)?" ":(data_cnt_next == 32'd21)?" ":
-		(data_cnt_next == 32'd22)?" ":(data_cnt_next == 32'd23)?" ":
-		(data_cnt_next == 32'd24)?" ":(data_cnt_next == 32'd25)?" ":
-
-		(data_cnt_next == 32'd26)?"S":(data_cnt_next == 32'd27)?"T":
-		(data_cnt_next == 32'd28)?"2":(data_cnt_next == 32'd29)?"2":
-		(data_cnt_next == 32'd30)?"5":(data_cnt_next == 32'd31)?"N" + {5'd0, ID}:
-		8'h00;
-wire [7:0] inquiry_dout_next2 =
-		(data_cnt_next2 == 32'd4 )?8'd31:
-		(data_cnt_next2 == 32'd8 )?" ":(data_cnt_next2 == 32'd9 )?"S":
-		(data_cnt_next2 == 32'd10)?"E":(data_cnt_next2 == 32'd11)?"A":
-		(data_cnt_next2 == 32'd12)?"G":(data_cnt_next2 == 32'd13)?"A":
-		(data_cnt_next2 == 32'd14)?"T":(data_cnt_next2 == 32'd15)?"E":
-		(data_cnt_next2 == 32'd16)?" ":(data_cnt_next2 == 32'd17)?" ":
-		(data_cnt_next2 == 32'd18)?" ":(data_cnt_next2 == 32'd19)?" ":
-		(data_cnt_next2 == 32'd20)?" ":(data_cnt_next2 == 32'd21)?" ":
-		(data_cnt_next2 == 32'd22)?" ":(data_cnt_next2 == 32'd23)?" ":
-		(data_cnt_next2 == 32'd24)?" ":(data_cnt_next2 == 32'd25)?" ":
-
-		(data_cnt_next2 == 32'd26)?"S":(data_cnt_next2 == 32'd27)?"T":
-		(data_cnt_next2 == 32'd28)?"2":(data_cnt_next2 == 32'd29)?"2":
-		(data_cnt_next2 == 32'd30)?"5":(data_cnt_next2 == 32'd31)?"N" + {5'd0, ID}:
-		8'h00;
-wire [7:0] inquiry_dout_next3 =
-		(data_cnt_next3 == 32'd4 )?8'd31:
-		(data_cnt_next3 == 32'd8 )?" ":(data_cnt_next3 == 32'd9 )?"S":
-		(data_cnt_next3 == 32'd10)?"E":(data_cnt_next3 == 32'd11)?"A":
-		(data_cnt_next3 == 32'd12)?"G":(data_cnt_next3 == 32'd13)?"A":
-		(data_cnt_next3 == 32'd14)?"T":(data_cnt_next3 == 32'd15)?"E":
-		(data_cnt_next3 == 32'd16)?" ":(data_cnt_next3 == 32'd17)?" ":
-		(data_cnt_next3 == 32'd18)?" ":(data_cnt_next3 == 32'd19)?" ":
-		(data_cnt_next3 == 32'd20)?" ":(data_cnt_next3 == 32'd21)?" ":
-		(data_cnt_next3 == 32'd22)?" ":(data_cnt_next3 == 32'd23)?" ":
-		(data_cnt_next3 == 32'd24)?" ":(data_cnt_next3 == 32'd25)?" ":
-
-		(data_cnt_next3 == 32'd26)?"S":(data_cnt_next3 == 32'd27)?"T":
-		(data_cnt_next3 == 32'd28)?"2":(data_cnt_next3 == 32'd29)?"2":
-		(data_cnt_next3 == 32'd30)?"5":(data_cnt_next3 == 32'd31)?"N" + {5'd0, ID}:
-		8'h00;
+wire [7:0] inquiry_dout       = inquiry_byte(data_cnt);
+wire [7:0] inquiry_dout_next  = inquiry_byte(data_cnt_next);
+wire [7:0] inquiry_dout_next2 = inquiry_byte(data_cnt_next2);
+wire [7:0] inquiry_dout_next3 = inquiry_byte(data_cnt_next3);
 
 // output of read capacity command
 //wire [31:0] capacity = 32'd41056;   // 40960 + 96 blocks = 20MB
