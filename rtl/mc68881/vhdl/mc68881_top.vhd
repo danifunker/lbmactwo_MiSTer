@@ -400,6 +400,22 @@ architecture rtl of mc68881_top is
   signal move_exc_double_inexact_reg : std_logic := '0';
   signal move_exc_double_unfl_reg    : std_logic := '0';
   signal move_exc_double_ovfl_reg    : std_logic := '0';
+  -- Round-3 timing closure: pre-stage the deep fp80_from_single/double round
+  -- trip ONE edge before the inexact compare. These registers terminate the
+  -- fp80_from_* cone; move_exc_{single,double}_rt_reg and the inexact compare
+  -- then read them, so move_exc_double_inexact_reg's fan-in is a register-to-
+  -- register difference rather than the whole round trip collapsing onto it on
+  -- the op-issue edge (slow-corner worst-setup endpoints).
+  signal move_exc_single_rt_pre_reg  : fp80_t := (others => '0');  -- fp80_from_single(conv_single_out), pre-stage
+  signal move_exc_double_rt_pre_reg  : fp80_t := (others => '0');  -- fp80_from_double(conv_double_out), pre-stage
+  -- Round-3 timing closure: pre-stage the fast packed (.P) encoder. The inline
+  -- fp80_to_packed96_fast(move_result) on the move-issue edge was the single
+  -- worst path in the design (fp80 -> 96-bit BCD on one edge). Recompute it
+  -- every edge from conv_fp_src (== move_result for reg->mem moves, stable for
+  -- cycles before issue) so the inline packed_word assignment is a shallow
+  -- register read. Only the fast fallback path (packed_decimal_full_g = false,
+  -- the fpu_lite build) uses this; the full packed engine is untouched.
+  signal move_packed_encode_reg      : std_logic_vector(95 downto 0) := (others => '0');
 
   type packed_req_mode_t is (PACKED_REQ_NONE, PACKED_REQ_ENCODE, PACKED_REQ_DECODE);
 
@@ -2792,12 +2808,15 @@ begin
       exc_event_force_bsun_reg <= '0';
       move_exc_single_rt_reg <= (others => '0');
       move_exc_double_rt_reg <= (others => '0');
+      move_exc_single_rt_pre_reg <= (others => '0');
+      move_exc_double_rt_pre_reg <= (others => '0');
       move_exc_single_inexact_reg <= '0';
       move_exc_single_unfl_reg <= '0';
       move_exc_single_ovfl_reg <= '0';
       move_exc_double_inexact_reg <= '0';
       move_exc_double_unfl_reg <= '0';
       move_exc_double_ovfl_reg <= '0';
+      move_packed_encode_reg <= (others => '0');
       cir_arith_active_reg <= '0';
       cir_move_pending_reg <= '0';
       sys_ctrl_save_req_reg <= '0';
@@ -2845,8 +2864,21 @@ begin
       -- derivation with move_result == conv_fp_src; reg-to-reg / mem-to-reg /
       -- integer moves never reach the inexact/under/overflow tests, so only
       -- these two formats are staged.
-      move_exc_single_rt_reg <= fp80_from_single(conv_single_out);
-      move_exc_double_rt_reg <= fp80_from_double(conv_double_out);
+      -- Round-3 timing closure: terminate the deep fp80_from_single/double
+      -- round trip at a dedicated pre-stage register, then feed BOTH the staged
+      -- round-trip value (move_exc_*_rt_reg) and the inexact compare from that
+      -- register. conv_fp_src / conv_single_out / conv_double_out are stable for
+      -- several cycles before a reg->mem move issues (round-2 note), so this
+      -- extra edge is invisible to numeric results / FPSR flags; it just moves
+      -- the fp80_from_* cone off the move_exc_*_inexact_reg fan-in.
+      move_exc_single_rt_pre_reg <= fp80_from_single(conv_single_out);
+      move_exc_double_rt_pre_reg <= fp80_from_double(conv_double_out);
+      move_exc_single_rt_reg <= move_exc_single_rt_pre_reg;
+      move_exc_double_rt_reg <= move_exc_double_rt_pre_reg;
+      -- Fast packed (.P) encode, precomputed one edge ahead of the reg->mem
+      -- move dispatch that consumes it (the worst path in the whole design).
+      -- move_result == conv_fp_src at that consume site.
+      move_packed_encode_reg <= fp80_to_packed96_fast(conv_fp_src);
       move_exc_single_inexact_reg <= '0';
       move_exc_single_unfl_reg <= '0';
       move_exc_single_ovfl_reg <= '0';
@@ -2858,8 +2890,10 @@ begin
         move_src_abs := conv_fp_src;
         move_src_abs(FP_WIDTH-1) := '0';
         -- single (.S): inexact = round trip differs, underflow = biased exp 0,
-        -- overflow = magnitude exceeds the largest finite single.
-        if fp80_from_single(conv_single_out) /= conv_fp_src then
+        -- overflow = magnitude exceeds the largest finite single. The round trip
+        -- is read from the pre-stage register (set the previous edge from the
+        -- same, stable conv_single_out) instead of recomputing fp80_from_single.
+        if move_exc_single_rt_pre_reg /= conv_fp_src then
           move_exc_single_inexact_reg <= '1';
         end if;
         if conv_single_out(30 downto 23) = x"00" then
@@ -2869,8 +2903,9 @@ begin
         if compare_fp80_ordered(move_src_abs, single_max_abs) > 0 then
           move_exc_single_ovfl_reg <= '1';
         end if;
-        -- double (.D): same tests against the double format.
-        if fp80_from_double(conv_double_out) /= conv_fp_src then
+        -- double (.D): same tests against the double format. Inexact reads the
+        -- pre-stage round-trip register (the -1.506 ns slow-corner path).
+        if move_exc_double_rt_pre_reg /= conv_fp_src then
           move_exc_double_inexact_reg <= '1';
         end if;
         if conv_double_out(62 downto 52) = std_logic_vector(to_unsigned(0, 11)) then
@@ -3152,7 +3187,12 @@ begin
                         packed_pending_reg <= '1';
                         move_deferred := '1';
                       else
-                        packed_word := fp80_to_packed96_fast(move_result);
+                        -- Round-3 timing closure: read the pre-staged packed
+                        -- encode register (computed one edge earlier from
+                        -- conv_fp_src, which == move_result here) instead of the
+                        -- inline fp80_to_packed96_fast(move_result) that was the
+                        -- single worst-setup path in the design.
+                        packed_word := move_packed_encode_reg;
                         move_exc_enable := '0';
                       end if;
                       if move_deferred = '0' then
