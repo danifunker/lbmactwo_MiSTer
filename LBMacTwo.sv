@@ -1706,6 +1706,22 @@ sdram_arbiter arbiter (
 	.mac_dout_valid(arb_mac_dout_valid)
 );
 
+// Cold-load integrity instrument — always on (tiny; see rtl/dbg_coldinit.sv).
+// ROM-download checksum + init-choreography timestamps + PLL-unlock counter,
+// read via JTAG ISSP (scripts/read_coldinit.tcl) without touching the HPS.
+dbg_coldinit dbg_coldinit_inst (
+	.clk            (clk_sys),
+	.pll_locked     (pll_locked),
+	.ioctl_download (dio_download),
+	.ioctl_index    (dio_index[7:0]),
+	.ioctl_wr       (ioctl_write),
+	.ioctl_data     (ioctl_data),
+	.img_mounted    (img_mounted[2:0]),
+	.rom_loaded     (rom_loaded),
+	.clear_done     (clear_done),
+	.pram_ready     (pram_ready)
+);
+
 // Minimal JTAG CPU-state probes to diagnose the early-boot hang.
 // Stripped from production builds: `DBG_PROBES is left undefined so the ISSP
 // instrumentation — and, importantly, its timing-closure footprint — is removed
