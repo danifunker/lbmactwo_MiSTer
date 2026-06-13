@@ -130,15 +130,30 @@ change.
 Deploy per usual (`scp output_files/LBMacTwo.rbf` → `/media/fat/_Unstable/`,
 load from menu — NOT JTAG SOF, NOT .mgl).
 
+**2026-06-12 FIELD TEST #1 (RBF 8262e433):** color video confirmed working,
+but every fresh core start sat ~30–60 s at a black screen (no video/sync at
+all — the NuBus card is inside the reset domain) and looked dead until a
+warm reboot. Root cause CONFIRMED on the device: **MiSTer sends NO
+img_mounted event for an empty S-slot at core load** (`config/LBMacTwo.s2`
+does not exist until a PRAM image is mounted once), so the MacLC-style
+"mount status will surely arrive" assumption is false and every imageless
+start rode the 60 s backstop. `pram.NVR` was still all zeros — the save path
+had never even been engaged, so "PRAM not saving" was this same bug, not a
+save-path defect. Fix in commit `d506940`: backstop → ~3 s (concurrent with
+ROM load + RAM clear), plus `pram_late_load` — an image that finishes
+loading after boot release (slow auto-remount or a manual mid-session mount)
+now reboots the Mac once via P_RST so the ROM reads the loaded PRAM.
+Mounting PRAM mid-session therefore intentionally restarts the Mac.
+
 * **SCSI strings:** boot 7.1.2 from SCSI; run SCSIProbe (or Apple HD SC
   Setup). Vendor must read `MiSTer`, product `VIRTUAL DISKx`. Boot itself is
   the regression test — the INQUIRY length/shape didn't change, only bytes
   8–31.
 * **PRAM, no image (regression):** boot WITHOUT mounting anything on SC2.
-  Boot must start promptly (MiSTer reports "no image" for the slot at core
-  load; if boot instead stalls ~60 s, that report never came — see the
-  backstop in the PRAM FSM, and re-check how this MiSTer build reports
-  unmounted S-slots).
+  Boot must start promptly (≤ ~3 s added worst-case, usually hidden under
+  ROM load + RAM clear). If a cold start STILL needs a warm reboot after
+  this fix, that is the separate pre-existing cold-boot/chime class issue
+  (see project_coldboot_mouse_ram_clear), not the PRAM gate.
 * **PRAM, with image:** create a blank image once:
   `ssh -i ~/.ssh/mister_only root@192.168.99.143 "dd if=/dev/zero of=/media/fat/games/MacII/pram.NVR bs=512 count=1"`
   Mount it via OSD → core reboots the Mac (mount = img_mounted pulse → load →
