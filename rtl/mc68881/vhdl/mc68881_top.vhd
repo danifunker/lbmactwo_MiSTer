@@ -282,6 +282,26 @@ architecture rtl of mc68881_top is
   signal cir_arith_active_reg  : std_logic := '0';           -- Tracks CIR-launched arith op in alu_control_proc
   signal cir_move_pending_reg  : std_logic := '0';           -- One-cycle deferred FMOVE copy
 
+  -- FPU conversion pipeline stage (timing closure).
+  -- The fp80_from_single/double/int/packed format conversion is the worst
+  -- combinational cone in the design (cir_operand_staging -> operand_reg,
+  -- slow-corner setup violation). Previously this conversion fanned straight
+  -- into operand_reg on the cir_launch_alu edge -- one edge before the ALU /
+  -- deferred-move consumes operand_reg -- so the whole deep cone had to settle
+  -- in a single period. Splitting it behind a dedicated register gives the
+  -- conversion its OWN clock edge: the dialog FSM pulses cir_conv_start one
+  -- beat earlier (in CIR_XFER_SRC_WAIT, where cir_operand_staging has long been
+  -- stable), bus_frame_proc latches the converted value into cir_conv_src_reg,
+  -- and the later cir_launch_alu edge only does a shallow copy into operand_reg.
+  -- cir_conv_src_reg has exactly one driver (this conversion), so the deep cone
+  -- is now an isolated, FSM-spaced register-to-register path. Functionally this
+  -- is identical to the old code -- only +1 cycle of (CPU-paced, invisible)
+  -- latency. See cir_dialog_proc CIR_XFER_SRC_WAIT and the bus_frame_proc
+  -- conversion-stage / cir_launch_alu blocks.
+  signal cir_conv_start   : std_logic := '0';                 -- Pulse: dialog FSM -> bus_frame_proc, latch conversion
+  signal cir_conv_src_reg : fp80_t := (others => '0');        -- Registered converted source operand
+  signal cir_conv_dst_reg : fp80_t := (others => '0');        -- Registered destination FP-reg snapshot (dyadic ops)
+
   -- MC68882 pending instruction pipeline (1-deep queue).
   -- In FPU_68881 mode these signals stay at default and all CIR_PENDING_* states are unreachable.
   signal pending_valid_reg       : std_logic := '0';
@@ -2003,6 +2023,8 @@ begin
       op_sel_reg <= FPU_OP_NOP;
       operand_reg <= (others => (others => '0'));
       operand_hi16_reg <= (others => (others => '0'));
+      cir_conv_src_reg <= (others => '0');
+      cir_conv_dst_reg <= (others => '0');
       fpcr_reg <= (others => '0');
       fpsr_reg <= (others => '0');
       fpiar_reg <= (others => '0');
@@ -2128,6 +2150,56 @@ begin
         end case;
       end if;
 
+      -- CIR conversion-stage capture (timing-closure pipeline beat).
+      -- Pulsed by the dialog FSM in CIR_XFER_SRC_WAIT, one edge BEFORE the
+      -- cir_launch_alu copy below. cir_operand_staging has been stable since
+      -- the last operand word arrived in CIR_XFER_SRC, so this latches the deep
+      -- fp80 format conversion into its own dedicated register. The launch edge
+      -- then only does a shallow copy (cir_conv_src_reg -> operand_reg) instead
+      -- of fanning the full conversion cone straight into operand_reg one edge
+      -- before the ALU/move reads it. Only the memory-source formats route
+      -- through here (reg-to-reg is a shallow fp_reg_file mux handled inline at
+      -- launch). cir_conv_dst_reg snapshots the dyadic destination register at
+      -- the same edge (it cannot change before launch -- the op has not run).
+      if cir_conv_start = '1' then
+        case cir_src_fmt is
+          when CIR_SRC_LONG =>
+            cir_conv_src_reg <= fp80_from_int(
+              signed32_to_integer(cir_operand_staging(31 downto 0)));
+          when CIR_SRC_SINGLE =>
+            cir_conv_src_reg <= fp80_from_single(
+              cir_operand_staging(31 downto 0));
+          when CIR_SRC_EXTENDED =>
+            -- MC68881 .X memory layout: byte 0-1 = sign+exp, byte 2-3 =
+            -- reserved, byte 4-11 = mantissa. Long 1 (staging[31:0]) holds
+            -- bytes 0-3, so the sign+exp lives in the HIGH half (staging
+            -- [31:16]); the LOW half (staging[15:0]) is the reserved word and
+            -- is dropped.
+            cir_conv_src_reg <= cir_operand_staging(31 downto 16) &
+                                cir_operand_staging(63 downto 32) &
+                                cir_operand_staging(95 downto 64);
+          when CIR_SRC_WORD =>
+            cir_conv_src_reg <= fp80_from_int(
+              signed16_to_integer(cir_operand_staging(15 downto 0)));
+          when CIR_SRC_DOUBLE =>
+            cir_conv_src_reg <= fp80_from_double(
+              cir_operand_staging(31 downto 0) &
+              cir_operand_staging(63 downto 32));
+          when CIR_SRC_BYTE =>
+            cir_conv_src_reg <= fp80_from_int(
+              signed8_to_integer(cir_operand_staging(7 downto 0)));
+          when CIR_SRC_PACKED =>
+            cir_conv_src_reg <= packed96_to_fp80_fast(
+              cir_operand_staging(31 downto 0) &
+              cir_operand_staging(63 downto 32) &
+              cir_operand_staging(95 downto 64),
+              fp_reg_file_reg(cir_dst_reg_idx));
+          when others =>
+            cir_conv_src_reg <= (others => '0');
+        end case;
+        cir_conv_dst_reg <= fp_reg_file_reg(cir_dst_reg_idx);
+      end if;
+
       -- CIR launch: load operands (and op_sel for cpGEN) into ALU inputs.
       -- For monadic ops the ALU uses only a_in (operand_reg(0)) as the source,
       -- so we must place the source operand there (not the destination FP reg).
@@ -2141,60 +2213,49 @@ begin
           operand_reg(0)(5 downto 0) <= cir_condition_reg;
         else
           op_sel_reg <= cir_decoded_op;
-          -- Compute source value into variable for potential use in both slots.
           if cir_reg_to_reg = '1' then
+            -- Register-to-register source: a shallow fp_reg_file_reg mux, NOT
+            -- the deep fp80 format conversion -- compute it inline at launch
+            -- (this path is not pipelined; it never enters the WAIT states).
             cir_source_val := fp_reg_file_reg(cir_src_reg_idx);
+            operand_reg(1) <= cir_source_val;
+            -- Monadic ops: ALU uses only a_in, so source goes to operand_reg(0).
+            -- Dyadic ops: a_in = FPn (destination register), b_in = source.
+            if op_is_monadic(cir_decoded_op) then
+              operand_reg(0) <= cir_source_val;
+            else
+              operand_reg(0) <= fp_reg_file_reg(cir_dst_reg_idx);
+            end if;
           else
-            case cir_src_fmt is
-              when CIR_SRC_LONG =>
-                cir_source_val := fp80_from_int(
-                  signed32_to_integer(cir_operand_staging(31 downto 0)));
-              when CIR_SRC_SINGLE =>
-                cir_source_val := fp80_from_single(
-                  cir_operand_staging(31 downto 0));
-              when CIR_SRC_EXTENDED =>
-                -- MC68881 .X memory layout: byte 0-1 = sign+exp,
-                -- byte 2-3 = reserved, byte 4-11 = mantissa.
-                -- Long 1 (staging[31:0]) holds bytes 0-3, so the
-                -- sign+exp lives in the HIGH half: staging[31:16].
-                -- The LOW half (staging[15:0]) is the reserved word
-                -- and is dropped.
-                cir_source_val := cir_operand_staging(31 downto 16) &
-                                  cir_operand_staging(63 downto 32) &
-                                  cir_operand_staging(95 downto 64);
-              when CIR_SRC_WORD =>
-                cir_source_val := fp80_from_int(
-                  signed16_to_integer(cir_operand_staging(15 downto 0)));
-              when CIR_SRC_DOUBLE =>
-                cir_source_val := fp80_from_double(
-                  cir_operand_staging(31 downto 0) &
-                  cir_operand_staging(63 downto 32));
-              when CIR_SRC_BYTE =>
-                cir_source_val := fp80_from_int(
-                  signed8_to_integer(cir_operand_staging(7 downto 0)));
-              when CIR_SRC_PACKED =>
-                cir_source_val := packed96_to_fp80_fast(
-                  cir_operand_staging(31 downto 0) &
-                  cir_operand_staging(63 downto 32) &
-                  cir_operand_staging(95 downto 64),
-                  fp_reg_file_reg(cir_dst_reg_idx));
-              when others =>
-                cir_source_val := (others => '0');
-            end case;
-          end if;
-          operand_reg(1) <= cir_source_val;
-          -- Monadic ops: ALU uses only a_in, so source goes to operand_reg(0).
-          -- Dyadic ops: a_in = FPn (destination register), b_in = source.
-          if op_is_monadic(cir_decoded_op) then
-            operand_reg(0) <= cir_source_val;
-          else
-            operand_reg(0) <= fp_reg_file_reg(cir_dst_reg_idx);
+            -- Memory source: the timing-critical fp80 conversion already ran in
+            -- the conversion-stage block on the previous edge (cir_conv_start).
+            -- All formats (.L/.S/.X/.W/.D/.B/packed) are in cir_conv_src_reg, and
+            -- the dyadic destination snapshot is in cir_conv_dst_reg. Launch is
+            -- now a shallow register copy instead of the full conversion cone.
+            operand_reg(1) <= cir_conv_src_reg;
+            if op_is_monadic(cir_decoded_op) then
+              operand_reg(0) <= cir_conv_src_reg;
+            else
+              operand_reg(0) <= cir_conv_dst_reg;
+            end if;
           end if;
         end if;
       end if;
 
       -- MC68882 pending instruction auto-launch: mirrors cir_launch_alu but reads
       -- from pending_* registers. Only fires for cpGEN (arithmetic/move).
+      --
+      -- NOTE: this block is statically unreachable in the FPU_68881 build (the
+      -- production / verilator configuration -- fpu_version_g defaults to
+      -- FPU_68881, so synthesis optimizes the whole block away and it carries
+      -- no timing path). It is therefore deliberately NOT pipelined through the
+      -- cir_conv_* conversion stage: pending_launch_reg fires from
+      -- CIR_EXECUTE_DONE with no spare WAIT beat to host the capture. If a
+      -- FPU_68882 build is ever produced, this conversion must be moved to a
+      -- conversion-stage register the same way as the normal path above
+      -- (latch one edge before pending_launch_reg, then shallow-copy into
+      -- operand_reg), otherwise this cone re-introduces the slow-corner
+      -- setup violation for back-to-back 68882 dialogs.
       if fpu_version_g = FPU_68882 and pending_launch_reg = '1' then
         op_sel_reg <= pending_decoded_op;
         if pending_reg_to_reg = '1' then
@@ -4026,6 +4087,7 @@ begin
       cir_xfer_word_idx <= 0;
       cir_xfer_word_count <= 0;
       cir_launch_alu <= '0';
+      cir_conv_start <= '0';
       cir_flags_consumed <= '0';
       cir_restore_null_req <= '0';
       cir_restore_commit_req <= '0';
@@ -4040,6 +4102,7 @@ begin
       cir_fpctl_commit <= '0';
     elsif rising_edge(clk) then
       cir_launch_alu <= '0';  -- default: clear one-shot pulse
+      cir_conv_start <= '0';  -- default: clear one-shot pulse
       cir_flags_consumed <= '0';
       cir_restore_null_req <= '0';
       cir_restore_commit_req <= '0';
@@ -4144,12 +4207,19 @@ begin
           end if;
 
         when CIR_XFER_SRC_WAIT =>
-          -- First hold state: format conversion path settles (MCP=4, 4-cycle
-          -- separation from last cir_operand_staging write).
+          -- First hold state. cir_operand_staging has been stable since the
+          -- last operand word arrived in CIR_XFER_SRC, so trigger the
+          -- conversion-stage capture now: bus_frame_proc latches the fp80
+          -- format conversion into cir_conv_src_reg on the WAIT->WAIT2 edge,
+          -- one beat before cir_launch_alu copies it into operand_reg. This is
+          -- the pipeline beat that keeps the deep conversion cone off the
+          -- single launch edge (see cir_conv_* signal notes).
+          cir_conv_start <= '1';
           cir_state_reg <= CIR_XFER_SRC_WAIT2;
 
         when CIR_XFER_SRC_WAIT2 =>
           -- Second hold state: launch ALU (or F-line trap for lite-disabled ops).
+          -- cir_conv_src_reg / cir_conv_dst_reg now hold the converted operands.
           if cir_is_fpctl_move = '1' then
             -- FMOVE.L Dn → FPctl: pulse cir_fpctl_commit so bus_frame_proc
             -- writes whichever control regs the mask selects from
