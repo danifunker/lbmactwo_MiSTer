@@ -372,6 +372,35 @@ architecture rtl of mc68881_top is
   signal exc_event_force_invalid_reg : std_logic := '0';
   signal exc_event_force_bsun_reg : std_logic := '0';
 
+  -- FMOVE-to-memory exception-event pipeline stage (round-2 timing closure).
+  -- The FMOVE FPn->mem (.S/.D) exception derivation runs a full
+  -- fp80->single->fp80 (resp. fp80->double->fp80) round trip plus an fp80
+  -- inequality and a magnitude compare, then collapses the inexact/under/
+  -- overflow result straight onto exc_event_force_inexact_reg / exc_event_
+  -- result_reg on the op-issue edge. The slow-corner setup audit put ~99% of
+  -- the worst-setup endpoints on exc_event_force_inexact_reg, fed by exactly
+  -- this cone. Round 1 registered the inbound conversion (cir_conv_src_reg);
+  -- this stage does the same for the outbound exception derivation: it is
+  -- recomputed every edge from the already-combinational conv_fp_src /
+  -- conv_single_out / conv_double_out (which track the move source and are
+  -- stable for several cycles before issue) and captured here, so the inline
+  -- move block's exc_event_* writes become shallow register->register copies.
+  -- Each of these has exactly one driver, turning the deep round-trip cone into
+  -- an isolated register-to-register path the FPGA session can close (or
+  -- surgically multicycle) without touching the many-driver exc_event_*_reg.
+  -- Only the .S/.D round trip needs staging: reg-to-reg / mem-to-reg / integer
+  -- moves never raise inexact/under/overflow in this block. +1 cycle of latency,
+  -- functionally identical. See the move-exc stage block at the top of
+  -- alu_control_proc and the MOVE_CFG_MODE_REG_TO_MEM .S/.D cases.
+  signal move_exc_single_rt_reg      : fp80_t := (others => '0');  -- fp80_from_single(conv_single_out)
+  signal move_exc_double_rt_reg      : fp80_t := (others => '0');  -- fp80_from_double(conv_double_out)
+  signal move_exc_single_inexact_reg : std_logic := '0';
+  signal move_exc_single_unfl_reg    : std_logic := '0';
+  signal move_exc_single_ovfl_reg    : std_logic := '0';
+  signal move_exc_double_inexact_reg : std_logic := '0';
+  signal move_exc_double_unfl_reg    : std_logic := '0';
+  signal move_exc_double_ovfl_reg    : std_logic := '0';
+
   type packed_req_mode_t is (PACKED_REQ_NONE, PACKED_REQ_ENCODE, PACKED_REQ_DECODE);
 
   signal packed_pending_reg : std_logic := '0';
@@ -2761,6 +2790,14 @@ begin
       exc_event_force_inexact_reg <= '0';
       exc_event_force_invalid_reg <= '0';
       exc_event_force_bsun_reg <= '0';
+      move_exc_single_rt_reg <= (others => '0');
+      move_exc_double_rt_reg <= (others => '0');
+      move_exc_single_inexact_reg <= '0';
+      move_exc_single_unfl_reg <= '0';
+      move_exc_single_ovfl_reg <= '0';
+      move_exc_double_inexact_reg <= '0';
+      move_exc_double_unfl_reg <= '0';
+      move_exc_double_ovfl_reg <= '0';
       cir_arith_active_reg <= '0';
       cir_move_pending_reg <= '0';
       sys_ctrl_save_req_reg <= '0';
@@ -2793,6 +2830,57 @@ begin
       exc_event_force_bsun_reg <= '0';
       sys_ctrl_save_req_reg <= '0';
       sys_ctrl_restore_req_reg <= '0';
+
+      -- FMOVE-to-memory exception-event pipeline stage (round-2 timing closure).
+      -- Recompute the .S/.D round trip and the derived inexact/under/overflow
+      -- flags one edge ahead of op-issue, from the combinational conv_fp_src /
+      -- conv_single_out / conv_double_out that already track the move source
+      -- (fp_reg_file_reg(move_cfg_decoded_reg.src_idx) outside CIR_XFER_DST,
+      -- stable for several cycles before a reg->mem move issues). The inline
+      -- MOVE_CFG_MODE_REG_TO_MEM .S/.D cases below then read these as shallow
+      -- register copies instead of doing the round trip + compare on the
+      -- op-issue edge, which fanned the deep cone straight onto
+      -- exc_event_force_inexact_reg / exc_event_result_reg (the slow-corner
+      -- worst-setup endpoints). The expressions are identical to the old inline
+      -- derivation with move_result == conv_fp_src; reg-to-reg / mem-to-reg /
+      -- integer moves never reach the inexact/under/overflow tests, so only
+      -- these two formats are staged.
+      move_exc_single_rt_reg <= fp80_from_single(conv_single_out);
+      move_exc_double_rt_reg <= fp80_from_double(conv_double_out);
+      move_exc_single_inexact_reg <= '0';
+      move_exc_single_unfl_reg <= '0';
+      move_exc_single_ovfl_reg <= '0';
+      move_exc_double_inexact_reg <= '0';
+      move_exc_double_unfl_reg <= '0';
+      move_exc_double_ovfl_reg <= '0';
+      if not fp80_is_nan(conv_fp_src) and not fp80_is_inf(conv_fp_src)
+         and not fp80_is_zero(conv_fp_src) then
+        move_src_abs := conv_fp_src;
+        move_src_abs(FP_WIDTH-1) := '0';
+        -- single (.S): inexact = round trip differs, underflow = biased exp 0,
+        -- overflow = magnitude exceeds the largest finite single.
+        if fp80_from_single(conv_single_out) /= conv_fp_src then
+          move_exc_single_inexact_reg <= '1';
+        end if;
+        if conv_single_out(30 downto 23) = x"00" then
+          move_exc_single_unfl_reg <= '1';
+        end if;
+        single_max_abs := fp80_from_single(x"7F7FFFFF");
+        if compare_fp80_ordered(move_src_abs, single_max_abs) > 0 then
+          move_exc_single_ovfl_reg <= '1';
+        end if;
+        -- double (.D): same tests against the double format.
+        if fp80_from_double(conv_double_out) /= conv_fp_src then
+          move_exc_double_inexact_reg <= '1';
+        end if;
+        if conv_double_out(62 downto 52) = std_logic_vector(to_unsigned(0, 11)) then
+          move_exc_double_unfl_reg <= '1';
+        end if;
+        double_max_abs := fp80_from_double(x"7FEFFFFFFFFFFFFF");
+        if compare_fp80_ordered(move_src_abs, double_max_abs) > 0 then
+          move_exc_double_ovfl_reg <= '1';
+        end if;
+      end if;
 
       -- Keep cir_response_reg tracking FSM-based primitives when no
       -- conditional dialog result is pending.
@@ -3078,21 +3166,17 @@ begin
                         when "01" =>
                           single_bits := conv_single_out;
                           move_exc_enable := '1';
-                          move_exc_result := fp80_from_single(single_bits);
-                          if not fp80_is_nan(move_result) and not fp80_is_inf(move_result) and not fp80_is_zero(move_result) then
-                            if move_exc_result /= move_result then
-                              move_exc_force_inexact := '1';
-                            end if;
-                            if single_bits(30 downto 23) = x"00" then
-                              move_exc_force_underflow := '1';
-                            end if;
-                            move_src_abs := move_result;
-                            move_src_abs(FP_WIDTH-1) := '0';
-                            single_max_abs := fp80_from_single(x"7F7FFFFF");
-                            if compare_fp80_ordered(move_src_abs, single_max_abs) > 0 then
-                              move_exc_force_overflow := '1';
-                            end if;
-                          end if;
+                          -- Exception derivation was pre-computed one edge
+                          -- earlier into move_exc_single_*_reg (round-2 timing-
+                          -- closure stage). These are now shallow register reads
+                          -- instead of a second fp80<->single conversion + fp80
+                          -- compare collapsing onto exc_event_*_reg. conv_fp_src
+                          -- (the stage's source) equals move_result here, so the
+                          -- values are identical to the old inline derivation.
+                          move_exc_result := move_exc_single_rt_reg;
+                          move_exc_force_inexact := move_exc_single_inexact_reg;
+                          move_exc_force_underflow := move_exc_single_unfl_reg;
+                          move_exc_force_overflow := move_exc_single_ovfl_reg;
                           result_lo_reg <= single_bits;
                           result_hi_reg <= (others => '0');
                           result_ex_reg <= (others => '0');
@@ -3100,21 +3184,12 @@ begin
                         when "10" =>
                           double_bits := conv_double_out;
                           move_exc_enable := '1';
-                          move_exc_result := fp80_from_double(double_bits);
-                          if not fp80_is_nan(move_result) and not fp80_is_inf(move_result) and not fp80_is_zero(move_result) then
-                            if move_exc_result /= move_result then
-                              move_exc_force_inexact := '1';
-                            end if;
-                            if double_bits(62 downto 52) = std_logic_vector(to_unsigned(0, 11)) then
-                              move_exc_force_underflow := '1';
-                            end if;
-                            move_src_abs := move_result;
-                            move_src_abs(FP_WIDTH-1) := '0';
-                            double_max_abs := fp80_from_double(x"7FEFFFFFFFFFFFFF");
-                            if compare_fp80_ordered(move_src_abs, double_max_abs) > 0 then
-                              move_exc_force_overflow := '1';
-                            end if;
-                          end if;
+                          -- See the .S case: round trip + over/under/inexact were
+                          -- staged into move_exc_double_*_reg one edge earlier.
+                          move_exc_result := move_exc_double_rt_reg;
+                          move_exc_force_inexact := move_exc_double_inexact_reg;
+                          move_exc_force_underflow := move_exc_double_unfl_reg;
+                          move_exc_force_overflow := move_exc_double_ovfl_reg;
                           result_lo_reg <= double_bits(31 downto 0);
                           result_hi_reg <= double_bits(63 downto 32);
                           result_ex_reg <= (others => '0');
