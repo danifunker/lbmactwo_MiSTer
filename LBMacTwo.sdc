@@ -100,7 +100,18 @@ set fpu_dp_to [remove_from_collection [get_registers {
     *|mc68881_top:u_fpu|cir_operand_staging*
     *|mc68881_top:u_fpu|fp_reg_file_reg*
     *|mc68881_top:u_fpu|packed_*
+    *|mc68881_top:u_fpu|move_packed_*
+    *|mc68881_top:u_fpu|move_exc_*
 }] [get_registers {*|mc68881_top:u_fpu|result_ready_reg*}]]
+# move_packed_* / move_exc_* (2026-06-13): rounds 2/3 staged the inline
+# FMOVE-FPn→mem .S/.D/.P conversions into dedicated single-driver regs to lift
+# the worst-setup cones off exc_event_*/the move dispatch. Their fan-in is the
+# same fp80_from_single/double + fp80_to_packed96_fast conversion that the inline
+# path (which terminated at the SDC-covered packed_result_*/result_*) carried —
+# launched from the SAME stable fp_reg_file_reg/cir_dst_reg_idx sources already in
+# $fpu_dp_from, consumed only when a CPU-paced FMOVE issues. Without this the
+# round-3 move_packed_encode_reg cone is analysed single-cycle (-177 ns). Honest
+# CPU-paced multicycle, same lever as packed_result_*; do NOT relax handshakes.
 
 set_multicycle_path -setup 7 -from $fpu_dp_from -to $fpu_dp_to
 set_multicycle_path -hold  6 -from $fpu_dp_from -to $fpu_dp_to
