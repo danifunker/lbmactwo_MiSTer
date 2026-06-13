@@ -29,7 +29,7 @@ set_global_assignment -name OPTIMIZE_POWER_DURING_FITTING OFF
 set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
-set_global_assignment -name OPTIMIZATION_MODE "BALANCED"
+set_global_assignment -name OPTIMIZATION_MODE BALANCED
 set_global_assignment -name ALLOW_POWER_UP_DONT_CARE ON
 set_global_assignment -name QII_AUTO_PACKED_REGISTERS NORMAL
 set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
@@ -61,6 +61,10 @@ set_global_assignment -name SEED 1
 
 # Disable SignalTap (removes auto_signaltap_0 critical warning)
 set_global_assignment -name ENABLE_SIGNALTAP OFF
+
+# Early-boot CPU-wedge probe (rtl/dbg_wedge.sv, 5 JTAG probes). Diagnostic only
+# — remove this line for a probe-free release build. Does NOT enable dbg_min.
+set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
 
 # disable bilinear filtering when downscaling
 #set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"

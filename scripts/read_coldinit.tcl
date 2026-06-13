@@ -41,7 +41,7 @@ set pcs0 [expr 0x[rd $idx(PCS0)]]
 set pcs1 [expr 0x[rd $idx(PCS1)]]
 set pcs2 [expr 0x[rd $idx(PCS2)]]
 set pcs3 [expr 0x[rd $idx(PCS3)]]
-end_insystem_source_probe -device_name $dev -hardware_name $hw
+end_insystem_source_probe
 
 set EXPECT_SUM 0x013FFEF5
 set EXPECT_WORDS 131072

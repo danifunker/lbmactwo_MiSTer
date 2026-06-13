@@ -261,6 +261,34 @@ pll pll
 	.locked(pll_locked)
 );
 
+// ---- PLL-lock-stable reset synchronizer ------------------------------------
+// pll_locked is a raw PLL output in an asynchronous domain.  Consuming it
+// directly inside clk_sys logic (and as sdram.init / arbiter.reset) means the
+// very clock that is unstable during a lock event also clocks the machine that
+// is supposed to be holding everything in reset — and on relock there is no
+// defined settle window.  Synchronize it into clk_sys and hold reset for a
+// fixed number of STABLE clk_sys cycles after lock, so every configure (cold or
+// warm) and every unlock-recovery presents the same clean, fully-settled
+// release.  Drives the machine reset, the SDRAM controller init, the arbiter
+// reset and the PRAM/clear sequencers — i.e. the whole init choreography keys
+// off one debounced lock signal instead of the raw PLL output.
+reg [1:0]  lock_sync = 2'b00;   // 2-FF synchronizer for pll_locked into clk_sys
+reg [9:0]  lock_hold = 10'd0;   // settle counter after lock (~1024 clk_sys ≈ 33us)
+reg        sys_locked = 1'b0;   // lock-stable: clk_sys has run a full settle since lock
+always @(posedge clk_sys or negedge pll_locked) begin
+	if (!pll_locked) begin
+		lock_sync  <= 2'b00;
+		lock_hold  <= 10'd0;
+		sys_locked <= 1'b0;
+	end else begin
+		lock_sync <= {lock_sync[0], 1'b1};
+		if (lock_sync[1]) begin
+			if (lock_hold == 10'h3FF) sys_locked <= 1'b1;
+			else                      lock_hold  <= lock_hold + 1'b1;
+		end
+	end
+end
+
 reg [1:0] status_mem;
 reg [1:0] status_mod;
 reg       n_reset = 0;
@@ -293,7 +321,7 @@ always @(posedge clk_sys) begin
 		// !pram_ready holds the machine until the PRAM image mount status is
 		// known (the ROM reads the clock chip early in boot) — released by the
 		// PRAM FSM on load/no-image/backstop, see the PRAM persistence block.
-		if(~pll_locked || osd_reset_req || buttons[1] || RESET || !clear_done || pram_force_reset || !pram_ready) begin
+		if(!sys_locked || osd_reset_req || buttons[1] || RESET || !clear_done || pram_force_reset || !pram_ready) begin
 			rst_cnt <= '1;
 			n_reset <= 0;
 		end
@@ -425,7 +453,7 @@ reg [31:0] pram_rdy_cnt;      // ready backstop so a missing image never delays 
 reg        pram_force_reset;  // "Reset PRAM & Core" / late PRAM load -> system reset pulse
 
 always @(posedge clk_sys) begin
-	if (~pll_locked) begin
+	if (!sys_locked) begin
 		pst <= P_IDLE; pram_rd <= 0; pram_wr_req <= 0; pram_load_wr <= 0;
 		pram_ena <= 0; pram_dirty <= 0; pram_force_reset <= 0; pram_rst_after <= 0;
 		pram_load_pending <= 0; pram_flush_pending <= 0; pram_clr_pending <= 0;
@@ -1484,27 +1512,43 @@ end
 // ROM) fixes the cold-boot garbled chime + frozen mouse without relying on the
 // ROM's own RAM test. Paced exactly like the ROM download (one SDRAM write per
 // extra bus slot via dioBusControl), reusing the proven download write timing.
-// Word-address limit by configured RAM size (RAM lives in the A22=0 region):
-wire [21:0] clear_limit = (configRAMSize == 2'b00) ? 22'h07FFFF :  // 1MB
-                          (configRAMSize == 2'b01) ? 22'h0FFFFF :  // 2MB
-                          (configRAMSize == 2'b10) ? 22'h1FFFFF :  // 4MB
-                                                     22'h3FFFFF;   // 8MB
+// Clear the FULL 8 MB RAM window unconditionally.  The extent used to be sized
+// from configRAMSize (= status_mem), but status_mem is not latched until AFTER
+// the clear has already run — it is captured during the n_reset release
+// countdown, which is itself gated on clear_done.  So the clear ran against an
+// un-latched, power-up-don't-care size and could zero as little as the low
+// 1 MB, leaving upper RAM as garbage on a cold configure (the "garbled chime /
+// clean after a reload" lottery).  The SDRAM chip backs all 8 MB regardless of
+// the configured size, so zeroing addresses above the installed RAM is harmless
+// and removes the ordering dependency entirely.  (status_mem still latches at
+// reset release for addrController's runtime size limiting / OSD re-apply.)
+localparam [21:0] clear_limit = 22'h3FFFFF;   // full 8 MB, config-independent
 reg [21:0] clear_addr   = 0;
 reg        clear_active = 0;
 reg        clear_done   = 0;
 reg        clear_write  = 0;
 reg        clear_old_cyc = 0;
 always @(posedge clk_sys) begin
-	if(!rom_loaded) begin
+	// Reset the clear on every lock-stable epoch — a cold configure OR a
+	// PLL-unlock recovery (a lock loss can corrupt RAM).  Keyed off sys_locked
+	// rather than rom_loaded (which never de-asserts) so RAM is re-zeroed after
+	// any unlock event before the machine is let go again.
+	if(!sys_locked) begin
 		clear_active  <= 1'b0;
 		clear_done    <= 1'b0;
 		clear_addr    <= 22'd0;
 		clear_write   <= 1'b0;
 		clear_old_cyc <= 1'b0;
 	end else begin
-		if(!clear_done && !clear_active) clear_active <= 1'b1;   // start once ROM is loaded
+		if(!clear_done && !clear_active && rom_loaded) clear_active <= 1'b1;  // start once boot0.rom is in
 		clear_old_cyc <= dioBusControl;
-		if(clear_active) begin
+		// Yield every dio slot to an in-flight download: the arbiter address
+		// mux gives download_cycle priority, so a clear write that shared a slot
+		// with a ROM/disk download word would be silently dropped (and the
+		// ioctl_wait handshake desynced).  Pausing while dio_download is high
+		// makes the clear consume only idle slots — it can begin right after the
+		// ROM and politely interleave with any trailing disk-image stream.
+		if(clear_active && !dio_download) begin
 			if(~dioBusControl) clear_write <= 1'b1;                  // arm write before the slot
 			if(clear_old_cyc & ~dioBusControl & clear_write) begin   // extra slot just completed
 				clear_write <= 1'b0;
@@ -1518,7 +1562,7 @@ always @(posedge clk_sys) begin
 		end
 	end
 end
-wire clear_cycle = clear_active && dioBusControl;
+wire clear_cycle = clear_active && dioBusControl && !dio_download;
 
 // disk images are being stored right after os rom at word offset 0x80000 and 0x100000
 reg [20:0] dio_a;
@@ -1570,16 +1614,19 @@ wire download_cycle = dio_download && dioBusControl;
 //                                               collides with the 8MB RAM window
 //                                               (it used to sit at A21=0x200000,
 //                                               inside the 8MB RAM span).
-assign arb_mac_addr = clear_cycle    ? {3'b000, clear_addr} :                       // RAM pre-clear @ 0x000000+
-                      download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
+// Download has mux priority over the clear (downloads are externally paced and
+// must never be dropped); clear_cycle already excludes dio_download, so the two
+// are mutually exclusive — ordering download first is defensive.
+assign arb_mac_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
+                      clear_cycle    ? {3'b000, clear_addr} :                       // RAM pre-clear @ 0x000000+
                       ~_romOE        ? {2'b00, 1'b1, 4'b0000, memoryAddr[18:1]} :    // Mac II ROM @ 0x400000+
                       (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
                                        {3'b000, memoryAddr[22:1]};                   // RAM 0x000000-0x3FFFFF (8MB)
 
-assign arb_mac_din  = clear_cycle ? 16'h0000 : download_cycle ? dio_data  : memoryDataOut;
-assign arb_mac_ds   = clear_cycle ? 2'b11    : download_cycle ? 2'b11     : { !_memoryUDS, !_memoryLDS };
-assign arb_mac_we   = clear_cycle ? clear_write : download_cycle ? dio_write : !_ramWE;
-assign arb_mac_oe   = clear_cycle ? 1'b0     : download_cycle ? 1'b0      : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
+assign arb_mac_din  = download_cycle ? dio_data   : clear_cycle ? 16'h0000     : memoryDataOut;
+assign arb_mac_ds   = download_cycle ? 2'b11      : clear_cycle ? 2'b11        : { !_memoryUDS, !_memoryLDS };
+assign arb_mac_we   = download_cycle ? dio_write  : clear_cycle ? clear_write  : !_ramWE;
+assign arb_mac_oe   = download_cycle ? 1'b0       : clear_cycle ? 1'b0         : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 
 wire [15:0] sdram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux : arb_mac_dout;
 
@@ -1639,7 +1686,7 @@ wire        sdram_oe;
 sdram sdram
 (
 	// system interface
-	.init           ( !pll_locked              ),
+	.init           ( !sys_locked              ),  // hold SDRAM in init until clk_sys is lock-stable
 	.clk_64         ( clk_mem                  ),
 	.clk_8          ( clk8                     ),
 
@@ -1667,7 +1714,7 @@ sdram sdram
 sdram_arbiter arbiter (
 	.clk(clk_sys),
 	.clk8_en_p(clk8_en_p),  // SDRAM cycle T0 marker for the coherency handshake
-	.reset(!pll_locked),  // Reset with SDRAM, not CPU
+	.reset(!sys_locked),  // Reset with SDRAM (lock-stable), not CPU
 
 	// Mac system port
 	.mac_addr(arb_mac_addr),
@@ -1721,6 +1768,33 @@ dbg_coldinit dbg_coldinit_inst (
 	.clear_done     (clear_done),
 	.pram_ready     (pram_ready)
 );
+
+// Focused early-boot CPU-wedge probe (5 instances; fits where dbg_min's 82 do
+// not). Enabled with `set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"`.
+// Probes PADR/PSTA/PACT/PFLO/PFST; read with scripts/read_wedge.tcl. (The trim
+// dropped PFLA, so cpu_state.tcl's F-line block stays silent — use read_wedge.)
+// Diagnoses the residual wedge (root cause = FPU conversion-datapath timing).
+`ifdef DBG_WEDGE
+dbg_wedge dbg_wedge_inst (
+	.clk              (clk_sys),
+	.cpuAddr          (cpuAddr),
+	.cpuFC            (cpuFC),
+	.cpuAS_n          (_cpuAS),
+	.cpuRW            (_cpuRW),
+	.cpuDTACK_n       (_cpuDTACK),
+	.cpuUDS_n         (_cpuUDS),
+	.cpuLDS_n         (_cpuLDS),
+	.selectFPU        (selectFPU),
+	.selectRAM        (selectRAM),
+	.selectROM        (selectROM),
+	.selectNuBus      (selectNuBus),
+	.fpu_dsack0_n     (fpu_dsack0_n),
+	.fpu_dsack1_n     (fpu_dsack1_n),
+	.mac_dout_valid   (cpu_sdram_rd_done),
+	.cpu_din          (cpu_data_in),
+	.fpu_dbg_cir_state(fpu_dbg_cir_state)
+);
+`endif
 
 // Minimal JTAG CPU-state probes to diagnose the early-boot hang.
 // Stripped from production builds: `DBG_PROBES is left undefined so the ISSP
