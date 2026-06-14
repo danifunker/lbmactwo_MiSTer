@@ -1030,18 +1030,18 @@ for {set s 1} {$s <= 6} {incr s} {
     #              3={bad word[31:16], count[15:0]} 4={31'b0, frozen}
     if {[info exists idx(PRGR)] && $s == 1} {
         write_source_data -instance_index $idx(PRGR) -value 4 -value_in_hex
-        set frozen  [expr {[rd $idx(PRGR)] & 1}]
+        set frozen    [expr {[rd $idx(PRGR)] & 1}]
         write_source_data -instance_index $idx(PRGR) -value 3 -value_in_hex
-        set wc      [rd $idx(PRGR)]
-        set badword [expr {($wc >> 16) & 0xFFFF}]
-        set count   [expr {$wc & 0xFFFF}]
-        set satnote [expr {$count == 0xFFFF ? " (saturated)" : ""}]
-        puts [format "           COHERENCY: frozen=%d  violations=%u%s  bad_word=0x%04X" \
-            $frozen $count $satnote $badword]
-        if {$count == 0} {
-            puts "                 0 read-path coherency violations this session — cpu_data never latched a"
-            puts "                 neighbor word. If a crash still happened, the corruption is NOT this read"
-            puts "                 path; look elsewhere (and confirm the probe is exercised on a real boot)."
+        set wc        [rd $idx(PRGR)]
+        set badword   [expr {($wc >> 16) & 0xFFFF}]
+        set delivered [expr {$wc & 0xFFFF}]
+        write_source_data -instance_index $idx(PRGR) -value 5 -value_in_hex
+        set raw       [expr {[rd $idx(PRGR)] & 0xFFFF}]
+        puts [format "           COHERENCY: raw_leaks=%u  DELIVERED=%u  frozen=%d  bad_word=0x%04X" \
+            $raw $delivered $frozen $badword]
+        if {$raw == 0} {
+            puts "                 0 read-path coherency leaks seen this session. Either none occurred or the"
+            puts "                 probe wasn't exercised on a real boot. (A crash with raw=0 => not this path.)"
         } else {
             write_source_data -instance_index $idx(PRGR) -value 0 -value_in_hex
             set want [expr {[rd $idx(PRGR)] & 0xFFFFFF}]
@@ -1049,12 +1049,44 @@ for {set s 1} {$s <= 6} {incr s} {
             set got  [expr {[rd $idx(PRGR)] & 0xFFFFFF}]
             write_source_data -instance_index $idx(PRGR) -value 2 -value_in_hex
             set pc   [rd $idx(PRGR)]
-            puts [format "                 FIRST leak: CPU read word-addr 0x%06X but GOT data from 0x%06X (delta %d words)" \
-                $want $got [expr {$got - $want}]]
+            puts [format "                 FIRST leak: CPU read word-addr 0x%06X but slot returned 0x%06X (delta %d words; bit22=%d)" \
+                $want $got [expr {$got - $want}] [expr {(($want ^ $got) >> 22) & 1}]]
             puts [format "                 latched word=0x%04X   CPU bus addr @ leak=0x%08X" $badword $pc]
-            puts "                 => the cpuSlotOwned/cpu_data handshake latched a NEIGHBOR slot's word (fefc429 residual)."
-            puts [format "                    The got-addr 0x%06X identifies the leaking transaction (prior CPU fetch / disk / refresh)." $got]
+            if {$delivered == 0} {
+                puts "                 ==> FIX WORKING: the leak condition occurred but the address-match gate"
+                puts "                     SUPPRESSED every one — 0 bad words reached the CPU."
+            } else {
+                puts [format "                 ==> FIX HOLE: %u bad word(s) still reached the CPU (timeout fallback?) — investigate." $delivered]
+            }
         }
+
+        # ---- IF-fetch ring / illegal-F-line FAULT capture (PRGR src 6-12) ----
+        write_source_data -instance_index $idx(PRGR) -value 12 -value_in_hex
+        set fst    [rd $idx(PRGR)]
+        set ifroz  [expr {$fst & 1}]
+        set ihead  [expr {($fst >> 1) & 3}]
+        set ivec   [expr {($fst >> 4) & 0xF}]
+        set ivecnm [expr {$ivec == 11 ? "F-line(11)" : ($ivec == 4 ? "illegal(4)" : "none")}]
+        puts [format "           IF-FAULT: frozen=%d trap=%s head=%d" $ifroz $ivecnm $ihead]
+        if {$ifroz == 0} {
+            puts "                 ring NOT frozen — dumping LIVE ring contents for diagnosis (is it recording?):"
+        }
+        write_source_data -instance_index $idx(PRGR) -value 6  -value_in_hex; set fa0  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 7  -value_in_hex; set fa1  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 8  -value_in_hex; set fa2  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 9  -value_in_hex; set fa3  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 10 -value_in_hex; set fw01 [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 11 -value_in_hex; set fw23 [rd $idx(PRGR)]
+            set fpc(0) $fa0; set fpc(1) $fa1; set fpc(2) $fa2; set fpc(3) $fa3
+            set fwd(0) [expr {($fw01 >> 16) & 0xFFFF}]; set fwd(1) [expr {$fw01 & 0xFFFF}]
+            set fwd(2) [expr {($fw23 >> 16) & 0xFFFF}]; set fwd(3) [expr {$fw23 & 0xFFFF}]
+            for {set k 0} {$k < 4} {incr k} {
+                set slot [expr {($ihead + $k) % 4}]
+                set tag [expr {$k == 3 ? "  <- NEWEST = faulting opcode" : ""}]
+                puts [format "                 fetch-%d  PC=0x%08X  word=0x%04X%s" [expr {3 - $k}] $fpc($slot) $fwd($slot) $tag]
+            }
+            puts "                 Compare NEWEST word to the disk/ROM image: garbage opcode = corruption"
+            puts "                 (write-path suspect); a real F-line/FPU opcode = coprocessor/feature issue."
     }
     if {[info exists idx(PCAK)]} {
         # Control CIR ACK observability (build #22). Watches the bus for

@@ -52,6 +52,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// (registered in LBMacTwo.sv) — the only slots whose memoryLatch tail
 	// may be captured as CPU read data. See cpu_data comment below.
 	input cpuSlotOwned,
+	input cpu_rd_take,   // COHERENCY FIX (2026-06-13): only latch/forward read data
+	                     // when its source address matched the request (LBMacTwo.sv)
 	input [15:0] memoryDataIn,
 	output [15:0] memoryDataOut,
 	input memoryLatch,
@@ -213,7 +215,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// neighbor word reaching the CPU = the journal 0x51C9/0x0000 disk
 	// corruption and the mid-pseudo-DMA F-line (vec 11) stray trap.
 	reg [15:0] cpu_data;
-	always @(posedge clk32) if (cpuSlotOwned && memoryLatch) cpu_data <= memoryDataIn;
+	always @(posedge clk32) if (cpuSlotOwned && memoryLatch && cpu_rd_take) cpu_data <= memoryDataIn;
 
 	// CPU-side data output mux
 	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
@@ -223,7 +225,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
 							  selectSCSI ? scsiDataOut :
-							  (cpuSlotOwned && memoryLatch) ? memoryDataIn : cpu_data;
+							  (cpuSlotOwned && memoryLatch && cpu_rd_take) ? memoryDataIn : cpu_data;
 
 	// Memory-side
 	assign memoryDataOut = cpuDataIn;

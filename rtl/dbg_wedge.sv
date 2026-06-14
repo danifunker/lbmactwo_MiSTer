@@ -25,7 +25,10 @@
 //          1 = dout_addr    (address it GOT — the leak source)
 //          2 = cpuAddr @ first violation (CPU bus addr / PC context)
 //          3 = { bad word[31:16], 16-bit saturating violation count[15:0] }
-//          4 = { 31'b0, frozen }
+//          4 = { 31'b0, frozen }    5 = raw leak-condition count
+//        IF-fetch ring + illegal/F-line fault capture (for raw_leaks=0 crashes):
+//          6..9 = ring PCs[0..3]   10/11 = ring words[0,1]/[2,3]
+//          12 = {vec[7:4], head[2:1], frozen[0]} ; NEWEST ring word = faulting opcode
 //
 // Same instance_ids as dbg_min, so scripts/cpu_state.tcl reads it unchanged.
 // Gated by DBG_WEDGE (not DBG_PROBES). Read: quartus_stp_tcl -t scripts/cpu_state.tcl
@@ -53,7 +56,8 @@ module dbg_wedge (
 	input  wire [31:0] fpu_dbg_cir_state,
 
 	// ---- coherency detector inputs (2026-06-13) ----
-	input  wire        rd_latch,        // sdram_slot_cpu_rd && memoryLatch (the cpu_data latch gate)
+	input  wire        rd_latch,        // sdram_slot_cpu_rd && memoryLatch (RAW latch gate; pre-fix condition)
+	input  wire        cpu_rd_take,     // the COHERENCY-FIX accept gate (addr-match || bounded timeout)
 	input  wire [23:0] cpu_rd_addr,     // word-addr the CPU is reading (arb_mac_addr, stable in-cycle)
 	input  wire [23:0] dout_addr,       // word-addr that produced the SDRAM word being latched
 	input  wire [15:0] rd_word          // the SDRAM word being latched (memoryDataIn)
@@ -96,17 +100,22 @@ module dbg_wedge (
 	// slot's word leaked into cpu_data. Freeze the FIRST one (with full context)
 	// and keep a saturating count, so a post-crash read shows both the exact
 	// leak and how many leaks happened this session.
-	wire violation = rd_latch && (dout_addr != cpu_rd_addr);
+	wire mismatch      = (dout_addr != cpu_rd_addr);
+	wire raw_violation = rd_latch && mismatch;                 // leak CONDITION (occurs even when suppressed)
+	wire violation     = rd_latch && cpu_rd_take && mismatch;  // DELIVERED into cpu_data (fix target = 0)
 
 	reg        viol_frozen      = 1'b0;
 	reg [31:0] viol_cpuAddr     = 0;
 	reg [23:0] viol_cpu_rd_addr = 0;
 	reg [23:0] viol_dout_addr   = 0;
 	reg [15:0] viol_word        = 0;
-	reg [15:0] viol_count       = 0;   // saturating
+	reg [15:0] viol_count       = 0;   // saturating: DELIVERED violations (post-fix target = 0)
+	reg [15:0] raw_count        = 0;   // saturating: leak conditions seen (delivered OR suppressed)
 	always @(posedge clk) begin
-		if (violation) begin
-			if (viol_count != 16'hFFFF) viol_count <= viol_count + 16'd1;
+		// Capture the FIRST raw leak — its details survive even when the fix suppresses it,
+		// so we can still see the bit-22 RAM/ROM signature.
+		if (raw_violation) begin
+			if (raw_count != 16'hFFFF) raw_count <= raw_count + 16'd1;
 			if (!viol_frozen) begin
 				viol_frozen      <= 1'b1;
 				viol_cpuAddr     <= cpuAddr;
@@ -114,6 +123,46 @@ module dbg_wedge (
 				viol_dout_addr   <= dout_addr;
 				viol_word        <= rd_word;
 			end
+		end
+		if (violation && viol_count != 16'hFFFF) viol_count <= viol_count + 16'd1;
+	end
+
+	// ---- IF-fetch ring + illegal/F-line FAULT capture (2026-06-14) ------------
+	// Cracks the illegal/F-Line crashes that show raw_leaks=0 (NOT the read-address
+	// leak): capture the FAULTING OPCODE + PC + 3 lead-up fetches. Freeze on the
+	// illegal(0x10)/F-line(0x2C) exception VECTOR fetch (FC=5; classic Mac OS keeps
+	// VBR=0). RAM-region guard (last IF < 0x4000_0000) skips the benign ROM FPU
+	// self-test so the ring arms for the real RAM-code fault (MacTCP illegal /
+	// Finder F-line / the 0xC0Cx Sad Mac). The NEWEST ring word = the bad opcode:
+	// compare to the disk/ROM image to tell garbage (corruption -> write path) from
+	// a real instruction the core mishandled (FPU / feature gap).
+	reg [31:0] ifr_addr [0:3];
+	reg [15:0] ifr_word [0:3];
+	reg [1:0]  ifr_head     = 2'd0;   // next slot to write = OLDEST; head-1 = newest
+	reg        ifr_frozen   = 1'b0;
+	reg [3:0]  ifr_vec      = 4'd0;   // 11=F-line, 4=illegal
+	reg [31:0] last_if_addr = 32'd0;
+	reg        ifp_pending  = 1'b0;
+	reg [31:0] ifp_addr     = 32'd0;
+	wire if_event = cpuAS_n_d && !cpuAS_n && cpuRW &&        // AS-falling instruction fetch
+	                (cpuFC == 3'b010 || cpuFC == 3'b110);
+	wire vecfetch = !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
+	                (cpuAddr == 32'h0000002C || cpuAddr == 32'h00000010);
+	always @(posedge clk) begin
+		if (if_event) begin ifp_pending <= 1'b1; ifp_addr <= cpuAddr; end
+		if (ifp_pending && mac_dout_valid) begin            // fetch completed: log {addr,word}
+			if (!ifr_frozen) begin
+				ifr_addr[ifr_head] <= ifp_addr;
+				ifr_word[ifr_head] <= cpu_din;
+				ifr_head           <= ifr_head + 2'd1;
+				last_if_addr       <= ifp_addr;
+			end
+			ifp_pending <= 1'b0;
+		end
+		if (ifp_pending && !cpuAS_n_d && cpuAS_n) ifp_pending <= 1'b0;  // AS rose, no data -> abort
+		if (vecfetch && !ifr_frozen && (last_if_addr < 32'h40000000)) begin
+			ifr_frozen <= 1'b1;
+			ifr_vec    <= (cpuAddr == 32'h0000002C) ? 4'd11 : 4'd4;
 		end
 	end
 
@@ -124,9 +173,18 @@ module dbg_wedge (
 		case (prgr_source)
 			4'd0: prgr_r <= {8'h00, viol_cpu_rd_addr};   // address the CPU WANTED
 			4'd1: prgr_r <= {8'h00, viol_dout_addr};     // address it GOT (leak source)
-			4'd2: prgr_r <= viol_cpuAddr;                // CPU bus addr at the violation
-			4'd3: prgr_r <= {viol_word, viol_count};     // bad word + saturating count
+			4'd2: prgr_r <= viol_cpuAddr;                // CPU bus addr at the first leak
+			4'd3: prgr_r <= {viol_word, viol_count};     // bad word + DELIVERED count
 			4'd4: prgr_r <= {31'b0, viol_frozen};        // status
+			4'd5: prgr_r <= {16'h0000, raw_count};       // RAW leak-condition count (occurs even when fixed)
+			// IF-fetch ring / illegal-F-line fault capture (4-deep {PC,word}):
+			4'd6:  prgr_r <= ifr_addr[0];                // ring slot-0 PC
+			4'd7:  prgr_r <= ifr_addr[1];                // ring slot-1 PC
+			4'd8:  prgr_r <= ifr_addr[2];                // ring slot-2 PC
+			4'd9:  prgr_r <= ifr_addr[3];                // ring slot-3 PC
+			4'd10: prgr_r <= {ifr_word[0], ifr_word[1]}; // ring words 0,1
+			4'd11: prgr_r <= {ifr_word[2], ifr_word[3]}; // ring words 2,3
+			4'd12: prgr_r <= {24'd0, ifr_vec, 1'b0, ifr_head, ifr_frozen}; // [7:4]=vec [2:1]=head [0]=frozen
 			default: prgr_r <= 32'hC0DE0000;
 		endcase
 	end

@@ -904,14 +904,32 @@ reg  slot0_mark;          // busPhase==0 marker (the clk after clk8_en_p)
 reg  sdram_slot_cpu_rd;   // this SDRAM slot started with the CPU's read cmd
 reg  cpu_sdram_rd_done;   // an owned slot has completed for this bus cycle
 wire cpu_sdram_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
+
+// COHERENCY FIX (2026-06-13): only accept SDRAM read data whose source address
+// (sdram_dout_addr, tagged in sdram.v) matches the address the CPU's read wanted
+// (arb_mac_addr). This stops the cpu_data latch from taking a NEIGHBOR slot's
+// word -- the captured leak was a RAM read of word 0x013660 latching the adjacent
+// ROM-fetch word from 0x413660 (differ only in bit 22 = RAM vs ROM/disk region).
+// cpu_rd_take also gates the cpu_data latch+mux in dataController_top. The bounded
+// cpu_rd_wait timeout guarantees every read completes within ~5 owned slots (well
+// under the 8us bus-error window), so a marginal case falls back to the prior
+// behaviour instead of ever wedging. Common case (match at the first owned-slot
+// tail) adds ZERO delay.
+wire cpu_rd_addr_match = (sdram_dout_addr == arb_mac_addr[23:0]);
+reg [2:0] cpu_rd_wait;
+wire cpu_rd_take = cpu_rd_addr_match || cpu_rd_wait[2];   // match, or timeout fallback
+
 always @(posedge clk_sys) begin
 	slot0_mark <= clk8_en_p;
 	if (slot0_mark)
 		sdram_slot_cpu_rd <= cpuBusControl && cpu_sdram_rd_cycle;
-	if (_cpuAS)
+	if (_cpuAS) begin
 		cpu_sdram_rd_done <= 1'b0;
-	else if (sdram_slot_cpu_rd && clk8_en_p)
-		cpu_sdram_rd_done <= 1'b1;
+		cpu_rd_wait       <= 3'd0;
+	end else if (sdram_slot_cpu_rd && clk8_en_p) begin
+		if (cpu_rd_take)     cpu_sdram_rd_done <= 1'b1;   // complete only on address-match (or timeout)
+		if (!cpu_rd_wait[2]) cpu_rd_wait       <= cpu_rd_wait + 3'd1;
+	end
 end
 
 wire mac_is_sdram_read    = cpu_sdram_rd_cycle;
@@ -1302,6 +1320,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.cpuAddrASC(cpuAddr[12:0]),
 	.cpuBusControl(cpuBusControl),
 	.cpuSlotOwned(sdram_slot_cpu_rd),
+	.cpu_rd_take(cpu_rd_take),   // COHERENCY FIX: gate cpu_data latch/mux on address-match
+
 	.videoBusControl(videoBusControl),
 	.memoryDataOut(memoryDataOut),
 	.memoryDataIn(sdram_do),
@@ -1800,6 +1820,7 @@ dbg_wedge dbg_wedge_inst (
 	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
 	// held CPU read cycle, same domain as the tagged dout_addr) — no slot-phase skew.
 	.rd_latch         (sdram_slot_cpu_rd && memoryLatch),
+	.cpu_rd_take      (cpu_rd_take),
 	.cpu_rd_addr      (arb_mac_addr[23:0]),
 	.dout_addr        (sdram_dout_addr),
 	.rd_word          (sdram_do)
