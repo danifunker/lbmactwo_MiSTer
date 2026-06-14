@@ -29,6 +29,11 @@
 //        IF-fetch ring + illegal/F-line fault capture (for raw_leaks=0 crashes):
 //          6..9 = ring PCs[0..3]   10/11 = ring words[0,1]/[2,3]
 //          12 = {vec[7:4], head[2:1], frozen[0]} ; NEWEST ring word = faulting opcode
+//        Free-running EXCEPTION-VECTOR recorder (last-wins; IDs the fatal vector):
+//          13 = last_vec_addr (cpuAddr of the most recent FC=5 vector-table read,
+//               <0x100 => VBR=0; offset 0x08=bus 0x0C=addr 0x10=illegal 0x2C=F-line)
+//          14 = last_vec_pc (last completed IF addr at that vector fetch = faulting PC)
+//          15 = {16'b0, vec_seen_count} saturating count of vector-table reads
 //
 // Same instance_ids as dbg_min, so scripts/cpu_state.tcl reads it unchanged.
 // Gated by DBG_WEDGE (not DBG_PROBES). Read: quartus_stp_tcl -t scripts/cpu_state.tcl
@@ -52,7 +57,7 @@ module dbg_wedge (
 	input  wire        fpu_dsack1_n,
 	input  wire        mac_dout_valid,  // cpu_sdram_rd_done
 
-	input  wire [15:0] cpu_din,         // (legacy; unused by the coherency detector)
+	input  wire [15:0] cpu_din,         // (legacy; now fully unused — IF-ring captures rd_word, not this)
 	input  wire [31:0] fpu_dbg_cir_state,
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -127,15 +132,33 @@ module dbg_wedge (
 		if (violation && viol_count != 16'hFFFF) viol_count <= viol_count + 16'd1;
 	end
 
-	// ---- IF-fetch ring + illegal/F-line FAULT capture (2026-06-14) ------------
-	// Cracks the illegal/F-Line crashes that show raw_leaks=0 (NOT the read-address
-	// leak): capture the FAULTING OPCODE + PC + 3 lead-up fetches. Freeze on the
-	// illegal(0x10)/F-line(0x2C) exception VECTOR fetch (FC=5; classic Mac OS keeps
-	// VBR=0). RAM-region guard (last IF < 0x4000_0000) skips the benign ROM FPU
-	// self-test so the ring arms for the real RAM-code fault (MacTCP illegal /
-	// Finder F-line / the 0xC0Cx Sad Mac). The NEWEST ring word = the bad opcode:
-	// compare to the disk/ROM image to tell garbage (corruption -> write path) from
-	// a real instruction the core mishandled (FPU / feature gap).
+	// ---- IF-fetch ring + exception-vector capture (2026-06-14, round 2) --------
+	// Cracks the raw_leaks=0 crashes (NOT the read-address leak): record every
+	// instruction fetch as {PC, opcode}, 4 deep. Two consumers:
+	//
+	//  (1) RING FREEZE on the illegal(0x10)/F-line(0x2C) exception VECTOR fetch
+	//      (FC=5; classic Mac OS keeps VBR=0). Asymmetric region guard: illegal in
+	//      ANY region (catches a fault taken during ROM execution); F-line RAM-only
+	//      (keeps the benign ROM FPU self-test filtered). NEWEST ring word = the
+	//      faulting opcode; compare to the disk/ROM image (garbage=corruption /
+	//      real op=feature gap). Only fires for vec 4/11 — a bus/addr error (vec
+	//      2/3) won't freeze, by design; the recorder below catches those.
+	//
+	//  (2) FREE-RUNNING VECTOR RECORDER (last-wins): on any FC=5 read of a PROCESSOR-
+	//      FAULT vector (offset 0x08..0x2C, skipping 0x28 = the A-line toolbox
+	//      dispatcher that fires constantly) latch {cpuAddr=vector offset, last_if_addr
+	//      =faulting PC} and bump a count. Because it OVERWRITES, benign early
+	//      boot-probe bus-errors get replaced by the LATEST one — so at the Sad Mac
+	//      it holds the FATAL vector + PC, with no false-freeze risk. IDs the
+	//      exception the freeze can't (0x08=bus 0x0C=addr 0x10=illegal 0x2C=Fline).
+	//      Assumes VBR=0; if it never fires (count=0) on a fault, VBR is non-zero.
+	//
+	// CAPTURE-EDGE FIX (round 2): log the fetch at the rd_latch&&cpu_rd_take edge —
+	// the EXACT cycle dataController latches cpu_data (cpuSlotOwned&&memoryLatch&&
+	// cpu_rd_take, LBMacTwo.sv:1322 + dataController_top.sv:218), where rd_word is
+	// valid. The old mac_dout_valid (cpu_sdram_rd_done) edge was a cycle too late —
+	// sdram_do had moved on, so BOTH cpu_din and rd_word read 0x0000, AND fetches
+	// completing off that edge were silently dropped (the ring stopped recording).
 	reg [31:0] ifr_addr [0:3];
 	reg [15:0] ifr_word [0:3];
 	reg [1:0]  ifr_head     = 2'd0;   // next slot to write = OLDEST; head-1 = newest
@@ -144,25 +167,42 @@ module dbg_wedge (
 	reg [31:0] last_if_addr = 32'd0;
 	reg        ifp_pending  = 1'b0;
 	reg [31:0] ifp_addr     = 32'd0;
+	// free-running processor-fault vector recorder (last-wins; IDs the fatal vector)
+	reg [31:0] last_vec_addr  = 32'd0; // cpuAddr (offset) of the most recent fault-vector read
+	reg [31:0] last_vec_pc    = 32'd0; // last completed IF addr at that vector fetch (faulting PC)
+	reg [15:0] vec_seen_count = 16'd0; // saturating count of fault-vector reads
 	wire if_event = cpuAS_n_d && !cpuAS_n && cpuRW &&        // AS-falling instruction fetch
 	                (cpuFC == 3'b010 || cpuFC == 3'b110);
-	wire vecfetch = !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
-	                (cpuAddr == 32'h0000002C || cpuAddr == 32'h00000010);
+	wire vec_read = !cpuAS_n && cpuRW && (cpuFC == 3'b101);  // FC=5 supervisor-data read (vector fetch)
+	wire vec_fault_read = cpuAS_n_d && !cpuAS_n &&           // AS-falling: once per bus cycle
+	                cpuRW && (cpuFC == 3'b101) &&
+	                (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002C) &&
+	                (cpuAddr != 32'h00000028);              // fault vectors 2-9,11 (skip A-line 10)
 	always @(posedge clk) begin
 		if (if_event) begin ifp_pending <= 1'b1; ifp_addr <= cpuAddr; end
-		if (ifp_pending && mac_dout_valid) begin            // fetch completed: log {addr,word}
+		// Log the fetch at the TRUE data-delivery edge (= the cpu_data latch). rd_word
+		// is valid here; mac_dout_valid was a cycle late (logged 0x0000 + dropped fetches).
+		if (ifp_pending && rd_latch && cpu_rd_take) begin
 			if (!ifr_frozen) begin
 				ifr_addr[ifr_head] <= ifp_addr;
-				ifr_word[ifr_head] <= cpu_din;
+				ifr_word[ifr_head] <= rd_word;
 				ifr_head           <= ifr_head + 2'd1;
 				last_if_addr       <= ifp_addr;
 			end
 			ifp_pending <= 1'b0;
 		end
 		if (ifp_pending && !cpuAS_n_d && cpuAS_n) ifp_pending <= 1'b0;  // AS rose, no data -> abort
-		if (vecfetch && !ifr_frozen && (last_if_addr < 32'h40000000)) begin
-			ifr_frozen <= 1'b1;
-			ifr_vec    <= (cpuAddr == 32'h0000002C) ? 4'd11 : 4'd4;
+		// Asymmetric freeze: illegal in ANY region (catches a ROM-execution fault);
+		// F-line in RAM only (filters the benign ROM FPU self-test).
+		if (vec_read && !ifr_frozen) begin
+			if      (cpuAddr == 32'h00000010)                                begin ifr_frozen <= 1'b1; ifr_vec <= 4'd4;  end
+			else if (cpuAddr == 32'h0000002C && last_if_addr < 32'h40000000) begin ifr_frozen <= 1'b1; ifr_vec <= 4'd11; end
+		end
+		// Free-running recorder: the LAST fault-vector fetch wins (= the fatal one at a Sad Mac).
+		if (vec_fault_read) begin
+			last_vec_addr <= cpuAddr;
+			last_vec_pc   <= last_if_addr;
+			if (vec_seen_count != 16'hFFFF) vec_seen_count <= vec_seen_count + 16'd1;
 		end
 	end
 
@@ -185,6 +225,10 @@ module dbg_wedge (
 			4'd10: prgr_r <= {ifr_word[0], ifr_word[1]}; // ring words 0,1
 			4'd11: prgr_r <= {ifr_word[2], ifr_word[3]}; // ring words 2,3
 			4'd12: prgr_r <= {24'd0, ifr_vec, 1'b0, ifr_head, ifr_frozen}; // [7:4]=vec [2:1]=head [0]=frozen
+			// Free-running fault-vector recorder (last-wins; IDs the fatal vector):
+			4'd13: prgr_r <= last_vec_addr;              // offset of the most recent fault-vector read
+			4'd14: prgr_r <= last_vec_pc;                // faulting PC (last IF at that vector fetch)
+			4'd15: prgr_r <= {16'h0000, vec_seen_count}; // count of fault-vector reads (0 => VBR!=0 or none)
 			default: prgr_r <= 32'hC0DE0000;
 		endcase
 	end

@@ -224,7 +224,7 @@ localparam CONF_STR = {
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"O45,Memory,1MB,2MB,4MB,8MB;",
+	"O45,Memory,2MB,4MB,8MB;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
 	"O13,NuBus Video,Color,B&W;",
@@ -690,7 +690,12 @@ assign AUDIO_MIX = 0;
 // set the real-world inputs to sane defaults
 localparam 	  configROMSize = 2'b10;  // 128K ROM
 
-wire [1:0] configRAMSize = status_mem; // 00=1MB, 01=2MB, 10=4MB, 11=8MB
+// 1MB removed from the OSD "Memory" menu (it never sized correctly). The O45
+// list is now 2MB,4MB,8MB at indices 0/1/2, so remap: index 0 => 2MB. A pre-
+// change saved 8MB config (status_mem==3) also maps to 8MB, not wrapping to 1MB.
+wire [1:0] configRAMSize = (status_mem == 2'd0) ? 2'b01 :  // index 0 => 2MB
+                           (status_mem == 2'd1) ? 2'b10 :  // index 1 => 4MB
+                                                  2'b11;   // index 2 (or 3) => 8MB
 wire selectNuBus;
 
 // Mac II uses SCC for serial communication, not UARTs

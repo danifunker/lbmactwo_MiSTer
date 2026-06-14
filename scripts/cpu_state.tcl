@@ -1087,6 +1087,30 @@ for {set s 1} {$s <= 6} {incr s} {
             }
             puts "                 Compare NEWEST word to the disk/ROM image: garbage opcode = corruption"
             puts "                 (write-path suspect); a real F-line/FPU opcode = coprocessor/feature issue."
+        # ---- Free-running fault-vector recorder (PRGR src 13-15) --------------
+        # last-wins: at a Sad Mac the LAST processor-fault vector fetch = the fatal one.
+        write_source_data -instance_index $idx(PRGR) -value 13 -value_in_hex; set lva  [rd $idx(PRGR)]
+        write_source_data -instance_index $idx(PRGR) -value 14 -value_in_hex; set lvpc [rd $idx(PRGR)]
+        write_source_data -instance_index $idx(PRGR) -value 15 -value_in_hex; set lvc  [expr {[rd $idx(PRGR)] & 0xFFFF}]
+        set voff [expr {$lva & 0xFFF}]
+        switch -- $voff {
+            8   { set vnm "BUS-ERROR(2)" }
+            12  { set vnm "ADDRESS-ERROR(3)" }
+            16  { set vnm "ILLEGAL(4)" }
+            20  { set vnm "ZERO-DIVIDE(5)" }
+            24  { set vnm "CHK(6)" }
+            28  { set vnm "TRAPV(7)" }
+            32  { set vnm "PRIVILEGE(8)" }
+            36  { set vnm "TRACE(9)" }
+            44  { set vnm "F-LINE(11)" }
+            default { set vnm "other/none" }
+        }
+        if {$lvc == 0} {
+            puts "           VEC-RECORDER: count=0 -> NO processor-fault vector seen (VBR!=0, or no fault yet)"
+        } else {
+            puts [format "           VEC-RECORDER: last=%s  vec_addr=0x%08X  faulting_PC=0x%08X  count=%u" $vnm $lva $lvpc $lvc]
+            puts "                 ^ FATAL exception type + where it faulted. Look up faulting_PC in the ROM/disk image."
+        }
     }
     if {[info exists idx(PCAK)]} {
         # Control CIR ACK observability (build #22). Watches the bus for
