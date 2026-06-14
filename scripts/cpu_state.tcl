@@ -139,6 +139,8 @@ foreach inst $info {
     # Build #73 — F-line opcode tracker (CPU/FPU bug hypothesis)
     if {$nm eq "PFLO"} { set idx(PFLO) $i }
     if {$nm eq "PFLA"} { set idx(PFLA) $i }
+    # 2026-06-13 — dbg_wedge IF-fetch ring (frozen on F-line/illegal vec fetch)
+    if {$nm eq "PRGR"} { set idx(PRGR) $i }
     # 2026-06-10 — runaway-entry jump ring (src/dst pairs; PRNG source[3:0]
     # selects the ring slot) + freeze/classifier flags
     if {$nm eq "PRNG"} { set idx(PRNG) $i }
@@ -1019,6 +1021,39 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                 RESTORE_FRAME reached => build #15 fix's path IS exercised. Check PFRR/PFRW for word transfers."
         } elseif {$max_state == 18} {
             puts "                 max=RESTORE_FORMAT => FORMAT word never arrived (cir_restore_trigger?) OR fw was unrecognized."
+        }
+    }
+    # Coherency violation latch (dbg_wedge PRGR, 2026-06-13): the residual SDRAM
+    # read-path neighbor-word leak, caught AT the cpu_data latch (replaces the old
+    # IF-ring, which only ever froze on the benign 0x0000C0Cx illegal red herring).
+    # source[3:0]: 0=cpu_rd_addr(wanted) 1=dout_addr(got) 2=cpuAddr@viol
+    #              3={bad word[31:16], count[15:0]} 4={31'b0, frozen}
+    if {[info exists idx(PRGR)] && $s == 1} {
+        write_source_data -instance_index $idx(PRGR) -value 4 -value_in_hex
+        set frozen  [expr {[rd $idx(PRGR)] & 1}]
+        write_source_data -instance_index $idx(PRGR) -value 3 -value_in_hex
+        set wc      [rd $idx(PRGR)]
+        set badword [expr {($wc >> 16) & 0xFFFF}]
+        set count   [expr {$wc & 0xFFFF}]
+        set satnote [expr {$count == 0xFFFF ? " (saturated)" : ""}]
+        puts [format "           COHERENCY: frozen=%d  violations=%u%s  bad_word=0x%04X" \
+            $frozen $count $satnote $badword]
+        if {$count == 0} {
+            puts "                 0 read-path coherency violations this session — cpu_data never latched a"
+            puts "                 neighbor word. If a crash still happened, the corruption is NOT this read"
+            puts "                 path; look elsewhere (and confirm the probe is exercised on a real boot)."
+        } else {
+            write_source_data -instance_index $idx(PRGR) -value 0 -value_in_hex
+            set want [expr {[rd $idx(PRGR)] & 0xFFFFFF}]
+            write_source_data -instance_index $idx(PRGR) -value 1 -value_in_hex
+            set got  [expr {[rd $idx(PRGR)] & 0xFFFFFF}]
+            write_source_data -instance_index $idx(PRGR) -value 2 -value_in_hex
+            set pc   [rd $idx(PRGR)]
+            puts [format "                 FIRST leak: CPU read word-addr 0x%06X but GOT data from 0x%06X (delta %d words)" \
+                $want $got [expr {$got - $want}]]
+            puts [format "                 latched word=0x%04X   CPU bus addr @ leak=0x%08X" $badword $pc]
+            puts "                 => the cpuSlotOwned/cpu_data handshake latched a NEIGHBOR slot's word (fefc429 residual)."
+            puts [format "                    The got-addr 0x%06X identifies the leaking transaction (prior CPU fetch / disk / refresh)." $got]
         }
     }
     if {[info exists idx(PCAK)]} {

@@ -39,6 +39,7 @@ module sdram
 
 	input [15:0]        din,        // data input from chipset/cpu
 	output reg [15:0]   dout,       // data output to chipset/cpu
+	output reg [23:0]   dout_addr,  // DBG: word-address that produced `dout` (coherency probe; pruned when unconnected)
 	input [23:0]        addr,       // 24 bit word address
 	input [1:0]         ds,         // upper/lower data strobe
 	input               oe,         // cpu/chipset requests read
@@ -128,6 +129,7 @@ assign sd_we  = sd_cmd[0];
 assign sd_dqm = sd_addr[12:11];
 
 reg oe_latch, we_latch;
+reg [23:0] addr_latch;   // DBG: addr captured at slot t=0, travels with dout to STATE_READ
 
 always @(posedge clk_64) begin
 	sd_cmd <= CMD_INHIBIT;  // default: idle
@@ -161,6 +163,7 @@ always @(posedge clk_64) begin
 		// -------------------  cpu/chipset read/write ----------------------
 		if(t == STATE_CMD_START) begin
 			{oe_latch, we_latch} <= {oe, we};
+			addr_latch <= addr;   // DBG: tag this slot's read data with its own address
 			if (we || oe) begin
 				sd_cmd <= CMD_ACTIVE;
 				sd_addr <= { 1'b0, addr[19:8] };
@@ -182,7 +185,10 @@ always @(posedge clk_64) begin
 		end
 
 		// Data ready
-		if (t == STATE_READ && oe_latch) dout <= sd_data;
+		if (t == STATE_READ && oe_latch) begin
+			dout      <= sd_data;
+			dout_addr <= addr_latch;   // DBG: this dout was produced by addr_latch
+		end
 
 	end
 end

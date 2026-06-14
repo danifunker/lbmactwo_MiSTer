@@ -1635,6 +1635,7 @@ wire [15:0] sdram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAc
 // we thus need to properly demultiplex the word returned from sdram in that case
 wire [15:0] extra_rom_data_demux = memoryAddr[0]? {sdram_out[7:0],sdram_out[7:0]}:{sdram_out[15:8],sdram_out[15:8]};
 wire [15:0] sdram_out;
+wire [23:0] sdram_dout_addr;   // DBG: word-address that produced sdram_out (coherency probe; pruned if unused)
 
 assign SDRAM_CKE = 1;
 
@@ -1707,7 +1708,8 @@ sdram sdram
 	.ds             ( sdram_ds                 ),
 	.we             ( sdram_we                 ),
 	.oe             ( sdram_oe                 ),
-	.dout           ( sdram_out                )
+	.dout           ( sdram_out                ),
+	.dout_addr      ( sdram_dout_addr          )   // DBG: address tag for the coherency probe
 );
 
 // SDRAM Arbiter - share SDRAM between Mac and NuBus video
@@ -1792,7 +1794,15 @@ dbg_wedge dbg_wedge_inst (
 	.fpu_dsack1_n     (fpu_dsack1_n),
 	.mac_dout_valid   (cpu_sdram_rd_done),
 	.cpu_din          (cpu_data_in),
-	.fpu_dbg_cir_state(fpu_dbg_cir_state)
+	.fpu_dbg_cir_state(fpu_dbg_cir_state),
+	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
+	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
+	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
+	// held CPU read cycle, same domain as the tagged dout_addr) — no slot-phase skew.
+	.rd_latch         (sdram_slot_cpu_rd && memoryLatch),
+	.cpu_rd_addr      (arb_mac_addr[23:0]),
+	.dout_addr        (sdram_dout_addr),
+	.rd_word          (sdram_do)
 );
 `endif
 

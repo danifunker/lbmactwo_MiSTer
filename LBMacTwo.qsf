@@ -62,8 +62,12 @@ set_global_assignment -name SEED 1
 # Disable SignalTap (removes auto_signaltap_0 critical warning)
 set_global_assignment -name ENABLE_SIGNALTAP OFF
 
-# Early-boot CPU-wedge probe (rtl/dbg_wedge.sv, 5 JTAG probes). Diagnostic only
+# Early-boot CPU-wedge probe (rtl/dbg_wedge.sv, 6 JTAG probes). Diagnostic only
 # — remove this line for a probe-free release build. Does NOT enable dbg_min.
+# 2026-06-13: RE-ENABLED — the SDRAM-init fix cleared the Finder "illegal
+# instruction" bomb (dbg_coldinit: ROM sum OK, 0 PLL unlocks, healthy boot), but
+# boot now HANGS at the gray desktop (a later, previously-masked stall; the scc
+# LocalTalk ltlk fix is already in). Need PADR/PACT/PSTA to read the stuck PC.
 set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
 
 # disable bilinear filtering when downscaling
