@@ -1091,6 +1091,15 @@ end
 wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
                           selectFPU ? fpu_d_to_cpu :
                           fpu_data_hold_valid ? fpu_data_hold :
+                          // Open-bus default for UNDECODED reads (port of MacLC f9fbf56).
+                          // Return $FFFF, never the stale neighbour SDRAM word that the mux
+                          // otherwise falls through to (dataController_top.sv cpu_data). A stale
+                          // word here is latched by TG68 berr_inhibit and RE-FED as a garbage
+                          // opcode on retry -> "illegal instruction" / "bad F-Line" bombs under
+                          // 7.5.5's heavy hardware probing (e.g. MacTCP). This is exactly the
+                          // undecoded set the ~8us BERR already targets, so it cannot affect any
+                          // decoded RAM/ROM/peripheral/FPU read. (cpu-space FC=7 excluded.)
+                          (~any_select & ~is_cpu_space) ? 16'hFFFF :
                           dataControllerDataOut;
 
 tg68k tg68k_inst (
@@ -1795,6 +1804,22 @@ dbg_coldinit dbg_coldinit_inst (
 	.clear_done     (clear_done),
 	.pram_ready     (pram_ready)
 );
+
+// FPU CIR-state runtime probe (DBG_FPU diagnostic, read-only, no FPU logic change).
+// Reads fpu_dbg_cir_state live over JTAG to see what the FPU is wedged on at the
+// SimpleText-launch hard lock. Layout (mc68881_top.vhd:46): [31:16] response prim,
+// [15:11] cir_state_reg, [10:6] MAX state seen, [2] except-seen, [1] restore-frame
+// -seen, [0] cir_active. Distinguishes a stuck ARITH op (cir_state=CIR_EXECUTE)
+// from a stuck FSAVE/FRESTORE context-switch (CIR_RESTORE_FRAME / CIR_SAVE_*).
+// Keys off the FPU's own FSM (clk_sys), so it reads correctly while the Mac is
+// frozen (unlike the SDRAM-slot-gated probes). scripts/read_fpu.tcl. Reuses
+// dbg_coldinit's JTAG hub. Strip by removing the DBG_FPU macro (LBMacTwo.qsf).
+`ifdef DBG_FPU
+altsource_probe #(
+	.instance_id ("FPCS"), .probe_width (32), .source_width (1),
+	.sld_auto_instance_index ("YES")
+) p_fpcs (.probe(fpu_dbg_cir_state), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+`endif
 
 // Focused early-boot CPU-wedge probe (5 instances; fits where dbg_min's 82 do
 // not). Enabled with `set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"`.
