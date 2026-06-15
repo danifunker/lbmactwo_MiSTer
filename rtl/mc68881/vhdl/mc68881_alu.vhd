@@ -6,7 +6,11 @@ use work.mc68881_pkg.all;
 
 entity mc68881_alu is
   generic (
-    fpu_lite : boolean := false
+    fpu_lite      : boolean := false;
+    -- Enable the divrem + sgl_ops hardware units (FDIV/FSQRT/FMOD/FREM/FSCALE/
+    -- FSGLDIV/FSGLMUL) WITHOUT the big trig unit -- a 68040-class subset (all but
+    -- transcendentals) that fits on Cyclone V. Composes with fpu_lite=true.
+    enable_divrem : boolean := false
   );
   port (
     clk     : in  std_logic;
@@ -262,10 +266,10 @@ begin
   -- Hardware divide/remainder/sqrt unit is ~6,000 ALMs.  In lite mode it is
   -- omitted entirely; FDIV/FSQRT (and MOD/REM, already lite-disabled) F-line
   -- trap to the software FPSP via op_disabled_by_lite in mc68881_top.vhd.
-  gen_divrem_full : if not fpu_lite generate
+  gen_divrem_full : if (not fpu_lite) or enable_divrem generate
   divrem_inst : entity work.mc68881_divrem_unit
     generic map (
-      enable_modrem_post => not fpu_lite
+      enable_modrem_post => (not fpu_lite) or enable_divrem
     )
     port map (
       clk     => clk,
@@ -309,7 +313,7 @@ begin
     );
   end generate;
 
-  gen_divrem_lite : if fpu_lite generate
+  gen_divrem_lite : if fpu_lite and not enable_divrem generate
   begin
     divrem_busy           <= '0';
     divrem_done           <= '0';
@@ -340,7 +344,7 @@ begin
     -- but the canonical convert_to_verilog.sh flow does not).
   end generate;
 
-  gen_sglops_full : if not fpu_lite generate
+  gen_sglops_full : if (not fpu_lite) or enable_divrem generate
     sglops_inst : entity work.mc68881_sgl_ops_unit
       port map (
         clk        => clk,
@@ -356,7 +360,7 @@ begin
       );
   end generate;
 
-  gen_sglops_lite : if fpu_lite generate
+  gen_sglops_lite : if fpu_lite and not enable_divrem generate
   begin
     sglops_busy <= '0';
     sglops_done <= '0';
@@ -706,7 +710,7 @@ begin
               latency_count_reg <= op_alu_latency(op_sel) - 1;
             end if;
           end if;
-        elsif is_divrem_op(op_sel) and not fpu_lite then
+        elsif is_divrem_op(op_sel) and ((not fpu_lite) or enable_divrem) then
           divrem_op_reg <= op_sel;
           divrem_a_reg <= a_in;
           divrem_b_reg <= b_in;
@@ -719,7 +723,7 @@ begin
           else
             latency_count_reg <= op_alu_latency(op_sel) - 2;
           end if;
-        elsif is_sglops_op(op_sel) and not fpu_lite then
+        elsif is_sglops_op(op_sel) and ((not fpu_lite) or enable_divrem) then
           sglops_op_reg <= op_sel;
           sglops_a_reg <= a_in;
           sglops_b_reg <= b_in;

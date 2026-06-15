@@ -23,6 +23,11 @@ entity mc68881_top is
     -- `true`: MC68040 hardware subset (11 ALU ops, no trig/sglops/modrem/getexp/getman).
     -- `false`: full MC68881 (37 ALU ops + 10 control/move).
     fpu_lite_g : boolean := false;
+    -- `true` (with fpu_lite_g=true): a 68040-class subset = lite + the divrem &
+    -- sgl_ops hardware (FDIV/FSQRT/FMOD/FREM/FSCALE/FSGLDIV/FSGLMUL) but WITHOUT
+    -- the trig unit (transcendentals don't fit on Cyclone V). Those + GETEXP/
+    -- GETMAN remain F-line-trapped. See mc68881_alu.vhd enable_divrem.
+    enable_divrem_g : boolean := false;
     -- FPU version: FPU_68881 (default) or FPU_68882.
     -- Selects FSAVE frame format and enables pending instruction pipeline.
     fpu_version_g : fpu_version_t := FPU_68881
@@ -517,22 +522,31 @@ architecture rtl of mc68881_top is
   -- gen_sglops_full, is_divrem_op-but-not-DIV/SQRT, GETEXP/GETMAN).
   -- Used to route lite-unsupported ops to CIR_EXCEPT_PRE with the F-line
   -- vector instead of silently completing with a zeroed result.
-  function op_disabled_by_lite(op : fpu_op_t) return boolean is
+  function op_disabled_by_lite(op : fpu_op_t; enable_divrem : boolean) return boolean is
   begin
-    return op = FPU_OP_SIN     or op = FPU_OP_COS     or op = FPU_OP_TAN     or
-           op = FPU_OP_SINCOS  or op = FPU_OP_ACOS    or op = FPU_OP_ASIN    or
-           op = FPU_OP_ATAN    or op = FPU_OP_ATANH   or op = FPU_OP_COSH    or
-           op = FPU_OP_ETOX    or op = FPU_OP_ETOXM1  or op = FPU_OP_LOGN    or
-           op = FPU_OP_LOGNP1  or op = FPU_OP_LOG10   or op = FPU_OP_LOG2    or
-           op = FPU_OP_SINH    or op = FPU_OP_TANH    or op = FPU_OP_TENTOX  or
-           op = FPU_OP_TWOTOX  or
-           op = FPU_OP_MOD     or op = FPU_OP_REM     or
-           op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL  or
-           -- DIV/SQRT now also disabled in lite: the hardware divrem unit
-           -- (~6,000 ALMs) is omitted from the lite build, so these F-line
-           -- trap to the software FPSP like the other divrem ops.
-           op = FPU_OP_DIV     or op = FPU_OP_SQRT    or
-           op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN;
+    -- Transcendentals (mc68881_trig_unit, ~17.6k ALUTs) + GETEXP/GETMAN have NO
+    -- hardware even with enable_divrem: the trig unit does not fit on Cyclone V,
+    -- and GETEXP/GETMAN ride the fpu_lite-gated simple path. These ALWAYS F-line-
+    -- trap in a lite-family build (a software FPSP would be needed to run them).
+    if op = FPU_OP_SIN     or op = FPU_OP_COS     or op = FPU_OP_TAN     or
+       op = FPU_OP_SINCOS  or op = FPU_OP_ACOS    or op = FPU_OP_ASIN    or
+       op = FPU_OP_ATAN    or op = FPU_OP_ATANH   or op = FPU_OP_COSH    or
+       op = FPU_OP_ETOX    or op = FPU_OP_ETOXM1  or op = FPU_OP_LOGN    or
+       op = FPU_OP_LOGNP1  or op = FPU_OP_LOG10   or op = FPU_OP_LOG2    or
+       op = FPU_OP_SINH    or op = FPU_OP_TANH    or op = FPU_OP_TENTOX  or
+       op = FPU_OP_TWOTOX  or
+       op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN then
+      return true;
+    end if;
+    -- divrem + sgl_ops set: in pure lite the hardware units are omitted so these
+    -- F-line-trap; with enable_divrem the mc68881_divrem_unit / mc68881_sgl_ops_
+    -- unit ARE generated, so DIV/SQRT/MOD/REM/SCALE/SGLDIV/SGLMUL run in hardware.
+    if op = FPU_OP_DIV     or op = FPU_OP_SQRT    or
+       op = FPU_OP_MOD     or op = FPU_OP_REM     or
+       op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL then
+      return not enable_divrem;
+    end if;
+    return false;
   end function;
 
   function signed16_to_integer(bits : std_logic_vector(15 downto 0)) return integer is
@@ -1992,7 +2006,8 @@ begin
 
   alu_inst : entity work.mc68881_alu
     generic map (
-      fpu_lite => fpu_lite_g
+      fpu_lite      => fpu_lite_g,
+      enable_divrem => enable_divrem_g
     )
     port map (
       clk    => clk,
@@ -4273,7 +4288,7 @@ begin
           end if;
 
         when CIR_DECODE =>
-          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op, enable_divrem_g) then
             -- B-4 fix: lite variant doesn't implement this op. Return an
             -- F-line exception primary so the CPU can take an emulator
             -- trap (vector 11) and a software FPSP-style handler can
@@ -4342,7 +4357,7 @@ begin
             -- here (single-driver rule).
             cir_fpctl_commit <= '1';
             cir_state_reg <= CIR_IDLE;
-          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op, enable_divrem_g) then
             cir_exc_vector <= CIR_VEC_FLINE;
             cir_state_reg <= CIR_EXCEPT_PRE;
           else
