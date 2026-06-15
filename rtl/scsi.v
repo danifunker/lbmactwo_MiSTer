@@ -70,6 +70,21 @@ module scsi
 // SCSI device id
 parameter [2:0] ID = 0;
 
+// Read-prefetch ring depth (log2 of 512-byte sectors held in the read buffer).
+// Ported from MacLC rtl/scsi.v: the read path keeps RING_BLOCKS sectors fetched
+// AHEAD of the Mac so per-sector HPS fetch latency is hidden and heavy reads
+// (e.g. Control Panels / extension loading) STREAM instead of stalling at every
+// 512-byte boundary (the pseudo-DMA heavy-read stall). RING_LOG=1 reproduces the
+// original two-sector double buffer exactly. WRITES are unchanged: they always
+// use the two-slot double buffer (slots 0/1) regardless of RING_LOG.
+//   Default 1 (cheap). Only the BOOT disk (ID6) is instantiated with RING_LOG=5
+//   (32 sectors / 16KB) in ncr5380.sv — widening just one target keeps us within
+//   the M10K budget (16KB ring = ~42 M10K; both disks would exceed 553 M10K with
+//   the 8bpp framebuffer present).
+parameter  RING_LOG    = 1;
+localparam RING_BLOCKS = 1 << RING_LOG; // sectors buffered for reads
+localparam BUF_AW      = 8 + RING_LOG;  // dpram word-address width (256 words/sector)
+
 assign dbg_mounted = mounted;
 assign dbg_phase = phase;
 
@@ -82,8 +97,9 @@ localparam PHASE_MESSAGE_OUT = 3'd5;
 reg [2:0]  phase;
 
 // ------------ sector buffer IO controller read/write -----------------------
-// the buffer itself. Can hold two sectors
-reg sd_buff_sel;
+// the buffer itself. Holds RING_BLOCKS sectors for reads; writes use slots 0/1.
+reg sd_buff_sel;                   // WRITE double-buffer half (unchanged path)
+reg [22:0] rd_hps_blk;             // READ ring: # of sectors fetched this command
 
 // HPS sector-buffer byte order.  buffer0 always holds the byte the Mac reads
 // FIRST (even byte) and buffer1 the odd byte.  The byte that lands in each
@@ -104,27 +120,43 @@ wire [7:0] buf1_data_a = sd_buff_dout[15:8];
 assign sd_buff_din = {buf1_q_a, buf0_q_a};
 `endif
 
+// Buffer addressing. READS span the whole RING_BLOCKS-sector ring; WRITES stay
+// on the original two-slot double buffer so the write path is byte-for-byte
+// unchanged. A command is either a read or a write, so the two schemes never
+// collide on a port. The 2-slot addresses are zero-extended to BUF_AW by
+// assignment (no replication, so RING_LOG=1 / BUF_AW=9 exactly reproduces the
+// original double buffer).
+wire [22:0] rd_cur_blk = data_cnt[31:9];                      // sector the Mac is reading
+wire [RING_LOG-1:0] rd_hps_slot = rd_hps_blk[RING_LOG-1:0];
+wire [BUF_AW-1:0] hps_addr_wr = {sd_buff_sel, sd_buff_addr};  // write flush: slot 0/1
+wire [BUF_AW-1:0] mac_addr_wr = data_cnt[9:1];                // Mac write: slot 0/1
+// HPS side (port A): read fills target the ring fetch-slot; write flushes keep
+// the original sd_buff_sel half.
+wire [BUF_AW-1:0] hps_addr = cmd_write ? hps_addr_wr : { rd_hps_slot, sd_buff_addr };
+// Mac side (port B): reads address the full ring; writes the 2-slot half.
+wire [BUF_AW-1:0] mac_addr = (phase == PHASE_DATA_IN) ? mac_addr_wr : data_cnt[BUF_AW:1];
+
 wire [7:0] buffer0_dout;
 wire [7:0] buffer0_dout_next;
 wire [7:0] buffer0_dout_next2;
-scsi_dpram buffer0
+scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer0
 (
 	.clock(clk),
 
-	.address_a({sd_buff_sel, sd_buff_addr}),
+	.address_a(hps_addr),
 	.data_a(buf0_data_a),
 	.wren_a(sd_buff_wr),
 	.q_a(buf0_q_a),
 
-	.address_b(data_cnt[9:1]),
+	.address_b(mac_addr),
 	.data_b(din),
 	.wren_b(buffer0_wr),
 	.q_b(buffer0_dout),
 
-	.address_c(data_cnt[9:1] + 9'd1),
+	.address_c(mac_addr + 1'b1),
 	.q_c(buffer0_dout_next),
 
-	.address_d(data_cnt[9:1] + 9'd2),
+	.address_d(mac_addr + 2'd2),
 	.q_d(buffer0_dout_next2)
 );
 
@@ -163,24 +195,24 @@ always @(posedge clk) begin
 		odd_byte_r <= dbg_dma_lowbyte;
 end
 
-scsi_dpram buffer1
+scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer1
 (
 	.clock(clk),
 
-	.address_a({sd_buff_sel, sd_buff_addr}),
+	.address_a(hps_addr),
 	.data_a(buf1_data_a),
 	.wren_a(sd_buff_wr),
 	.q_a(buf1_q_a),
 
-	.address_b(data_cnt[9:1]),
+	.address_b(mac_addr),
 	.data_b(dbg_dma_word ? odd_byte_r : din),
 	.wren_b(buffer1_wr),
 	.q_b(buffer1_dout),
 
-	.address_c(data_cnt[9:1] + 9'd1),
+	.address_c(mac_addr + 1'b1),
 	.q_c(buffer1_dout_next),
 
-	.address_d(data_cnt[9:1] + 9'd2),
+	.address_d(mac_addr + 2'd2),
 	.q_d(buffer1_dout_next2)
 );
 
@@ -191,6 +223,15 @@ always @(posedge clk) begin
 		sd_buff_sel <= 0;
 	else
 		if (old_io_ack & ~io_ack) sd_buff_sel <= !sd_buff_sel;
+
+	// READ ring fetch counter: # of sectors the HPS has delivered this command.
+	// Reset alongside data_cnt (any non-transfer phase); bump on each io_ack
+	// falling edge during a read. Writes never touch it (they use sd_buff_sel).
+	if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN &&
+	    phase != PHASE_STATUS_OUT && phase != PHASE_MESSAGE_OUT)
+		rd_hps_blk <= 23'd0;
+	else if (old_io_ack & ~io_ack & cmd_read)
+		rd_hps_blk <= rd_hps_blk + 23'd1;
 end
 
 // -----------------------------------------------------------
@@ -208,7 +249,13 @@ assign msg = (phase == PHASE_MESSAGE_OUT);
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 
-wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == sd_buff_sel) ||
+// READ stall: for a block READ, the sector the Mac wants (rd_cur_blk) has not
+// been fetched yet (only sectors [0, rd_hps_blk) are in the ring). Gated on
+// cmd_read — INQUIRY/READ_CAPACITY/MODE_SENSE/REQUEST_SENSE also use DATA_OUT but
+// serve data combinationally with no HPS fetch (rd_hps_blk stays 0), so they must
+// NOT take this stall. Depth-independent; replaces the old 2-slot "half being
+// filled" test. WRITE + non-data clauses unchanged.
+wire   io_busy = (phase == PHASE_DATA_OUT && cmd_read && (rd_cur_blk >= rd_hps_blk)) ||
                  (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
                  (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
 	// A zero-length transfer (e.g. INQUIRY with allocation length 0, or a
@@ -421,9 +468,18 @@ reg [7:0]  cmd [9:0];
 
 assign io_lba = lba;
 
-// generate an io_rd signal whenever the first byte of a 512 byte block is required
-// start fetching the next sector when the 20th byte is read, and it's not the last sector
-wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_cnt[8:0] == 9'd20 && data_cnt[31:9] != ({7'd0, tlen} - 1'd1))) && !data_complete && (data_len != 32'd0));
+// READ prefetch (ring): keep issuing sequential sector fetches while sectors
+// remain (rd_hps_blk < tlen) and the ring has space (fetched no more than
+// RING_BLOCKS ahead of the Mac). LEVEL signal — the fetch engine below pumps one
+// sector per io_ack until the ring is full, hiding per-sector HPS latency (vs.
+// the old 1-deep "fetch next at byte 20" which stalled the CPU at every 512-byte
+// boundary). rd_hps_blk >= rd_cur_blk is invariant (the Mac stalls via io_busy
+// before it can pass the fetch frontier), so the subtraction never underflows.
+wire [22:0] rd_blk_total  = {7'd0, tlen};
+wire        rd_blk_remain = (rd_hps_blk < rd_blk_total);
+wire        rd_ring_space = ((rd_hps_blk - rd_cur_blk) < RING_BLOCKS);
+wire req_rd = (phase == PHASE_DATA_OUT) && cmd_read && (data_len != 32'd0) &&
+              !data_complete && rd_blk_remain && rd_ring_space;
 
 // generate an io_wr signal whenever a 512 byte block has been received or when the status
 // phase of a write command has been reached.
@@ -433,8 +489,9 @@ wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_
 wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt != 0)) || (phase == PHASE_STATUS_OUT)) && cmd_write && (data_len != 32'd0));
 
 always @(posedge clk) begin
-	reg old_rd, old_wr;
-	reg wr_pending, rd_pending;
+	reg old_wr;
+	reg wr_pending;
+	reg rd_busy;            // a read-prefetch sector fetch is outstanding
 
 	// A SCSI bus reset aborts any in-flight/queued disk IO.  Without this,
 	// io_rd/io_wr (and the pending latches) survive the reset; if the Mac
@@ -445,30 +502,25 @@ always @(posedge clk) begin
 	if(rst) begin
 		io_rd <= 1'b0;
 		io_wr <= 1'b0;
-		rd_pending <= 0;
 		wr_pending <= 0;
-		old_rd <= 0;
 		old_wr <= 0;
+		rd_busy <= 0;
 	end else begin
-		old_rd <= req_rd;
 		old_wr <= req_wr;
-		if(~old_rd & req_rd) rd_pending <= 1;
 		if(~old_wr & req_wr) wr_pending <= 1;
 
-		if(io_ack) begin
-			io_rd <= 1'b0;
-			io_wr <= 1'b0;
-		end else begin
-			if (rd_pending && !io_rd) begin
-				io_rd <= 1;
-				rd_pending <= 0;
-			end
+		// READ prefetch engine: while req_rd (sectors remain AND ring has
+		// space), issue back-to-back sector fetches — one per io_ack — to keep
+		// the ring filled ahead of the Mac. rd_busy holds across a fetch until
+		// rd_hps_blk advances on the io_ack falling edge, so exactly one fetch
+		// is issued per sector and the next can start immediately after.
+		if(io_ack) io_rd <= 1'b0;
+		else if(req_rd && !io_rd && !rd_busy) begin io_rd <= 1'b1; rd_busy <= 1'b1; end
+		if(old_io_ack & ~io_ack) rd_busy <= 1'b0;
 
-			if (wr_pending && !io_wr) begin
-				io_wr <= 1;
-				wr_pending <= 0;
-			end
-		end
+		// WRITE flush engine — unchanged two-slot double-buffer behavior.
+		if(io_ack) io_wr <= 1'b0;
+		else if(wr_pending && !io_wr) begin io_wr <= 1'b1; wr_pending <= 0; end
 	end
 end
 

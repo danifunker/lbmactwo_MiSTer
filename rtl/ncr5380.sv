@@ -557,7 +557,12 @@ module ncr5380
 		genvar i;
 		for (i = 0; i < DEVS; i = i + 1) begin : target
 			// connect a target
-			scsi #(.ID(3'd6 - i[2:0])) target
+			// 16KB read-ahead ring on the BOOT disk (target 0 / ID6) only; the
+			// second disk keeps the original 2-sector double buffer (RING_LOG=1)
+			// to stay within the M10K budget — the 16KB ring costs ~42 M10K and
+			// both disks would not fit alongside the 8bpp framebuffer. Ported
+			// from MacLC rtl/scsi.v read-prefetch ring (much smoother heavy reads).
+			scsi #(.ID(3'd6 - i[2:0]), .RING_LOG((i == 0) ? 5 : 1)) target
 			(
 				.clk    ( clk ),
 				.rst    ( scsi_rst ),
