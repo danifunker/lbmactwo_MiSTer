@@ -127,6 +127,30 @@ set_multicycle_path -setup 2 \
 set_multicycle_path -hold 1 \
     -from [get_registers {*|mc68881_top:u_fpu|operand_hi16_reg*}]
 
+# cir_operand_staging -> cir_conv_src_reg: the round-1 pipeline-beat operand
+# conversion (fp80_from_int/single/double/extended/packed). This is the ONLY
+# clean reg->reg failing-setup cone in the FPU (-10.9 ns slow corner); the other
+# failing cones (move_packed_encode/move_exc_*/conv_fp_src) are an entangled
+# combinational converter cloud terminating at SDC-covered move_* registers.
+#
+# PROVEN >= 2-cycle window (traced 2026-06-14, mc68881_top.vhd cir_dialog_proc):
+#   CIR_XFER_SRC finalizes cir_operand_staging on the last operand word (it is
+#   written ONLY in state CIR_XFER_SRC, line ~4070, so it cannot change after) ->
+#   CIR_XFER_SRC_WAIT pulses cir_conv_start -> cir_conv_src_reg is captured on the
+#   WAIT->WAIT2 edge (bus_frame_proc line ~2209), launch->capture spans the WAIT
+#   hold state(s). cir_launch_alu then shallow-copies cir_conv_src_reg into
+#   operand_reg one edge later. cir_conv_src_reg has EXACTLY ONE driver (this
+#   conversion) and the -to is scoped to it alone, so this relaxes only the
+#   conversion cone -- never a result_*/handshake/FPctl path. This is the RTL
+#   pipeline beat the KNOWN RESIDUAL note at the top of this file anticipated;
+#   the FSM already provides the cycles, the SDC just never told STA.
+set_multicycle_path -setup 2 \
+    -from [get_registers {*|mc68881_top:u_fpu|cir_operand_staging*}] \
+    -to   [get_registers {*|mc68881_top:u_fpu|cir_conv_src_reg*}]
+set_multicycle_path -hold 1 \
+    -from [get_registers {*|mc68881_top:u_fpu|cir_operand_staging*}] \
+    -to   [get_registers {*|mc68881_top:u_fpu|cir_conv_src_reg*}]
+
 # operand_reg / CPU-side bus sources -> the conversion-engine intermediate
 # registers. These engines (FINT/FINTRZ, packed encode/decode) capture their
 # first pipeline variables at dispatch or later — multiple cycles after the
