@@ -76,6 +76,7 @@ architecture rtl of mc68881_divrem_unit is
     ST_IDLE,
     ST_CLASSIFY,
     ST_DIV_ITER,
+    ST_POST_DIV_PRE,
     ST_POST_DIV,
     ST_POST_DIV_ROUND,
     ST_SQRT_ITER,
@@ -728,7 +729,7 @@ begin
             quot_reg <= quot_next;
 
             if iter_idx_reg <= 1 then
-              state_reg <= ST_POST_DIV;
+              state_reg <= ST_POST_DIV_PRE;
             else
               iter_idx_reg <= iter_idx_reg - 2;
             end if;
@@ -799,6 +800,19 @@ begin
           result_reg <= div_final_result;
           flag_inexact_reg <= inexact_local;
           state_reg <= ST_DONE;
+
+        when ST_POST_DIV_PRE =>
+          -- Timing pipeline beat (2026-06-15): hold ONE cycle so the deep
+          -- ST_POST_DIV cone (quot_reg -> post_mant_ext_reg: a ~115-bit
+          -- leading-one priority encode + OR-prefix scan + barrel-shift +
+          -- gradual-underflow shift, ~37 ns) gets TWO clk_sys periods to settle
+          -- instead of one. quot_reg is final at the ST_DIV_ITER exit and is NOT
+          -- rewritten here, so the matching LBMacTwo.sdc multicycle
+          -- (-setup 2, quot_reg -> post_mant_ext_reg) is honest. Without this the
+          -- cone failed setup by -5.456 ns on silicon (ideal-timing sim hid it),
+          -- producing a wrong FDIV quotient mantissa -> Finder hard-lock on
+          -- app launch. +1 cycle of (op-internal, invisible) latency.
+          state_reg <= ST_POST_DIV;
 
         when ST_POST_DIV =>
           -- Cycle 1: leading-one detection, mantissa extraction, exponent calc

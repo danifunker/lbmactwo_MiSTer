@@ -151,6 +151,22 @@ set_multicycle_path -hold 1 \
     -from [get_registers {*|mc68881_top:u_fpu|cir_operand_staging*}] \
     -to   [get_registers {*|mc68881_top:u_fpu|cir_conv_src_reg*}]
 
+# divrem post-divide pipeline beat (2026-06-15, with enable_divrem_g): the
+# ST_POST_DIV cone quot_reg -> post_mant_ext_reg (a ~115-bit leading-one encode +
+# OR-prefix scan + barrel-shift + gradual-underflow, ~37 ns) was single-cycle and
+# failed setup by -5.456 ns -> a wrong FDIV quotient mantissa on silicon -> Finder
+# hard-lock on app launch (ideal-timing Verilator hid it). mc68881_divrem_unit now
+# inserts ST_POST_DIV_PRE so quot_reg is held stable for TWO cycles before
+# post_mant_ext_reg captures (quot_reg is final at the ST_DIV_ITER exit and is
+# untouched in PRE/POST_DIV -- a PROVEN window). post_mant_ext_reg has exactly one
+# driver and the -to is scoped to it, so only this conversion cone is relaxed.
+set_multicycle_path -setup 2 \
+    -from [get_registers {*|mc68881_divrem_unit:*|quot_reg*}] \
+    -to   [get_registers {*|mc68881_divrem_unit:*|post_mant_ext_reg*}]
+set_multicycle_path -hold 1 \
+    -from [get_registers {*|mc68881_divrem_unit:*|quot_reg*}] \
+    -to   [get_registers {*|mc68881_divrem_unit:*|post_mant_ext_reg*}]
+
 # operand_reg / CPU-side bus sources -> the conversion-engine intermediate
 # registers. These engines (FINT/FINTRZ, packed encode/decode) capture their
 # first pipeline variables at dispatch or later — multiple cycles after the
