@@ -938,8 +938,50 @@ always @(posedge clk_sys) begin
 end
 
 wire mac_is_sdram_read    = cpu_sdram_rd_cycle;
-wire ram_or_rom_dtack     = (mac_is_sdram_read && !cpu_sdram_rd_done) ? 1'b1
-                                                                      : ram_or_rom_dtack_raw;
+
+// SLOT-OWNED WRITE HANDSHAKE (2026-06-15 — the write-side twin of the read
+// handshake above; residual "illegal instruction" / bad-F-line corruption fix).
+//
+// A CPU RAM/ROM write took the raw immediate (turbo) DTACK and retired its bus
+// cycle before the SDRAM controller sampled mac_we/mac_addr/mac_din at the next
+// slot t=0 (clk8_en_p). The arbiter grant is combinational with Mac priority and
+// the controller latches the command only at t=0 (sdram_arbiter.v: "Writes ...
+// keep the fast path"), so a fast write that BEGINS AND ENDS between two slots is
+// never committed -> RAM keeps stale bytes, later fetched as a garbage opcode ->
+// illegal-instruction / bad-F-line crashes (FPU-innocent; invisible to the
+// open-bus read fix because it is write-side; the corruption detector is
+// read-only so this was never caught red-handed).
+//
+// Fix (mirror of cpu_sdram_rd_done): hold write DTACK until an SDRAM slot that
+// STARTED with the CPU's write command at its t=0 has completed, so the CPU
+// holds addr/we/din stable across the whole write sequence and the write
+// commits. mac_active(=mac_we) blocks video, so the Mac wins the next t=0 and an
+// owned slot always arrives within ~1-2 SDRAM cycles. The bounded cpu_wr_wait
+// forces completion after 4 SDRAM cycles (~0.5us, well under the 8us BERR
+// window) so this can NEVER wedge boot — it falls back to the prior immediate
+// behaviour instead.
+reg  sdram_slot_cpu_wr;   // this SDRAM slot started with the CPU's write cmd
+reg  cpu_sdram_wr_done;   // an owned write slot has completed for this bus cycle
+reg  [2:0] cpu_wr_wait;
+wire cpu_sdram_wr_cycle = (selectRAM || selectROM) && !_cpuRW && !_cpuAS;
+
+always @(posedge clk_sys) begin
+	if (slot0_mark)
+		sdram_slot_cpu_wr <= cpuBusControl && cpu_sdram_wr_cycle;
+	if (_cpuAS) begin
+		cpu_sdram_wr_done <= 1'b0;
+		cpu_wr_wait       <= 3'd0;
+	end else begin
+		if (clk8_en_p && !cpu_wr_wait[2]) cpu_wr_wait <= cpu_wr_wait + 3'd1;
+		if ((sdram_slot_cpu_wr && clk8_en_p) || cpu_wr_wait[2])
+			cpu_sdram_wr_done <= 1'b1;
+	end
+end
+
+wire mac_is_sdram_write   = cpu_sdram_wr_cycle;
+wire ram_or_rom_dtack     = (mac_is_sdram_read  && !cpu_sdram_rd_done) ? 1'b1 :
+                            (mac_is_sdram_write && !cpu_sdram_wr_done) ? 1'b1 :
+                                                                         ram_or_rom_dtack_raw;
 assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
