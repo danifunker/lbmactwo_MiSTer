@@ -81,3 +81,10 @@ scripts/local.env
 # screenshots, session-specific notes, etc. See CLAUDE.md "Scratch
 # directory" for the convention.
 scratch/
+
+# Python bytecode caches (e.g. scripts/__pycache__)
+__pycache__/
+*.pyc
+
+# Quartus internal-error / crash dumps (quartus_fit access-violation reports)
+cr_ie_info*.json
