@@ -217,6 +217,26 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	reg [15:0] cpu_data;
 	always @(posedge clk32) if (cpuSlotOwned && memoryLatch && cpu_rd_take) cpu_data <= memoryDataIn;
 
+	// SCSI read-path fit-stabilization (port of MacLC periph_din_reg, 0c8844b —
+	// the fix behind the LC/LCII "SCSI latch" reliability): the deepest cone in
+	// the whole CPU read mux is the 5380 CSR's BSY bit (scsi.v phase reg →
+	// |target_bsy → CSR → ncr5380 rdata → this mux → tg68_din_r). Left
+	// combinational it fits with ~0.2-0.4 ns slack on a lucky placement and
+	// FAILS on an unlucky one — the CPU then intermittently reads BSY=0 while
+	// the target holds BSY=1, the SCSI Manager aborts, and the bus resets (the
+	// boot-time dice-roll class). Registering it makes the margin
+	// fit-independent. The +1 clk32 of staleness is absorbed on every consumer:
+	// both PIO CSR reads (immediate-DTACK async cycle) and DREQ-gated
+	// pseudo-DMA reads latch tg68_din_r at kernel s_state 6, >= 4 phi ticks
+	// (>= 8 clk32) after AS/select settle, and a status read does not advance
+	// the SCSI protocol, so the registered copy is settled long before capture.
+	// DMA read data is start-of-cycle-latched inside ncr5380 (dma_*_latched /
+	// the dma_settle fix), so its registered copy is likewise stable at capture.
+	// Matching LBMacTwo.sdc multicycle credits the real window on the cone INTO
+	// this register; its fan-out to the CPU stays single-cycle.
+	reg [15:0] scsi_din_reg;
+	always @(posedge clk32) scsi_din_reg <= scsiDataOut;
+
 	// CPU-side data output mux
 	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
 							  selectIWM ? iwmDataOut :
@@ -224,7 +244,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectVIA2 ? via2DataOut :
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
-							  selectSCSI ? scsiDataOut :
+							  selectSCSI ? scsi_din_reg :
 							  (cpuSlotOwned && memoryLatch && cpu_rd_take) ? memoryDataIn : cpu_data;
 
 	// Memory-side

@@ -352,3 +352,21 @@ set_multicycle_path -hold 1  -from $fpu_stage_from -to $fpu_stage_to
 set tg68_kernel_regs [get_registers {*|TG68KdotC_Kernel:tg68k|*}]
 set_multicycle_path -setup 2 -from $tg68_kernel_regs -to $tg68_kernel_regs
 set_multicycle_path -hold 1  -from $tg68_kernel_regs -to $tg68_kernel_regs
+
+# === SCSI read-data register (scsi_din_reg) — fit-independent CSR read ===
+#
+# Port of MacLC 0c8844b Layer 2 (2026-07-02). scsi_din_reg
+# (dataController_top.sv, next to the CPU read mux) registers the ncr5380
+# rdata cone one clk_sys before the CPU-side mux; its deepest input is the
+# CSR BSY bit (scsi.v phase reg -> |target_bsy -> CSR -> rdata), historically
+# THE fit-sensitive net behind the intermittent BSY=0 misread -> SCSI Manager
+# abort -> bus reset class. The register reloads EVERY cycle and the CPU
+# consumes it only at the tg68_din_r latch, >= 8 clk_sys after AS/select
+# settle (immediate-DTACK PIO and DREQ-gated pseudo-DMA alike), and a status
+# read does not advance the SCSI protocol -- so the cone INTO the register
+# genuinely has >= 2 cycles (flush-through, same pattern as the FPU staging
+# rules above). Crediting 2x here stops STA over-constraining the deep BSY
+# cone to one period (the "STA passes but HW fails" trap on marginal fits).
+# The register's fan-OUT (mux -> tg68_din_r) stays single-cycle.
+set_multicycle_path -setup -end 2 -to [get_keepers {*|scsi_din_reg[*]}]
+set_multicycle_path -hold  -end 1 -to [get_keepers {*|scsi_din_reg[*]}]
