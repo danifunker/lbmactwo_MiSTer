@@ -664,6 +664,16 @@ architecture rtl of mc68881_top is
   constant POW2_SMALL : natural12_t := (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
   );
+
+  -- Powers of ten for the divider-free fast packed encode/decode below.
+  -- 10**9 is the largest power of ten representable in a 31-bit natural;
+  -- fp80_to_int_trunc saturates at integer'high (< 10**10) so index 9 covers
+  -- the whole magnitude range.
+  type natural10_t is array (0 to 9) of natural;
+  constant POW10_N : natural10_t := (
+    1, 10, 100, 1000, 10000, 100000,
+    1000000, 10000000, 100000000, 1000000000
+  );
   constant FP80_ONE : fp80_t := x"3FFF8000000000000000";
   constant FP80_TEN_POW_1 : fp80_t := x"4002A000000000000000";
   constant FP80_TEN_POW_2 : fp80_t := x"4005C800000000000000";
@@ -767,10 +777,9 @@ architecture rtl of mc68881_top is
     variable int_mag : integer := 0;
     variable mag_n : natural := 0;
     variable exp10 : natural range 0 to 9 := 0;
-    variable exp0 : natural := 0;
-    variable exp1 : natural := 0;
-    variable exp2 : natural := 0;
-    variable exp3 : natural := 0;
+    variable msd : natural range 1 to 9 := 1;
+    variable mag_u : unsigned(34 downto 0) := (others => '0');
+    variable spow_u : unsigned(30 downto 0) := (others => '0');
   begin
     packed(95) := value(FP_WIDTH-1);
 
@@ -810,25 +819,38 @@ architecture rtl of mc68881_top is
       return packed;
     end if;
 
-    for idx in 0 to 8 loop
-      exit when mag_n < 10;
-      mag_n := mag_n / 10;
-      exp10 := exp10 + 1;
+    -- Divider-free digit extraction. The previous "/10 loop + mod 10"
+    -- synthesized as two chained combinational 32-bit lpm_divide arrays
+    -- (~65 ns each): the -112.6 ns worst setup path of the entire design.
+    -- This fallback encoder only needs floor(log10(mag)) and the leading
+    -- decimal digit, and both are comparator problems:
+    --   exp10 = max k with mag >= 10**k          (9 parallel constant compares)
+    --   msd   = max d with mag >= d * 10**exp10  (8 compares against a 10-entry
+    --           constant mux; exact because mag < 10**(exp10+1))
+    -- 35-bit unsigned arithmetic because 9 * 10**9 overflows a 32-bit integer.
+    -- exp10 <= 9, so the packed exponent is a single BCD digit (exp1..exp3 = 0).
+    for k in 1 to 9 loop
+      if mag_n >= POW10_N(k) then
+        exp10 := k;
+      end if;
     end loop;
 
-    exp0 := exp10 mod 10;
-    exp1 := (exp10 / 10) mod 10;
-    exp2 := (exp10 / 100) mod 10;
-    exp3 := (exp10 / 1000) mod 10;
+    mag_u := resize(to_unsigned(mag_n, 31), 35);
+    spow_u := to_unsigned(POW10_N(exp10), 31);
+    for d in 2 to 9 loop
+      if mag_u >= (to_unsigned(d, 4) * spow_u) then
+        msd := d;
+      end if;
+    end loop;
 
     packed(94) := '0';
     packed(93 downto 92) := "00";
-    packed(91 downto 88) := bcd_digit(exp2);
-    packed(87 downto 84) := bcd_digit(exp1);
-    packed(83 downto 80) := bcd_digit(exp0);
-    packed(79 downto 76) := bcd_digit(exp3);
+    packed(91 downto 88) := x"0";
+    packed(87 downto 84) := x"0";
+    packed(83 downto 80) := std_logic_vector(to_unsigned(exp10, 4));
+    packed(79 downto 76) := x"0";
     packed(75 downto 68) := (others => '0');
-    packed(67 downto 64) := bcd_digit(mag_n mod 10);
+    packed(67 downto 64) := std_logic_vector(to_unsigned(msd, 4));
 
     return packed;
   end function;
@@ -846,6 +868,7 @@ architecture rtl of mc68881_top is
     variable lead_digit : integer := 0;
     variable value_n : natural := 0;
     variable pos_scale : natural := 0;
+    variable dec_prod_u : unsigned(34 downto 0) := (others => '0');
   begin
     sign_m := packed(95);
 
@@ -875,17 +898,27 @@ architecture rtl of mc68881_top is
 
     value_n := natural(lead_digit);
     if exp10 > 0 then
+      -- Multiplier-chain-free scaling. The previous nine-iteration
+      -- "value_n * 10" loop synthesized as a serial add chain that, fanned
+      -- through fp80_from_int and the FMOVE dispatch mux, collapsed onto
+      -- fp_reg_file_reg / result_* in a single cycle (-12.5 ns, x821 paths).
+      -- lead_digit * 10**k is one 4x31-bit product against a constant-mux
+      -- power of ten. The closed-form saturate (product > integer'high) is
+      -- exactly the loop's progressive "> integer'high/10" saturation: they
+      -- could only disagree on products in {2**31, 2**31+1}, and a multiple
+      -- of 10 (k >= 1 here) cannot land there. pos_scale > 9 keeps the old
+      -- behavior of saturating even when lead_digit = 0.
       pos_scale := natural(exp10);
-      for idx in 1 to 9 loop
-        exit when idx > pos_scale;
-        if value_n > natural(integer'high / 10) then
-          value_n := natural(integer'high);
-          exit;
-        end if;
-        value_n := value_n * 10;
-      end loop;
       if pos_scale > 9 then
         value_n := natural(integer'high);
+      else
+        dec_prod_u := to_unsigned(natural(lead_digit), 4) *
+                      to_unsigned(POW10_N(pos_scale), 31);
+        if dec_prod_u > to_unsigned(integer'high, 35) then
+          value_n := natural(integer'high);
+        else
+          value_n := to_integer(dec_prod_u);
+        end if;
       end if;
     elsif exp10 < 0 then
       value_n := 0;
