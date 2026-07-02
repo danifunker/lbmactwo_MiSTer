@@ -75,14 +75,14 @@ set_global_assignment -name ENABLE_SIGNALTAP OFF
 # Removing these 5 JTAG probes is the biggest safe timing-relief lever (frees
 # logic + ISSP routing congestion) and yields the shippable config. Re-add for HW
 # probing only.
-#set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
+set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
 
 # 2026-06-15: FPU CIR-state runtime probe (rtl: LBMacTwo.sv p_fpcs reading
 # fpu_dbg_cir_state). Read-only, ~1 ISSP probe, reuses dbg_coldinit's JTAG hub.
 # Diagnoses the SimpleText-launch hard lock: is the FPU wedged in CIR_EXECUTE (a
 # stuck arith op) or CIR_RESTORE_FRAME/CIR_SAVE (a stuck FSAVE/FRESTORE context-
 # switch)? Read with scripts/read_fpu.tcl. Remove this line for a clean build.
-set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
+#set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
 
 # disable bilinear filtering when downscaling
 #set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"
