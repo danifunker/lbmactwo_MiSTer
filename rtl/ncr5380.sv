@@ -369,9 +369,9 @@ module ncr5380
 
 	/* Latched 5380 interrupt + DMA-armed tracking (2026-06-10d).
 	 * Starting a DMA transfer (write to Start DMA Send / Start DMA Initiator
-	 * Receive) arms the phase-mismatch monitor; while MR.DMA_MODE is set and
-	 * armed, a FALLING edge of phase-match latches IRQ — this is how drivers
-	 * detect that a pseudo-DMA transfer ended (target moved to STATUS).
+	 * Receive) arms the phase-mismatch monitor; a FALLING edge of phase-match
+	 * latches IRQ — this is how drivers detect that a pseudo-DMA transfer
+	 * ended (target moved to STATUS).
 	 * Reading the RESET PARITY/INTERRUPT register (reg 7) clears it.
 	 * Mirrors Snow controller.rs (IRQ on dma_armed && prev_pmatch && !pmatch).
 	 */
@@ -389,13 +389,21 @@ module ncr5380
 		end else begin
 			old_rst_rd <= rst_rd;
 			pmatch_d   <= bsr_pmatch;
-			if (!mr[`MR_DMA_MODE])
-				dma_armed <= 1'b0;
-			else if (reg_wr && (bus_rs == `WREG_DMAS || bus_rs == `WREG_IDMAR))
+			// Completion-IRQ latch (port of MacLC/LCII 2a2bd7c — fixes the
+			// System 7 boot-time SCSI completion loss: the happy-Mac reboot /
+			// "Welcome" wedge class). Keep dma_armed across a DMA-mode clear
+			// and latch the IRQ on the target's DATA->STATUS phase-mismatch
+			// regardless of MR.DMA_MODE (the real 5380 latches EOP/phase-
+			// mismatch in HW). The disk driver often clears DMA mode just
+			// before the phase change; the old MR.DMA_MODE-gated latch dropped
+			// the IRQ and the HD SC 4.3 async path slept on a completion that
+			// never came (ParamBlockRec.ioResult never cleared). Cleared on
+			// the latch itself, a reg-7 read, or bus reset.
+			if (reg_wr && (bus_rs == `WREG_DMAS || bus_rs == `WREG_IDMAR))
 				dma_armed <= 1'b1;
 			if (~old_rst_rd & rst_rd)
 				irq_latch <= 1'b0;
-			if (mr[`MR_DMA_MODE] && dma_armed && pmatch_d && !bsr_pmatch) begin
+			if (dma_armed && pmatch_d && !bsr_pmatch) begin
 				irq_latch <= 1'b1;
 				dma_armed <= 1'b0;
 			end
