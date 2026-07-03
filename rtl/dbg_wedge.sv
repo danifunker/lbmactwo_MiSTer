@@ -57,8 +57,15 @@ module dbg_wedge (
 	input  wire        fpu_dsack1_n,
 	input  wire        mac_dout_valid,  // cpu_sdram_rd_done
 
-	input  wire [15:0] cpu_din,         // (legacy; now fully unused — IF-ring captures rd_word, not this)
+	input  wire [15:0] cpu_din,         // CPU read-data bus (opcode capture for the init-entry detector)
 	input  wire [31:0] fpu_dbg_cir_state,
+
+	// ---- happy-mac-reboot differential inputs (2026-07-03; port of the
+	//      MacLCii PRC0/PRT1-3 + PSCW deck — docs/jtag_probes.md and
+	//      docs/handoff_cold_boot_reboot_2026-06-15.md in that repo) ----
+	input  wire [31:0] dbg_ncr2,        // ncr5380 dbg bus; [15:8] = scsi_rst assertion count
+	input  wire [31:0] pscw,            // scsi.v bus-reset window snapshot (dbg_wrstall)
+	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
 	input  wire        rd_latch,        // sdram_slot_cpu_rd && memoryLatch (RAW latch gate; pre-fix condition)
@@ -133,11 +140,79 @@ module dbg_wedge (
 		end
 	end
 
-	// PRGR readout mux: JTAG source[3:0] selects the field (only 13/14/15 live now).
+	// ---- happy-mac-reboot differential (2026-07-03, port of MacLCii PRC0/PRT) ----
+	// The reboot has NO hardware signature there (no _cpuReset/RESET/BERR); the
+	// working diagnosis method was: (1) count SCSI bus resets — a good boot does
+	// exactly ONE (SCSI Manager init), a miss does a SECOND (driver abort) and
+	// freeze the two most recent IF PCs at that 2nd reset = the abort caller;
+	// (2) count ROM init entries address-independently by detecting the opcode
+	// pair `move.w #$2700,sr` ($46FC,$2700) in the fetch stream (cold boot = 2
+	// on this ROM per the LCII baseline; +1 when the reboot re-runs init), and
+	// keep the latest entry PC. cpu_din is captured DURING the fetch cycle
+	// (while AS is low) and committed at the AS rising edge, so bus-turnaround
+	// timing can't corrupt the opcode pipeline.
+	reg        if_wait   = 1'b0;
+	reg [15:0] if_word   = 16'd0;
+	reg [15:0] op_prev   = 16'd0;
+	reg [23:0] pc_prev   = 24'd0;
+	reg [7:0]  sr2700_cnt = 8'd0;
+	reg [23:0] sr_entry   = 24'd0;
+	reg [7:0]  rstc_d = 8'd0, busrst_cnt = 8'd0;
+	reg        trail_frozen = 1'b0;
+	reg [23:0] trail_pc1 = 24'd0, trail_pc2 = 24'd0;
+	reg [15:0] cpu_reset_falls = 16'd0;
+	reg        cpuReset_n_d = 1'b1;
+	wire fetch_cplt = if_wait && !cpuAS_n_d && cpuAS_n;   // IF cycle just ended
+	always @(posedge clk) begin
+		// arm on IF start, sample data while AS low, commit at AS rise
+		if (if_event) if_wait <= 1'b1;
+		if (if_wait && !cpuAS_n) if_word <= cpu_din;
+		if (fetch_cplt) begin
+			if_wait <= 1'b0;
+			if (op_prev == 16'h46FC && if_word == 16'h2700) begin
+				if (sr2700_cnt != 8'hFF) sr2700_cnt <= sr2700_cnt + 8'd1;
+				sr_entry <= pc_prev;      // PC of the $46FC = the init entry
+			end
+			op_prev <= if_word;
+			pc_prev <= last_if_addr[23:0];
+		end
+		// SCSI bus-reset PC trail: freeze at the SECOND reset
+		rstc_d <= dbg_ncr2[15:8];
+		if (dbg_ncr2[15:8] != rstc_d) begin
+			if (busrst_cnt != 8'hFF) busrst_cnt <= busrst_cnt + 8'd1;
+			if (busrst_cnt >= 8'd1 && !trail_frozen) begin
+				trail_frozen <= 1'b1;
+				trail_pc1 <= last_if_addr[23:0];
+				trail_pc2 <= pc_prev;
+			end
+		end
+		// PRST-lite: any hardware reset assertions? (LCII proved 0 on their box)
+		cpuReset_n_d <= cpuReset_n;
+		if (cpuReset_n_d && !cpuReset_n && cpu_reset_falls != 16'hFFFF)
+			cpu_reset_falls <= cpu_reset_falls + 16'd1;
+	end
+
+	// PRGR readout mux: JTAG source[3:0] selects the field.
+	//  0 = PRC0 {busrst_cnt[31:24], sr2700_cnt[23:16], 15'b0, trail_frozen[0]}
+	//  1 = PRT1 trail_pc1 (IF PC at the 2nd SCSI bus reset — the abort caller)
+	//  2 = PRT2 trail_pc2 (the fetch before it)
+	//  3 = PRT3 sr_entry  (latest `move #$2700,sr` init-entry PC)
+	//  4 = PSCW target-side bus-reset window snapshot (scsi.v layout)
+	//  5 = PRST {16'b0, cpu_reset_falls}
+	//  13/14/15 = fault-vector recorder (unchanged)
+	// NOTE for readers: write the source index as HEX to quartus_stp
+	// (write_source_data parses hex) — decimal 13 becomes 0x13 and reads the
+	// default arm (the 2026-07-02 post-mortems hit exactly that).
 	wire [3:0] prgr_source;
 	reg [31:0] prgr_r = 0;
 	always @(posedge clk) begin
 		case (prgr_source)
+			4'd0:  prgr_r <= {busrst_cnt, sr2700_cnt, 15'd0, trail_frozen};
+			4'd1:  prgr_r <= {8'd0, trail_pc1};
+			4'd2:  prgr_r <= {8'd0, trail_pc2};
+			4'd3:  prgr_r <= {8'd0, sr_entry};
+			4'd4:  prgr_r <= pscw;
+			4'd5:  prgr_r <= {16'd0, cpu_reset_falls};
 			4'd13: prgr_r <= last_vec_addr;              // most-recent fault-vector offset
 			4'd14: prgr_r <= last_vec_pc;                // faulting PC (last IF at that vector fetch)
 			4'd15: prgr_r <= {16'h0000, vec_seen_count}; // count of fault-vector reads (0 => none/VBR!=0)

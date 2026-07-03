@@ -1887,6 +1887,10 @@ dbg_wedge dbg_wedge_inst (
 	.mac_dout_valid   (cpu_sdram_rd_done),
 	.cpu_din          (cpu_data_in),
 	.fpu_dbg_cir_state(fpu_dbg_cir_state),
+	// happy-mac-reboot differential (2026-07-03; MacLCii PRC0/PRT/PSCW port)
+	.dbg_ncr2         (dbg_ncr2),
+	.pscw             (dbg_scsi_wr),
+	.cpuReset_n       (_cpuReset),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
 	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
