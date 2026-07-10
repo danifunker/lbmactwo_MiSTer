@@ -258,7 +258,19 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// between pseudo-DMA chunks — unwired, it polls the IFR forever (the
 	// Welcome wedge at every HPS 512-byte REQ pause).
 	wire scsiIRQ;
-	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
+	// ENABLE_EMPTY_CD(0) — 2026-07-10: the phantom empty-CD target (ID3) is
+	// the happy-mac-reboot storm root cause. Probe-proven on be5c1800 (JTAG
+	// reboot-differential deck): boot-disk transaction completes (ph7), then
+	// the 7.5.5 mount/CD-extension scan selects ID3; scsi_empty_cd completes
+	// only 6/10-byte CDBs (scsi.v cmd_cpl) and has no initiator-abandon exit,
+	// so a group-5 12-byte CD probe (READ CD 0xBE) parks it in CMD_IN holding
+	// BSY+REQ = bus never free (live flags: scsi_req_bus=1 w/ target0 IDLE).
+	// Every SCSIReset clears it; the rescan re-wedges it in ms -> reset storm
+	// (255 saturated), ROM gives up -> reboot loop. MacLC AND MacLCii ship
+	// ENABLE_EMPTY_CD(0) — this core was the only one with it on. If ever
+	// re-enabled: add 12-byte/unknown-group CDB completion + a SEL-drop /
+	// ACK-timeout bailout to IDLE in scsi_empty_cd first.
+	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(0)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
