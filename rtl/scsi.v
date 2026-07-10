@@ -918,11 +918,25 @@ always @(posedge clk) begin
 		win_sel_seen  <= 1'b0;
 	end
 end
+// Selection-attempt counter (v3.2): every rising edge of "initiator is
+// selecting THIS id" (sel && our ID bit on the bus), counted INDEPENDENT of
+// the mounted/bus_busy gates — distinguishes "retries never reach the
+// target" from "target sees selection but the gate rejects it".
+reg [7:0] dbg_sel_att = 8'd0;
+reg       sel_att_d   = 1'b0;
+always @(posedge clk) begin
+	sel_att_d <= sel && din[ID];
+	if ((sel && din[ID]) && !sel_att_d && dbg_sel_att != 8'hFF)
+		dbg_sel_att <= dbg_sel_att + 8'd1;
+end
+
 //  PSCW layout: [31]=valid [30:28]=brst_maxphase [27]=read_done [26]=sel_seen
 //               [25:19]=reset_count(7) [18:11]=last_opcode(8)
-//               [10:8]=live win_maxphase [7]=live win_read_done [6:0]=0
+//               [10:8]=live win_maxphase [7]=live win_read_done
+//               [6:0] (v3.2) = dbg_sel_att[6:0] (selection-attempt count, sat 127)
 assign dbg_wrstall = { brst_valid, brst_maxphase, brst_read_done, brst_sel_seen,
-                       brst_count, brst_lastop, win_maxphase, win_read_done, 7'd0 };
+                       brst_count, brst_lastop, win_maxphase, win_read_done,
+                       dbg_sel_att[6:0] };
 
 // ---- Selection/command handshake observability (PSEL probe) -----------
 // Live state {phase,sel,bsy,req,ack} plus sticky high-water/counters that

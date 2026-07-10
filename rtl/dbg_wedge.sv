@@ -67,6 +67,8 @@ module dbg_wedge (
 	input  wire [31:0] pscw,            // scsi.v bus-reset window snapshot (dbg_wrstall)
 	input  wire [31:0] pscw0,           // target0 dbg_wrstall, un-muxed live tap (v3)
 	input  wire [15:0] scsi2,           // ncr5380 dbg_scsi2: phases + io_rd/io_wr/io_ack (v3)
+	input  wire [31:0] ncr_regs,        // live 5380 {icr_read,mr,tcr,bus lines} (v3.2)
+	input  wire [7:0]  rst_count,       // ncr5380 dbg_rst_count: TRUE scsi_rst edges (v3.2)
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -236,11 +238,16 @@ module dbg_wedge (
 			op_prev <= if_word;
 			pc_prev <= last_if_addr[23:0];
 		end
-		// SCSI bus-reset PC trail: freeze at the SECOND reset
-		rstc_d <= dbg_ncr2[15:8];
-		if (dbg_ncr2[15:8] != rstc_d) begin
-			if (busrst_cnt != 8'hFF) busrst_cnt <= busrst_cnt + 8'd1;
-			if (busrst_cnt >= 8'd1 && !trail_frozen) begin
+		// SCSI bus-reset PC trail: freeze at the SECOND reset.
+		// v3.2 FIX: this previously watched dbg_ncr2[15:8], which on THIS
+		// core carries the live IRQ-machine FLAGS byte (dreq/pmatch/...) —
+		// it counted flag churn and saturated 255 on any boot with SCSI
+		// activity, poisoning every "storm" classification. Now mirrors
+		// ncr5380's dbg_rst_count = actual scsi_rst rising edges.
+		rstc_d <= rst_count;
+		busrst_cnt <= rst_count;
+		if (rst_count != rstc_d) begin
+			if (rst_count >= 8'd2 && !trail_frozen) begin
 				trail_frozen <= 1'b1;
 				trail_pc1 <= last_if_addr[23:0];
 				trail_pc2 <= pc_prev;
@@ -352,6 +359,11 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PDAV"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pdav (.probe({da6_last, da6_min}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PICR: live 5380 registers + bus lines (see ncr5380 dbg_regs layout)
+	altsource_probe #(.instance_id ("PICR"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_picr (.probe(ncr_regs), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule
