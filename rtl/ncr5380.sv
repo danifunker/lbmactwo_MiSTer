@@ -102,6 +102,7 @@ module ncr5380
 	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
 	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req
 	output      [31:0] dbg_scsi_wr,
+	output      [31:0] dbg_wr0,      // target 0 dbg_wrstall, un-muxed (live)
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
@@ -693,6 +694,10 @@ module ncr5380
 	                     (target_phase[1] == 3'd2) ? target_wrstall[1] :
 	                     (target_phase[0] == 3'd2) ? target_wrstall[0] :
 	                     target_wrstall[1];
+
+	// Fixed (un-muxed) target-0 snapshot for the boot-disk starve diagnosis:
+	// the phase-priority mux above hides target 0 whenever both are idle.
+	assign dbg_wr0 = target_wrstall[0];
 
 	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
 	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:

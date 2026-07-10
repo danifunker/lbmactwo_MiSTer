@@ -65,6 +65,8 @@ module dbg_wedge (
 	//      docs/handoff_cold_boot_reboot_2026-06-15.md in that repo) ----
 	input  wire [31:0] dbg_ncr2,        // ncr5380 dbg bus; [15:8] = scsi_rst assertion count
 	input  wire [31:0] pscw,            // scsi.v bus-reset window snapshot (dbg_wrstall)
+	input  wire [31:0] pscw0,           // target0 dbg_wrstall, un-muxed live tap (v3)
+	input  wire [15:0] scsi2,           // ncr5380 dbg_scsi2: phases + io_rd/io_wr/io_ack (v3)
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -148,6 +150,53 @@ module dbg_wedge (
 				last_vec_pc   <= last_if_addr;
 			end
 			if (vec_seen_count != 16'hFFFF) vec_seen_count <= vec_seen_count + 16'd1;
+		end
+	end
+
+	// ---- v3 (2026-07-10): FIRST-FAILURE window + $da6 watch --------------
+	// Everything captured so far described the ESTABLISHED storm; the original
+	// sin — whatever kills the first transfer after boot IO starts working —
+	// has never been seen. Arm after the first successful READ data phase
+	// completes on target 0 (pscw0: data_complete with phase==DATA_OUT and not
+	// a write), then freeze a pscw0 snapshot + event PC at the FIRST abnormal
+	// event: a SCSI bus reset edge (busrst_cnt increment) or a vec2/3/4 fetch.
+	reg        ff_armed  = 1'b0;
+	reg        ff_frozen = 1'b0;
+	reg [31:0] ff_pscw0  = 32'd0;
+	reg [31:0] ff_evpc   = 32'd0;   // [31]=vec event [30]=rst event, [23:0]=PC
+	reg [7:0]  busrst_cnt_d = 8'd0;
+	always @(posedge clk) begin
+		busrst_cnt_d <= busrst_cnt;
+		if (!ff_armed && pscw0[19] && pscw0[18:16] == 3'd2 && !pscw0[24])
+			ff_armed <= 1'b1;
+		if (ff_armed && !ff_frozen &&
+		    ((busrst_cnt != busrst_cnt_d) || vec_fault_read)) begin
+			ff_frozen <= 1'b1;
+			ff_pscw0  <= pscw0;
+			ff_evpc   <= { vec_fault_read, (busrst_cnt != busrst_cnt_d),
+			               6'd0, last_if_addr[23:0] };
+		end
+	end
+
+	// $da6 watch: the ROM's SCSI arbitration poll budget is the RAM word at
+	// $0DA6 (SCSI Manager reads it move.w $da6.w before every AIP wait). If
+	// the residual read-corruption returns a small/zero word here even once,
+	// every retry gives up instantly = the observed storm. Latch last value
+	// and running MINIMUM of every supervisor-data word read at $DA6.
+	reg [15:0] da6_last = 16'hFFFF;
+	reg [15:0] da6_min  = 16'hFFFF;
+	reg        da6_rd_live = 1'b0;
+	reg [15:0] da6_val_live = 16'd0;
+	always @(posedge clk) begin
+		// capture during the AS-low window (cpu_din valid), commit at AS rise
+		if (!cpuAS_n && cpuRW && (cpuFC == 3'b101) && cpuAddr == 32'h00000DA6) begin
+			da6_rd_live  <= 1'b1;
+			da6_val_live <= cpu_din;
+		end
+		if (cpuAS_n && da6_rd_live) begin
+			da6_rd_live <= 1'b0;
+			da6_last <= da6_val_live;
+			if (da6_val_live < da6_min) da6_min <= da6_val_live;
 		end
 	end
 
@@ -274,6 +323,35 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PTR2"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_ptr2 (.probe({8'd0, trail_pc2}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// ---- v3 dedicated instances (all probe-only) ----
+	// PWS0: live target-0 wrstall (layout = scsi.v dbg_wrstall:
+	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
+	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req)
+	altsource_probe #(.instance_id ("PWS0"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pws0 (.probe(pscw0), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PSIO: live ncr5380 io/phase bits ({16'd0, dbg_scsi2}: [15:14]=empty_cd_ph
+	//   [13:11]=t1 phase [10:8]=t0 phase [7]=ecd_ph2 [6]=ecd_req
+	//   [5:4]=io_rd [3:2]=io_wr [1:0]=io_ack)
+	altsource_probe #(.instance_id ("PSIO"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_psio (.probe({16'd0, scsi2}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PFW / PFWP: first-failure window (frozen pscw0 + event PC)
+	altsource_probe #(.instance_id ("PFW"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfw (.probe(ff_pscw0), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PFWP"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfwp (.probe(ff_evpc), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PDAV: {last, min} of supervisor-data word reads at $0DA6 (SCSI arb budget)
+	altsource_probe #(.instance_id ("PDAV"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pdav (.probe({da6_last, da6_min}), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule
