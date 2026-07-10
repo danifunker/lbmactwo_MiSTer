@@ -241,6 +241,28 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PRGR"), .probe_width (32), .source_width(4),
 		.sld_auto_instance_index ("YES")
 	) cp_prgr (.probe(prgr_r), .source(prgr_source), .source_clk(clk), .source_ena(1'b1));
+
+	// Dedicated single-purpose instances for the fields the PRGR source-mux
+	// serves unreliably on hardware (2026-07-10: sources 2/3/13/14/15 alias to
+	// source 0's value in every JTAG session, fresh or stale — synthesis prunes
+	// or aliases those mux arms; PRGR srcs 0/1/4/5 and the PADR-style dedicated
+	// instances have never misbehaved). Probe-only: no source port, so the
+	// whole source-write failure class is out of the picture.
+	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvec (.probe(last_vec_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvpc (.probe(last_vec_pc), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PVCN"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvcn (.probe({16'd0, vec_seen_count}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PTR2"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_ptr2 (.probe({8'd0, trail_pc2}), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule
