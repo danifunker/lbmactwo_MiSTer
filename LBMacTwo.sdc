@@ -93,7 +93,12 @@ set fpu_dp_from [get_registers {
     *|mc68881_top:u_fpu|Add*
     *|mc68881_top:u_fpu|LessThan*
     *|mc68881_top:u_fpu|Mux*
+    *|mc68881_top:u_fpu|bcd_to_natural*
 }]
+# bcd_to_natural* (2026-07-10): packed-decimal digit-fold intermediates —
+# surfaced by the d88345aa roll at -0.62 x32 into fp_reg_file/result_hi/
+# exc_event_* . Same operator-locus class, same CPU-paced FMOVE.P-only
+# consumption as the loci above (the renamed-locus case the header predicts).
 set fpu_dp_to [remove_from_collection [get_registers {
     *|mc68881_top:u_fpu|result_*
     *|mc68881_top:u_fpu|aux_result_*
@@ -203,6 +208,7 @@ set exc_data_from [get_registers {
     *|mc68881_top:u_fpu|Add*
     *|mc68881_top:u_fpu|LessThan*
     *|mc68881_top:u_fpu|Mux*
+    *|mc68881_top:u_fpu|bcd_to_natural*
     *|tg68k:tg68k_inst|*
     *|fpu_wr_hi[*]
 }]

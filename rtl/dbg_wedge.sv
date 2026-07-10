@@ -126,16 +126,27 @@ module dbg_wedge (
 	// FATAL vector (0x08=bus 0x0C=addr 0x10=illegal 0x2C=F-line) + PC. Count 0 => no
 	// processor-fault vector taken this run (or VBR!=0). All inputs are
 	// cpuAS/cpuFC/cpuAddr (live), so it reads correctly while frozen.
-	reg [31:0] last_vec_addr  = 32'd0;
-	reg [31:0] last_vec_pc    = 32'd0;
-	reg [15:0] vec_seen_count = 16'd0;
+	// 2026-07-10 REDESIGN after two contaminated captures:
+	//  - narrowed to vectors 2/3/4 (bus 0x08/0x0A, address 0x0C/0x0E, illegal
+	//    0x10/0x12): the old <=0x2C range leaked the A-line dispatcher's SECOND
+	//    word (0x2A — only 0x28 was excluded) = 19k+ toolbox traps/boot, and
+	//    counted the NuBus slot scan's deliberate guarded bus errors, drowning
+	//    any corruption signal (free-running PVCN was 10k+ on EVERY boot).
+	//  - STORM-WINDOWED: captures arm only once trail_frozen sets (= the 2nd
+	//    SCSI bus reset = the storm began). Clean boot => count stays 0. The
+	//    addr/pc pair is FIRST-wins inside the window = the first fault after
+	//    the storm began (the crime scene), not whatever faulted last.
+	reg [31:0] last_vec_addr  = 32'd0;   // first vec2/3/4 fetch addr after freeze
+	reg [31:0] last_vec_pc    = 32'd0;   // last completed IF at that fetch
+	reg [15:0] vec_seen_count = 16'd0;   // vec2/3/4 fetches since freeze
 	wire vec_fault_read = cpuAS_n_d && !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
-	                      (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002C) &&
-	                      (cpuAddr != 32'h00000028);
+	                      (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h00000013);
 	always @(posedge clk) begin
-		if (vec_fault_read) begin
-			last_vec_addr <= cpuAddr;
-			last_vec_pc   <= last_if_addr;
+		if (vec_fault_read && trail_frozen) begin
+			if (vec_seen_count == 16'd0) begin
+				last_vec_addr <= cpuAddr;
+				last_vec_pc   <= last_if_addr;
+			end
 			if (vec_seen_count != 16'hFFFF) vec_seen_count <= vec_seen_count + 16'd1;
 		end
 	end
