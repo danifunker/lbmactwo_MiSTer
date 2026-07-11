@@ -82,6 +82,8 @@ module dbg_wedge (
 	input  wire [31:0] winh0A,          // v3.11 target0 window history [1],[0]
 	input  wire [31:0] winh0B,          // v3.11 target0 window history [3],[2]+count
 	input  wire [31:0] iwh,             // v3.12 initiator per-window {sel6,selany} x4
+	input  wire [31:0] cmdr0,           // v3.14 target0 last-4 command opcodes
+	input  wire [31:0] star0,           // v3.14 target0 last-4 status bytes
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -535,6 +537,17 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PIWH"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_piwh (.probe(iwh), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PCMD/PSTS (v3.14): target0 last-4 command opcodes / status bytes,
+	// newest in [7:0]. Names the dialog the driver rejects after and whether
+	// the target ever returned CHECK CONDITION (0x02).
+	altsource_probe #(.instance_id ("PCMD"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pcmd (.probe(cmdr0), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PSTS"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_psts (.probe(star0), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

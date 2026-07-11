@@ -113,6 +113,8 @@ module ncr5380
 	output      [31:0] dbg_winh0A,   // v3.11 target0 window history [1],[0]
 	output      [31:0] dbg_winh0B,   // v3.11 target0 window history [3],[2] + count
 	output      [31:0] dbg_iwh,      // v3.12 initiator per-window {sel6,selany} x4
+	output      [31:0] dbg_cmdr0,    // v3.14 target0 last-4 command opcodes
+	output      [31:0] dbg_star0,    // v3.14 target0 last-4 status bytes
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
@@ -548,6 +550,8 @@ module ncr5380
 	wire [7:0]      target_selterms[DEVS];
 	wire [31:0]     target_winhA[DEVS];
 	wire [31:0]     target_winhB[DEVS];
+	wire [31:0]     target_cmdring[DEVS];
+	wire [31:0]     target_statring[DEVS];
 	wire [2:0]      target_phase[DEVS];
 	wire [7:0]      target_hs[DEVS];
 	wire [3:0]      target_hs2[DEVS];
@@ -677,6 +681,8 @@ module ncr5380
 				.dbg_selterms( target_selterms[i] ),
 				.dbg_winhA( target_winhA[i] ),
 				.dbg_winhB( target_winhB[i] ),
+				.dbg_cmdring( target_cmdring[i] ),
+				.dbg_statring( target_statring[i] ),
 				.dbg_phase( target_phase[i] ),
 				.dbg_hs( target_hs[i] ),
 				.dbg_hs2( target_hs2[i] ),
@@ -738,6 +744,8 @@ module ncr5380
 	assign dbg_selt0 = target_selterms[0];
 	assign dbg_winh0A = target_winhA[0];
 	assign dbg_winh0B = target_winhB[0];
+	assign dbg_cmdr0  = target_cmdring[0];
+	assign dbg_star0  = target_statring[0];
 
 	// v3.8: register-write ring — the last 8 host register writes {rs, value},
 	// frozen at the SECOND bus reset (= the System driver's abort). The v3.7

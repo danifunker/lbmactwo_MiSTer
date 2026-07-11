@@ -46,6 +46,8 @@ module scsi
 	output  [7:0] dbg_selterms, // JTAG debug: gate terms at the last selection attempt (v3.6)
 	output [31:0] dbg_winhA,    // v3.11: window history [1],[0] (race-free, latched at edge)
 	output [31:0] dbg_winhB,    // v3.11: window history [3],[2] + window count
+	output [31:0] dbg_cmdring,  // v3.14: last 4 command opcodes (cmdr[0] newest)
+	output [31:0] dbg_statring, // v3.14: last 4 status bytes sent (star[0] newest)
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
@@ -711,6 +713,36 @@ always @(posedge clk) begin
 	end
 end
    
+// v3.14 (B5): target-side command/status ring. B4 proved the disk is found
+// and read, then the driver rejects post-data — so capture WHICH commands the
+// target answered and HOW. At each cmd_cpl, shift {cmd[0], accept} into a
+// 4-deep opcode ring; at each STATUS byte send, shift the status byte into a
+// parallel 4-deep ring. Reading them names the dialog the driver bails after
+// (INQUIRY 0x12 / TEST-UNIT-READY 0x00 / READ-CAPACITY 0x25 / MODE-SENSE 0x1A
+// / READ(6) 0x08 ...) and whether the target ever returned CHECK CONDITION.
+reg [7:0] cmdr [0:3];      // last 4 opcodes (cmdr[0] newest)
+reg [7:0] star [0:3];      // last 4 status bytes sent (star[0] newest)
+reg       cmd_cpl_d = 1'b0;
+reg       status_sent_d = 1'b0;
+initial begin
+	cmdr[0]=8'hFF; cmdr[1]=8'hFF; cmdr[2]=8'hFF; cmdr[3]=8'hFF;
+	star[0]=8'hFF; star[1]=8'hFF; star[2]=8'hFF; star[3]=8'hFF;
+end
+always @(posedge clk) begin
+	cmd_cpl_d     <= cmd_cpl && (phase == PHASE_CMD_IN);
+	status_sent_d <= status_sent;
+	if ((cmd_cpl && (phase == PHASE_CMD_IN)) && !cmd_cpl_d) begin
+		cmdr[3] <= cmdr[2]; cmdr[2] <= cmdr[1]; cmdr[1] <= cmdr[0];
+		cmdr[0] <= cmd[0];
+	end
+	if (status_sent && !status_sent_d) begin
+		star[3] <= star[2]; star[2] <= star[1]; star[1] <= star[0];
+		star[0] <= status;
+	end
+end
+assign dbg_cmdring = { cmdr[3], cmdr[2], cmdr[1], cmdr[0] };
+assign dbg_statring = { star[3], star[2], star[1], star[0] };
+
 // logical block address
 wire [7:0] cmd1 = cmd[1];
 wire [20:0] lba6 = { cmd1[4:0], cmd[2], cmd[3] };

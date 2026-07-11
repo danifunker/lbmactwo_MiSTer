@@ -142,6 +142,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [31:0] dbg_winh0A,    // v3.11 target0 window history
 	output           [31:0] dbg_winh0B,
 	output           [31:0] dbg_iwh,       // v3.12 initiator per-window counters
+	output           [31:0] dbg_cmdr0,     // v3.14 target0 command-opcode ring
+	output           [31:0] dbg_star0,     // v3.14 target0 status ring
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
@@ -324,6 +326,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_winh0A(dbg_winh0A),
 		.dbg_winh0B(dbg_winh0B),
 		.dbg_iwh(dbg_iwh),
+		.dbg_cmdr0(dbg_cmdr0),
+		.dbg_star0(dbg_star0),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2)
 	);
