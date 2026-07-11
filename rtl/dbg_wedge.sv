@@ -78,6 +78,7 @@ module dbg_wedge (
 	input  wire [31:0] wringB,
 	input  wire [31:0] wringC,
 	input  wire [31:0] wringD,
+	input  wire [31:0] selid,           // v3.9 selection-target detective
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -504,6 +505,13 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PWRD"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pwrd (.probe(wringD), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PSID (v3.9): {frozen sel_id_or, frozen sel_id_last, live or, live last}.
+	// 0x81 in the frozen OR = the System driver selected ID0 (LCII mapping);
+	// 0xC0 = it selected our ID6 and the deafness needs another explanation.
+	altsource_probe #(.instance_id ("PSID"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_psid (.probe(selid), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

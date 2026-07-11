@@ -138,6 +138,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [31:0] dbg_wringB,
 	output           [31:0] dbg_wringC,
 	output           [31:0] dbg_wringD,
+	output           [31:0] dbg_selid,     // v3.9 selection-target detective
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
@@ -316,6 +317,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_selt0(dbg_selt0),
 		.dbg_wringA(dbg_wringA), .dbg_wringB(dbg_wringB),
 		.dbg_wringC(dbg_wringC), .dbg_wringD(dbg_wringD),
+		.dbg_selid(dbg_selid),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2)
 	);
