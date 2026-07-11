@@ -48,6 +48,8 @@ module scsi
 	output [31:0] dbg_winhB,    // v3.11: window history [3],[2] + window count
 	output [31:0] dbg_cmdring,  // v3.14: last 4 command opcodes (cmdr[0] newest)
 	output [31:0] dbg_statring, // v3.14: last 4 status bytes sent (star[0] newest)
+	output [31:0] dbg_lbarA,    // v3.15: read LBA ring [1],[0]
+	output [31:0] dbg_lbarB,    // v3.15: read LBA ring [3],[2]
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
@@ -742,6 +744,23 @@ always @(posedge clk) begin
 end
 assign dbg_cmdring = { cmdr[3], cmdr[2], cmdr[1], cmdr[0] };
 assign dbg_statring = { star[3], star[2], star[1], star[0] };
+
+// v3.15 (B6): READ LBA ring — the retry-vs-advance discriminator. B5 proved
+// every command returns GOOD and the driver still rejects post-data. If the
+// driver is rejecting the DATA it re-reads the same LBA (repeats in the ring);
+// if reads succeed and a handshake/IRQ fails it, the LBAs advance monotonically
+// then stop. Captures low 16 bits of `lba` at each READ cmd_cpl (enough to see
+// repeats/advance across boot-block + early-system reads).
+reg [15:0] lbar [0:3];      // last 4 read LBAs (lbar[0] newest)
+initial begin lbar[0]=16'hFFFF; lbar[1]=16'hFFFF; lbar[2]=16'hFFFF; lbar[3]=16'hFFFF; end
+always @(posedge clk) begin
+	if ((cmd_cpl && (phase == PHASE_CMD_IN)) && !cmd_cpl_d && cmd_read) begin
+		lbar[3] <= lbar[2]; lbar[2] <= lbar[1]; lbar[1] <= lbar[0];
+		lbar[0] <= cmd6_cpl ? {5'd0, lba6[10:0]} : lba10[15:0];
+	end
+end
+assign dbg_lbarA = { lbar[1], lbar[0] };
+assign dbg_lbarB = { lbar[3], lbar[2] };
 
 // logical block address
 wire [7:0] cmd1 = cmd[1];

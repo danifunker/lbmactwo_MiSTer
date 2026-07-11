@@ -84,6 +84,8 @@ module dbg_wedge (
 	input  wire [31:0] iwh,             // v3.12 initiator per-window {sel6,selany} x4
 	input  wire [31:0] cmdr0,           // v3.14 target0 last-4 command opcodes
 	input  wire [31:0] star0,           // v3.14 target0 last-4 status bytes
+	input  wire [31:0] lbar0A,          // v3.15 target0 read LBA ring [1],[0]
+	input  wire [31:0] lbar0B,          // v3.15 target0 read LBA ring [3],[2]
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -548,6 +550,17 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PSTS"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_psts (.probe(star0), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PLBA/PLBB (v3.15): target0 read-LBA ring (low16 each), newest in [15:0]
+	// of PLBA. Repeats => data rejected + retried; monotone advance => reads
+	// succeed and a post-data handshake/IRQ is the reject.
+	altsource_probe #(.instance_id ("PLBA"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_plba (.probe(lbar0A), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PLBB"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_plbb (.probe(lbar0B), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule
