@@ -86,6 +86,7 @@ module dbg_wedge (
 	input  wire [31:0] star0,           // v3.14 target0 last-4 status bytes
 	input  wire [31:0] lbar0A,          // v3.15 target0 read LBA ring [1],[0]
 	input  wire [31:0] lbar0B,          // v3.15 target0 read LBA ring [3],[2]
+	input  wire [31:0] selfail0,        // v3.16 target0 selection-failure tally
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -561,6 +562,13 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PLBB"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_plbb (.probe(lbar0B), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PSFL (v3.16): selection-failure reason tally, frozen at abort.
+	// {attempt[31:24], blk_nonidle[23:16], blk_gate[15:8], reason_or[7:4]}.
+	// blk_nonidle dominant => target lingers busy (bus-free/MESSAGE->IDLE fix).
+	altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_psfl (.probe(selfail0), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

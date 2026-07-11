@@ -1465,6 +1465,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_star0(dbg_star0),
 	.dbg_lbar0A(dbg_lbar0A),
 	.dbg_lbar0B(dbg_lbar0B),
+	.dbg_selfail0(dbg_selfail0),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
 	.dbg_via2_irq(dbg_via2_irq),
@@ -1502,6 +1503,7 @@ wire [31:0] dbg_cmdr0;     // v3.14 target0 command-opcode ring
 wire [31:0] dbg_star0;     // v3.14 target0 status ring
 wire [31:0] dbg_lbar0A;    // v3.15 target0 read LBA ring
 wire [31:0] dbg_lbar0B;
+wire [31:0] dbg_selfail0;  // v3.16 target0 selection-failure tally
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
 wire [31:0] dbg_via2_irq;      // NCR5380 write loss-mechanism counters
@@ -1937,6 +1939,7 @@ dbg_wedge dbg_wedge_inst (
 	.star0            (dbg_star0),
 	.lbar0A           (dbg_lbar0A),
 	.lbar0B           (dbg_lbar0B),
+	.selfail0         (dbg_selfail0),
 	.cpuReset_n       (_cpuReset),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.

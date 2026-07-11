@@ -50,6 +50,7 @@ module scsi
 	output [31:0] dbg_statring, // v3.14: last 4 status bytes sent (star[0] newest)
 	output [31:0] dbg_lbarA,    // v3.15: read LBA ring [1],[0]
 	output [31:0] dbg_lbarB,    // v3.15: read LBA ring [3],[2]
+	output [31:0] dbg_selfail,  // v3.16: selection-failure reason tally (frozen)
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
@@ -761,6 +762,42 @@ always @(posedge clk) begin
 end
 assign dbg_lbarA = { lbar[1], lbar[0] };
 assign dbg_lbarB = { lbar[3], lbar[2] };
+
+// v3.16 (B7): selection-FAILURE reason capture — the decisive test of the
+// "target unselectable after N dialogs" finding (PWHA w1: 14 attempts, only
+// 6 dialogs). At each rising edge of (sel && din[ID]) that does NOT advance
+// the FSM into CMD_IN, record WHY. Windowed by bus reset, frozen at abort.
+// Hypothesis: blocked_nonidle dominates = target lingers non-IDLE (didn't
+// return to bus-free after MESSAGE) so the next SEL finds it busy -> fix the
+// MESSAGE->IDLE / bus-free path. If blocked_gate (mounted/bus_busy) dominates
+// instead, the cause is elsewhere.
+//   dbg_selfail = { attempt_cnt[7:0], blk_nonidle[7:0], blk_gate[7:0],
+//                   reason_or[3:0] (rst,busbusy,notmounted,nonidle), 4'd0 }
+reg [7:0] sf_att = 8'd0, sf_nonidle = 8'd0, sf_gate = 8'd0;
+reg [3:0] sf_or = 4'd0;
+reg [7:0] sf_att_f = 8'd0, sf_nonidle_f = 8'd0, sf_gate_f = 8'd0;
+reg [3:0] sf_or_f = 4'd0;
+reg       sf_rst_d = 1'b0, sf_frozen = 1'b0;
+wire      sel_edge = (sel && din[ID]) && !sel_att_d;   // reuse v3.2 edge reg
+wire      sel_takes = (phase == PHASE_IDLE) && mounted && !bus_busy && !rst;
+always @(posedge clk) begin
+	sf_rst_d <= rst;
+	if (rst && !sf_rst_d) begin
+		if (!sf_frozen) begin       // freeze the FIRST window's tally at the 2nd reset
+			if (sf_att != 8'd0) begin
+				sf_att_f <= sf_att; sf_nonidle_f <= sf_nonidle;
+				sf_gate_f <= sf_gate; sf_or_f <= sf_or; sf_frozen <= 1'b1;
+			end
+		end
+		sf_att <= 8'd0; sf_nonidle <= 8'd0; sf_gate <= 8'd0; sf_or <= 4'd0;
+	end else if (sel_edge && !sel_takes) begin
+		if (sf_att != 8'hFF) sf_att <= sf_att + 8'd1;
+		if ((phase != PHASE_IDLE) && sf_nonidle != 8'hFF) sf_nonidle <= sf_nonidle + 8'd1;
+		if ((phase == PHASE_IDLE) && (!mounted || bus_busy) && sf_gate != 8'hFF) sf_gate <= sf_gate + 8'd1;
+		sf_or <= sf_or | { rst, bus_busy, ~mounted, (phase != PHASE_IDLE) };
+	end
+end
+assign dbg_selfail = { sf_att_f, sf_nonidle_f, sf_gate_f, sf_or_f, 4'd0 };
 
 // logical block address
 wire [7:0] cmd1 = cmd[1];
