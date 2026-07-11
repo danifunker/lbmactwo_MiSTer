@@ -940,8 +940,16 @@ end
 // would indict synthesis, not logic).
 reg [3:0] dbg_gate_fire = 4'd0;
 reg [2:0] dbg_att_terms = 3'd0;
+reg       selw_rst_d    = 1'b0;
 always @(posedge clk) begin
-	if ((sel && din[ID]) && !sel_att_d) begin
+	selw_rst_d <= rst;
+	// v3.7: WINDOWED like win_* — cleared at each bus-reset edge so a value
+	// frozen at the abort edge describes the deaf window itself, not the
+	// post-abort rescan (v3.6's cumulative count saturated on rescan hits).
+	if (rst && !selw_rst_d) begin
+		dbg_gate_fire <= 4'd0;
+		dbg_att_terms <= 3'd0;
+	end else if ((sel && din[ID]) && !sel_att_d) begin
 		dbg_att_terms <= {rst, bus_busy, mounted};
 		if (mounted && !bus_busy && !rst && (phase == PHASE_IDLE) && dbg_gate_fire != 4'hF)
 			dbg_gate_fire <= dbg_gate_fire + 4'd1;

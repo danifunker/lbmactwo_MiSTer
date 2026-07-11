@@ -231,16 +231,32 @@ module dbg_wedge (
 	reg        ff_frozen = 1'b0;
 	reg [31:0] ff_pscw0  = 32'd0;
 	reg [31:0] ff_evpc   = 32'd0;   // v3.4: ncr_regs snapshot at the abort edge
+	reg [7:0]  ff_selterms = 8'd0;  // v3.7: gate-term sampler frozen at the edge
 	reg [7:0]  busrst_cnt_d = 8'd0;
 	always @(posedge clk) begin
 		busrst_cnt_d <= busrst_cnt;
 		if (!ff_armed && pscw0[7])
 			ff_armed <= 1'b1;
 		if (ff_armed && !ff_frozen && (busrst_cnt != busrst_cnt_d)) begin
-			ff_frozen <= 1'b1;
-			ff_pscw0  <= pscw0;
-			ff_evpc   <= ncr_regs;
+			ff_frozen  <= 1'b1;
+			ff_pscw0   <= pscw0;
+			ff_evpc    <= ncr_regs;
+			ff_selterms <= selterms0;
 		end
+	end
+
+	// v3.7: scsi_rst held-duration tracker (ncr_regs[7] = live scsi_rst).
+	// The deaf-window suspicion: a stale saved-ICR restore re-asserts RST and
+	// holds the targets in their reset branch while the ROM retries selection.
+	// rst_hold_max = longest continuous assert seen, in 256-clk units (sat FF).
+	reg [15:0] rst_hold_cnt = 16'd0;
+	reg [7:0]  rst_hold_max = 8'd0;
+	always @(posedge clk) begin
+		if (ncr_regs[7]) begin
+			rst_hold_cnt <= rst_hold_cnt + 16'd1;
+			if (rst_hold_cnt[15:8] > rst_hold_max) rst_hold_max <= rst_hold_cnt[15:8];
+		end else
+			rst_hold_cnt <= 16'd0;
 	end
 
 	// $da6 watch: the ROM's SCSI arbitration poll budget is the RAM word at
@@ -453,6 +469,16 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pmnt (.probe({selterms0, berr_cnt, mnt_pulse_cnt, mnt_fall_cnt,
 	                   6'd0, mounted0, img_mnt0}),
+	           .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PFWS (v3.7): the deaf-window verdict word.
+	//   [31:24] selterms0 FROZEN at the abort edge (windowed: describes the
+	//           deaf era itself) = {gate_fire[3:0], rst@att, busy@att, mounted@att, 0}
+	//   [23:16] selterms0 live
+	//   [15:8]  rst_hold_max (longest scsi_rst assert, 256-clk units)
+	altsource_probe #(.instance_id ("PFWS"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfws (.probe({ff_selterms, selterms0, rst_hold_max, 8'd0}),
 	           .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
