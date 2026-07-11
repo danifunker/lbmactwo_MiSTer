@@ -71,7 +71,9 @@ module dbg_wedge (
 	input  wire [7:0]  rst_count,       // ncr5380 dbg_rst_count: TRUE scsi_rst edges (v3.2)
 	input  wire        img_mnt0,        // hps_io img_mounted[0] strobe (v3.5)
 	input  wire        img_size_zero,   // img_size == 0 at this moment (v3.5)
-	input  wire        mounted0,        // scsi target0 live mounted flag, dbg_ncr[9] (v3.5)
+	input  wire        mounted0,        // scsi target0 live mounted flag, dbg_scsi[9] (v3.5)
+	input  wire [7:0]  selterms0,       // target0 gate-term sampler (v3.6)
+	input  wire        berr_pulse,      // top-level berr_out (8us watchdog) (v3.6)
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -154,26 +156,53 @@ module dbg_wedge (
 	// trail_frozen (storm-only, never fires on a Sad Mac boot) to ff_armed
 	// (= first boot-disk READ completed): the NuBus slot scan's deliberate
 	// bus errors all happen before disk IO, so post-arm faults are real.
-	// cpuAddr[31:2] != 30'hA excludes 0x28..0x2B = both words of the A-line
-	// dispatcher vector (0x28, 0x2A) in one compare.
-	wire vec_fault_read = cpuAS_n_d && !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
-	                      (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E) &&
-	                      (cpuAddr[31:2] != 30'hA);
-	// v3.4: the System's startup slot walk runs its guarded prober
-	// (ROM 0xE5F2..0xE618, handler 0xE590) thousands of times AFTER disk IO
-	// begins — those deliberate bus errors flooded PVCN (5k+) and burned the
-	// first-wins fields both boots. Ignore faults whose last completed fetch
-	// was inside the prober page (ROM 0xE5xx/0xE6xx).
-	wire vec_fault_real = vec_fault_read &&
-	                      (last_if_addr[23:8] != 16'h00E5) &&
-	                      (last_if_addr[23:8] != 16'h00E6);
+	// v3.6 REDESIGN — dispatch-confirmed fault recorder. Bus-level FC=5 reads
+	// of the vector table are ambiguous: the ROM's guarded engines SAVE
+	// vectors by reading them (move.l $8.w,... preceded by movem pushes), so
+	// both the PC-page filter (v3.4) and any write-burst heuristic fail. The
+	// unambiguous signature of a REAL exception dispatch: the next instruction
+	// fetch lands AT the address just read out of the vector. A software save
+	// never jumps there.
+	// cpuAddr[31:2] != 30'hA excludes 0x28..0x2B (A-line dispatcher words).
+	wire vec_read_cyc = !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
+	                    (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E) &&
+	                    (cpuAddr[31:2] != 30'hA);
+	reg        vec_rd_live = 1'b0;
+	reg [15:0] vec_din_live = 16'd0;
+	reg [31:0] vec_rd_addr_l = 32'd0;
+	reg [15:0] vec_hi = 16'd0;
+	reg        vec_pending = 1'b0;
+	reg [31:0] vec_pend_vec = 32'd0;   // vector table offset of the candidate
+	reg [31:0] vec_pend_pc  = 32'd0;   // last completed IF before the read
+	reg [23:0] vec_handler  = 24'd0;   // handler address read from the vector
 	always @(posedge clk) begin
-		if (vec_fault_real && ff_armed) begin
-			if (vec_seen_count == 16'd0) begin
-				last_vec_addr <= cpuAddr;
-				last_vec_pc   <= last_if_addr;
+		// capture the vector word: sample during AS-low, commit at AS rise
+		if (vec_read_cyc) begin
+			vec_rd_live   <= 1'b1;
+			vec_din_live  <= cpu_din;
+			vec_rd_addr_l <= cpuAddr;
+		end
+		if (cpuAS_n && vec_rd_live) begin
+			vec_rd_live <= 1'b0;
+			if (!vec_rd_addr_l[1]) begin
+				vec_hi <= vec_din_live;          // high word of the handler long
+			end else begin
+				vec_pending  <= 1'b1;            // low word: candidate complete
+				vec_handler  <= { vec_hi[7:0], vec_din_live };
+				vec_pend_vec <= vec_rd_addr_l & 32'hFFFFFFFC;
+				vec_pend_pc  <= last_if_addr;
 			end
-			if (vec_seen_count != 16'hFFFF) vec_seen_count <= vec_seen_count + 16'd1;
+		end
+		// dispatch confirmation: the very next IF starts at the handler
+		if (vec_pending && if_event) begin
+			vec_pending <= 1'b0;
+			if (cpuAddr[23:1] == vec_handler[23:1]) begin
+				if (vec_seen_count == 16'd0) begin
+					last_vec_addr <= vec_pend_vec;
+					last_vec_pc   <= vec_pend_pc;
+				end
+				if (vec_seen_count != 16'hFFFF) vec_seen_count <= vec_seen_count + 16'd1;
+			end
 		end
 	end
 
@@ -389,18 +418,20 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pfwp (.probe(ff_evpc), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// v3.5: mounted-loss detective counters (see PMNT instance for layout)
-	reg [7:0] mnt_pulse_cnt = 8'd0, mnt_fall_cnt = 8'd0, mnt_size0_cnt = 8'd0;
-	reg       img_mnt0_d = 1'b0, mounted0_d = 1'b0;
+	// v3.5/v3.6: mounted-loss detective + BERR pulse counter (PMNT layout)
+	reg [3:0] mnt_pulse_cnt = 4'd0, mnt_fall_cnt = 4'd0;
+	reg [7:0] berr_cnt = 8'd0;
+	reg       img_mnt0_d = 1'b0, mounted0_d = 1'b0, berr_d = 1'b0;
 	always @(posedge clk) begin
 		img_mnt0_d <= img_mnt0;
 		mounted0_d <= mounted0;
-		if (img_mnt0 && !img_mnt0_d) begin
-			if (mnt_pulse_cnt != 8'hFF) mnt_pulse_cnt <= mnt_pulse_cnt + 8'd1;
-			if (img_size_zero && mnt_size0_cnt != 8'hFF) mnt_size0_cnt <= mnt_size0_cnt + 8'd1;
-		end
-		if (!mounted0 && mounted0_d && mnt_fall_cnt != 8'hFF)
-			mnt_fall_cnt <= mnt_fall_cnt + 8'd1;
+		berr_d     <= berr_pulse;
+		if (img_mnt0 && !img_mnt0_d && mnt_pulse_cnt != 4'hF)
+			mnt_pulse_cnt <= mnt_pulse_cnt + 4'd1;
+		if (!mounted0 && mounted0_d && mnt_fall_cnt != 4'hF)
+			mnt_fall_cnt <= mnt_fall_cnt + 4'd1;
+		if (berr_pulse && !berr_d && berr_cnt != 8'hFF)
+			berr_cnt <= berr_cnt + 8'd1;
 	end
 
 	// PDAV: {last, min} of supervisor-data word reads at $0DA6 (SCSI arb budget)
@@ -413,16 +444,14 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_picr (.probe(ncr_regs), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PMNT: mounted-loss detective (v3.5). The abort-face capture proved the
-	// boot disk's `mounted` flag was FALSE for 19 straight selections mid-
-	// System-startup, then recovered by rescan time. This names the why:
-	//   [31:24] img_mounted[0] pulse count (mount/unmount strobes from HPS)
-	//   [23:16] mounted0 falling-edge count (the flag actually dropping)
-	//   [15:8]  pulses that arrived with img_size==0 (the unmount form)
+	// PMNT (v3.6 layout): gate-term sampler + BERR count + mount detective.
+	//   [31:24] selterms0 = {gate_fire_cnt[3:0], rst@att, busy@att, mounted@att, 0}
+	//   [23:16] berr_cnt (top-level 8us watchdog pulses)
+	//   [15:12] img_mounted[0] pulse count   [11:8] mounted0 fall count
 	//   [1]     live mounted0   [0] live img_mnt0
 	altsource_probe #(.instance_id ("PMNT"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pmnt (.probe({mnt_pulse_cnt, mnt_fall_cnt, mnt_size0_cnt,
+	) cp_pmnt (.probe({selterms0, berr_cnt, mnt_pulse_cnt, mnt_fall_cnt,
 	                   6'd0, mounted0, img_mnt0}),
 	           .source(), .source_clk(clk), .source_ena(1'b1));
 `endif

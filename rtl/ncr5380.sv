@@ -104,6 +104,7 @@ module ncr5380
 	output      [31:0] dbg_scsi_wr,
 	output      [31:0] dbg_wr0,      // target 0 dbg_wrstall, un-muxed (live)
 	output      [31:0] dbg_regs,     // live {icr_read, mr, tcr, bus lines} (v3.2)
+	output      [7:0]  dbg_selt0,    // target0 selection-gate term sampler (v3.6)
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
@@ -536,6 +537,7 @@ module ncr5380
 
 	// input signals from targets
 	wire [DEVS-1:0] target_mounted;
+	wire [7:0]      target_selterms[DEVS];
 	wire [2:0]      target_phase[DEVS];
 	wire [7:0]      target_hs[DEVS];
 	wire [3:0]      target_hs2[DEVS];
@@ -651,6 +653,7 @@ module ncr5380
 				.sd_buff_din( sd_buff_din[i] ),
 				.sd_buff_wr( sd_buff_wr & target_bsy[i] ),
 				.dbg_mounted( target_mounted[i] ),
+				.dbg_selterms( target_selterms[i] ),
 				.dbg_phase( target_phase[i] ),
 				.dbg_hs( target_hs[i] ),
 				.dbg_hs2( target_hs2[i] ),
@@ -708,6 +711,8 @@ module ncr5380
 	assign dbg_regs = { icr_read, mr, tcr, 4'd0,
 	                    scsi_rst, scsi_sel, scsi_bsy, scsi_req_bus,
 	                    scsi_ack, scsi_atn, dma_en, dreq };
+
+	assign dbg_selt0 = target_selterms[0];
 
 	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
 	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:

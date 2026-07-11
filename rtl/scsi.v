@@ -43,6 +43,7 @@ module scsi
 	input         sd_buff_wr,
 
 	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
+	output  [7:0] dbg_selterms, // JTAG debug: gate terms at the last selection attempt (v3.6)
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
@@ -929,6 +930,24 @@ always @(posedge clk) begin
 	if ((sel && din[ID]) && !sel_att_d && dbg_sel_att != 8'hFF)
 		dbg_sel_att <= dbg_sel_att + 8'd1;
 end
+
+// v3.6: selection-gate term sampler. The v3.5 capture proved mounted=1
+// through a 19-attempt deaf window, contradicting the gate analysis — so
+// sample the actual terms at each attempt edge instead of deducing:
+//   dbg_selterms = { gate_fire_cnt[3:0], rst@att, bus_busy@att, mounted@att, 0 }
+// gate_fire_cnt counts attempts where EVERY term was true with phase==IDLE
+// (each such attempt must move the FSM; a nonzero count with the FSM stuck
+// would indict synthesis, not logic).
+reg [3:0] dbg_gate_fire = 4'd0;
+reg [2:0] dbg_att_terms = 3'd0;
+always @(posedge clk) begin
+	if ((sel && din[ID]) && !sel_att_d) begin
+		dbg_att_terms <= {rst, bus_busy, mounted};
+		if (mounted && !bus_busy && !rst && (phase == PHASE_IDLE) && dbg_gate_fire != 4'hF)
+			dbg_gate_fire <= dbg_gate_fire + 4'd1;
+	end
+end
+assign dbg_selterms = {dbg_gate_fire, dbg_att_terms, 1'b0};
 
 //  PSCW layout: [31]=valid [30:28]=brst_maxphase [27]=read_done [26]=sel_seen
 //               [25:19]=reset_count(7) [18:11]=last_opcode(8)

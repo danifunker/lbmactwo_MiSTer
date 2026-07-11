@@ -133,6 +133,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [31:0] dbg_scsi_wr,   // target0 multi-block write-stall snapshot
 	output           [31:0] dbg_wr0,       // target0 dbg_wrstall, un-muxed live tap
 	output           [31:0] dbg_regs,      // live 5380 registers + bus lines (v3.2)
+	output           [7:0]  dbg_selt0,     // target0 selection-gate sampler (v3.6)
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
@@ -308,6 +309,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_scsi_wr(dbg_scsi_wr),
 		.dbg_wr0(dbg_wr0),
 		.dbg_regs(dbg_regs),
+		.dbg_selt0(dbg_selt0),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2)
 	);
