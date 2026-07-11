@@ -445,6 +445,21 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PVIA"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pvia (.probe(via2_irq_state), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PICR/PPH2 (2026-07-11 v2): live chip + bus + target-phase state for the
+	// deaf-bus hypothesis — after the fatal READ6, does target0 return to
+	// IDLE and release BSY before the driver's next selection?
+	// PICR = ncr_regs: [31:24]=icr_read [23:16]=mr [15:12]=tcr [7]=rst
+	//   [6]=sel [5]=bsy [4]=req_bus [3]=ack [2]=atn [1]=dma_en [0]=dreq
+	// PPH2 = dbg_scsi2 (zero-extended): [13:11]=target1 phase
+	//   [10:8]=target0 phase (0=IDLE) [5:4]=io_rd [3:2]=io_wr [1:0]=io_ack
+	altsource_probe #(.instance_id ("PICR"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_picr (.probe(ncr_regs), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PPH2"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pph2 (.probe({16'd0, scsi2}), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule
