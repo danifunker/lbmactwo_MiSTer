@@ -156,8 +156,16 @@ module dbg_wedge (
 	wire vec_fault_read = cpuAS_n_d && !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
 	                      (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E) &&
 	                      (cpuAddr[31:2] != 30'hA);
+	// v3.4: the System's startup slot walk runs its guarded prober
+	// (ROM 0xE5F2..0xE618, handler 0xE590) thousands of times AFTER disk IO
+	// begins — those deliberate bus errors flooded PVCN (5k+) and burned the
+	// first-wins fields both boots. Ignore faults whose last completed fetch
+	// was inside the prober page (ROM 0xE5xx/0xE6xx).
+	wire vec_fault_real = vec_fault_read &&
+	                      (last_if_addr[23:8] != 16'h00E5) &&
+	                      (last_if_addr[23:8] != 16'h00E6);
 	always @(posedge clk) begin
-		if (vec_fault_read && ff_armed) begin
+		if (vec_fault_real && ff_armed) begin
 			if (vec_seen_count == 16'd0) begin
 				last_vec_addr <= cpuAddr;
 				last_vec_pc   <= last_if_addr;
@@ -180,21 +188,26 @@ module dbg_wedge (
 	// zeros. Real live-read-done is pscw0[7] (win_read_done).
 	// ff_evpc[29:24] now records the vector offset (cpuAddr[7:2]) so the
 	// fault CLASS (2=bus 3=addr 4=illegal 0xB=F-line) is in the capture.
+	// v3.4: freeze ONLY on the abort reset edge (rst edges are rare and real
+	// under the honest counter; the vec trigger kept getting sniped by the
+	// slot walk). ff_pscw0 = transfer state at the abort (phase/data_cnt/
+	// selection count name the dying op); ff_evpc = ncr_regs at the abort
+	// (live ICR/MR/TCR + bus lines + dma_en/dreq = what the driver had
+	// programmed when it gave up). The trail PC is useless here by design
+	// (always inside SCSIReset's hold loop).
 	reg        ff_armed  = 1'b0;
 	reg        ff_frozen = 1'b0;
 	reg [31:0] ff_pscw0  = 32'd0;
-	reg [31:0] ff_evpc   = 32'd0;   // [31]=vec [30]=rst [29:24]=vec offset/4 [23:0]=PC
+	reg [31:0] ff_evpc   = 32'd0;   // v3.4: ncr_regs snapshot at the abort edge
 	reg [7:0]  busrst_cnt_d = 8'd0;
 	always @(posedge clk) begin
 		busrst_cnt_d <= busrst_cnt;
 		if (!ff_armed && pscw0[7])
 			ff_armed <= 1'b1;
-		if (ff_armed && !ff_frozen &&
-		    ((busrst_cnt != busrst_cnt_d) || vec_fault_read)) begin
+		if (ff_armed && !ff_frozen && (busrst_cnt != busrst_cnt_d)) begin
 			ff_frozen <= 1'b1;
 			ff_pscw0  <= pscw0;
-			ff_evpc   <= { vec_fault_read, (busrst_cnt != busrst_cnt_d),
-			               cpuAddr[7:2], last_if_addr[23:0] };
+			ff_evpc   <= ncr_regs;
 		end
 	end
 
