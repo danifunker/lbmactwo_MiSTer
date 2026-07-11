@@ -79,6 +79,8 @@ module dbg_wedge (
 	input  wire [31:0] wringC,
 	input  wire [31:0] wringD,
 	input  wire [31:0] selid,           // v3.9 selection-target detective
+	input  wire [31:0] winh0A,          // v3.11 target0 window history [1],[0]
+	input  wire [31:0] winh0B,          // v3.11 target0 window history [3],[2]+count
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -512,6 +514,20 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PSID"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_psid (.probe(selid), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PWHA/PWHB (v3.11): target0 per-window history, latched race-free in
+	// scsi.v at each reset edge (the wedge-side freeze reads windowed
+	// accumulators 1-2 clk post-clear — B1 proved every such readout was
+	// zeros). winh[k] = {maxphase[2:0], read_done, sel_lvl_seen,
+	// gate_all_ever, sel_att_win[4:0]}. A: [21:11]=w1 [10:0]=w0;
+	// B: [24:22]=window count, [21:11]=w3 [10:0]=w2.
+	altsource_probe #(.instance_id ("PWHA"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwha (.probe(winh0A), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PWHB"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwhb (.probe(winh0B), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

@@ -44,6 +44,8 @@ module scsi
 
 	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
 	output  [7:0] dbg_selterms, // JTAG debug: gate terms at the last selection attempt (v3.6)
+	output [31:0] dbg_winhA,    // v3.11: window history [1],[0] (race-free, latched at edge)
+	output [31:0] dbg_winhB,    // v3.11: window history [3],[2] + window count
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
@@ -902,6 +904,19 @@ initial begin
 	brst_rst_d = 0; brst_valid = 0; brst_maxphase = 0; brst_read_done = 0;
 	brst_sel_seen = 0; brst_count = 0; brst_lastop = 0;
 end
+// v3.11 (B2): per-window HISTORY. The dbg_wedge freeze lands 1-2 clk after
+// the reset edge (rst_count crosses two registered hops), but the windowed
+// accumulators clear AT the edge here — every wedge-frozen "window" readout
+// was post-clear zeros (the source of it5/it6's impossible probe states).
+// Latch each window's truth HERE, same-block, same-edge (nonblocking reads
+// give pre-edge values = race-free), for the first FOUR windows:
+//   winh[k][10:0] = {maxphase[2:0], read_done, sel_lvl_seen, gate_all_ever,
+//                    sel_att_win[4:0] (windowed attempt count, sat 31)}
+reg [4:0]  win_sel_att = 5'd0;
+reg [10:0] winh [0:3];
+reg [2:0]  winh_n = 3'd0;
+initial begin winh[0]=11'd0; winh[1]=11'd0; winh[2]=11'd0; winh[3]=11'd0; end
+
 always @(posedge clk) begin
 	brst_rst_d <= rst;
 	// per-window accumulation
@@ -919,11 +934,20 @@ always @(posedge clk) begin
 			brst_sel_seen  <= win_sel_seen;
 			brst_lastop    <= win_lastop;
 		end
+		if (winh_n < 3'd4) begin
+			winh[winh_n[1:0]] <= { win_maxphase, win_read_done,
+			                       sel_lvl_seen, gate_all_ever, win_sel_att };
+			winh_n <= winh_n + 3'd1;
+		end
+		win_sel_att   <= 5'd0;
 		win_maxphase  <= 3'd0;
 		win_read_done <= 1'b0;
 		win_sel_seen  <= 1'b0;
-	end
+	end else if ((sel && din[ID]) && !sel_att_d && win_sel_att != 5'h1F)
+		win_sel_att <= win_sel_att + 5'd1;
 end
+assign dbg_winhA = { 10'd0, winh[1], winh[0] };
+assign dbg_winhB = { 7'd0, winh_n, winh[3], winh[2] };
 // Selection-attempt counter (v3.2): every rising edge of "initiator is
 // selecting THIS id" (sel && our ID bit on the bus), counted INDEPENDENT of
 // the mounted/bus_busy gates — distinguishes "retries never reach the
