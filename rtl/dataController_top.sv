@@ -642,12 +642,23 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via2_ca1),
-		.ca2_i      (~scsiDRQlvl), // CA2: SCSI DRQ = raw bus REQ (IFR bit 0), falling edge on assert
-		.ca2_lvl_i  (scsiDRQlvl),  // level overlay: IFR bit 0 reads 1 while REQ high (Snow parity)
+		// PURE-LEVEL SCSI flags (Snow-exact, 2026-07-11 v2). Snow's IFR bits
+		// 0/3 are re-stamped from the live 5380 lines every tick — they SELF-
+		// CLEAR when the line drops. The 6522 edge latch broke that: once the
+		// first REQ set IFR bit 0, it stayed 1 without an ORA access, so the
+		// driver's per-byte "wait for DRQ" passed while REQ was still low and
+		// the CDB byte it then wrote was swallowed (boot-A f71b27c capture:
+		// 7th dialog opens, CDB never completes, PCMD ring frozen at the map
+		// walk). Tie the edge inputs inactive: no edge events, IFR bit 0/3 =
+		// the lvl overlays alone = live REQ / live 5380 irq_latch. VIA-side
+		// clears become no-ops on never-set latches, matching Snow's
+		// overridden-clear semantics exactly.
+		.ca2_i      (1'b1),        // no edges: IFR bit 0 = pure REQ level
+		.ca2_lvl_i  (scsiDRQlvl),  // = o_drq_lvl = raw bus REQ, any phase
 		.cb2_lvl_i  (scsiIRQ),   // level overlay: IFR bit 3 reads 1 while IRQ latched
 
 		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)
-		.cb2_i      (~scsiIRQ),  // CB2: SCSI IRQ (IFR bit 3), falling edge on assert
+		.cb2_i      (1'b1),      // no edges: IFR bit 3 = pure 5380 irq_latch level
 		.cb2_o      (),
 		.cb2_t      (),
 
