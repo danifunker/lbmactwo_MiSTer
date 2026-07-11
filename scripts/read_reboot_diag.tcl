@@ -9,7 +9,10 @@
 # PSCW says how far the aborted transaction got on the target side.
 # NOTE: write_source_data parses the value as HEX — always format %x.
 set hw ""
-foreach h [get_hardware_names] { if {[string match "*USB-Blaster*" $h] || [string match "DE-SoC*" $h]} { set hw $h; break } }
+set want "USB-Blaster"
+if {[info exists ::env(MISTER_JTAG_CABLE)]} { set want $::env(MISTER_JTAG_CABLE) }
+foreach h [get_hardware_names] { if {[string match "*$want*" $h]} { set hw $h; break } }
+if {$hw eq ""} { puts "NO JTAG CABLE matching $want"; exit 1 }
 set dev ""
 foreach d [get_device_names -hardware_name $hw] { if {[string match "*5CSE*" $d]} { set dev $d; break } }
 puts "hw=$hw dev=$dev"

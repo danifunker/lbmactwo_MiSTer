@@ -3,8 +3,19 @@
 # JTAG-only: zero HPS load. See rtl/dbg_coldinit.sv for the bit layout.
 
 set hw ""
-foreach h [get_hardware_names] {
-    if {[string match "DE-SoC*" $h]} { set hw $h; break }
+# With TWO boards blaster-attached (2026-07-10: USB-0=.143, USB-1=.189/ss1),
+# an unpinned scan grabs the wrong board. Set MISTER_JTAG_CABLE (e.g. "USB-1")
+# to pin; verify the mapping anytime with scratch/id_cables.tcl.
+if {[info exists ::env(MISTER_JTAG_CABLE)]} {
+    foreach h [get_hardware_names] {
+        if {[string match "*$::env(MISTER_JTAG_CABLE)*" $h]} { set hw $h; break }
+    }
+    if {$hw eq ""} { puts "NO JTAG CABLE matching $::env(MISTER_JTAG_CABLE)"; exit 1 }
+}
+if {$hw eq ""} {
+    foreach h [get_hardware_names] {
+        if {[string match "DE-SoC*" $h]} { set hw $h; break }
+    }
 }
 if {$hw eq ""} {
     foreach h [get_hardware_names] {
