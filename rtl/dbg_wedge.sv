@@ -143,10 +143,21 @@ module dbg_wedge (
 	reg [31:0] last_vec_addr  = 32'd0;   // first vec2/3/4 fetch addr after freeze
 	reg [31:0] last_vec_pc    = 32'd0;   // last completed IF at that fetch
 	reg [15:0] vec_seen_count = 16'd0;   // vec2/3/4 fetches since freeze
+	// v3.3 (2026-07-10, after the ss1 Sad Mac 0F/0003 capture): range widened
+	// to 0x08..0x2E (bus/addr/illegal/zdiv/CHK/TRAPV/priv/trace/F-line) minus
+	// the A-line dispatcher words 0x28/0x2A — the user's crash class is
+	// illegal-instruction (vec 4) and the June lottery also produced F-line
+	// (0x2C), which the old 0x08..0x13 filter missed. Gating changed from
+	// trail_frozen (storm-only, never fires on a Sad Mac boot) to ff_armed
+	// (= first boot-disk READ completed): the NuBus slot scan's deliberate
+	// bus errors all happen before disk IO, so post-arm faults are real.
+	// cpuAddr[31:2] != 30'hA excludes 0x28..0x2B = both words of the A-line
+	// dispatcher vector (0x28, 0x2A) in one compare.
 	wire vec_fault_read = cpuAS_n_d && !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
-	                      (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h00000013);
+	                      (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E) &&
+	                      (cpuAddr[31:2] != 30'hA);
 	always @(posedge clk) begin
-		if (vec_fault_read && trail_frozen) begin
+		if (vec_fault_read && ff_armed) begin
 			if (vec_seen_count == 16'd0) begin
 				last_vec_addr <= cpuAddr;
 				last_vec_pc   <= last_if_addr;
@@ -162,21 +173,28 @@ module dbg_wedge (
 	// completes on target 0 (pscw0: data_complete with phase==DATA_OUT and not
 	// a write), then freeze a pscw0 snapshot + event PC at the FIRST abnormal
 	// event: a SCSI bus reset edge (busrst_cnt increment) or a vec2/3/4 fetch.
+	// v3.3 FIX: the arm predicate previously read pscw0[19] as "data_complete"
+	// per a STALE dbg_wrstall layout comment; bit 19 in the real packing is
+	// brst_read_done (frozen at the first normal init reset = always 0), so
+	// the window never armed and the ss1 Sad Mac 0F/0003 boot read back all
+	// zeros. Real live-read-done is pscw0[7] (win_read_done).
+	// ff_evpc[29:24] now records the vector offset (cpuAddr[7:2]) so the
+	// fault CLASS (2=bus 3=addr 4=illegal 0xB=F-line) is in the capture.
 	reg        ff_armed  = 1'b0;
 	reg        ff_frozen = 1'b0;
 	reg [31:0] ff_pscw0  = 32'd0;
-	reg [31:0] ff_evpc   = 32'd0;   // [31]=vec event [30]=rst event, [23:0]=PC
+	reg [31:0] ff_evpc   = 32'd0;   // [31]=vec [30]=rst [29:24]=vec offset/4 [23:0]=PC
 	reg [7:0]  busrst_cnt_d = 8'd0;
 	always @(posedge clk) begin
 		busrst_cnt_d <= busrst_cnt;
-		if (!ff_armed && pscw0[19] && pscw0[18:16] == 3'd2 && !pscw0[24])
+		if (!ff_armed && pscw0[7])
 			ff_armed <= 1'b1;
 		if (ff_armed && !ff_frozen &&
 		    ((busrst_cnt != busrst_cnt_d) || vec_fault_read)) begin
 			ff_frozen <= 1'b1;
 			ff_pscw0  <= pscw0;
 			ff_evpc   <= { vec_fault_read, (busrst_cnt != busrst_cnt_d),
-			               6'd0, last_if_addr[23:0] };
+			               cpuAddr[7:2], last_if_addr[23:0] };
 		end
 	end
 
