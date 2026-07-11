@@ -95,7 +95,12 @@ localparam PHASE_DATA_OUT    = 3'd2;
 localparam PHASE_DATA_IN     = 3'd3;
 localparam PHASE_STATUS_OUT  = 3'd4;
 localparam PHASE_MESSAGE_OUT = 3'd5;
-reg [2:0]  phase;
+// v3.10: preserve/dont_replicate — it5's PSID proved the initiator held
+// SEL+ID6 level-high through the fatal window while this FSM's own windowed
+// probes showed it never leaving IDLE: physically impossible in this RTL
+// unless synthesis replicated `phase` and the copies diverged (gate, bsy,
+// and probes reading different copies). Zero functional change.
+(* preserve, dont_replicate *) reg [2:0]  phase;
 
 // ------------ sector buffer IO controller read/write -----------------------
 // the buffer itself. Holds RING_BLOCKS sectors for reads; writes use slots 0/1.
@@ -938,24 +943,36 @@ end
 // gate_fire_cnt counts attempts where EVERY term was true with phase==IDLE
 // (each such attempt must move the FSM; a nonzero count with the FSM stuck
 // would indict synthesis, not logic).
-reg [3:0] dbg_gate_fire = 4'd0;
-reg [2:0] dbg_att_terms = 3'd0;
+// v3.10: LEVEL-sampled gate-truth accumulators (the v3.7 edge-based sampler
+// was blind to a held-level selection — it5 proved SEL+ID6 stayed high with
+// no edges). Windowed by bus resets; PFWS freezes this byte at the abort.
+//   [7] ever_all_true : some cycle had sel && din[ID] && mounted && !bus_busy
+//                       && !rst && phase==IDLE  -> the FSM MUST have advanced;
+//                       1 here with maxphase==IDLE = synthesis pathology proven
+//   [6] ~mounted seen while sel&&din[ID]&&phase==IDLE (term-false witness)
+//   [5] bus_busy seen while ...                       (term-false witness)
+//   [4] rst seen while ...                            (term-false witness)
+//   [3] any sel&&din[ID] cycle seen this window (level, not edge)
+//   [2:0] live phase
 reg       selw_rst_d    = 1'b0;
+reg       gate_all_ever = 1'b0;
+reg [2:0] gate_false_or = 3'd0;
+reg       sel_lvl_seen  = 1'b0;
 always @(posedge clk) begin
 	selw_rst_d <= rst;
-	// v3.7: WINDOWED like win_* — cleared at each bus-reset edge so a value
-	// frozen at the abort edge describes the deaf window itself, not the
-	// post-abort rescan (v3.6's cumulative count saturated on rescan hits).
 	if (rst && !selw_rst_d) begin
-		dbg_gate_fire <= 4'd0;
-		dbg_att_terms <= 3'd0;
-	end else if ((sel && din[ID]) && !sel_att_d) begin
-		dbg_att_terms <= {rst, bus_busy, mounted};
-		if (mounted && !bus_busy && !rst && (phase == PHASE_IDLE) && dbg_gate_fire != 4'hF)
-			dbg_gate_fire <= dbg_gate_fire + 4'd1;
+		gate_all_ever <= 1'b0;
+		gate_false_or <= 3'd0;
+		sel_lvl_seen  <= 1'b0;
+	end else if (sel && din[ID]) begin
+		sel_lvl_seen <= 1'b1;
+		if (phase == PHASE_IDLE) begin
+			if (mounted && !bus_busy && !rst) gate_all_ever <= 1'b1;
+			gate_false_or <= gate_false_or | {~mounted, bus_busy, rst};
+		end
 	end
 end
-assign dbg_selterms = {dbg_gate_fire, dbg_att_terms, 1'b0};
+assign dbg_selterms = {gate_all_ever, gate_false_or, sel_lvl_seen, phase};
 
 //  PSCW layout: [31]=valid [30:28]=brst_maxphase [27]=read_done [26]=sel_seen
 //               [25:19]=reset_count(7) [18:11]=last_opcode(8)
@@ -1040,6 +1057,7 @@ reg        message_sent;
 reg        data_complete;
 
 assign msg = (phase == PHASE_MESSAGE_OUT);
+// (empty_cd module — phase attributes not needed; ENABLE_EMPTY_CD is 0)
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 	// data_len == 0 (e.g. INQUIRY alloc 0): complete the data phase without
