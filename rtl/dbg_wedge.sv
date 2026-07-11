@@ -379,154 +379,37 @@ module dbg_wedge (
 		endcase
 	end
 
+// ---- REFOCUSED PROBE DECK (2026-07-11) ----------------------------------
+// The 7-build bisect arc retired 22 instances (SDC/timing, probe-race,
+// ID-mismatch, data-corruption, prefetch-ring — all eliminated). This lean
+// 8-probe deck keeps only what the OPEN question and a fix's validation need,
+// relieving the fit on the ~99%-full device (the accumulated 30-instance deck
+// pushed place&route past 11 min of fitting). Retired probes remain in git
+// history (commit aaf6a38) if a specific readout is ever needed again.
+//   PADR - live PC (booting vs stuck at the 0x268F2 selection wait)
+//   PACT - bus-cycle counter (frozen => CPU hung)
+//   PRGR - src0 {busrst_cnt, sr2700_cnt, frozen} = the PASS/FAIL signal
+//          (good boot = 1 reset / 2 inits / frozen 0)
+//   PWHA/PWHB - per-window target history (attempts vs dialogs)
+//   PCMD/PSTS - command-opcode / status rings (confirms reads still GOOD)
+//   PSFL - selection-failure reason tally (the decisive open measurement)
 `ifndef SIMULATION
 	altsource_probe #(.instance_id ("PADR"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_padr (.probe(cpuAddr_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	altsource_probe #(.instance_id ("PSTA"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_psta (.probe(sta_r), .source(), .source_clk(clk), .source_ena(1'b1));
-
 	altsource_probe #(.instance_id ("PACT"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pact (.probe(as_cycles), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	altsource_probe #(.instance_id ("PFST"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfst (.probe(pfst_r), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PRGR: coherency violation readout — source[3:0] selects the field.
+	// PRGR: source[3:0] selects the readout field; src0 = the pass/fail word.
 	altsource_probe #(.instance_id ("PRGR"), .probe_width (32), .source_width(4),
 		.sld_auto_instance_index ("YES")
 	) cp_prgr (.probe(prgr_r), .source(prgr_source), .source_clk(clk), .source_ena(1'b1));
 
-	// Dedicated single-purpose instances for the fields the PRGR source-mux
-	// serves unreliably on hardware (2026-07-10: sources 2/3/13/14/15 alias to
-	// source 0's value in every JTAG session, fresh or stale — synthesis prunes
-	// or aliases those mux arms; PRGR srcs 0/1/4/5 and the PADR-style dedicated
-	// instances have never misbehaved). Probe-only: no source port, so the
-	// whole source-write failure class is out of the picture.
-	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pvec (.probe(last_vec_addr), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pvpc (.probe(last_vec_pc), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PVCN"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pvcn (.probe({16'd0, vec_seen_count}), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PTR2"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_ptr2 (.probe({8'd0, trail_pc2}), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// ---- v3 dedicated instances (all probe-only) ----
-	// PWS0: live target-0 wrstall (layout = scsi.v dbg_wrstall:
-	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
-	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req)
-	altsource_probe #(.instance_id ("PWS0"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pws0 (.probe(pscw0), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PSIO: live ncr5380 io/phase bits ({16'd0, dbg_scsi2}: [15:14]=empty_cd_ph
-	//   [13:11]=t1 phase [10:8]=t0 phase [7]=ecd_ph2 [6]=ecd_req
-	//   [5:4]=io_rd [3:2]=io_wr [1:0]=io_ack)
-	altsource_probe #(.instance_id ("PSIO"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_psio (.probe({16'd0, scsi2}), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PFW / PFWP: first-failure window (frozen pscw0 + event PC)
-	altsource_probe #(.instance_id ("PFW"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfw (.probe(ff_pscw0), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PFWP"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfwp (.probe(ff_evpc), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// v3.5/v3.6: mounted-loss detective + BERR pulse counter (PMNT layout)
-	reg [3:0] mnt_pulse_cnt = 4'd0, mnt_fall_cnt = 4'd0;
-	reg [7:0] berr_cnt = 8'd0;
-	reg       img_mnt0_d = 1'b0, mounted0_d = 1'b0, berr_d = 1'b0;
-	always @(posedge clk) begin
-		img_mnt0_d <= img_mnt0;
-		mounted0_d <= mounted0;
-		berr_d     <= berr_pulse;
-		if (img_mnt0 && !img_mnt0_d && mnt_pulse_cnt != 4'hF)
-			mnt_pulse_cnt <= mnt_pulse_cnt + 4'd1;
-		if (!mounted0 && mounted0_d && mnt_fall_cnt != 4'hF)
-			mnt_fall_cnt <= mnt_fall_cnt + 4'd1;
-		if (berr_pulse && !berr_d && berr_cnt != 8'hFF)
-			berr_cnt <= berr_cnt + 8'd1;
-	end
-
-	// PDAV: {last, min} of supervisor-data word reads at $0DA6 (SCSI arb budget)
-	altsource_probe #(.instance_id ("PDAV"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pdav (.probe({da6_last, da6_min}), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PICR: live 5380 registers + bus lines (see ncr5380 dbg_regs layout)
-	altsource_probe #(.instance_id ("PICR"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_picr (.probe(ncr_regs), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PMNT (v3.6 layout): gate-term sampler + BERR count + mount detective.
-	//   [31:24] selterms0 = {gate_fire_cnt[3:0], rst@att, busy@att, mounted@att, 0}
-	//   [23:16] berr_cnt (top-level 8us watchdog pulses)
-	//   [15:12] img_mounted[0] pulse count   [11:8] mounted0 fall count
-	//   [1]     live mounted0   [0] live img_mnt0
-	altsource_probe #(.instance_id ("PMNT"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pmnt (.probe({selterms0, berr_cnt, mnt_pulse_cnt, mnt_fall_cnt,
-	                   6'd0, mounted0, img_mnt0}),
-	           .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PFWS (v3.7): the deaf-window verdict word.
-	//   [31:24] selterms0 FROZEN at the abort edge (windowed: describes the
-	//           deaf era itself) = {gate_fire[3:0], rst@att, busy@att, mounted@att, 0}
-	//   [23:16] selterms0 live
-	//   [15:8]  rst_hold_max (longest scsi_rst assert, 256-clk units)
-	altsource_probe #(.instance_id ("PFWS"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfws (.probe({ff_selterms, selterms0, rst_hold_max, 8'd0}),
-	           .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PWRA..PWRD (v3.8): 5380 register-write ring frozen at the abort reset —
-	// the System driver's dying words. Entries {rs[2:0], val[7:0]} at [26:16]
-	// and [10:0] per word (A=[7],[6]; B=[5],[4]; C=[3],[2]); D packs [1],[0]
-	// + head/frozen/count (see ncr5380 dbg_wringD comment).
-	altsource_probe #(.instance_id ("PWRA"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pwra (.probe(wringA), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PWRB"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pwrb (.probe(wringB), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PWRC"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pwrc (.probe(wringC), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PWRD"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pwrd (.probe(wringD), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PSID (v3.9): {frozen sel_id_or, frozen sel_id_last, live or, live last}.
-	// 0x81 in the frozen OR = the System driver selected ID0 (LCII mapping);
-	// 0xC0 = it selected our ID6 and the deafness needs another explanation.
-	altsource_probe #(.instance_id ("PSID"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_psid (.probe(selid), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PWHA/PWHB (v3.11): target0 per-window history, latched race-free in
-	// scsi.v at each reset edge (the wedge-side freeze reads windowed
-	// accumulators 1-2 clk post-clear — B1 proved every such readout was
-	// zeros). winh[k] = {maxphase[2:0], read_done, sel_lvl_seen,
-	// gate_all_ever, sel_att_win[4:0]}. A: [21:11]=w1 [10:0]=w0;
-	// B: [24:22]=window count, [21:11]=w3 [10:0]=w2.
+	// PWHA/PWHB: target0 per-window history, latched race-free in scsi.v at each
+	// reset edge. winh[k] = {maxphase[2:0], read_done, sel_att_win[3:0],
+	// dialogs_win[2:0]}. A: [21:11]=w1 [10:0]=w0; B: [24:22]=count, w3, w2.
 	altsource_probe #(.instance_id ("PWHA"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pwha (.probe(winh0A), .source(), .source_clk(clk), .source_ena(1'b1));
@@ -535,15 +418,7 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pwhb (.probe(winh0B), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PIWH (v3.12): initiator per-window {sel6[3:0],selany[3:0]} x4 windows,
-	// [7:0]=w0 ... [31:24]=w3. Compare w1 against PWHA's w1 target counts.
-	altsource_probe #(.instance_id ("PIWH"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_piwh (.probe(iwh), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PCMD/PSTS (v3.14): target0 last-4 command opcodes / status bytes,
-	// newest in [7:0]. Names the dialog the driver rejects after and whether
-	// the target ever returned CHECK CONDITION (0x02).
+	// PCMD/PSTS: target0 last-4 command opcodes / status bytes, newest in [7:0].
 	altsource_probe #(.instance_id ("PCMD"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pcmd (.probe(cmdr0), .source(), .source_clk(clk), .source_ena(1'b1));
@@ -552,20 +427,10 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_psts (.probe(star0), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PLBA/PLBB (v3.15): target0 read-LBA ring (low16 each), newest in [15:0]
-	// of PLBA. Repeats => data rejected + retried; monotone advance => reads
-	// succeed and a post-data handshake/IRQ is the reject.
-	altsource_probe #(.instance_id ("PLBA"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_plba (.probe(lbar0A), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	altsource_probe #(.instance_id ("PLBB"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_plbb (.probe(lbar0B), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// PSFL (v3.16): selection-failure reason tally, frozen at abort.
-	// {attempt[31:24], blk_nonidle[23:16], blk_gate[15:8], reason_or[7:4]}.
-	// blk_nonidle dominant => target lingers busy (bus-free/MESSAGE->IDLE fix).
+	// PSFL (the decisive open measurement): selection-failure reason tally,
+	// frozen at abort. {attempt[31:24], blk_nonidle[23:16], blk_gate[15:8],
+	// reason_or[7:4]}. blk_nonidle dominant => target lingers busy
+	// (bus-free / MESSAGE->IDLE release fix).
 	altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_psfl (.probe(selfail0), .source(), .source_clk(clk), .source_ena(1'b1));
