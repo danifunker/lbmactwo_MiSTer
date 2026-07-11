@@ -87,6 +87,8 @@ module dbg_wedge (
 	input  wire [31:0] lbar0A,          // v3.15 target0 read LBA ring [1],[0]
 	input  wire [31:0] lbar0B,          // v3.15 target0 read LBA ring [3],[2]
 	input  wire [31:0] selfail0,        // v3.16 target0 selection-failure tally
+	input  wire [31:0] via2_irq_state,  // via6522 dbg_irq_state: {irq_out, IER[6:0],
+	                                    //  0, IFR_eff[6:0], PCR[7:0], ACR[7:0]} (PVIA)
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -434,6 +436,15 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_psfl (.probe(selfail0), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PVIA (re-added 2026-07-11 for the o_drq_lvl fix validation): VIA2
+	// interrupt machinery, live. [31]=irq_out [30:24]=IER [22:16]=IFR_eff
+	// [15:8]=PCR [7:0]=ACR. With the raw-REQ CA2 rewire, IFR_eff bit 0 must
+	// read 1 whenever the target holds REQ (any phase); at a livelock it
+	// names the flag the driver is starving on (IER shows poll vs interrupt).
+	altsource_probe #(.instance_id ("PVIA"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvia (.probe(via2_irq_state), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

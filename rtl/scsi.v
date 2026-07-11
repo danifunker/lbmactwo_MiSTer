@@ -624,12 +624,12 @@ end
 // is visible, not just a REQ-high host stall.  Also logs every phase change.
 reg [31:0] stall_cnt;
 reg [31:0] data_cnt_seen;
-reg  [2:0] phase_d;
+reg  [2:0] phase_d_wd;  // sim-only shadow; phase_d (synth) is the v3.11 window one
 always @(posedge clk) begin
-	phase_d <= phase;
-	if (phase != phase_d && $test$plusargs("scsi_stall_debug"))
+	phase_d_wd <= phase;
+	if (phase != phase_d_wd && $test$plusargs("scsi_stall_debug"))
 		$display("SCSI_PHASE ID=%0d %0d->%0d data_cnt=%0d data_len=%0d complete=%0d cmd=%02h tlen=%0d lba=%0d",
-		         ID, phase_d, phase, data_cnt, data_len, data_complete, cmd[0], tlen, lba);
+		         ID, phase_d_wd, phase, data_cnt, data_len, data_complete, cmd[0], tlen, lba);
 	if (phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) begin
 		if (data_cnt != data_cnt_seen) begin
 			data_cnt_seen <= data_cnt;

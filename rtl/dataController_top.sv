@@ -267,13 +267,20 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
-	// Latched 5380 interrupt → VIA2 CB2 (IFR bit 3); DREQ → VIA2 CA2 (IFR
+	// Latched 5380 interrupt → VIA2 CB2 (IFR bit 3); DRQ → VIA2 CA2 (IFR
 	// bit 0). Mac II wiring per Snow macii/via2.rs. Active-low into the VIA:
 	// the OS programs VIA2 PCR=0 (input, negative edge), so the flag latches
 	// on assertion. The HD SC 4.3 driver's async path sleeps on these flags
 	// between pseudo-DMA chunks — unwired, it polls the IFR forever (the
 	// Welcome wedge at every HPS 512-byte REQ pause).
+	// CA2 takes the RAW bus REQ level (o_drq_lvl, Snow get_drq() parity),
+	// NOT the flow-controlled dreq: Snow's healthy-boot trace shows the
+	// System driver's post-transfer completion wait rides IFR bit 0 through
+	// the DATA→STATUS handoff, where dreq (dma_en-gated + settle-masked)
+	// goes quiet — that starvation is the MacAtrium first-boot livelock.
+	// scsiDREQ still paces DACK-cycle DTACK at the top level (untouched).
 	wire scsiIRQ;
+	wire scsiDRQlvl;
 	// ENABLE_EMPTY_CD(0) — 2026-07-10: the phantom empty-CD target (ID3) is
 	// the happy-mac-reboot storm root cause. Probe-proven on be5c1800 (JTAG
 	// reboot-differential deck): boot-disk transaction completes (ph7), then
@@ -299,6 +306,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dma_second_word(cpuAddrRegLo[0]),
 		.dreq(scsiDREQ),
 		.o_irq(scsiIRQ),
+		.o_drq_lvl(scsiDRQlvl),
 		.wdata(cpuDataIn),
 		.rdata(scsiDataOut),
 
@@ -634,8 +642,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via2_ca1),
-		.ca2_i      (~scsiDREQ), // CA2: SCSI DRQ (IFR bit 0), falling edge on assert
-		.ca2_lvl_i  (scsiDREQ),  // level overlay: IFR bit 0 reads 1 while DRQ high
+		.ca2_i      (~scsiDRQlvl), // CA2: SCSI DRQ = raw bus REQ (IFR bit 0), falling edge on assert
+		.ca2_lvl_i  (scsiDRQlvl),  // level overlay: IFR bit 0 reads 1 while REQ high (Snow parity)
 		.cb2_lvl_i  (scsiIRQ),   // level overlay: IFR bit 3 reads 1 while IRQ latched
 
 		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)

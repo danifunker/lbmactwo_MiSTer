@@ -1940,6 +1940,7 @@ dbg_wedge dbg_wedge_inst (
 	.lbar0A           (dbg_lbar0A),
 	.lbar0B           (dbg_lbar0B),
 	.selfail0         (dbg_selfail0),
+	.via2_irq_state   (dbg_via2_irq),
 	.cpuReset_n       (_cpuReset),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.

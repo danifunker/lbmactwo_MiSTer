@@ -65,6 +65,14 @@ module ncr5380
 	// HD SC 4.3 driver's async path SLEEPS on those VIA2 flags between
 	// pseudo-DMA chunks — without them it polls the IFR forever (Welcome wedge).
 	output        o_irq,
+	// Live bus REQ level for the VIA2 CA2 / IFR-bit-0 view ONLY (Snow
+	// get_drq() parity: REQ visible in ANY phase, no DMA-mode/arm gate, no
+	// ack-train/settle masking, no CSR deferral). Snow's healthy MacAtrium
+	// boot trace (2026-07-11) shows the System driver's per-dialog
+	// completion signal is this REQ level reaching IFR bit 0 — the 5380 IRQ
+	// latch is never even cleared (no reg-7 reads all boot). `dreq` above
+	// remains the flow-controlled DACK/DTACK pacing signal — do NOT swap.
+	output        o_drq_lvl,
 	input  [15:0] wdata,
 	output [15:0] rdata,
 
@@ -430,6 +438,7 @@ module ncr5380
 		end
 	end
 	assign o_irq = irq_latch;
+	assign o_drq_lvl = scsi_req_bus;
 
 	/* Deferred bus-visible REQ (Snow controller.rs `set_req` semantics).
 	 * The SCSI Manager's between-chunk settle loop (decoded live from the
