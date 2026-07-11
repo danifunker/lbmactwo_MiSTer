@@ -913,6 +913,8 @@ end
 //   winh[k][10:0] = {maxphase[2:0], read_done, sel_lvl_seen, gate_all_ever,
 //                    sel_att_win[4:0] (windowed attempt count, sat 31)}
 reg [4:0]  win_sel_att = 5'd0;
+reg [4:0]  win_dialogs = 5'd0;   // v3.12: CMD_IN entries this window (gate fires)
+reg [2:0]  phase_d     = 3'd0;
 reg [10:0] winh [0:3];
 reg [2:0]  winh_n = 3'd0;
 initial begin winh[0]=11'd0; winh[1]=11'd0; winh[2]=11'd0; winh[3]=11'd0; end
@@ -935,16 +937,26 @@ always @(posedge clk) begin
 			brst_lastop    <= win_lastop;
 		end
 		if (winh_n < 3'd4) begin
+			// v3.12: repack — {maxphase[2:0], read_done, sel_att_win[3:0],
+			// dialogs_win[2:0]} : attempts vs dialogs per window is the
+			// ROM-era/System-era discriminator (sel_lvl/gate_all dropped:
+			// both were 1 whenever attempts>0 in every capture).
 			winh[winh_n[1:0]] <= { win_maxphase, win_read_done,
-			                       sel_lvl_seen, gate_all_ever, win_sel_att };
+			                       win_sel_att[3:0], win_dialogs[2:0] };
 			winh_n <= winh_n + 3'd1;
 		end
 		win_sel_att   <= 5'd0;
+		win_dialogs   <= 5'd0;
 		win_maxphase  <= 3'd0;
 		win_read_done <= 1'b0;
 		win_sel_seen  <= 1'b0;
-	end else if ((sel && din[ID]) && !sel_att_d && win_sel_att != 5'h1F)
-		win_sel_att <= win_sel_att + 5'd1;
+	end else begin
+		if ((sel && din[ID]) && !sel_att_d && win_sel_att != 5'h1F)
+			win_sel_att <= win_sel_att + 5'd1;
+		if ((phase == PHASE_CMD_IN) && (phase_d == PHASE_IDLE) && win_dialogs != 5'h1F)
+			win_dialogs <= win_dialogs + 5'd1;
+	end
+	phase_d <= phase;
 end
 assign dbg_winhA = { 10'd0, winh[1], winh[0] };
 assign dbg_winhB = { 7'd0, winh_n, winh[3], winh[2] };

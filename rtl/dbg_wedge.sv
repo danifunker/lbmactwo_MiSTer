@@ -81,6 +81,7 @@ module dbg_wedge (
 	input  wire [31:0] selid,           // v3.9 selection-target detective
 	input  wire [31:0] winh0A,          // v3.11 target0 window history [1],[0]
 	input  wire [31:0] winh0B,          // v3.11 target0 window history [3],[2]+count
+	input  wire [31:0] iwh,             // v3.12 initiator per-window {sel6,selany} x4
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -528,6 +529,12 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PWHB"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pwhb (.probe(winh0B), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PIWH (v3.12): initiator per-window {sel6[3:0],selany[3:0]} x4 windows,
+	// [7:0]=w0 ... [31:24]=w3. Compare w1 against PWHA's w1 target counts.
+	altsource_probe #(.instance_id ("PIWH"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_piwh (.probe(iwh), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

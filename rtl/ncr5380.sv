@@ -112,6 +112,7 @@ module ncr5380
 	output      [31:0] dbg_selid,    // v3.9 selection-target detective {frozen or/last, live or/last}
 	output      [31:0] dbg_winh0A,   // v3.11 target0 window history [1],[0]
 	output      [31:0] dbg_winh0B,   // v3.11 target0 window history [3],[2] + count
+	output      [31:0] dbg_iwh,      // v3.12 initiator per-window {sel6,selany} x4
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
@@ -780,6 +781,37 @@ module ncr5380
 		end
 	end
 	assign dbg_selid = {sel_id_or_f, sel_id_last_f, sel_id_or, sel_id_last};
+
+	// v3.12 (B3): initiator-side PER-WINDOW selection counters, latched at the
+	// same scsi_rst edges as the target-side winh — the paired discriminator.
+	// Per window (8b): {sel6_cnt[3:0], selany_cnt[3:0]} = edges of "driving a
+	// selection at ID6" (scsi_sel && out_en && scsi_bus_data[6]) vs "driving
+	// any selection" (scsi_sel && out_en). w1 sel6 > target w1 attempts =>
+	// a driven ID6 selection never reached the target (bus-mux blinding);
+	// equal => the System scan never drove ID6 and died earlier.
+	reg [3:0] iw_sel6 = 4'd0, iw_selany = 4'd0;
+	reg       iw_sel6_d = 1'b0, iw_selany_d = 1'b0;
+	reg [7:0] iwh [0:3];
+	reg [2:0] iwh_n = 3'd0;
+	initial begin iwh[0]=8'd0; iwh[1]=8'd0; iwh[2]=8'd0; iwh[3]=8'd0; end
+	always @(posedge clk) begin
+		iw_sel6_d   <= scsi_sel && out_en && scsi_bus_data[6];
+		iw_selany_d <= scsi_sel && out_en;
+		if (scsi_rst && !selid_rst_d) begin
+			if (iwh_n < 3'd4) begin
+				iwh[iwh_n[1:0]] <= { iw_sel6, iw_selany };
+				iwh_n <= iwh_n + 3'd1;
+			end
+			iw_sel6   <= 4'd0;
+			iw_selany <= 4'd0;
+		end else begin
+			if ((scsi_sel && out_en && scsi_bus_data[6]) && !iw_sel6_d && iw_sel6 != 4'hF)
+				iw_sel6 <= iw_sel6 + 4'd1;
+			if ((scsi_sel && out_en) && !iw_selany_d && iw_selany != 4'hF)
+				iw_selany <= iw_selany + 4'd1;
+		end
+	end
+	assign dbg_iwh = { iwh[3], iwh[2], iwh[1], iwh[0] };
 
 	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
 	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:
