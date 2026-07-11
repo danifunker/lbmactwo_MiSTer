@@ -1455,6 +1455,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_wr0(dbg_wr0),
 	.dbg_regs(dbg_regs),
 	.dbg_selt0(dbg_selt0),
+	.dbg_wringA(dbg_wringA), .dbg_wringB(dbg_wringB),
+	.dbg_wringC(dbg_wringC), .dbg_wringD(dbg_wringD),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
 	.dbg_via2_irq(dbg_via2_irq),
@@ -1483,6 +1485,7 @@ wire [31:0] dbg_scsi_wr;   // target0 multi-block write-stall snapshot
 wire [31:0] dbg_wr0;       // target0 dbg_wrstall un-muxed (v3 starve diagnosis)
 wire [31:0] dbg_regs;      // live 5380 registers + bus lines (v3.2)
 wire [7:0]  dbg_selt0;     // target0 selection-gate sampler (v3.6)
+wire [31:0] dbg_wringA, dbg_wringB, dbg_wringC, dbg_wringD;  // v3.8 reg-write ring
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
 wire [31:0] dbg_via2_irq;      // NCR5380 write loss-mechanism counters
@@ -1906,6 +1909,10 @@ dbg_wedge dbg_wedge_inst (
 	.mounted0         (dbg_scsi[9]),
 	.selterms0        (dbg_selt0),
 	.berr_pulse       (berr_out),
+	.wringA           (dbg_wringA),
+	.wringB           (dbg_wringB),
+	.wringC           (dbg_wringC),
+	.wringD           (dbg_wringD),
 	.cpuReset_n       (_cpuReset),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.

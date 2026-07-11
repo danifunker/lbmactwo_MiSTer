@@ -105,6 +105,10 @@ module ncr5380
 	output      [31:0] dbg_wr0,      // target 0 dbg_wrstall, un-muxed (live)
 	output      [31:0] dbg_regs,     // live {icr_read, mr, tcr, bus lines} (v3.2)
 	output      [7:0]  dbg_selt0,    // target0 selection-gate term sampler (v3.6)
+	output      [31:0] dbg_wringA,   // v3.8 reg-write ring [7],[6]
+	output      [31:0] dbg_wringB,   // v3.8 reg-write ring [5],[4]
+	output      [31:0] dbg_wringC,   // v3.8 reg-write ring [3],[2]
+	output      [31:0] dbg_wringD,   // v3.8 reg-write ring [1],[0] + head/frozen/count
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
@@ -713,6 +717,33 @@ module ncr5380
 	                    scsi_ack, scsi_atn, dma_en, dreq };
 
 	assign dbg_selt0 = target_selterms[0];
+
+	// v3.8: register-write ring — the last 8 host register writes {rs, value},
+	// frozen at the SECOND bus reset (= the System driver's abort). The v3.7
+	// capture proved the System-era window contains ZERO selection attempts at
+	// the target: its operations die before SEL ever asserts (arbitration-wait
+	// timeout per the ROM disassembly). This ring is the driver's dying words:
+	// what it programmed (ODR? MODE.ARB? ICR?) before giving up.
+	reg [10:0] wring [0:7];
+	reg [3:0]  wring_n = 4'd0;
+	reg [2:0]  wring_h = 3'd0;
+	reg        wring_frozen = 1'b0;
+	integer wi0;
+	initial for (wi0 = 0; wi0 < 8; wi0 = wi0 + 1) wring[wi0] = 11'd0;
+	always @(posedge clk) begin
+		if (!wring_frozen && reg_wr) begin
+			wring[wring_h] <= {bus_rs, wdata[7:0]};
+			wring_h <= wring_h + 3'd1;
+			if (wring_n != 4'hF) wring_n <= wring_n + 4'd1;
+		end
+		if (dbg_rst_count >= 8'd2 && !wring_frozen) wring_frozen <= 1'b1;
+	end
+	// two 11-bit entries per word: [26:16] and [10:0]; decode {rs[2:0], val[7:0]}
+	assign dbg_wringA = {5'd0, wring[7], 5'd0, wring[6]};
+	assign dbg_wringB = {5'd0, wring[5], 5'd0, wring[4]};
+	assign dbg_wringC = {5'd0, wring[3], 5'd0, wring[2]};
+	// D: [31:30]=0 [29:19]=wring[1] [18:8]=wring[0] [7:5]=head [4]=frozen [3:0]=count
+	assign dbg_wringD = {2'd0, wring[1], wring[0], wring_h, wring_frozen, wring_n};
 
 	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
 	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:

@@ -74,6 +74,10 @@ module dbg_wedge (
 	input  wire        mounted0,        // scsi target0 live mounted flag, dbg_scsi[9] (v3.5)
 	input  wire [7:0]  selterms0,       // target0 gate-term sampler (v3.6)
 	input  wire        berr_pulse,      // top-level berr_out (8us watchdog) (v3.6)
+	input  wire [31:0] wringA,          // v3.8 reg-write ring (frozen at abort)
+	input  wire [31:0] wringB,
+	input  wire [31:0] wringC,
+	input  wire [31:0] wringD,
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -480,6 +484,26 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pfws (.probe({ff_selterms, selterms0, rst_hold_max, 8'd0}),
 	           .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PWRA..PWRD (v3.8): 5380 register-write ring frozen at the abort reset —
+	// the System driver's dying words. Entries {rs[2:0], val[7:0]} at [26:16]
+	// and [10:0] per word (A=[7],[6]; B=[5],[4]; C=[3],[2]); D packs [1],[0]
+	// + head/frozen/count (see ncr5380 dbg_wringD comment).
+	altsource_probe #(.instance_id ("PWRA"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwra (.probe(wringA), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PWRB"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwrb (.probe(wringB), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PWRC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwrc (.probe(wringC), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PWRD"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pwrd (.probe(wringD), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule
