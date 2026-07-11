@@ -623,7 +623,18 @@ module ncr5380
 			// to stay within the M10K budget — the 16KB ring costs ~42 M10K and
 			// both disks would not fit alongside the 8bpp framebuffer. Ported
 			// from MacLC rtl/scsi.v read-prefetch ring (much smoother heavy reads).
-			scsi #(.ID(3'd6 - i[2:0]), .RING_LOG((i == 0) ? 5 : 1)) target
+			// v3.13 (B4 FIX): slot->ID mapping {0,1}, LCII parity (was 3'd6-i =
+			// {6,5}, chosen 2026-06 for ROM scan priority). The B3 paired
+			// per-window counters proved the happy-mac-reboot mechanism: the
+			// MacAtrium images' installed disk driver addresses its recorded
+			// unit at ID 0 directly during System startup (one selection
+			// without bus bit6 in the fatal window; every ID6 selection
+			// accounted for initiator==target), gets no response — we had
+			// nothing at ID 0 — times out its phase walk and aborts the bus.
+			// The ROM's own scan (6->0) finds the disk either way; the
+			// System-era driver does not rescan. LCII/MacLC (ID(i)) never
+			// exhibited this because their mapping matches the images.
+			scsi #(.ID(i[2:0]), .RING_LOG((i == 0) ? 5 : 1)) target
 			(
 				.clk    ( clk ),
 				.rst    ( scsi_rst ),
