@@ -69,6 +69,9 @@ module dbg_wedge (
 	input  wire [15:0] scsi2,           // ncr5380 dbg_scsi2: phases + io_rd/io_wr/io_ack (v3)
 	input  wire [31:0] ncr_regs,        // live 5380 {icr_read,mr,tcr,bus lines} (v3.2)
 	input  wire [7:0]  rst_count,       // ncr5380 dbg_rst_count: TRUE scsi_rst edges (v3.2)
+	input  wire        img_mnt0,        // hps_io img_mounted[0] strobe (v3.5)
+	input  wire        img_size_zero,   // img_size == 0 at this moment (v3.5)
+	input  wire        mounted0,        // scsi target0 live mounted flag, dbg_ncr[9] (v3.5)
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -386,6 +389,20 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pfwp (.probe(ff_evpc), .source(), .source_clk(clk), .source_ena(1'b1));
 
+	// v3.5: mounted-loss detective counters (see PMNT instance for layout)
+	reg [7:0] mnt_pulse_cnt = 8'd0, mnt_fall_cnt = 8'd0, mnt_size0_cnt = 8'd0;
+	reg       img_mnt0_d = 1'b0, mounted0_d = 1'b0;
+	always @(posedge clk) begin
+		img_mnt0_d <= img_mnt0;
+		mounted0_d <= mounted0;
+		if (img_mnt0 && !img_mnt0_d) begin
+			if (mnt_pulse_cnt != 8'hFF) mnt_pulse_cnt <= mnt_pulse_cnt + 8'd1;
+			if (img_size_zero && mnt_size0_cnt != 8'hFF) mnt_size0_cnt <= mnt_size0_cnt + 8'd1;
+		end
+		if (!mounted0 && mounted0_d && mnt_fall_cnt != 8'hFF)
+			mnt_fall_cnt <= mnt_fall_cnt + 8'd1;
+	end
+
 	// PDAV: {last, min} of supervisor-data word reads at $0DA6 (SCSI arb budget)
 	altsource_probe #(.instance_id ("PDAV"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
@@ -395,6 +412,19 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PICR"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_picr (.probe(ncr_regs), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PMNT: mounted-loss detective (v3.5). The abort-face capture proved the
+	// boot disk's `mounted` flag was FALSE for 19 straight selections mid-
+	// System-startup, then recovered by rescan time. This names the why:
+	//   [31:24] img_mounted[0] pulse count (mount/unmount strobes from HPS)
+	//   [23:16] mounted0 falling-edge count (the flag actually dropping)
+	//   [15:8]  pulses that arrived with img_size==0 (the unmount form)
+	//   [1]     live mounted0   [0] live img_mnt0
+	altsource_probe #(.instance_id ("PMNT"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pmnt (.probe({mnt_pulse_cnt, mnt_fall_cnt, mnt_size0_cnt,
+	                   6'd0, mounted0, img_mnt0}),
+	           .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

@@ -1898,6 +1898,10 @@ dbg_wedge dbg_wedge_inst (
 	.scsi2            (dbg_scsi2),
 	.ncr_regs         (dbg_regs),
 	.rst_count        (dbg_scsi4[15:8]),
+	.img_mnt0         (img_mounted[0]),
+	// matches scsi.v's own unmount condition: img_blocks (= img_size[40:9]) == 0
+	.img_size_zero    (img_size[40:9] == 32'd0),
+	.mounted0         (dbg_scsi[9]),
 	.cpuReset_n       (_cpuReset),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
