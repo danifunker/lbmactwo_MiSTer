@@ -1104,7 +1104,7 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din,
-	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+	       0 /* req_rd inlined by verilator 5.049 */,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_wr ? 1 : 0,
 	       blockdevice.current_disk,
 	       blockdevice.reading ? 1 : 0,
@@ -2014,7 +2014,7 @@ int verilate() {
 						VERTOPINTERN->sd_buff_wr ? 1 : 0,
 						VERTOPINTERN->sd_buff_addr,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+						0 /* req_rd inlined by verilator 5.049 */,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0);
 					scsi_debug_t0_data_count++;
 				}
@@ -2518,7 +2518,7 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+						0 /* req_rd inlined by verilator 5.049 */,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__phase,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__mounted ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__cmd_cnt,

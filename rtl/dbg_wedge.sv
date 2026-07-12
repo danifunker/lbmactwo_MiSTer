@@ -89,6 +89,15 @@ module dbg_wedge (
 	input  wire [31:0] selfail0,        // v3.16 target0 selection-failure tally
 	input  wire [31:0] via2_irq_state,  // via6522 dbg_irq_state: {irq_out, IER[6:0],
 	                                    //  0, IFR_eff[6:0], PCR[7:0], ACR[7:0]} (PVIA)
+	// ---- ADB/VIA1-SR stall probes (2026-07-11: System-startup ADB wait) ----
+	input  wire [31:0] adb_state,       // dataController dbg_adb: [31:29]=acr_shift_mode
+	                                    //  [28]=shift_dir [27]=sr_active [26]=sr_out_done
+	                                    //  [25]=sr_out_ack [24]=sr_out_pending [23:16]=sr_shadow
+	                                    //  [15:0]=adb FSM {_int,dout_stb,din_stb,listen,
+	                                    //  cmd_processed,cmd_valid,st[1:0],cmd_byte[7:0]}
+	input  wire [17:0] adb_timer,       // dbg_adb2: [17:1]=via1_shift_timer [0]=sr_ext_complete
+	input  wire [31:0] adb_rd_ring,     // dbg_adb3: last 4 bytes CPU READ from VIA1 SR
+	input  wire [31:0] adb_ld_ring,     // dbg_adb4: last 4 bytes LOADED into VIA1 SR
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -460,6 +469,29 @@ module dbg_wedge (
 	altsource_probe #(.instance_id ("PPH2"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pph2 (.probe({16'd0, scsi2}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PADB/PAB2/PAB3/PAB4 (2026-07-11): the System-startup ADB transaction
+	// stall. Burst captures prove the failing boots die in the ROM ADB-wait
+	// loop (0x6DD8 spinning on ADBBase+$15D bit5) for ~3.5s with SCSI idle
+	// and healthy, then fall to the ?-rescan. These name the stalled layer:
+	// PADB = shim mode/dir + transceiver FSM {st, cmd_byte, cmd_valid...};
+	// PAB2 = live shift timer (parked at 1 => the hold-at-1 deadlock branch);
+	// PAB3/PAB4 = last 4 SR bytes read by CPU / loaded by shim.
+	altsource_probe #(.instance_id ("PADB"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_padb (.probe(adb_state), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PAB2"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pab2 (.probe({14'd0, adb_timer}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PAB3"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pab3 (.probe(adb_rd_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PAB4"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pab4 (.probe(adb_ld_ring), .source(), .source_clk(clk), .source_ena(1'b1));
 `endif
 
 endmodule

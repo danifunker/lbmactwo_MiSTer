@@ -1941,6 +1941,11 @@ dbg_wedge dbg_wedge_inst (
 	.lbar0B           (dbg_lbar0B),
 	.selfail0         (dbg_selfail0),
 	.via2_irq_state   (dbg_via2_irq),
+	// ADB/VIA1-SR stall probes (2026-07-11): System-startup ADB wait
+	.adb_state        (dbg_adb),
+	.adb_timer        (dbg_adb2),
+	.adb_rd_ring      (dbg_adb3),
+	.adb_ld_ring      (dbg_adb4),
 	.cpuReset_n       (_cpuReset),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
