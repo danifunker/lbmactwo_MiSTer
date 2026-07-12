@@ -115,6 +115,7 @@ localparam PHASE_MESSAGE_OUT = 3'd5;
 // the buffer itself. Holds RING_BLOCKS sectors for reads; writes use slots 0/1.
 reg sd_buff_sel;                   // WRITE double-buffer half (unchanged path)
 reg [22:0] rd_hps_blk;             // READ ring: # of sectors fetched this command
+reg [8:0]  fill_words;             // word strobes seen in the current fetch's ack window
 
 // HPS sector-buffer byte order.  buffer0 always holds the byte the Mac reads
 // FIRST (even byte) and buffer1 the odd byte.  The byte that lands in each
@@ -154,13 +155,20 @@ wire [BUF_AW-1:0] mac_addr = (phase == PHASE_DATA_IN) ? mac_addr_wr : data_cnt[B
 wire [7:0] buffer0_dout;
 wire [7:0] buffer0_dout_next;
 wire [7:0] buffer0_dout_next2;
+// HPS-side buffer writes are gated on OUR per-device ack window (io_ack is
+// already sd_ack[ID] & bsy at the ncr5380 level). The raw strobe fires for
+// EVERY device's transfer on the shared sd bus — most relevantly the PRAM
+// slot's .NVR auto-load, which lands exactly at mount time and otherwise
+// scribbles into a busy target's incoming ring slot (2026-07-12k).
+wire hps_fill_wr = sd_buff_wr && io_ack;
+
 scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer0
 (
 	.clock(clk),
 
 	.address_a(hps_addr),
 	.data_a(buf0_data_a),
-	.wren_a(sd_buff_wr),
+	.wren_a(hps_fill_wr),
 	.q_a(buf0_q_a),
 
 	.address_b(mac_addr),
@@ -216,7 +224,7 @@ scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer1
 
 	.address_a(hps_addr),
 	.data_a(buf1_data_a),
-	.wren_a(sd_buff_wr),
+	.wren_a(hps_fill_wr),
 	.q_a(buf1_q_a),
 
 	.address_b(mac_addr),
@@ -242,11 +250,27 @@ always @(posedge clk) begin
 	// READ ring fetch counter: # of sectors the HPS has delivered this command.
 	// Reset alongside data_cnt (any non-transfer phase); bump on each io_ack
 	// falling edge during a read. Writes never touch it (they use sd_buff_sel).
+	//
+	// DELIVERY GATE (2026-07-12k, the boot-1 zero-read fix): only count a
+	// sector as delivered when its ack window actually carried the full 512
+	// bytes (256 word strobes). At core start the ROM's first disk probes race
+	// MiSTer main's image attach: main ACKS the sd read but streams NOTHING,
+	// and the un-gated bump then served the zero-initialized ring slot as disk
+	// data — the ROM read 4x zeros at LBA 0, declared "no bootable disk", and
+	// parked at the blinking-'?' (measured 4/4 boots, xorr ring, lbar_poll_c*).
+	// With the gate, a data-less ack leaves rd_hps_blk unbumped; io_busy keeps
+	// REQ withheld and the fetch engine simply re-requests the same sector
+	// until real bytes land — the ROM just sees a slower first read, exactly
+	// like a real drive spinning up.
 	if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN &&
 	    phase != PHASE_STATUS_OUT && phase != PHASE_MESSAGE_OUT)
 		rd_hps_blk <= 23'd0;
-	else if (old_io_ack & ~io_ack & cmd_read)
+	else if (old_io_ack & ~io_ack & cmd_read & (fill_words == 9'd256))
 		rd_hps_blk <= rd_hps_blk + 23'd1;
+
+	// Count the word strobes of the current fetch's ack window.
+	if (!io_ack) fill_words <= 9'd0;
+	else if (sd_buff_wr && fill_words != 9'd511) fill_words <= fill_words + 9'd1;
 end
 
 // -----------------------------------------------------------
