@@ -502,7 +502,12 @@ module dbg_wedge (
 	reg        gv_armed = 0, gv_frozen = 0;
 	always @(posedge clk) begin
 		gv_lbar_d <= lbar0A;
-		if (lbar0A != gv_lbar_d && lbar0A != 32'd0) begin
+		// Gate the armer on the ROM actually running (first move #$2700,SR seen):
+		// at power-up the ring's uninitialized state reads as a "change" on the
+		// first cycles, arming the watchdog while the CPU is still reset-held —
+		// the 2s expiry then froze four zeros long before boot (measured
+		// fd18024f: armed=1 frozen=1 pc0..3=0 with the machine parked healthy).
+		if (sr2700_cnt != 8'd0 && lbar0A != gv_lbar_d && lbar0A != 32'd0) begin
 			gv_armed <= 1'b1;
 			gv_wd    <= 27'd0;
 		end else if (gv_armed && !gv_frozen) begin
