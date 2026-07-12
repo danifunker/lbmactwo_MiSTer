@@ -449,6 +449,8 @@ module dbg_wedge (
 	reg [23:0] trail_pc1 = 24'd0, trail_pc2 = 24'd0;
 	reg [15:0] cpu_reset_falls = 16'd0;
 	reg        cpuReset_n_d = 1'b1;
+	reg [15:0] op_447e        = 16'd0;   // the word actually fetched at PC 0x447E
+	reg [23:0] pc_before_447e = 24'd0;   // IF PC immediately before 0x447E
 	wire fetch_cplt = if_wait && !cpuAS_n_d && cpuAS_n;   // IF cycle just ended
 	always @(posedge clk) begin
 		// arm on IF start, sample data while AS low, commit at AS rise
@@ -459,6 +461,16 @@ module dbg_wedge (
 			if (op_prev == 16'h46FC && if_word == 16'h2700) begin
 				if (sr2700_cnt != 8'hFF) sr2700_cnt <= sr2700_cnt + 8'd1;
 				sr_entry <= pc_prev;      // PC of the $46FC = the init entry
+			end
+			// RELIABLE opcode capture at the deterministic fault PC 0x447E
+			// (last-wins). fault_op via the prefetch pipeline was a neighbour
+			// word (0x46C6, not even A-line). Latch the ACTUAL fetched word AT
+			// 0x447E and the IF PC immediately before it (pc_prev): 0x447C =>
+			// sequential in-line code (=> corrupted OPCODE at a real code site);
+			// anything else => a jump INTO 0x447E (=> control-flow corruption).
+			if (last_if_addr[23:0] == 24'h00447E) begin
+				op_447e       <= if_word;
+				pc_before_447e <= pc_prev;
 			end
 			op_prev <= if_word;
 			pc_prev <= last_if_addr[23:0];
@@ -587,15 +599,26 @@ module dbg_wedge (
 	// armed_vec_addr/pc (in-range-only, A-line excluded) read 0 on both observed
 	// faces, so this is strictly more informative. fault_vec low byte = the 68k
 	// vector: 0x28 A-line(0F/0A), 0x10 illegal, 0x0C addr-err(0F/03), 0x2C F-line.
-	// PVEC = {fault_op[31:16], 8'h00, fault_vec[7:0]} — opcode at the fault +
-	// the 68k vector low byte (0x28 A-line / 0x10 illegal / 0x0C addr / 0x2C F).
+	// PVEC = {op_447e[31:16], 8'h00, fault_vec[7:0]} — the RELIABLE opcode
+	// actually fetched at 0x447E (v1's prefetch-pipeline fault_op read a
+	// neighbour) + the 68k vector low byte (0x28 A-line). op_447e = a valid
+	// Toolbox trap (e.g. 0xA9A0 GetResource) => opcode intact, the resource/
+	// data it uses is corrupted; a garbage 0xAxxx => the opcode itself was
+	// write-corrupted.
 	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pvec (.probe({fault_op, 8'h00, fault_vec[7:0]}), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pvec (.probe({op_447e, 8'h00, fault_vec[7:0]}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pvpc (.probe(fault_pc), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PBPC = the IF PC immediately before 0x447E. 0x447C => sequential in-line
+	// execution (0x447E is real code with a corrupted opcode/operand); anything
+	// else => a jump/return INTO 0x447E (control-flow corruption).
+	altsource_probe #(.instance_id ("PBPC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pbpc (.probe({8'h00, pc_before_447e}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PESC (2026-07-12): SDRAM coherency timeout-escape counters. The residual
 	// boot corruption is deterministic (A-line at PC 0x447E). [31:16]=rd_escapes

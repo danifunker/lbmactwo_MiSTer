@@ -989,11 +989,15 @@ always @(posedge clk_sys) begin
 		if (clk8_en_p && !cpu_wr_wait[2]) cpu_wr_wait <= cpu_wr_wait + 3'd1;
 		if ((sdram_slot_cpu_wr && clk8_en_p) || cpu_wr_wait[2])
 			cpu_sdram_wr_done <= 1'b1;
-		// DBG (2026-07-12): write TIMEOUT-ESCAPE counter. cpu_wr_wait[2] forced
-		// done with NO owned write slot this cycle => the write may not have
-		// committed (stale RAM = boot-block corruption candidate).
-		if (cpu_wr_wait[2] && !(sdram_slot_cpu_wr && clk8_en_p) && !cpu_sdram_wr_done &&
-		    wr_escape_cnt != 16'hFFFF)
+		// DBG (2026-07-12 v2, FIXED): write TIMEOUT-ESCAPE counter. MUST gate on
+		// cpu_sdram_wr_cycle — cpu_wr_wait increments during EVERY bus cycle
+		// (read+write; wr_done is just unused on reads), so the v1 counter fired
+		// on reads too and saturated (bogus 0xFFFF). Now: only during an actual
+		// CPU WRITE cycle, when the wait[2] timeout forces done with no owned
+		// write slot having arrived (!cpu_sdram_wr_done) => the write may not
+		// have committed (stale RAM = boot-block/resource corruption candidate).
+		if (cpu_sdram_wr_cycle && cpu_wr_wait[2] && !(sdram_slot_cpu_wr && clk8_en_p) &&
+		    !cpu_sdram_wr_done && wr_escape_cnt != 16'hFFFF)
 			wr_escape_cnt <= wr_escape_cnt + 16'd1;
 	end
 end

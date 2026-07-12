@@ -1183,6 +1183,37 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// fire?). dbg_min counts the completes and snapshots the timer.
 	assign dbg_adb2 = {via1_shift_timer[16:0], via1_sr_ext_complete};
 
+`ifdef SIMULATION
+	// ADB/VIA1-SR event trace (+adb_debug): every CPU-visible event of the
+	// transceiver dialog, for the System-startup ADBReInit stall. One line
+	// per event; the 0x6DD8 spin means the interesting run is only a few
+	// hundred lines.
+	reg [1:0] adb_st_d;
+	always @(posedge clk32) begin
+		if ($test$plusargs("adb_debug")) begin
+			adb_st_d <= {ADBST1, ADBST0};
+			if (adb_st_d != {ADBST1, ADBST0})
+				$display("[ADB %0t] ST %b -> %b", $time, adb_st_d, {ADBST1, ADBST0});
+			if (via1_acr_wr)
+				$display("[ADB %0t] ACR<=%02x (sr mode %b -> %b)", $time,
+				         cpuDataIn[15:8], via1_acr_shift_mode, cpuDataIn[12:10]);
+			if (via1_sr_wr)
+				$display("[ADB %0t] SRW %02x (mode=%b)", $time, cpuDataIn[15:8], via1_acr_shift_mode);
+			if (via1_sr_rd)
+				$display("[ADB %0t] SRR (mode=%b timer=%0d pend=%b)", $time,
+				         via1_acr_shift_mode, via1_shift_timer, adb_resp_pending);
+			if (via1_sr_ext_complete)
+				$display("[ADB %0t] COMPLETE dir=%b load=%b data=%02x fresh_was=%b timer_was=%0d",
+				         $time, via1_shift_dir, via1_sr_ext_load, via1_sr_ext_data,
+				         via1_kbd_to_mac_fresh, via1_shift_timer);
+			if (adb_din_strobe)
+				$display("[ADB %0t] DIN  %02x (transceiver st=%b)", $time, adb_din, {ADBST1, ADBST0});
+			if (adb_dout_strobe)
+				$display("[ADB %0t] DOUT %02x (transceiver)", $time, adb_dout);
+		end
+	end
+`endif
+
 endmodule
 
 // NOTE: The rest of the file remains unchanged - this is just the critical fix
