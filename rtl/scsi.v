@@ -851,7 +851,11 @@ always @(posedge clk) begin
 		sf_or <= sf_or | { rst, bus_busy, ~mounted, (phase != PHASE_IDLE) };
 	end
 end
-assign dbg_selfail = { sf_att_f, sf_nonidle_f, sf_gate_f, sf_or_f, 4'd0 };
+// Serve the LIVE tally until a window has frozen (bit0 = frozen flag) — a
+// selection-failure storm that postdates the last bus reset would otherwise
+// read as all-zeros (2026-07-12k).
+assign dbg_selfail = sf_frozen ? { sf_att_f, sf_nonidle_f, sf_gate_f, sf_or_f, 3'd0, 1'b1 }
+                               : { sf_att,   sf_nonidle,   sf_gate,   sf_or,   3'd0, 1'b0 };
 
 // logical block address
 wire [7:0] cmd1 = cmd[1];

@@ -545,7 +545,12 @@ module dbg_wedge (
 	always @(posedge clk) begin
 		case (prgr_source)
 			4'd0:  prgr_r <= {busrst_cnt, sr2700_cnt, 15'd0, trail_frozen};
-			4'd1:  prgr_r <= {8'd0, trail_pc1};
+			// src1 repurposed 2026-07-12k (was trail_pc1, retired reset-deck):
+			// the v3.16 selection-failure tally, FROZEN at the abort edge.
+			// {attempts[7:0], blocked_nonidle[7:0], blocked_gate[7:0],
+			//  reason_or[3:0] (rst,busbusy,notmounted,nonidle), 4'd0}
+			// -> names WHY post-partmap selections never become dialogs.
+			4'd1:  prgr_r <= selfail0;
 			4'd2:  prgr_r <= {8'd0, trail_pc2};
 			4'd3:  prgr_r <= {8'd0, sr_entry};
 			4'd4:  prgr_r <= pscw;
