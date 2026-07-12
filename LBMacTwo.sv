@@ -2021,6 +2021,7 @@ dbg_wedge dbg_wedge_inst (
 	// matches scsi.v's own unmount condition: img_blocks (= img_size[40:9]) == 0
 	.img_size_zero    (img_size[40:9] == 32'd0),
 	.mounted0         (dbg_scsi[9]),
+	.scsi_hs          (dbg_scsi),
 	.selterms0        (dbg_selt0),
 	.berr_pulse       (berr_out),
 	.wringA           (dbg_wringA),

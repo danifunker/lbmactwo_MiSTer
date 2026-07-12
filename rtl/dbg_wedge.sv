@@ -72,6 +72,9 @@ module dbg_wedge (
 	input  wire        img_mnt0,        // hps_io img_mounted[0] strobe (v3.5)
 	input  wire        img_size_zero,   // img_size == 0 at this moment (v3.5)
 	input  wire        mounted0,        // scsi target0 live mounted flag, dbg_scsi[9] (v3.5)
+	input  wire [15:0] scsi_hs,         // full dbg_scsi live handshake word (2026-07-12l):
+	                                    // {out_en,sel,bsy,target_bsy[1:0],mounted[1:0],
+	                                    //  icr_adata, bus_data[7:0]}
 	input  wire [7:0]  selterms0,       // target0 gate-term sampler (v3.6)
 	input  wire        berr_pulse,      // top-level berr_out (8us watchdog) (v3.6)
 	input  wire [31:0] wringA,          // v3.8 reg-write ring (frozen at abort)
@@ -551,7 +554,10 @@ module dbg_wedge (
 			//  reason_or[3:0] (rst,busbusy,notmounted,nonidle), 4'd0}
 			// -> names WHY post-partmap selections never become dialogs.
 			4'd1:  prgr_r <= selfail0;
-			4'd2:  prgr_r <= {8'd0, trail_pc2};
+			// src2 repurposed 2026-07-12l (was trail_pc2): LIVE bus handshake.
+			// During the ?-park this names the wedge: bsy stuck (bus never
+			// free) vs sel pulses unanswered vs mounted dropped.
+			4'd2:  prgr_r <= {16'd0, scsi_hs};
 			4'd3:  prgr_r <= {8'd0, sr_entry};
 			4'd4:  prgr_r <= pscw;
 			4'd5:  prgr_r <= {16'd0, cpu_reset_falls};
