@@ -99,6 +99,15 @@ module emu
 	output [31:0] debug_vbr,
 	output  [2:0] debug_cpuIPL,
 
+	// berr-rerun investigation (2026-07-12): format-$B RTE / berr_inhibit
+	output        debug_berr_inhibit,   // TG68 rerun window active
+	output [31:0] debug_berr_data,      // berr_data_buf re-fed during the window
+	output        debug_busev_valid,    // one pulse per completed CPU bus cycle
+	output [31:0] debug_busev_addr,
+	output [15:0] debug_busev_data,     // word the CPU RECEIVED (reads) / drove (writes)
+	output        debug_busev_rw,       // 1=read
+	output  [2:0] debug_busev_fc,
+
 	// Serial terminal interface
 	output        serial_txd,       // SCC Channel A TX output (for sim-side RX)
 	input         serial_rxd,       // SCC Channel A RX input (from sim-side TX)
@@ -628,6 +637,41 @@ module emu
 	assign debug_cirrd_addr = cirrd_addr;
 	assign debug_cirrd_data = cirrd_data;
 	assign debug_berr = berr_out;
+
+	// --- berr-rerun investigation (2026-07-12) -------------------------------
+	// One event per completed CPU bus cycle, carrying the word the CPU actually
+	// RECEIVED (cpu_data_in — which is berr_data_buf during a berr_inhibit rerun
+	// window; debug_opcode logs dataControllerDataOut and would hide that).
+	reg        busev_valid_r;
+	reg [31:0] busev_addr_r, busev_addr_l;
+	reg [15:0] busev_data_r, busev_data_l;
+	reg        busev_rw_r, busev_rw_l;
+	reg [2:0]  busev_fc_r, busev_fc_l;
+	reg        busev_as_d = 1'b1;
+	always @(posedge clk_sys) begin
+		busev_valid_r <= 0;
+		busev_as_d <= tg68_as_n;
+		if (!tg68_as_n) begin
+			busev_addr_l <= tg68_a;
+			busev_data_l <= tg68_rw ? cpu_data_in : tg68_dout[15:0];
+			busev_rw_l   <= tg68_rw;
+			busev_fc_l   <= cpuFC;
+		end
+		if (!busev_as_d && tg68_as_n) begin
+			busev_addr_r  <= busev_addr_l;
+			busev_data_r  <= busev_data_l;
+			busev_rw_r    <= busev_rw_l;
+			busev_fc_r    <= busev_fc_l;
+			busev_valid_r <= 1;
+		end
+	end
+	assign debug_busev_valid  = busev_valid_r;
+	assign debug_busev_addr   = busev_addr_r;
+	assign debug_busev_data   = busev_data_r;
+	assign debug_busev_rw     = busev_rw_r;
+	assign debug_busev_fc     = busev_fc_r;
+	assign debug_berr_inhibit = cpu_berr_inhibit;
+	assign debug_berr_data    = cpu_berr_data;
 
 	addrController_top ac0
 	(

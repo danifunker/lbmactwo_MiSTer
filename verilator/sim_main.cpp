@@ -2974,6 +2974,70 @@ int verilate() {
 			}
 
 			// ===================================================================
+			// berr-rerun / format-$B RTE incident tracer (2026-07-12)
+			// Question under test: after a handler RTEs a format-$B frame, does
+			// TG68K's berr_inhibit window (a) fire even when the handler left
+			// SSW.DF=1 (DF latch samples the format word, whose bit8 is always 0),
+			// (b) feed berr_data_buf into the instruction FETCH after RTE (garbage
+			// opcode into the decode stream), (c) hold the right DIB value at all?
+			// Per incident: every FC=5 write (frame push descending + handler
+			// fixup writes into the frame), every FC=5 read (RTE pops ascending),
+			// the inhibit window with berr_data, then the next bus cycles with
+			// the word the CPU actually received.
+			{
+				static int inc_n = 0;
+				static bool inc_open = false;
+				static int inc_wr = 0, inc_rd = 0, inc_post = 0;
+				static uint64_t inc_ev = 0;
+				static bool last_inh = false;
+				static const int MAX_INC = 14;
+				bool inh = VERTOPINTERN->debug_berr_inhibit != 0;
+				static int last_berr2 = 0;
+				int berr_now2 = VERTOPINTERN->debug_berr ? 1 : 0;
+				if (berr_now2 && !last_berr2 && !*bus.ioctl_download && inc_n < MAX_INC) {
+					inc_n++; inc_open = true; inc_wr = inc_rd = inc_post = 0; inc_ev = 0;
+					fprintf(stderr, "[BINC %d] START cycle=%llu pc=%08X addr=%08X\n",
+						inc_n, (unsigned long long)main_time,
+						VERTOPINTERN->debug_pc, VERTOPINTERN->debug_cpuAddr);
+				}
+				last_berr2 = berr_now2;
+				if (inc_open && VERTOPINTERN->debug_busev_valid) {
+					uint32_t a = VERTOPINTERN->debug_busev_addr;
+					uint16_t d = VERTOPINTERN->debug_busev_data;
+					int rw = VERTOPINTERN->debug_busev_rw;
+					int fc = VERTOPINTERN->debug_busev_fc;
+					inc_ev++;
+					if (inc_post > 0) {
+						fprintf(stderr, "[BINC %d] POST%d %s a=%08X fc=%d d=%04X inh=%d pc=%08X\n",
+							inc_n, 13 - inc_post, rw ? "RD" : "WR", a, fc, d, inh ? 1 : 0,
+							VERTOPINTERN->debug_pc);
+						if (--inc_post == 0) { inc_open = false; fprintf(stderr, "[BINC %d] END\n", inc_n); }
+					} else if (fc == 5 && !rw && inc_wr < 120) {
+						fprintf(stderr, "[BINC %d] WR %08X = %04X (pc=%08X)\n",
+							inc_n, a, d, VERTOPINTERN->debug_pc);
+						inc_wr++;
+					} else if (fc == 5 && rw && inc_rd < 96) {
+						fprintf(stderr, "[BINC %d] RD %08X = %04X\n", inc_n, a, d);
+						inc_rd++;
+					}
+					if (inc_ev > 60000 && inc_post == 0) {
+						inc_open = false;
+						fprintf(stderr, "[BINC %d] END-TIMEOUT (no inhibit window seen)\n", inc_n);
+					}
+				}
+				if (inh && !last_inh) {
+					fprintf(stderr, "[BINC %d] INHIBIT_ON cycle=%llu berr_data=%08X pc=%08X\n",
+						inc_n, (unsigned long long)main_time,
+						(uint32_t)VERTOPINTERN->debug_berr_data, VERTOPINTERN->debug_pc);
+					if (inc_open) inc_post = 12;
+				}
+				if (!inh && last_inh)
+					fprintf(stderr, "[BINC %d] INHIBIT_OFF cycle=%llu\n",
+						inc_n, (unsigned long long)main_time);
+				last_inh = inh;
+			}
+
+			// ===================================================================
 			// KMAP pointer corruption watchpoint (added 2026-04-20)
 			// Per docs/bootproblems.md: $40807880 calls _GetResource('KMAP'),
 			// $40807888 stores master pointer via `move.l (A0),(A2)`, and later
