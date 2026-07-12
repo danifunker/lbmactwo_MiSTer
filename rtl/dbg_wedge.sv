@@ -108,6 +108,7 @@ module dbg_wedge (
 	// ---- SDRAM coherency timeout-escape counters (2026-07-12: PESC) ----
 	input  wire [15:0] rd_escapes,      // read timeout-escapes (latched wrong word)
 	input  wire [15:0] wr_escapes,      // write timeout-escapes (forced done, no owned slot)
+	input  wire        berr_inhibit,    // TG68 berr_inhibit_active (68020 bus-error rerun)
 
 	// ---- coherency detector inputs (2026-06-13) ----
 	input  wire        rd_latch,        // sdram_slot_cpu_rd && memoryLatch (RAW latch gate; pre-fix condition)
@@ -254,59 +255,72 @@ module dbg_wedge (
 	//     corrupted in RAM = SDRAM read/fetch-path corruption.
 	//   fault_pc garbage / mid-instruction => a bad branch target = control-flow
 	//     / write-path (pointer) corruption.
-	wire vec_read_all = !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
-	                    (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E);
-	reg        va_rd_live = 1'b0;
-	reg [15:0] va_din_live = 16'd0;
-	reg [31:0] va_rd_addr_l = 32'd0;
-	reg [15:0] va_hi = 16'd0;
-	reg        va_pending = 1'b0;
-	reg [31:0] va_pend_vec = 32'd0;
-	reg [31:0] va_pend_pc  = 32'd0;
-	reg [23:0] va_handler  = 24'd0;
-	reg [31:0] fault_vec = 32'd0;   // vector offset of the fatal exception
-	reg [31:0] fault_pc  = 32'd0;   // faulting PC (last IF before the dispatch)
-	reg [15:0] fault_op  = 16'd0;   // opcode at the faulting PC (the A-line word)
-	reg [7:0]  fault_cnt = 8'd0;
+	// ---- GENUINE-EXCEPTION reboot-cause catcher (2026-07-12, user steer) ------
+	// The soft reboot at Happy Mac = the CPU executes fetched garbage -> a REAL
+	// exception -> SysError/restart -> ROM re-runs (this is a SOFT reboot: no
+	// _cpuReset, cpu_reset_falls stays 1). Prior catchers FALSE-FIRED on a
+	// vector-through jmp (movea.l $vec,a0; jmp (a0) = an FC=5 vector READ with
+	// NO stack-frame push), which is why 0x447E was ambiguous. A GENUINE
+	// exception PUSHES a frame first (FC=5 WRITES to the SSP) THEN reads the
+	// vector. Gate on that. Keep a 2-deep ring of the last genuine exceptions
+	// and FREEZE it at the reboot (the restart's ROM SCSI busrst edge, or the
+	// 3rd move #$2700,SR) so it holds the fault that CAUSED the reboot.
+	// gx_v low byte = 68k vector offset: 0x08 bus-err / 0x0C addr-err /
+	// 0x10 illegal / 0x20 privilege (a garbage move-to-SR faults here!) /
+	// 0x28 line-A / 0x2C line-F.
+	wire fc5_write = !cpuAS_n && !cpuRW && (cpuFC == 3'b101);       // frame push
+	wire exc_vecrd = !cpuAS_n &&  cpuRW && (cpuFC == 3'b101) &&
+	                 (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E);
+	reg [4:0]  push_win   = 5'd0;   // cycles since the last frame-push write
+	reg        exc_rd_live = 1'b0;
+	reg [15:0] exc_din    = 16'd0;
+	reg [31:0] exc_addr_l = 32'd0;
+	reg [15:0] exc_hi     = 16'd0;
+	reg        exc_pending = 1'b0;
+	reg        exc_genuine = 1'b0;  // this vector read had a preceding frame push
+	reg [23:0] exc_handler = 24'd0;
+	reg [31:0] exc_pc = 32'd0; reg [7:0] exc_v = 8'd0; reg [15:0] exc_o = 16'd0;
+	reg [31:0] gx_pc = 0, gx_pc_p = 0;   // faulting PC (newest, previous)
+	reg [7:0]  gx_v  = 0, gx_v_p  = 0;   // vector offset (newest, previous)
+	reg [15:0] gx_op = 0, gx_op_p = 0;   // opcode at fault (newest, previous)
+	reg [7:0]  gx_cnt = 0;               // # genuine exceptions post-arm
+	reg        gx_frozen = 1'b0;
+	reg [15:0] berr_inh_cnt = 0; reg berr_inh_d = 1'b0;
 	always @(posedge clk) begin
-		if (vec_read_all) begin
-			va_rd_live   <= 1'b1;
-			va_din_live  <= cpu_din;
-			va_rd_addr_l <= cpuAddr;
+		berr_inh_d <= berr_inhibit;
+		if (berr_inhibit && !berr_inh_d && berr_inh_cnt != 16'hFFFF)
+			berr_inh_cnt <= berr_inh_cnt + 16'd1;
+		// frame-push detection window
+		if (fc5_write) push_win <= 5'd16;
+		else if (push_win != 5'd0) push_win <= push_win - 5'd1;
+		// vector-read: two 16-bit halves of the handler pointer
+		if (exc_vecrd) begin
+			exc_rd_live <= 1'b1; exc_din <= cpu_din; exc_addr_l <= cpuAddr;
+			if (push_win != 5'd0) exc_genuine <= 1'b1;   // a frame was just pushed
 		end
-		if (cpuAS_n && va_rd_live) begin
-			va_rd_live <= 1'b0;
-			if (!va_rd_addr_l[1]) va_hi <= va_din_live;      // high word of handler
+		if (cpuAS_n && exc_rd_live) begin
+			exc_rd_live <= 1'b0;
+			if (!exc_addr_l[1]) exc_hi <= exc_din;        // high word of handler
 			else begin
-				va_pending  <= 1'b1;
-				va_handler  <= { va_hi[7:0], va_din_live };
-				va_pend_vec <= va_rd_addr_l & 32'hFFFFFFFC;
-				va_pend_pc  <= last_if_addr;
+				exc_pending <= 1'b1; exc_handler <= { exc_hi[7:0], exc_din };
+				exc_v <= exc_addr_l[7:0]; exc_pc <= last_if_addr; exc_o <= op_prev;
 			end
 		end
-		if (va_pending && if_event) begin
-			va_pending <= 1'b0;
-			// LAST-WINS, post-arm, dispatch-confirmed (next IF lands at the
-			// handler read from the vector). Rationale: the A-line vector (the
-			// consistent Sad Mac 0F/0A) points at the ROM Trap Dispatcher, same
-			// as every normal Toolbox A-trap, so a handler-address gate can't
-			// isolate the fatal one. Instead rely on the HALT: after the fatal
-			// exception the CPU enters SysError and spins in the 0x2Exx monitor,
-			// which issues NO further exceptions — so the final capture before
-			// the freeze IS the fatal faulting instruction. (On a healthy boot
-			// A-traps keep firing, but we only read this on a stuck/Sad-Mac boot.)
-			if (ff_armed && (cpuAddr[23:1] == va_handler[23:1])) begin
-				fault_vec <= va_pend_vec;
-				fault_pc  <= va_pend_pc;
-				// op_prev = the just-completed fetch's word = the faulting
-				// instruction's opcode (the handler's own fetch_cplt has not
-				// landed yet at this if_event). For the A-line Sad Mac this is
-				// the A-line word at 0x447E: a valid Toolbox trap => dispatcher/
-				// table corruption; a garbage A-line => the opcode was corrupted.
-				fault_op  <= op_prev;
-				if (fault_cnt != 8'hFF) fault_cnt <= fault_cnt + 8'd1;
+		// dispatch-confirmed (next IF at the handler) AND genuine (frame pushed)
+		if (exc_pending && if_event) begin
+			exc_pending <= 1'b0;
+			if (ff_armed && exc_genuine && !gx_frozen &&
+			    (cpuAddr[23:1] == exc_handler[23:1])) begin
+				gx_v_p <= gx_v; gx_pc_p <= gx_pc; gx_op_p <= gx_op;   // shift ring
+				gx_v <= exc_v; gx_pc <= exc_pc; gx_op <= exc_o;
+				if (gx_cnt != 8'hFF) gx_cnt <= gx_cnt + 8'd1;
 			end
+			exc_genuine <= 1'b0;
 		end
+		// freeze at the reboot: restart's ROM SCSI busrst, or the 3rd move #$2700
+		if (ff_armed && !gx_frozen &&
+		    ((busrst_cnt != busrst_cnt_d) || (sr2700_cnt >= 8'd3)))
+			gx_frozen <= 1'b1;
 	end
 
 	// ---- v3 (2026-07-10): FIRST-FAILURE window + $da6 watch --------------
@@ -449,11 +463,6 @@ module dbg_wedge (
 	reg [23:0] trail_pc1 = 24'd0, trail_pc2 = 24'd0;
 	reg [15:0] cpu_reset_falls = 16'd0;
 	reg        cpuReset_n_d = 1'b1;
-	reg [15:0] op_447e        = 16'd0;   // the word actually fetched at PC 0x447E
-	reg [23:0] pc_before_447e = 24'd0;   // IF PC immediately before 0x447E
-	reg [23:0] pc_before2_447e = 24'd0;  // IF PC two before 0x447E
-	reg [23:0] pc_prev2       = 24'd0;   // 2-deep IF-PC history
-	reg        op447e_frozen  = 1'b0;    // freeze the 0x447E capture at first fetch
 	wire fetch_cplt = if_wait && !cpuAS_n_d && cpuAS_n;   // IF cycle just ended
 	always @(posedge clk) begin
 		// arm on IF start, sample data while AS low, commit at AS rise
@@ -465,21 +474,8 @@ module dbg_wedge (
 				if (sr2700_cnt != 8'hFF) sr2700_cnt <= sr2700_cnt + 8'd1;
 				sr_entry <= pc_prev;      // PC of the $46FC = the init entry
 			end
-			// RELIABLE opcode capture at the deterministic fault PC 0x447E.
-			// v2 (last-wins) was POLLUTED: the 0x447E RAM is REUSED after the
-			// boot fails, so last-wins caught a later reuse (0x46C6 = move d6,sr,
-			// not even A-line). Fix: FREEZE at the FIRST post-arm fetch of 0x447E
-			// = the boot-1 execution BEFORE any reuse. op_447e = the true word
-			// there; pc_before/pc_before2 = the 2 IF PCs before it (0x447C/0x447A
-			// => sequential in-line code w/ a corrupted opcode; else => a jump
-			// INTO 0x447E => control-flow / wild execution).
-			if (ff_armed && last_if_addr[23:0] == 24'h00447E && !op447e_frozen) begin
-				op_447e        <= if_word;
-				pc_before_447e <= pc_prev;
-				pc_before2_447e <= pc_prev2;
-				op447e_frozen  <= 1'b1;
-			end
-			pc_prev2 <= pc_prev;   // 2-deep IF-PC history for the freeze
+			// (0x447E-specific capture retired 2026-07-12 — the reboot-cause
+			// catcher above supersedes it; op_prev/pc_prev feed exc_o/exc_pc.)
 			op_prev <= if_word;
 			pc_prev <= last_if_addr[23:0];
 		end
@@ -593,52 +589,43 @@ module dbg_wedge (
 	//          exceptions; >0 => a real System-era fault dispatched)
 	// PVEC = armed_vec_addr (vector offset: 0x08 bus, 0x0C addr, 0x10 illegal,
 	//          0x2C F-line, ...);  PVPC = armed_vec_pc (faulting PC).
+	// PRST [7:0] = gx_cnt = # GENUINE (frame-pushed) exceptions post-arm.
 	altsource_probe #(.instance_id ("PRST"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	// [7:0] = fault_cnt (was armed_vec_count; that read 0 on both faces since
-	// the fatal vector is A-line, excluded upstream). fault_cnt>0 => the FATAL
-	// catcher fired and PVEC/PVPC hold the vector+PC.
 	) cp_prst (.probe({cpu_reset_falls[7:0], pll_unlock_falls, last_reset_src,
-	                   reset_src_valid, fault_cnt}),
+	                   reset_src_valid, gx_cnt}),
 	           .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PVEC/PVPC repurposed 2026-07-11f to the FATAL-fault catcher (fault_vec/
-	// fault_pc), which INCLUDES the A-line vector (the consistent Sad Mac 0F/0A).
-	// armed_vec_addr/pc (in-range-only, A-line excluded) read 0 on both observed
-	// faces, so this is strictly more informative. fault_vec low byte = the 68k
-	// vector: 0x28 A-line(0F/0A), 0x10 illegal, 0x0C addr-err(0F/03), 0x2C F-line.
-	// PVEC = {op_447e[31:16], 8'h00, fault_vec[7:0]} — the RELIABLE opcode
-	// actually fetched at 0x447E (v1's prefetch-pipeline fault_op read a
-	// neighbour) + the 68k vector low byte (0x28 A-line). op_447e = a valid
-	// Toolbox trap (e.g. 0xA9A0 GetResource) => opcode intact, the resource/
-	// data it uses is corrupted; a garbage 0xAxxx => the opcode itself was
-	// write-corrupted.
+	// PVEC/PVPC/PBPC = GENUINE-EXCEPTION reboot-cause catcher (2026-07-12), the
+	// fault that triggers the Happy-Mac soft reboot. Frame-push-gated (a real
+	// exception stacks a frame = FC=5 writes; a vector-through jmp does not — the
+	// filter that kills the old 0x447E false-fire), frozen at the reboot.
+	// PVEC = {gx_op[31:16], 0, gx_v[7:0]} = newest fault opcode + vector. Vector:
+	//   0x08 bus, 0x0C addr, 0x10 illegal, 0x20 PRIVILEGE (a garbage move-to-SR
+	//   faults here), 0x28 line-A, 0x2C line-F. PVPC = gx_pc = newest faulting PC.
 	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pvec (.probe({op_447e, 8'h00, fault_vec[7:0]}), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pvec (.probe({gx_op, 8'h00, gx_v}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pvpc (.probe(fault_pc), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pvpc (.probe(gx_pc), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PBPC = {pc_before2[7:0], pc_before_447e[23:0]} — the IF PCs before 0x447E,
-	// FROZEN at the first post-arm 0x447E fetch. pc_before=0x447C (and
-	// pc_before2 low byte=0x7A) => sequential in-line execution (0x447E is real
-	// code with a corrupted opcode/operand); anything else => a jump/return INTO
-	// 0x447E (control-flow / wild execution).
+	// PBPC = {gx_v_p[31:24], gx_pc_p[23:0]} = the PREVIOUS genuine exception
+	// (vector + PC). Distinguishes the fatal fault from benign hardware-probe
+	// bus errors that precede it (those are vec 0x08/0x0C, recovered).
 	altsource_probe #(.instance_id ("PBPC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pbpc (.probe({pc_before2_447e[7:0], pc_before_447e}), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pbpc (.probe({gx_v_p, gx_pc_p[23:0]}), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PESC (2026-07-12): SDRAM coherency timeout-escape counters. The residual
-	// boot corruption is deterministic (A-line at PC 0x447E). [31:16]=rd_escapes
-	// (read timeout fired with addr-mismatch = a WRONG word latched), [15:0]=
-	// wr_escapes (write timeout forced done with no owned slot = uncommitted
-	// write). Nonzero on a failing boot => the timeout escape IS the corruption
-	// path (and names read vs write); both 0 => timeout is NOT it, pivot.
+	// PESC (2026-07-12) = {berr_inh_cnt[31:16], 0, gx_cnt[7:0]}. berr_inh_cnt =
+	// TG68 berr_inhibit rising edges post-arm = 68020 bus-error RERUNs (the only
+	// path that can re-feed a stale word as an opcode in this core; a nonzero
+	// count near the reboot implicates the berr rerun). gx_cnt = # genuine
+	// exceptions. (SDRAM escapes retired — measured 0/0 twice, timeout ruled out.)
 	altsource_probe #(.instance_id ("PESC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pesc (.probe({rd_escapes, wr_escapes}), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pesc (.probe({berr_inh_cnt, 8'h00, gx_cnt}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PSFL RETIRED 2026-07-11e (selection-failure tally, refuted =0) — fit room.
 	// altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),

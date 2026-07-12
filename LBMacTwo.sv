@@ -1977,6 +1977,7 @@ dbg_wedge dbg_wedge_inst (
 	// SDRAM coherency timeout-escape counters (2026-07-12): PESC probe.
 	.rd_escapes       (rd_escape_cnt),
 	.wr_escapes       (wr_escape_cnt),
+	.berr_inhibit     (berr_inhibit_active),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
 	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
