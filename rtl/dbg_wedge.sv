@@ -236,6 +236,69 @@ module dbg_wedge (
 		end
 	end
 
+	// ---- FATAL-FAULT PC catcher (2026-07-11f) --------------------------------
+	// The Sad Mac face is CONSISTENTLY 0F/0A = an A-line (vector 10 / offset
+	// 0x28) exception, which the recorder above deliberately EXCLUDES (to avoid
+	// counting the millions of normal Toolbox A-traps). To get the faulting PC
+	// of the fatal exception (any vector), run a PARALLEL dispatch-confirmed
+	// pipeline that INCLUDES 0x28, but capture (last-wins) ONLY when the handler
+	// the CPU dispatches to lands in the ROM SysError / serial-monitor region
+	// [0x40002E00,0x40003400] (confirmed: the Sad Mac spins there — PADR
+	// 0x3210/0x3296, 0x3284->bra 0x2edc). A normal A-trap dispatches to the Trap
+	// Dispatcher, never into that region, so this is immune to Toolbox traffic
+	// and names exactly the fault that produced the Sad Mac.
+	//   fault_pc in valid System/ROM code (that Snow also runs) => the OPCODE was
+	//     corrupted in RAM = SDRAM read/fetch-path corruption.
+	//   fault_pc garbage / mid-instruction => a bad branch target = control-flow
+	//     / write-path (pointer) corruption.
+	wire vec_read_all = !cpuAS_n && cpuRW && (cpuFC == 3'b101) &&
+	                    (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E);
+	reg        va_rd_live = 1'b0;
+	reg [15:0] va_din_live = 16'd0;
+	reg [31:0] va_rd_addr_l = 32'd0;
+	reg [15:0] va_hi = 16'd0;
+	reg        va_pending = 1'b0;
+	reg [31:0] va_pend_vec = 32'd0;
+	reg [31:0] va_pend_pc  = 32'd0;
+	reg [23:0] va_handler  = 24'd0;
+	reg [31:0] fault_vec = 32'd0;   // vector offset of the fatal exception
+	reg [31:0] fault_pc  = 32'd0;   // faulting PC (last IF before the dispatch)
+	reg [7:0]  fault_cnt = 8'd0;
+	always @(posedge clk) begin
+		if (vec_read_all) begin
+			va_rd_live   <= 1'b1;
+			va_din_live  <= cpu_din;
+			va_rd_addr_l <= cpuAddr;
+		end
+		if (cpuAS_n && va_rd_live) begin
+			va_rd_live <= 1'b0;
+			if (!va_rd_addr_l[1]) va_hi <= va_din_live;      // high word of handler
+			else begin
+				va_pending  <= 1'b1;
+				va_handler  <= { va_hi[7:0], va_din_live };
+				va_pend_vec <= va_rd_addr_l & 32'hFFFFFFFC;
+				va_pend_pc  <= last_if_addr;
+			end
+		end
+		if (va_pending && if_event) begin
+			va_pending <= 1'b0;
+			// LAST-WINS, post-arm, dispatch-confirmed (next IF lands at the
+			// handler read from the vector). Rationale: the A-line vector (the
+			// consistent Sad Mac 0F/0A) points at the ROM Trap Dispatcher, same
+			// as every normal Toolbox A-trap, so a handler-address gate can't
+			// isolate the fatal one. Instead rely on the HALT: after the fatal
+			// exception the CPU enters SysError and spins in the 0x2Exx monitor,
+			// which issues NO further exceptions — so the final capture before
+			// the freeze IS the fatal faulting instruction. (On a healthy boot
+			// A-traps keep firing, but we only read this on a stuck/Sad-Mac boot.)
+			if (ff_armed && (cpuAddr[23:1] == va_handler[23:1])) begin
+				fault_vec <= va_pend_vec;
+				fault_pc  <= va_pend_pc;
+				if (fault_cnt != 8'hFF) fault_cnt <= fault_cnt + 8'd1;
+			end
+		end
+	end
+
 	// ---- v3 (2026-07-10): FIRST-FAILURE window + $da6 watch --------------
 	// Everything captured so far described the ESTABLISHED storm; the original
 	// sin — whatever kills the first transfer after boot IO starts working —
@@ -502,17 +565,25 @@ module dbg_wedge (
 	//          0x2C F-line, ...);  PVPC = armed_vec_pc (faulting PC).
 	altsource_probe #(.instance_id ("PRST"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
+	// [7:0] = fault_cnt (was armed_vec_count; that read 0 on both faces since
+	// the fatal vector is A-line, excluded upstream). fault_cnt>0 => the FATAL
+	// catcher fired and PVEC/PVPC hold the vector+PC.
 	) cp_prst (.probe({cpu_reset_falls[7:0], pll_unlock_falls, last_reset_src,
-	                   reset_src_valid, armed_vec_count}),
+	                   reset_src_valid, fault_cnt}),
 	           .source(), .source_clk(clk), .source_ena(1'b1));
 
+	// PVEC/PVPC repurposed 2026-07-11f to the FATAL-fault catcher (fault_vec/
+	// fault_pc), which INCLUDES the A-line vector (the consistent Sad Mac 0F/0A).
+	// armed_vec_addr/pc (in-range-only, A-line excluded) read 0 on both observed
+	// faces, so this is strictly more informative. fault_vec low byte = the 68k
+	// vector: 0x28 A-line(0F/0A), 0x10 illegal, 0x0C addr-err(0F/03), 0x2C F-line.
 	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pvec (.probe(armed_vec_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pvec (.probe(fault_vec), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pvpc (.probe(armed_vec_pc), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pvpc (.probe(fault_pc), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PSFL RETIRED 2026-07-11e (selection-failure tally, refuted =0) — fit room.
 	// altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),
