@@ -1947,6 +1947,9 @@ dbg_wedge dbg_wedge_inst (
 	.adb_rd_ring      (dbg_adb3),
 	.adb_ld_ring      (dbg_adb4),
 	.cpuReset_n       (_cpuReset),
+	// reset-cause snapshot (2026-07-11e): {sys_locked, pram_ready, clear_done,
+	// pram_force_reset, RESET, buttons[1], osd_reset_req} — decode per dbg_wedge.
+	.reset_src        ({sys_locked, pram_ready, clear_done, pram_force_reset, RESET, buttons[1], osd_reset_req}),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
 	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole

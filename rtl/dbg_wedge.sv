@@ -99,6 +99,12 @@ module dbg_wedge (
 	input  wire [31:0] adb_rd_ring,     // dbg_adb3: last 4 bytes CPU READ from VIA1 SR
 	input  wire [31:0] adb_ld_ring,     // dbg_adb4: last 4 bytes LOADED into VIA1 SR
 	input  wire        cpuReset_n,      // to rule a hardware reset in/out (PRST-lite)
+	// ---- reset-cause snapshot (2026-07-11e: Happy-Mac->clean-restart) ----
+	// Live core-reset source terms; bit sense = the raw signal, so an ACTIVE
+	// cause reads: sys_locked=0 (PLL unlock), pram_ready=0, clear_done=0,
+	// pram_force_reset=1, RESET=1, buttons1=1, osd_reset_req=1.
+	input  wire [6:0]  reset_src,       // {sys_locked,pram_ready,clear_done,
+	                                    //  pram_force_reset,RESET,buttons1,osd_reset_req}
 
 	// ---- coherency detector inputs (2026-06-13) ----
 	input  wire        rd_latch,        // sdram_slot_cpu_rd && memoryLatch (RAW latch gate; pre-fix condition)
@@ -269,6 +275,49 @@ module dbg_wedge (
 		end
 	end
 
+	// ---- RESET-CAUSE + post-arm fault recorder (2026-07-11e) -----------------
+	// The residual failure is Happy-Mac -> clean restart -> ?-park (screenshots
+	// scratch/via2fix/visual/: t14 Happy Mac, t16 bare gray, t23 ? disk). The
+	// ~3.5s ADB/SCSI activity previously blamed is the RESTART's ROM re-init.
+	// This block answers the mechanism: did the machine actually assert
+	// cpuReset (core reset from PLL-unlock / PRAM / watchdog), or did the CPU
+	// jump to ROM entry via an unhandled/handler-driven exception?
+	//   cpu_reset_falls (existing): baseline 1 at power-on; >1 => a real core
+	//     reset happened at the restart.
+	//   pll_unlock_falls: sys_locked 1->0 edges (PLL lock loss, the lead suspect
+	//     for an intermittent under-load restart).
+	//   last_reset_src: the source terms snapshotted at the cpuReset falling
+	//     edge (decode per the reset_src port comment).
+	//   armed_vec_*: post-first-disk-read (ff_armed) LAST-wins dispatch-confirmed
+	//     exception vector offset + faulting PC — excludes the ROM's benign
+	//     early-boot FPU F-line self-probe, names a real System-era fault.
+	reg [6:0]  reset_src_d      = 7'h7F;
+	reg [7:0]  pll_unlock_falls = 8'd0;
+	reg [6:0]  last_reset_src   = 7'd0;
+	reg        reset_src_valid  = 1'b0;
+	reg        rst_n_dd         = 1'b1;
+	reg [31:0] armed_vec_addr   = 32'd0;
+	reg [31:0] armed_vec_pc     = 32'd0;
+	reg [7:0]  armed_vec_count  = 8'd0;
+	always @(posedge clk) begin
+		reset_src_d <= reset_src;
+		rst_n_dd    <= cpuReset_n;
+		if (reset_src_d[6] && !reset_src[6] && pll_unlock_falls != 8'hFF)
+			pll_unlock_falls <= pll_unlock_falls + 8'd1;
+		if (rst_n_dd && !cpuReset_n) begin
+			last_reset_src  <= reset_src;   // raw terms at the reset edge
+			reset_src_valid <= 1'b1;
+		end
+		// LAST-wins dispatch-confirmed fault, gated post-disk-arm. Mirrors the
+		// vec_pending->handler-landing test used for the first-wins recorder.
+		if (ff_armed && vec_pending && if_event &&
+		    (cpuAddr[23:1] == vec_handler[23:1])) begin
+			armed_vec_addr <= vec_pend_vec;
+			armed_vec_pc   <= vec_pend_pc;
+			if (armed_vec_count != 8'hFF) armed_vec_count <= armed_vec_count + 8'd1;
+		end
+	end
+
 	// v3.7: scsi_rst held-duration tracker (ncr_regs[7] = live scsi_rst).
 	// The deaf-window suspicion: a stale saved-ICR restore re-asserts RST and
 	// holds the targets in their reset branch while the ROM retries selection.
@@ -425,9 +474,10 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pwha (.probe(winh0A), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	altsource_probe #(.instance_id ("PWHB"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pwhb (.probe(winh0B), .source(), .source_clk(clk), .source_ena(1'b1));
+	// PWHB RETIRED 2026-07-11e (SCSI window history, settled) — fit room for PRST/PVEC/PVPC.
+	// altsource_probe #(.instance_id ("PWHB"), .probe_width (32), .source_width(1),
+	// 	.sld_auto_instance_index ("YES")
+	// ) cp_pwhb (.probe(winh0B), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PCMD/PSTS: target0 last-4 command opcodes / status bytes, newest in [7:0].
 	altsource_probe #(.instance_id ("PCMD"), .probe_width (32), .source_width(1),
@@ -438,13 +488,36 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_psts (.probe(star0), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PSFL (the decisive open measurement): selection-failure reason tally,
-	// frozen at abort. {attempt[31:24], blk_nonidle[23:16], blk_gate[15:8],
-	// reason_or[7:4]}. blk_nonidle dominant => target lingers busy
-	// (bus-free / MESSAGE->IDLE release fix).
-	altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),
+	// PRST/PVEC/PVPC (2026-07-11e): reset-mechanism deck. Retired PWHB/PSFL/PPH2
+	// (settled SCSI-window probes) to make fit room — SCSI is exonerated
+	// (delivers correct data, all reads complete; the failure is the post-
+	// Happy-Mac restart). PRST decode:
+	//   [31:24]=cpu_reset_falls (baseline 1; >1 => a real core reset at restart)
+	//   [23:16]=pll_unlock_falls (sys_locked 1->0 edges = PLL lock loss)
+	//   [15:9]=last_reset_src {sys_locked,pram_ready,clear_done,pram_force_reset,
+	//          RESET,buttons1,osd_reset_req} snapshot at the reset edge
+	//   [8]=reset_src_valid  [7:0]=armed_vec_count (post-arm dispatch-confirmed
+	//          exceptions; >0 => a real System-era fault dispatched)
+	// PVEC = armed_vec_addr (vector offset: 0x08 bus, 0x0C addr, 0x10 illegal,
+	//          0x2C F-line, ...);  PVPC = armed_vec_pc (faulting PC).
+	altsource_probe #(.instance_id ("PRST"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_psfl (.probe(selfail0), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_prst (.probe({cpu_reset_falls[7:0], pll_unlock_falls, last_reset_src,
+	                   reset_src_valid, armed_vec_count}),
+	           .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvec (.probe(armed_vec_addr), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvpc (.probe(armed_vec_pc), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PSFL RETIRED 2026-07-11e (selection-failure tally, refuted =0) — fit room.
+	// altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),
+	// 	.sld_auto_instance_index ("YES")
+	// ) cp_psfl (.probe(selfail0), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PVIA (re-added 2026-07-11 for the o_drq_lvl fix validation): VIA2
 	// interrupt machinery, live. [31]=irq_out [30:24]=IER [22:16]=IFR_eff
@@ -466,9 +539,10 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_picr (.probe(ncr_regs), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	altsource_probe #(.instance_id ("PPH2"), .probe_width (32), .source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pph2 (.probe({16'd0, scsi2}), .source(), .source_clk(clk), .source_ena(1'b1));
+	// PPH2 RETIRED 2026-07-11e (target phase, SCSI exonerated) — fit room.
+	// altsource_probe #(.instance_id ("PPH2"), .probe_width (32), .source_width(1),
+	// 	.sld_auto_instance_index ("YES")
+	// ) cp_pph2 (.probe({16'd0, scsi2}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PADB/PAB2/PAB3/PAB4 (2026-07-11): the System-startup ADB transaction
 	// stall. Burst captures prove the failing boots die in the ROM ADB-wait
