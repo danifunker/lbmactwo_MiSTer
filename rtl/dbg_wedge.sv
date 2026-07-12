@@ -105,6 +105,9 @@ module dbg_wedge (
 	// pram_force_reset=1, RESET=1, buttons1=1, osd_reset_req=1.
 	input  wire [6:0]  reset_src,       // {sys_locked,pram_ready,clear_done,
 	                                    //  pram_force_reset,RESET,buttons1,osd_reset_req}
+	// ---- SDRAM coherency timeout-escape counters (2026-07-12: PESC) ----
+	input  wire [15:0] rd_escapes,      // read timeout-escapes (latched wrong word)
+	input  wire [15:0] wr_escapes,      // write timeout-escapes (forced done, no owned slot)
 
 	// ---- coherency detector inputs (2026-06-13) ----
 	input  wire        rd_latch,        // sdram_slot_cpu_rd && memoryLatch (RAW latch gate; pre-fix condition)
@@ -263,6 +266,7 @@ module dbg_wedge (
 	reg [23:0] va_handler  = 24'd0;
 	reg [31:0] fault_vec = 32'd0;   // vector offset of the fatal exception
 	reg [31:0] fault_pc  = 32'd0;   // faulting PC (last IF before the dispatch)
+	reg [15:0] fault_op  = 16'd0;   // opcode at the faulting PC (the A-line word)
 	reg [7:0]  fault_cnt = 8'd0;
 	always @(posedge clk) begin
 		if (vec_read_all) begin
@@ -294,6 +298,12 @@ module dbg_wedge (
 			if (ff_armed && (cpuAddr[23:1] == va_handler[23:1])) begin
 				fault_vec <= va_pend_vec;
 				fault_pc  <= va_pend_pc;
+				// op_prev = the just-completed fetch's word = the faulting
+				// instruction's opcode (the handler's own fetch_cplt has not
+				// landed yet at this if_event). For the A-line Sad Mac this is
+				// the A-line word at 0x447E: a valid Toolbox trap => dispatcher/
+				// table corruption; a garbage A-line => the opcode was corrupted.
+				fault_op  <= op_prev;
 				if (fault_cnt != 8'hFF) fault_cnt <= fault_cnt + 8'd1;
 			end
 		end
@@ -577,13 +587,25 @@ module dbg_wedge (
 	// armed_vec_addr/pc (in-range-only, A-line excluded) read 0 on both observed
 	// faces, so this is strictly more informative. fault_vec low byte = the 68k
 	// vector: 0x28 A-line(0F/0A), 0x10 illegal, 0x0C addr-err(0F/03), 0x2C F-line.
+	// PVEC = {fault_op[31:16], 8'h00, fault_vec[7:0]} — opcode at the fault +
+	// the 68k vector low byte (0x28 A-line / 0x10 illegal / 0x0C addr / 0x2C F).
 	altsource_probe #(.instance_id ("PVEC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pvec (.probe(fault_vec), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pvec (.probe({fault_op, 8'h00, fault_vec[7:0]}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(.instance_id ("PVPC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
 	) cp_pvpc (.probe(fault_pc), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PESC (2026-07-12): SDRAM coherency timeout-escape counters. The residual
+	// boot corruption is deterministic (A-line at PC 0x447E). [31:16]=rd_escapes
+	// (read timeout fired with addr-mismatch = a WRONG word latched), [15:0]=
+	// wr_escapes (write timeout forced done with no owned slot = uncommitted
+	// write). Nonzero on a failing boot => the timeout escape IS the corruption
+	// path (and names read vs write); both 0 => timeout is NOT it, pivot.
+	altsource_probe #(.instance_id ("PESC"), .probe_width (32), .source_width(1),
+		.sld_auto_instance_index ("YES")
+	) cp_pesc (.probe({rd_escapes, wr_escapes}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PSFL RETIRED 2026-07-11e (selection-failure tally, refuted =0) — fit room.
 	// altsource_probe #(.instance_id ("PSFL"), .probe_width (32), .source_width(1),

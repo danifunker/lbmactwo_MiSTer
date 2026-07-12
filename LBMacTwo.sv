@@ -908,6 +908,13 @@ wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_tu
 reg  slot0_mark;          // busPhase==0 marker (the clk after clk8_en_p)
 reg  sdram_slot_cpu_rd;   // this SDRAM slot started with the CPU's read cmd
 reg  cpu_sdram_rd_done;   // an owned slot has completed for this bus cycle
+// DBG (2026-07-12): SDRAM coherency TIMEOUT-ESCAPE counters. The residual
+// boot corruption is deterministic at PC 0x447E (A-line); these test whether
+// the read/write handshake's bounded timeout fallback is accepting wrong-read /
+// forcing uncommitted-write under System-load contention. Cumulative, never
+// reset (initial-only) so they accrue across the whole boot.
+reg [15:0] rd_escape_cnt = 16'd0;   // read timeout-escapes (latched wrong word)
+reg [15:0] wr_escape_cnt = 16'd0;   // write timeout-escapes (forced done, no owned slot)
 wire cpu_sdram_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
 
 // COHERENCY FIX (2026-06-13): only accept SDRAM read data whose source address
@@ -934,6 +941,13 @@ always @(posedge clk_sys) begin
 	end else if (sdram_slot_cpu_rd && clk8_en_p) begin
 		if (cpu_rd_take)     cpu_sdram_rd_done <= 1'b1;   // complete only on address-match (or timeout)
 		if (!cpu_rd_wait[2]) cpu_rd_wait       <= cpu_rd_wait + 3'd1;
+		// DBG (2026-07-12): read TIMEOUT-ESCAPE counter. cpu_rd_take fired via
+		// the wait[2] timeout while the returned slot's addr does NOT match =>
+		// the CPU is about to latch a WRONG (neighbour) word. Cumulative, never
+		// reset (initial-only) so it accrues across the whole boot.
+		if (cpu_rd_wait[2] && !cpu_rd_addr_match && !cpu_sdram_rd_done &&
+		    rd_escape_cnt != 16'hFFFF)
+			rd_escape_cnt <= rd_escape_cnt + 16'd1;
 	end
 end
 
@@ -975,6 +989,12 @@ always @(posedge clk_sys) begin
 		if (clk8_en_p && !cpu_wr_wait[2]) cpu_wr_wait <= cpu_wr_wait + 3'd1;
 		if ((sdram_slot_cpu_wr && clk8_en_p) || cpu_wr_wait[2])
 			cpu_sdram_wr_done <= 1'b1;
+		// DBG (2026-07-12): write TIMEOUT-ESCAPE counter. cpu_wr_wait[2] forced
+		// done with NO owned write slot this cycle => the write may not have
+		// committed (stale RAM = boot-block corruption candidate).
+		if (cpu_wr_wait[2] && !(sdram_slot_cpu_wr && clk8_en_p) && !cpu_sdram_wr_done &&
+		    wr_escape_cnt != 16'hFFFF)
+			wr_escape_cnt <= wr_escape_cnt + 16'd1;
 	end
 end
 
@@ -1950,6 +1970,9 @@ dbg_wedge dbg_wedge_inst (
 	// reset-cause snapshot (2026-07-11e): {sys_locked, pram_ready, clear_done,
 	// pram_force_reset, RESET, buttons[1], osd_reset_req} — decode per dbg_wedge.
 	.reset_src        ({sys_locked, pram_ready, clear_done, pram_force_reset, RESET, buttons[1], osd_reset_req}),
+	// SDRAM coherency timeout-escape counters (2026-07-12): PESC probe.
+	.rd_escapes       (rd_escape_cnt),
+	.wr_escapes       (wr_escape_cnt),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
 	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
