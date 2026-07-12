@@ -268,8 +268,13 @@ module dbg_wedge (
 	// gx_v low byte = 68k vector offset: 0x08 bus-err / 0x0C addr-err /
 	// 0x10 illegal / 0x20 privilege (a garbage move-to-SR faults here!) /
 	// 0x28 line-A / 0x2C line-F.
-	wire fc5_write = !cpuAS_n && !cpuRW && (cpuFC == 3'b101);       // frame push
-	wire exc_vecrd = !cpuAS_n &&  cpuRW && (cpuFC == 3'b101) &&
+	// v2 (2026-07-12): SUPERVISOR (not FC==5 exactly) on both legs — the
+	// 07-12 Sad Mac 0F/0003 boot read vec_seen_count=0 on the UNGATED legacy
+	// recorder, so a genuine TG68K dispatch may drive FC=6 on the vector
+	// read; the frame-push gate (not the FC value) is what kills the
+	// vector-through false-fires. IACK (FC=7) still excluded.
+	wire fc5_write = !cpuAS_n && !cpuRW && cpuFC[2] && (cpuFC != 3'b111);   // frame push
+	wire exc_vecrd = !cpuAS_n &&  cpuRW && cpuFC[2] && (cpuFC != 3'b111) &&
 	                 (cpuAddr >= 32'h00000008) && (cpuAddr <= 32'h0000002E);
 	reg [4:0]  push_win   = 5'd0;   // cycles since the last frame-push write
 	reg        exc_rd_live = 1'b0;
@@ -306,21 +311,37 @@ module dbg_wedge (
 				exc_v <= exc_addr_l[7:0]; exc_pc <= last_if_addr; exc_o <= op_prev;
 			end
 		end
-		// dispatch-confirmed (next IF at the handler) AND genuine (frame pushed)
+		// dispatch-confirmed (next IF at the handler) AND genuine (frame pushed).
+		// v2 (2026-07-12): arm on the FIRST ROM init entry (sr2700_cnt>=1 —
+		// fires on every boot, diskless included; the old ff_armed needed a
+		// completed SCSI read and NEVER ARMED on the 07-12 diskless Sad Mac).
+		// A-line (0x28) excluded from the ring entirely (normal Toolbox
+		// dispatch churn). FREEZE only on a FATAL-class fault — illegal 0x10,
+		// zdiv 0x14, privilege 0x20, F-line 0x2C with a non-ROM fault PC (the
+		// boot FPU self-probe F-lines from ROM are benign) — so a pass-1
+		// restart no longer discards the pass-2 fault (the old sr2700>=3
+		// freeze threw away this morning's 0F/0003). Bus/addr errors
+		// (0x08/0x0C) enter the ring as precursors but never freeze.
 		if (exc_pending && if_event) begin
 			exc_pending <= 1'b0;
-			if (ff_armed && exc_genuine && !gx_frozen &&
+			if ((sr2700_cnt != 8'd0) && exc_genuine &&
+			    (exc_v != 8'h28) &&
 			    (cpuAddr[23:1] == exc_handler[23:1])) begin
-				gx_v_p <= gx_v; gx_pc_p <= gx_pc; gx_op_p <= gx_op;   // shift ring
-				gx_v <= exc_v; gx_pc <= exc_pc; gx_op <= exc_o;
-				if (gx_cnt != 8'hFF) gx_cnt <= gx_cnt + 8'd1;
+				if (!gx_frozen) begin
+					gx_v_p <= gx_v; gx_pc_p <= gx_pc; gx_op_p <= gx_op;   // shift ring
+					gx_v <= exc_v; gx_pc <= exc_pc; gx_op <= exc_o;
+					if ((exc_v == 8'h10) || (exc_v == 8'h14) || (exc_v == 8'h20) ||
+					    ((exc_v == 8'h2C) && (exc_pc[31:20] != 12'h408)))
+						gx_frozen <= 1'b1;
+				end
+				if (gx_cnt != 8'hFF) gx_cnt <= gx_cnt + 8'd1;   // counts even frozen
 			end
 			exc_genuine <= 1'b0;
 		end
-		// freeze at the reboot: restart's ROM SCSI busrst, or the 3rd move #$2700
-		if (ff_armed && !gx_frozen &&
-		    ((busrst_cnt != busrst_cnt_d) || (sr2700_cnt >= 8'd3)))
-			gx_frozen <= 1'b1;
+		// JTAG unfreeze/rearm: park PRGR source on 0xA to clear the freeze
+		// (reader writes A, re-reads, writes back 0).
+		if (prgr_source == 4'hA)
+			gx_frozen <= 1'b0;
 	end
 
 	// ---- v3 (2026-07-10): FIRST-FAILURE window + $da6 watch --------------
@@ -521,6 +542,13 @@ module dbg_wedge (
 			4'd3:  prgr_r <= {8'd0, sr_entry};
 			4'd4:  prgr_r <= pscw;
 			4'd5:  prgr_r <= {16'd0, cpu_reset_falls};
+			// v2 catcher diagnostics (2026-07-12): arm/freeze visibility so a
+			// blind instrument can never masquerade as a null result again.
+			4'd6:  prgr_r <= {ff_armed, (sr2700_cnt != 8'd0), gx_frozen, 1'b0,
+			                  berr_inh_cnt[11:0], gx_cnt,
+			                  busrst_cnt[3:0], sr2700_cnt[3:0]};
+			4'd7:  prgr_r <= {gx_op_p, gx_v_p, 8'd0};   // previous-fault opcode+vec
+			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
 			4'd13: prgr_r <= last_vec_addr;              // most-recent fault-vector offset
 			4'd14: prgr_r <= last_vec_pc;                // faulting PC (last IF at that vector fetch)
 			4'd15: prgr_r <= {16'h0000, vec_seen_count}; // count of fault-vector reads (0 => none/VBR!=0)
