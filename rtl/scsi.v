@@ -50,6 +50,8 @@ module scsi
 	output [31:0] dbg_statring, // v3.14: last 4 status bytes sent (star[0] newest)
 	output [31:0] dbg_lbarA,    // v3.15: read LBA ring [1],[0]
 	output [31:0] dbg_lbarB,    // v3.15: read LBA ring [3],[2]
+	output [31:0] dbg_xorrA,    // v3.17: delivered-data XOR16 ring [1],[0] (pairs with lbar)
+	output [31:0] dbg_xorrB,    // v3.17: delivered-data XOR16 ring [3],[2]
 	output [31:0] dbg_selfail,  // v3.16: selection-failure reason tally (frozen)
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
@@ -762,6 +764,34 @@ always @(posedge clk) begin
 end
 assign dbg_lbarA = { lbar[1], lbar[0] };
 assign dbg_lbarB = { lbar[3], lbar[2] };
+
+// v3.17 (2026-07-12k): delivered-DATA integrity ring — the missing half of
+// v3.15. xr_acc XOR16-accumulates every byte this target actually serves
+// during a READ's DATA_OUT phase (big-endian pairing by data_cnt parity, so
+// the value equals a word-wise XOR of the sectors as the initiator consumed
+// them — one ACK per byte, data_cnt advances on the falling edge, so at
+// stb_ack data_cnt is the CURRENT byte index and dout the byte being taken).
+// Pushed into xorr[] when the READ's STATUS byte goes out, so xorr[n] pairs
+// with lbar[n]. Compare offline against the same sectors of the mounted
+// .hda: mismatch = the delivery path corrupted data the HPS served; match
+// on a failing boot = bytes arrived intact, the fault is above SCSI.
+reg [15:0] xr_acc;
+reg [15:0] xorr [0:3];
+initial begin xorr[0]=16'hFFFF; xorr[1]=16'hFFFF; xorr[2]=16'hFFFF; xorr[3]=16'hFFFF; end
+always @(posedge clk) begin
+	if ((cmd_cpl && (phase == PHASE_CMD_IN)) && !cmd_cpl_d)
+		xr_acc <= 16'd0;
+	else if (stb_ack && (phase == PHASE_DATA_OUT) && cmd_read) begin
+		if (!data_cnt[0]) xr_acc[15:8] <= xr_acc[15:8] ^ dout;
+		else              xr_acc[7:0]  <= xr_acc[7:0]  ^ dout;
+	end
+	if (status_sent && !status_sent_d && cmd_read) begin
+		xorr[3] <= xorr[2]; xorr[2] <= xorr[1]; xorr[1] <= xorr[0];
+		xorr[0] <= xr_acc;
+	end
+end
+assign dbg_xorrA = { xorr[1], xorr[0] };
+assign dbg_xorrB = { xorr[3], xorr[2] };
 
 // v3.16 (B7): selection-FAILURE reason capture — the decisive test of the
 // "target unselectable after N dialogs" finding (PWHA w1: 14 attempts, only

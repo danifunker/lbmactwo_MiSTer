@@ -86,6 +86,8 @@ module dbg_wedge (
 	input  wire [31:0] star0,           // v3.14 target0 last-4 status bytes
 	input  wire [31:0] lbar0A,          // v3.15 target0 read LBA ring [1],[0]
 	input  wire [31:0] lbar0B,          // v3.15 target0 read LBA ring [3],[2]
+	input  wire [31:0] xorr0A,          // v3.17 target0 delivered-data XOR ring [1],[0]
+	input  wire [31:0] xorr0B,          // v3.17 target0 delivered-data XOR ring [3],[2]
 	input  wire [31:0] selfail0,        // v3.16 target0 selection-failure tally
 	input  wire [31:0] via2_irq_state,  // via6522 dbg_irq_state: {irq_out, IER[6:0],
 	                                    //  0, IFR_eff[6:0], PCR[7:0], ACR[7:0]} (PVIA)
@@ -324,8 +326,14 @@ module dbg_wedge (
 		// (0x08/0x0C) enter the ring as precursors but never freeze.
 		if (exc_pending && if_event) begin
 			exc_pending <= 1'b0;
+			// exc_v records the LOW-word address of the vector read, so A-line
+			// arrives as 0x2A, not 0x28 — mask [7:2] to exclude 0x28-0x2B.
+			// (Measured 2026-07-12: with != 0x28 only, the ?-park idle loop's
+			// normal Toolbox A-traps churned the ring at full rate — gx_cnt
+			// saturated and the ring held the prefetch-shifted word after the
+			// newest A-trap, e.g. 0x46C6 @ 0x447E.)
 			if ((sr2700_cnt != 8'd0) && exc_genuine &&
-			    (exc_v != 8'h28) &&
+			    (exc_v[7:2] != 6'b001010) &&
 			    (cpuAddr[23:1] == exc_handler[23:1])) begin
 				if (!gx_frozen) begin
 					gx_v_p <= gx_v; gx_pc_p <= gx_pc; gx_op_p <= gx_op;   // shift ring
@@ -548,6 +556,15 @@ module dbg_wedge (
 			                  berr_inh_cnt[11:0], gx_cnt,
 			                  busrst_cnt[3:0], sr2700_cnt[3:0]};
 			4'd7:  prgr_r <= {gx_op_p, gx_v_p, 8'd0};   // previous-fault opcode+vec
+			// v3.17 (2026-07-12k): boot-1 read forensics — the LBA ring paired
+			// with the delivered-data XOR ring (lbar[n] <-> xorr[n], newest [0]).
+			// Compare xorr against a word-XOR of the same sectors in the mounted
+			// .hda: mismatch = SCSI delivery corrupted the data; match on a
+			// failing boot = bytes intact, fault is in RAM/parsing above SCSI.
+			4'd8:  prgr_r <= lbar0A;                    // read LBAs [1],[0]
+			4'd9:  prgr_r <= lbar0B;                    // read LBAs [3],[2]
+			4'd11: prgr_r <= xorr0A;                    // delivered XOR16 [1],[0]
+			4'd12: prgr_r <= xorr0B;                    // delivered XOR16 [3],[2]
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
 			4'd13: prgr_r <= last_vec_addr;              // most-recent fault-vector offset
 			4'd14: prgr_r <= last_vec_pc;                // faulting PC (last IF at that vector fetch)

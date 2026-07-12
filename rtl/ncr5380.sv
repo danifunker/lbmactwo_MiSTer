@@ -125,6 +125,8 @@ module ncr5380
 	output      [31:0] dbg_star0,    // v3.14 target0 last-4 status bytes
 	output      [31:0] dbg_lbar0A,   // v3.15 target0 read LBA ring [1],[0]
 	output      [31:0] dbg_lbar0B,   // v3.15 target0 read LBA ring [3],[2]
+	output      [31:0] dbg_xorr0A,   // v3.17 target0 delivered-data XOR ring [1],[0]
+	output      [31:0] dbg_xorr0B,   // v3.17 target0 delivered-data XOR ring [3],[2]
 	output      [31:0] dbg_selfail0, // v3.16 target0 selection-failure tally
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
@@ -566,6 +568,8 @@ module ncr5380
 	wire [31:0]     target_statring[DEVS];
 	wire [31:0]     target_lbarA[DEVS];
 	wire [31:0]     target_lbarB[DEVS];
+	wire [31:0]     target_xorrA[DEVS];
+	wire [31:0]     target_xorrB[DEVS];
 	wire [31:0]     target_selfail[DEVS];
 	wire [2:0]      target_phase[DEVS];
 	wire [7:0]      target_hs[DEVS];
@@ -700,6 +704,8 @@ module ncr5380
 				.dbg_statring( target_statring[i] ),
 				.dbg_lbarA( target_lbarA[i] ),
 				.dbg_lbarB( target_lbarB[i] ),
+				.dbg_xorrA( target_xorrA[i] ),
+				.dbg_xorrB( target_xorrB[i] ),
 				.dbg_selfail( target_selfail[i] ),
 				.dbg_phase( target_phase[i] ),
 				.dbg_hs( target_hs[i] ),
@@ -766,6 +772,8 @@ module ncr5380
 	assign dbg_star0  = target_statring[0];
 	assign dbg_lbar0A = target_lbarA[0];
 	assign dbg_lbar0B = target_lbarB[0];
+	assign dbg_xorr0A = target_xorrA[0];
+	assign dbg_xorr0B = target_xorrB[0];
 	assign dbg_selfail0 = target_selfail[0];
 
 	// v3.8: register-write ring — the last 8 host register writes {rs, value},

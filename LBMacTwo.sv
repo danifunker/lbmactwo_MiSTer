@@ -1557,6 +1557,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_star0(dbg_star0),
 	.dbg_lbar0A(dbg_lbar0A),
 	.dbg_lbar0B(dbg_lbar0B),
+	.dbg_xorr0A(dbg_xorr0A),
+	.dbg_xorr0B(dbg_xorr0B),
 	.dbg_selfail0(dbg_selfail0),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
@@ -1595,6 +1597,8 @@ wire [31:0] dbg_cmdr0;     // v3.14 target0 command-opcode ring
 wire [31:0] dbg_star0;     // v3.14 target0 status ring
 wire [31:0] dbg_lbar0A;    // v3.15 target0 read LBA ring
 wire [31:0] dbg_lbar0B;
+wire [31:0] dbg_xorr0A;    // v3.17 target0 delivered-data XOR ring
+wire [31:0] dbg_xorr0B;
 wire [31:0] dbg_selfail0;  // v3.16 target0 selection-failure tally
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
@@ -2031,6 +2035,8 @@ dbg_wedge dbg_wedge_inst (
 	.star0            (dbg_star0),
 	.lbar0A           (dbg_lbar0A),
 	.lbar0B           (dbg_lbar0B),
+	.xorr0A           (dbg_xorr0A),
+	.xorr0B           (dbg_xorr0B),
 	.selfail0         (dbg_selfail0),
 	.via2_irq_state   (dbg_via2_irq),
 	// ADB/VIA1-SR stall probes (2026-07-11): System-startup ADB wait

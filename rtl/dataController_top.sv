@@ -146,6 +146,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [31:0] dbg_star0,     // v3.14 target0 status ring
 	output           [31:0] dbg_lbar0A,    // v3.15 target0 read LBA ring
 	output           [31:0] dbg_lbar0B,
+	output           [31:0] dbg_xorr0A,    // v3.17 target0 delivered-data XOR ring
+	output           [31:0] dbg_xorr0B,
 	output           [31:0] dbg_selfail0, // v3.16 target0 selection-failure tally
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
@@ -341,6 +343,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_star0(dbg_star0),
 		.dbg_lbar0A(dbg_lbar0A),
 		.dbg_lbar0B(dbg_lbar0B),
+		.dbg_xorr0A(dbg_xorr0A),
+		.dbg_xorr0B(dbg_xorr0B),
 		.dbg_selfail0(dbg_selfail0),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2)
