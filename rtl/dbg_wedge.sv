@@ -488,6 +488,34 @@ module dbg_wedge (
 	reg [15:0] if_word   = 16'd0;
 	reg [15:0] op_prev   = 16'd0;
 	reg [23:0] pc_prev   = 24'd0;
+
+	// ---- boot-1 give-up PC trail (2026-07-12l) --------------------------------
+	// The boot chain reads DDM/driver/partmap byte-perfect then stops issuing
+	// SCSI commands without any exception. Freeze a 4-deep IF-PC trail ~2s after
+	// the LAST read-ring change: the frozen PCs land either in the on-disk
+	// driver's RAM code (naming its failing check) or the ROM's give-up path.
+	// Armed by the first ring push; watchdog reloads on every ring change.
+	reg [23:0] gv_pc0 = 0, gv_pc1 = 0, gv_pc2 = 0, gv_pc3 = 0;  // 0 = newest
+	reg [23:0] gv_prev2 = 0, gv_prev3 = 0;                       // rolling history
+	reg [31:0] gv_lbar_d = 0;
+	reg [26:0] gv_wd = 0;
+	reg        gv_armed = 0, gv_frozen = 0;
+	always @(posedge clk) begin
+		gv_lbar_d <= lbar0A;
+		if (lbar0A != gv_lbar_d && lbar0A != 32'd0) begin
+			gv_armed <= 1'b1;
+			gv_wd    <= 27'd0;
+		end else if (gv_armed && !gv_frozen) begin
+			if (gv_wd == 27'd62_000_000) begin      // ~2s of clk_sys silence
+				gv_frozen <= 1'b1;
+				gv_pc0 <= last_if_addr[23:0];
+				gv_pc1 <= pc_prev;
+				gv_pc2 <= gv_prev2;
+				gv_pc3 <= gv_prev3;
+			end else
+				gv_wd <= gv_wd + 27'd1;
+		end
+	end
 	reg [7:0]  sr2700_cnt = 8'd0;
 	reg [23:0] sr_entry   = 24'd0;
 	reg [7:0]  rstc_d = 8'd0, busrst_cnt = 8'd0;
@@ -509,6 +537,8 @@ module dbg_wedge (
 			// (0x447E-specific capture retired 2026-07-12 — the reboot-cause
 			// catcher above supersedes it; op_prev/pc_prev feed exc_o/exc_pc.)
 			op_prev <= if_word;
+			gv_prev3 <= gv_prev2;
+			gv_prev2 <= pc_prev;
 			pc_prev <= last_if_addr[23:0];
 		end
 		// SCSI bus-reset PC trail: freeze at the SECOND reset.
@@ -558,7 +588,10 @@ module dbg_wedge (
 			// During the ?-park this names the wedge: bsy stuck (bus never
 			// free) vs sel pulses unanswered vs mounted dropped.
 			4'd2:  prgr_r <= {16'd0, scsi_hs};
-			4'd3:  prgr_r <= {8'd0, sr_entry};
+			// src3/D/E/F repurposed 2026-07-12l (were sr_entry, last_vec_*):
+			// the give-up PC trail, frozen ~2s after the last read-ring change.
+			// src3 = {6'd0, gv_armed, gv_frozen, gv_pc0(newest IF PC)}.
+			4'd3:  prgr_r <= {6'd0, gv_armed, gv_frozen, gv_pc0};
 			4'd4:  prgr_r <= pscw;
 			4'd5:  prgr_r <= {16'd0, cpu_reset_falls};
 			// v2 catcher diagnostics (2026-07-12): arm/freeze visibility so a
@@ -577,9 +610,9 @@ module dbg_wedge (
 			4'd11: prgr_r <= xorr0A;                    // delivered XOR16 [1],[0]
 			4'd12: prgr_r <= xorr0B;                    // delivered XOR16 [3],[2]
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
-			4'd13: prgr_r <= last_vec_addr;              // most-recent fault-vector offset
-			4'd14: prgr_r <= last_vec_pc;                // faulting PC (last IF at that vector fetch)
-			4'd15: prgr_r <= {16'h0000, vec_seen_count}; // count of fault-vector reads (0 => none/VBR!=0)
+			4'd13: prgr_r <= {8'd0, gv_pc1};             // give-up trail: 1 back
+			4'd14: prgr_r <= {8'd0, gv_pc2};             // give-up trail: 2 back
+			4'd15: prgr_r <= {8'd0, gv_pc3};             // give-up trail: 3 back
 			default: prgr_r <= 32'hC0DE0000;
 		endcase
 	end
