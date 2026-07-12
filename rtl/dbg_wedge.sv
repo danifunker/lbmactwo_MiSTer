@@ -451,6 +451,9 @@ module dbg_wedge (
 	reg        cpuReset_n_d = 1'b1;
 	reg [15:0] op_447e        = 16'd0;   // the word actually fetched at PC 0x447E
 	reg [23:0] pc_before_447e = 24'd0;   // IF PC immediately before 0x447E
+	reg [23:0] pc_before2_447e = 24'd0;  // IF PC two before 0x447E
+	reg [23:0] pc_prev2       = 24'd0;   // 2-deep IF-PC history
+	reg        op447e_frozen  = 1'b0;    // freeze the 0x447E capture at first fetch
 	wire fetch_cplt = if_wait && !cpuAS_n_d && cpuAS_n;   // IF cycle just ended
 	always @(posedge clk) begin
 		// arm on IF start, sample data while AS low, commit at AS rise
@@ -462,16 +465,21 @@ module dbg_wedge (
 				if (sr2700_cnt != 8'hFF) sr2700_cnt <= sr2700_cnt + 8'd1;
 				sr_entry <= pc_prev;      // PC of the $46FC = the init entry
 			end
-			// RELIABLE opcode capture at the deterministic fault PC 0x447E
-			// (last-wins). fault_op via the prefetch pipeline was a neighbour
-			// word (0x46C6, not even A-line). Latch the ACTUAL fetched word AT
-			// 0x447E and the IF PC immediately before it (pc_prev): 0x447C =>
-			// sequential in-line code (=> corrupted OPCODE at a real code site);
-			// anything else => a jump INTO 0x447E (=> control-flow corruption).
-			if (last_if_addr[23:0] == 24'h00447E) begin
-				op_447e       <= if_word;
+			// RELIABLE opcode capture at the deterministic fault PC 0x447E.
+			// v2 (last-wins) was POLLUTED: the 0x447E RAM is REUSED after the
+			// boot fails, so last-wins caught a later reuse (0x46C6 = move d6,sr,
+			// not even A-line). Fix: FREEZE at the FIRST post-arm fetch of 0x447E
+			// = the boot-1 execution BEFORE any reuse. op_447e = the true word
+			// there; pc_before/pc_before2 = the 2 IF PCs before it (0x447C/0x447A
+			// => sequential in-line code w/ a corrupted opcode; else => a jump
+			// INTO 0x447E => control-flow / wild execution).
+			if (ff_armed && last_if_addr[23:0] == 24'h00447E && !op447e_frozen) begin
+				op_447e        <= if_word;
 				pc_before_447e <= pc_prev;
+				pc_before2_447e <= pc_prev2;
+				op447e_frozen  <= 1'b1;
 			end
+			pc_prev2 <= pc_prev;   // 2-deep IF-PC history for the freeze
 			op_prev <= if_word;
 			pc_prev <= last_if_addr[23:0];
 		end
@@ -613,12 +621,14 @@ module dbg_wedge (
 		.sld_auto_instance_index ("YES")
 	) cp_pvpc (.probe(fault_pc), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// PBPC = the IF PC immediately before 0x447E. 0x447C => sequential in-line
-	// execution (0x447E is real code with a corrupted opcode/operand); anything
-	// else => a jump/return INTO 0x447E (control-flow corruption).
+	// PBPC = {pc_before2[7:0], pc_before_447e[23:0]} — the IF PCs before 0x447E,
+	// FROZEN at the first post-arm 0x447E fetch. pc_before=0x447C (and
+	// pc_before2 low byte=0x7A) => sequential in-line execution (0x447E is real
+	// code with a corrupted opcode/operand); anything else => a jump/return INTO
+	// 0x447E (control-flow / wild execution).
 	altsource_probe #(.instance_id ("PBPC"), .probe_width (32), .source_width(1),
 		.sld_auto_instance_index ("YES")
-	) cp_pbpc (.probe({8'h00, pc_before_447e}), .source(), .source_clk(clk), .source_ena(1'b1));
+	) cp_pbpc (.probe({pc_before2_447e[7:0], pc_before_447e}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// PESC (2026-07-12): SDRAM coherency timeout-escape counters. The residual
 	// boot corruption is deterministic (A-line at PC 0x447E). [31:16]=rd_escapes
