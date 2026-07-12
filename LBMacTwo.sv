@@ -1010,6 +1010,7 @@ assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
+                        fixup_take ? 1'b0 :   // DF/DIB fixup: complete the re-run cycle
                         ram_or_rom_dtack;
 
 // ── Programmer's switch / Level-7 NMI (debug aid, ported from MacLC) ────────
@@ -1119,21 +1120,81 @@ wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
                 | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 wire is_cpu_space = (cpuFC == 3'b111);
 
+// ── 68020 format-$B DF/DIB software-fixup engine (2026-07-12) ────────────────
+// The Mac II ROM's bus-error catchers at $4080E590/$4080E59C clear SSW.DF in
+// the stacked frame, write a substitute value into the Data Input Buffer at
+// +$2C ($00000000 / $FFFFFFFF), and RTE — the real 68020 then resumes the
+// faulted instruction mid-pipe consuming the DIB in place of the pending data
+// fetch. TG68K restarts the instruction instead (kernel now pushes exe_pc for
+// trap_berr so the restart is well-defined). The OLD top-level implementation
+// fed berr_data into EVERY read while berr_inhibit was active and cleared at
+// the first setopcode — i.e. the post-RTE re-FETCH consumed the DIB and the
+// handler's substitute value EXECUTED AS AN OPCODE ($FFFF ⇒ F-line ⇒ Sad Mac
+// 0F/000A; $0000 ⇒ ori.b swallows the real opcode ⇒ desync ⇒ illegal/priv
+// bombs) — the Happy-Mac soft-reboot class.
+// New scheme — LAZY SUBSTITUTION: on the kernel's berr_inhibit rising edge
+// (a $B RTE whose handler cleared DF) latch {DIB, pending}; all bus cycles
+// run NORMALLY (real re-fetch, real EA reads); when the restarted read to the
+// RECORDED fault address times out where the 8 µs BERR would fire, complete
+// the cycle instead — synthetic DTACK + the DIB word (hi/lo by A1). Writes to
+// the fault address complete silently (WB-clear semantics). The window
+// retires when the low word is consumed, at the first completed fetch after
+// a substitution, or after ~1.6 ms. A DF=1 rerun (handler wants a true
+// retry) never arms this, and a re-run to a now-valid address completes
+// normally — the pending window just expires.
+reg [31:0] berr_fault_addr_top = 32'd0; // address of the ORIGINAL faulting cycle
+reg        fixup_pending = 1'b0;        // a DF-cleared RTE armed a DIB substitution
+reg [31:0] fixup_data = 32'd0;          // the handler's DIB value (kernel berr_data)
+reg        fixup_take = 1'b0;           // substituting THIS bus cycle (holds till AS rise)
+reg        fixup_took = 1'b0;           // >=1 beat substituted in this window
+reg        berr_inhibit_a_d = 1'b0;
+reg [15:0] fixup_expire = 16'd0;
+wire fixup_match = fixup_pending && (cpuAddr[31:2] == berr_fault_addr_top[31:2]);
+
 always @(posedge clk_sys) begin
 	if (!_cpuReset) begin
 		berr_counter <= 0;
 		berr_out <= 0;
+		fixup_pending <= 0; fixup_take <= 0; fixup_took <= 0;
+		berr_inhibit_a_d <= 0;
 	end else begin
+		berr_inhibit_a_d <= berr_inhibit_active;
+		// arm at the RTE that cleared DF (kernel latched the DIB from the frame)
+		if (berr_inhibit_active && !berr_inhibit_a_d) begin
+			fixup_pending <= 1'b1;
+			fixup_took    <= 1'b0;
+			fixup_data    <= berr_data_out;
+			fixup_expire  <= 16'd50000;   // ~1.6 ms backstop
+		end else if (fixup_pending) begin
+			if (fixup_expire == 16'd0) fixup_pending <= 1'b0;
+			else fixup_expire <= fixup_expire - 1'd1;
+		end
 		if (_cpuAS) begin
 			berr_counter <= 0;
 			berr_out <= 0;
-		end else if (berr_out) begin
-			// Hold BERR until AS deasserts (CPU ends bus cycle)
+			if (fixup_take) begin
+				fixup_take <= 0;
+				// low/odd word consumed => the DIB long is complete; retire
+				if (cpuAddr[1]) fixup_pending <= 0;
+			end
+			// bound a word/byte substitution to its own instruction: the first
+			// completed FETCH after a substituted beat retires the window
+			if (fixup_took && !fixup_take && cpuFC[1:0] == 2'b10 && _cpuRW)
+				fixup_pending <= 0;
+		end else if (berr_out || fixup_take) begin
+			// Hold BERR / the substitution until AS deasserts (CPU ends cycle)
 		end else if (is_cpu_space || any_select)
 			berr_counter <= 0;
-		else if (berr_counter == 9'd251)  // ~8us at 31.3344 MHz
-			begin berr_out <= 1; berr_counter <= 0; end
-		else
+		else if (berr_counter == 9'd251) begin  // ~8us at 31.3344 MHz
+			if (fixup_match) begin
+				fixup_take <= 1'b1;   // complete with the DIB instead of BERR
+				fixup_took <= 1'b1;
+			end else begin
+				berr_out <= 1;
+				berr_fault_addr_top <= cpuAddr;   // remember the fault site
+			end
+			berr_counter <= 0;
+		end else
 			berr_counter <= berr_counter + 1'd1;
 	end
 end
@@ -1154,17 +1215,20 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
+// 2026-07-12: the old first term `berr_inhibit_active ? berr_data_out[15:0]`
+// fed the DIB into EVERY read of the post-RTE window — including the
+// instruction re-fetch, which executed the handler's DIB as an opcode (the
+// Happy-Mac soft-reboot / Sad Mac 0F class). Replaced by the lazy-substitution
+// engine above: only the timed-out re-run read of the recorded fault address
+// receives the DIB (hi/lo word by A1).
+wire [15:0] cpu_data_in = fixup_take ? (cpuAddr[1] ? fixup_data[15:0] : fixup_data[31:16]) :
                           selectFPU ? fpu_d_to_cpu :
                           fpu_data_hold_valid ? fpu_data_hold :
                           // Open-bus default for UNDECODED reads (port of MacLC f9fbf56).
                           // Return $FFFF, never the stale neighbour SDRAM word that the mux
-                          // otherwise falls through to (dataController_top.sv cpu_data). A stale
-                          // word here is latched by TG68 berr_inhibit and RE-FED as a garbage
-                          // opcode on retry -> "illegal instruction" / "bad F-Line" bombs under
-                          // 7.5.5's heavy hardware probing (e.g. MacTCP). This is exactly the
-                          // undecoded set the ~8us BERR already targets, so it cannot affect any
-                          // decoded RAM/ROM/peripheral/FPU read. (cpu-space FC=7 excluded.)
+                          // otherwise falls through to (dataController_top.sv cpu_data). This is
+                          // exactly the undecoded set the ~8us BERR already targets, so it cannot
+                          // affect any decoded RAM/ROM/peripheral/FPU read. (FC=7 excluded.)
                           (~any_select & ~is_cpu_space) ? 16'hFFFF :
                           dataControllerDataOut;
 
@@ -1195,7 +1259,11 @@ tg68k tg68k_inst (
 	.bgack_n    ( 1'b1         ),
 
 	.ipl        ( _cpuIPL      ),
-	.berr       ( berr_inhibit_active ? 1'b0 : berr_out ),
+	// 2026-07-12: unmasked — the old `berr_inhibit_active ? 1'b0 : berr_out`
+	// blanket-suppressed real bus errors during the post-RTE window; the
+	// fixup engine now completes the one matched cycle instead, so berr
+	// keeps its normal meaning everywhere.
+	.berr       ( berr_out     ),
 		.din        ( cpu_data_in   ),
 		.dout       ( tg68_dout    ),
 		.longword   ( tg68_longword ),
