@@ -597,8 +597,13 @@ module dbg_wedge (
 			// the give-up PC trail, frozen ~2s after the last read-ring change.
 			// src3 = {6'd0, gv_armed, gv_frozen, gv_pc0(newest IF PC)}.
 			4'd3:  prgr_r <= {6'd0, gv_armed, gv_frozen, gv_pc0};
-			4'd4:  prgr_r <= pscw;
-			4'd5:  prgr_r <= {16'd0, cpu_reset_falls};
+			// src4/5 + srcE/F repurposed 2026-07-12m (were pscw, cpu_reset_falls,
+			// giveup pc2/pc3): the v3.8 register-write ring — the last 8 host
+			// 5380 register writes {rs[2:0], val[7:0]} two per word, FROZEN at
+			// the 2nd bus reset = the boot-1 async give-up. The driver's dying
+			// words: what it programmed (ODR/MR.ARB/ICR) before the storm.
+			4'd4:  prgr_r <= wringA;   // entries [7],[6]
+			4'd5:  prgr_r <= wringB;   // entries [5],[4]
 			// v2 catcher diagnostics (2026-07-12): arm/freeze visibility so a
 			// blind instrument can never masquerade as a null result again.
 			4'd6:  prgr_r <= {ff_armed, (sr2700_cnt != 8'd0), gx_frozen, 1'b0,
@@ -616,8 +621,8 @@ module dbg_wedge (
 			4'd12: prgr_r <= xorr0B;                    // delivered XOR16 [3],[2]
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
 			4'd13: prgr_r <= {8'd0, gv_pc1};             // give-up trail: 1 back
-			4'd14: prgr_r <= {8'd0, gv_pc2};             // give-up trail: 2 back
-			4'd15: prgr_r <= {8'd0, gv_pc3};             // give-up trail: 3 back
+			4'd14: prgr_r <= wringC;                     // reg-write ring [3],[2]
+			4'd15: prgr_r <= wringD;                     // reg-write ring [1],[0]
 			default: prgr_r <= 32'hC0DE0000;
 		endcase
 	end
