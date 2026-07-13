@@ -47,22 +47,5 @@ module hmmu (
     // In 24-bit mode the Mac II HMMU/AMU masks off the CPU address high byte.
     // Resource handles and master-pointer flags commonly use high bits such as
     // $A0; those still must translate through the low 24-bit address.
-    //
-    // Fix A (2026-07-13): even in PASSTHROUGH mode, a Memory-Manager master
-    // pointer flagged with the locked/purgeable/resource combos ($A0/$C0/$E0
-    // etc. -> high byte $90..$EF) must still resolve through its low-24-bit
-    // RAM address, exactly as a real Mac (and MacLC, which decodes RAM on the
-    // low 24 bits unconditionally) does. Without this the driver's parse
-    // dereferences such a handle while hmmu_active is low, the high byte leaks
-    // into a NuBus-slot decode (no card -> bus error), and the DF/DIB fixup
-    // engine turns the resulting garbage-pointer BlockMove into a ~2 s per-byte
-    // bus-error STORM -> the disk op times out -> the Happy-Mac soft-reboot
-    // (give-up PC 0x6DD8, inside the BlockMove; confirmed on ss1). The masked
-    // range EXCLUDES $00 (RAM), $40 (32-bit ROM — the CPU executes at
-    // $4080xxxx), $50 (32-bit I/O $50Fxxxxx), $80 (mirrored to $00 in the
-    // decoder) and $F0..$FF (32-bit super-slots / PDS the ROM slot scan and the
-    // MDC824 video card use), so no legitimate 32-bit ROM/I/O/NuBus access is
-    // touched — only the flagged-handle leak is redirected to real RAM.
-    wire flagged_handle = (addr_in[31:24] >= 8'h90) && (addr_in[31:24] <= 8'hEF);
-    assign addr_out = (active || flagged_handle) ? xlated : addr_in;
+    assign addr_out = active ? xlated : addr_in;
 endmodule

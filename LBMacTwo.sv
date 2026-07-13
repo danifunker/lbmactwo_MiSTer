@@ -1011,7 +1011,6 @@ assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
                         fixup_take ? 1'b0 :   // DF/DIB fixup: complete the re-run cycle
-                        undecoded_norm ? 1'b0 :   // MacLC-style: ACK undecoded normal cycle → $FFFF (no berr storm)
                         ram_or_rom_dtack;
 
 // ── Programmer's switch / Level-7 NMI (debug aid, ported from MacLC) ────────
@@ -1120,23 +1119,6 @@ wire nubus_acked = selectNuBus & ~nubusAck;  // NuBus card actually responding
 wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
                 | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 wire is_cpu_space = (cpuFC == 3'b111);
-
-// ── MacLC-style open-bus completion for undecoded NORMAL cycles (2026-07-13) ──
-// A non-FC7 data cycle that decodes to NOTHING (no peripheral, no RAM/ROM, no
-// NuBus card) must NOT bus-error. MacLC (the working 68020 sibling) proved that
-// bus-erroring a normal cycle is unrecoverable for TG68 ("13 faults then the
-// Sad-Mac handler", MacLC.sv:821-837) and instead ACKs the cycle + returns
-// $FFFF open-bus (MacLC.sv:870). LBMacTwo's ~8µs berr on these cycles routes
-// into the ROM $E590 DF/DIB catcher + the lazy-substitution engine (below),
-// which turns a garbage-pointer BlockMove into a per-byte bus-error STORM (~2 s)
-// → the disk op times out → the Happy-Mac soft-reboot. Completing the cycle
-// immediately with the $FFFF that cpu_data_in already returns (see ~line 1232)
-// kills the storm and matches the sibling. Excludes: FC=7 CPU-space probes
-// (is_cpu_space — those keep their VPA/berr behavior) and selectNuBus (the
-// video card owns its own nubusAck/data path; empty slots that reach here via
-// !any_select still complete). RAM/ROM/VIA/SCC/SCSI/IWM/ASC/FPU are all in
-// any_select and untouched.
-wire undecoded_norm = !_cpuAS && !is_cpu_space && !any_select && !selectNuBus;
 
 // ── 68020 format-$B DF/DIB software-fixup engine (2026-07-12) ────────────────
 // The Mac II ROM's bus-error catchers at $4080E590/$4080E59C clear SSW.DF in
