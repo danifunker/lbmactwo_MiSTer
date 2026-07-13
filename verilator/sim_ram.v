@@ -151,14 +151,17 @@ reg rom_verified = 0;
 always @(posedge clk) begin
 	if (!reset && !rom_verified && wr_count > 100000) begin
 		rom_verified <= 1;
-		$display("ROM VERIFY: word[0x200000]=%h (expect 9779)", mem[22'h200000]);
-		$display("ROM VERIFY: word[0x200001]=%h (expect D2C4)", mem[22'h200001]);
-		$display("ROM VERIFY: word[0x200002]=%h (expect 4080)", mem[22'h200002]);
-		$display("ROM VERIFY: word[0x200003]=%h (expect 002A)", mem[22'h200003]);
-		$display("ROM VERIFY: word[0x200004]=%h (expect 0178)", mem[22'h200004]);
-		$display("ROM VERIFY: word[0x200005]=%h (expect 4EFA)", mem[22'h200005]);
-		$display("ROM VERIFY: word[0x200006]=%h (expect 0084)", mem[22'h200006]);
-		$display("ROM VERIFY: word[0x200007]=%h (expect 4EFA)", mem[22'h200007]);
+		// The ROM/disk region moved from A21 (0x200000) to A22 (0x400000) when the
+		// map was reworked for the 8MB RAM window (see sim.v ~line 992). The old
+		// verify still read 0x200000 (always 0 now) and falsely read as "ROM not
+		// loaded". Dump BOTH the stale and the live ROM base so the location is
+		// unambiguous. Expect the 9779/D2C4/4080/002A signature at 0x400000.
+		$display("ROM VERIFY (stale A21 base 0x200000): %h %h %h %h",
+			mem[23'h200000], mem[23'h200001], mem[23'h200002], mem[23'h200003]);
+		$display("ROM VERIFY (live A22 base 0x400000, expect 9779 D2C4 4080 002A): %h %h %h %h",
+			mem[23'h400000], mem[23'h400001], mem[23'h400002], mem[23'h400003]);
+		$display("ROM VERIFY (0x400004.. expect 0178 4EFA 0084 4EFA): %h %h %h %h",
+			mem[23'h400004], mem[23'h400005], mem[23'h400006], mem[23'h400007]);
 	end
 end
 

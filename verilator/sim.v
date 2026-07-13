@@ -846,6 +846,18 @@ module emu
 		.memoryDataOut(memoryDataOut),
 		.memoryDataIn(ram_do),
 		.memoryLatch(memoryLatch),
+		// SDRAM-coherency-fix slot handshake (fefc429, 2026-06-13): the
+		// dataController read-delivery gate is now
+		//   cpuSlotOwned && memoryLatch && cpu_rd_take
+		// (was cpuBusControl && memoryLatch). sim.v was never updated when
+		// those two inputs were added, so with -Wno-PINMISSING they floated to
+		// 0 and NO ROM/RAM read data ever reached the CPU — the CPU booted into
+		// zeroed memory and wandered. sim_ram is combinational and always
+		// returns the addressed word (no arbiter, no neighbor-slot hazard), so
+		// reproduce the old gate exactly: own the slot whenever the CPU has bus
+		// control, and always take the read (no coherency mismatch to guard).
+		.cpuSlotOwned(cpuBusControl),
+		.cpu_rd_take(1'b1),
 
 		.ps2_key(ps2_key),
 		.capslock(capslock),
@@ -1028,6 +1040,26 @@ module emu
 		.dout           ( ram_do_raw  ),
 		.debug_pc       ( last_fetch_pc )
 	);
+
+	// ── Reset-fetch tracer (why does the CPU boot into zeroed RAM?) ──────────
+	// Print the first N CPU bus cycles so the boot overlay + ROM-select decode
+	// and the resulting sim_ram address/data are visible. Enable with
+	// +resetfetch_debug. Fires on the real cpuBusControl grant (not idle AS=0
+	// samples). If overlay/selectROM are right but ram_do reads 0, the ROM
+	// isn't in sim_ram; if selectROM never asserts, the overlay decode input
+	// (memoryOverlayOn / configROMSize) is wrong.
+	integer rf_dbg_cnt = 0;
+	reg rf_bc_d = 1'b0;
+	always @(posedge clk_sys) begin
+		rf_bc_d <= cpuBusControl;
+		if ($test$plusargs("resetfetch_debug") && rf_dbg_cnt < 80 &&
+		    cpuBusControl && !_cpuAS && !dio_download) begin
+			$display("RF[%0d] cpuAddr=%08h memAddr=%06h selROM=%b selRAM=%b ovl=%b _romOE=%b _ramOE=%b ram_addr=%07h ram_do=%04h rw=%b cfgROM=%b cfgRAM=%b",
+				rf_dbg_cnt, cpuAddr, memoryAddr, selectROM, selectRAM, memoryOverlayOn,
+				_romOE, _ramOE, ram_addr, ram_do, _cpuRW, configROMSize, configRAMSize);
+			rf_dbg_cnt <= rf_dbg_cnt + 1;
+		end
+	end
 
 	// RAM debug outputs
 	assign debug_ram_addr = ram_addr;
