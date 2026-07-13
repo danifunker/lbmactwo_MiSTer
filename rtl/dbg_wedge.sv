@@ -500,6 +500,68 @@ module dbg_wedge (
 	reg [31:0] gv_lbar_d = 0;
 	reg [26:0] gv_wd = 0;
 	reg        gv_armed = 0, gv_frozen = 0;
+
+	// ---- call-history ring (2026-07-13) ---------------------------------------
+	// The give-up PC 0x6DD8 sits inside the driver's copy loop 1B96 — but 1B96
+	// has FIVE callers (185E in the partition classifier 1800, plus the "storm"
+	// parse-loop sites 1BF4/1C68/1C8E/1D18). A consecutive-IF trail inside a
+	// 3-instruction copy loop can never show WHICH one entered it, nor the outer
+	// loop's back-edge. This ring latches the last 8 driver JSR/BSR call-site PCs
+	// (bits [16:1] — lossless for driver code < 0x20000). Frozen with the give-up
+	// trail (gv_frozen). Newest entry chr0 = the immediate caller of whatever the
+	// CPU is executing at give-up; a repeating chr pattern = the non-terminating
+	// scan (its call sequence + back-edge). Gated to the driver PC window so ROM
+	// boot / memtest fetches can never seed it.
+	reg [15:0] chr0=0, chr1=0, chr2=0, chr3=0, chr4=0, chr5=0, chr6=0, chr7=0;
+	wire is_call_word = (if_word[15:6] == 10'b0100111010) ||  // JSR  0x4E80-0x4EBF
+	                    (if_word[15:8] == 8'h61);              // BSR  0x61xx
+
+	// ---- driver data-read ring + runaway-copy discriminator (2026-07-13b) -----
+	// Static disasm shows EVERY loop in the parse chain is bounded by constants —
+	// EXCEPT that copy 1B96 reads its length from the STACK (1BA6 move.l $10(a6),d7).
+	// If that stack word is corrupted (e.g. 0x22 landing in the high half ⇒
+	// d7=0x220000), ONE runaway RAM-to-RAM copy runs ~1-2s: no SCSI ops, no berr,
+	// no escapes, frozen PC in the copy — matching every observation. Two probes
+	// decide between "one runaway copy" and "outer loop calling small copies":
+	//  * ring of the last 4 DATA-space reads issued from the driver PC window
+	//    ({addr[16:1], data} each + full 32-bit addr of the newest) — a runaway
+	//    shows sequential addresses marching FAR from any 22-byte source field;
+	//  * saturating entry counters for copy 1B96 (abs 0x6DC4) and classifier 1800
+	//    (abs 0x6A2E): runaway ⇒ copy_calls stays small; poll-storm ⇒ 0xFF.
+	// All frozen with the give-up trail (gv_frozen), armed after first ROM init.
+	reg [15:0] drd0=0, drd1=0, drd2=0, drd3=0;        // cpu_din word per read
+	reg [15:0] dra_lo0=0, dra_lo1=0, dra_lo2=0, dra_lo3=0; // addr[16:1] per read
+	reg [31:0] dr_addr_full = 0;                       // full addr, newest entry
+	reg        dr_live = 0;
+	reg [15:0] dr_val_live = 0;
+	reg [31:0] dr_addr_live = 0;
+	reg [7:0]  copy_calls = 0;   // IF fetches of 1B96 entry (0x522E+0x1B96=0x6DC4)
+	reg [7:0]  cls_calls  = 0;   // IF fetches of 1800 entry (0x522E+0x1800=0x6A2E)
+	wire dr_window = (last_if_addr >= 32'h00005000 && last_if_addr < 32'h00007900);
+	always @(posedge clk) begin
+		// sample any DATA-space CPU read while AS low; commit at AS rise (the
+		// same settle-safe idiom as the $da6 watch above)
+		if (!cpuAS_n && cpuRW && (cpuFC == 3'b101 || cpuFC == 3'b001)) begin
+			dr_live      <= 1'b1;
+			dr_val_live  <= cpu_din;
+			dr_addr_live <= cpuAddr;
+		end
+		if (cpuAS_n && dr_live) begin
+			dr_live <= 1'b0;
+			if (!gv_frozen && sr2700_cnt != 8'd0 && dr_window) begin
+				drd0 <= dr_val_live;  drd1 <= drd0;  drd2 <= drd1;  drd3 <= drd2;
+				dra_lo0 <= dr_addr_live[16:1]; dra_lo1 <= dra_lo0;
+				dra_lo2 <= dra_lo1;            dra_lo3 <= dra_lo2;
+				dr_addr_full <= dr_addr_live;
+			end
+		end
+		if (if_event && !gv_frozen && sr2700_cnt != 8'd0) begin
+			if (cpuAddr[23:0] == 24'h006DC4 && copy_calls != 8'hFF)
+				copy_calls <= copy_calls + 8'd1;
+			if (cpuAddr[23:0] == 24'h006A2E && cls_calls != 8'hFF)
+				cls_calls <= cls_calls + 8'd1;
+		end
+	end
 	always @(posedge clk) begin
 		gv_lbar_d <= lbar0A;
 		// Gate the armer on the ROM actually running (first move #$2700,SR seen):
@@ -541,6 +603,15 @@ module dbg_wedge (
 			end
 			// (0x447E-specific capture retired 2026-07-12 — the reboot-cause
 			// catcher above supersedes it; op_prev/pc_prev feed exc_o/exc_pc.)
+			// call-history ring: push the call-site PC on any driver JSR/BSR.
+			// driver image = LBA64 x19 = 0x2600 bytes @ base 0x522E => [0x522E,0x782E);
+			// window [0x5000,0x7900) covers it whole with a little margin.
+			if (is_call_word && !gv_frozen && sr2700_cnt != 8'd0 &&
+			    last_if_addr >= 32'h00005000 && last_if_addr < 32'h00007900) begin
+				chr0 <= last_if_addr[16:1];
+				chr1 <= chr0; chr2 <= chr1; chr3 <= chr2;
+				chr4 <= chr3; chr5 <= chr4; chr6 <= chr5; chr7 <= chr6;
+			end
 			op_prev <= if_word;
 			gv_prev3 <= gv_prev2;
 			gv_prev2 <= pc_prev;
@@ -589,40 +660,47 @@ module dbg_wedge (
 			//  reason_or[3:0] (rst,busbusy,notmounted,nonidle), 4'd0}
 			// -> names WHY post-partmap selections never become dialogs.
 			4'd1:  prgr_r <= selfail0;
-			// src2 repurposed 2026-07-12l (was trail_pc2): LIVE bus handshake.
-			// During the ?-park this names the wedge: bsy stuck (bus never
-			// free) vs sel pulses unanswered vs mounted dropped.
-			4'd2:  prgr_r <= {16'd0, scsi_hs};
+			// src2 repurposed 2026-07-13b (was scsi_hs live handshake — the
+			// ?-park story is fully understood): FULL 32-bit bus address of the
+			// newest driver data-read ring entry (anchors src8/9/11/12's low
+			// 16-bit addresses; names the storming copy's live source pointer).
+			4'd2:  prgr_r <= dr_addr_full;
 			// src3/D/E/F repurposed 2026-07-12l (were sr_entry, last_vec_*):
 			// the give-up PC trail, frozen ~2s after the last read-ring change.
 			// src3 = {6'd0, gv_armed, gv_frozen, gv_pc0(newest IF PC)}.
 			4'd3:  prgr_r <= {6'd0, gv_armed, gv_frozen, gv_pc0};
-			// src4/5 + srcE/F repurposed 2026-07-12m (were pscw, cpu_reset_falls,
-			// giveup pc2/pc3): the v3.8 register-write ring — the last 8 host
-			// 5380 register writes {rs[2:0], val[7:0]} two per word, FROZEN at
-			// the 2nd bus reset = the boot-1 async give-up. The driver's dying
-			// words: what it programmed (ODR/MR.ARB/ICR) before the storm.
-			4'd4:  prgr_r <= wringA;   // entries [7],[6]
-			4'd5:  prgr_r <= wringB;   // entries [5],[4]
+			// src4/5 + srcE/F repurposed 2026-07-13 (were the v3.8 5380 reg-write
+			// ring wringA-D, already decoded 07-12p): the CALL-HISTORY ring — the
+			// last 8 driver JSR/BSR call-site PCs (bits [16:1], 2 per word, chr0 =
+			// newest), FROZEN with the give-up trail. Decode each 16-bit half back
+			// to a driver offset via (half<<1)-0x522E. chr0 = who called the code
+			// the CPU is stuck in at give-up; a repeating chr sequence = the
+			// non-terminating partition scan's loop + back-edge.
+			4'd4:  prgr_r <= {chr1, chr0};   // call ring: [1],[0] (0 = newest)
+			4'd5:  prgr_r <= {chr3, chr2};   // call ring: [3],[2]
 			// v2 catcher diagnostics (2026-07-12): arm/freeze visibility so a
 			// blind instrument can never masquerade as a null result again.
 			4'd6:  prgr_r <= {ff_armed, (sr2700_cnt != 8'd0), gx_frozen, 1'b0,
 			                  berr_inh_cnt[11:0], gx_cnt,
 			                  busrst_cnt[3:0], sr2700_cnt[3:0]};
-			4'd7:  prgr_r <= {gx_op_p, gx_v_p, 8'd0};   // previous-fault opcode+vec
-			// v3.17 (2026-07-12k): boot-1 read forensics — the LBA ring paired
-			// with the delivered-data XOR ring (lbar[n] <-> xorr[n], newest [0]).
-			// Compare xorr against a word-XOR of the same sectors in the mounted
-			// .hda: mismatch = SCSI delivery corrupted the data; match on a
-			// failing boot = bytes intact, fault is in RAM/parsing above SCSI.
-			4'd8:  prgr_r <= lbar0A;                    // read LBAs [1],[0]
-			4'd9:  prgr_r <= lbar0B;                    // read LBAs [3],[2]
-			4'd11: prgr_r <= xorr0A;                    // delivered XOR16 [1],[0]
-			4'd12: prgr_r <= xorr0B;                    // delivered XOR16 [3],[2]
+			4'd7:  prgr_r <= {gx_op_p, gx_v_p, cls_calls}; // prev-fault op+vec; low
+			                                            // byte = classifier-1800
+			                                            // entry count (sat FF)
+			// src8/9/11/12 repurposed 2026-07-13b (were lbar/xorr — both proven
+			// byte-perfect across 6+ boots, lbar0A still feeds the gv armer):
+			// the driver DATA-READ ring, newest [0]. Each = {addr[16:1], data16};
+			// full 32-bit addr of [0] on src2. A runaway copy reads as addr_lo
+			// stepping n,n,n+1,n+1,… far from any 22-byte source field.
+			4'd8:  prgr_r <= {dra_lo0, drd0};           // data-read ring [0] newest
+			4'd9:  prgr_r <= {dra_lo1, drd1};           // data-read ring [1]
+			4'd11: prgr_r <= {dra_lo2, drd2};           // data-read ring [2]
+			4'd12: prgr_r <= {dra_lo3, drd3};           // data-read ring [3]
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
-			4'd13: prgr_r <= {8'd0, gv_pc1};             // give-up trail: 1 back
-			4'd14: prgr_r <= wringC;                     // reg-write ring [3],[2]
-			4'd15: prgr_r <= wringD;                     // reg-write ring [1],[0]
+			4'd13: prgr_r <= {copy_calls, gv_pc1};       // give-up trail 1-back; top
+			                                            // byte = copy-1B96 entry
+			                                            // count (sat FF)
+			4'd14: prgr_r <= {chr5, chr4};               // call ring: [5],[4]
+			4'd15: prgr_r <= {chr7, chr6};               // call ring: [7],[6]
 			default: prgr_r <= 32'hC0DE0000;
 		endcase
 	end
