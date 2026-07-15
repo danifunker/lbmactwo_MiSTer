@@ -59,6 +59,7 @@ module dbg_wedge (
 
 	input  wire [15:0] cpu_din,         // CPU read-data bus (opcode capture for the init-entry detector)
 	input  wire [15:0] cpu_dout,        // CPU write-data bus (driver-region write snoop, 2026-07-13c)
+	input  wire        hmmu_act,        // hmmu_active: 1 = 24-bit mapping engaged (2026-07-15 v3)
 	input  wire [31:0] fpu_dbg_cir_state,
 
 	// ---- happy-mac-reboot differential inputs (2026-07-03; port of the
@@ -554,12 +555,18 @@ module dbg_wedge (
 	reg [15:0] wad0=0, wad1=0;   // addr[16:1] per write
 	reg [15:0] wdt0=0, wdt1=0;   // data word per write
 	reg [5:0]  wsn_cnt = 0;      // saturating count of post-exec driver-image writes
-	// copy-arg capture
-	reg [2:0]  ca_idx = 3'd7;    // 7 = idle; 0..5 = capturing word n
-	reg [15:0] ca_w0=0, ca_w1=0, ca_w2=0, ca_w3=0, ca_w4=0, ca_w5=0;
-	wire [31:0] cpa3 = {ca_w0, ca_w1};   // copy SRC  (read first,  1B9E $c(a6))
-	wire [31:0] cpa4 = {ca_w2, ca_w3};   // copy DST  (read second, 1BA2 $8(a6))
-	wire [31:0] cpd7 = {ca_w4, ca_w5};   // copy LEN  (read third,  1BA6 $10(a6))
+	// ---- v3 (2026-07-15c): the MMU-mode question -----------------------------
+	// The spray writer is the card DeclROM's gray-paint (base 0xFs00_0000,
+	// _SwapMMUMode(32-bit)-wrapped). Post-hmmu bus addr 0x522E for a paint at
+	// 0xFE000A00+ is exactly what 24-BIT masking produces ⇒ the paint must be
+	// running with hmmu_active=1 on the failing boot. Capture:
+	//  * hmmu_at_hit + writer FC + FULL writer PC at the FIRST in-image write;
+	//  * a 4-deep ring of hmmu_active TRANSITIONS as {is_high, pc[14:1], newval}
+	//    (frozen with gv) — shows the swap sequence and any ISR flipping it back.
+	reg        hmmu_d = 0;
+	reg [15:0] hxr0=0, hxr1=0, hxr2=0, hxr3=0;   // [15]=pc_is_high [14:1]=pc[14:1] [0]=new hmmu_act
+	reg [31:0] hit_ctx = 0;   // {hmmu_at_hit, 4'b0, fc[2:0], writer_pc[23:0]}
+	reg [2:0]  wr_fc_live = 0;
 	always @(posedge clk) begin
 		// driver-execution arm: first program fetch inside the driver image.
 		// All loader writes precede this (the ROM loads + checksums, THEN jsr's).
@@ -573,18 +580,12 @@ module dbg_wedge (
 		end
 		if (cpuAS_n && dr_live) begin
 			dr_live <= 1'b0;
-			// copy-arg capture: the 6 words the copy prologue pops off the frame
-			if (ca_idx != 3'd7) begin
-				case (ca_idx)
-					3'd0: ca_w0 <= dr_val_live;
-					3'd1: ca_w1 <= dr_val_live;
-					3'd2: ca_w2 <= dr_val_live;
-					3'd3: ca_w3 <= dr_val_live;
-					3'd4: ca_w4 <= dr_val_live;
-					default: ca_w5 <= dr_val_live;
-				endcase
-				ca_idx <= (ca_idx == 3'd5) ? 3'd7 : (ca_idx + 3'd1);
-			end
+		end
+		// hmmu_active transition ring (v3): {pc_is_high, pc[14:1], new value}
+		hmmu_d <= hmmu_act;
+		if (hmmu_act != hmmu_d && !gv_frozen && sr2700_cnt != 8'd0) begin
+			hxr0 <= {(|last_if_addr[23:15]), last_if_addr[14:1], hmmu_act};
+			hxr1 <= hxr0; hxr2 <= hxr1; hxr3 <= hxr2;
 		end
 		// CPU write sampler + driver-image snoop
 		if (!cpuAS_n && !cpuRW && (cpuFC == 3'b101 || cpuFC == 3'b001)) begin
@@ -592,6 +593,7 @@ module dbg_wedge (
 			wr_val_live  <= cpu_dout;
 			wr_addr_live <= cpuAddr;
 			wr_pc_live   <= last_if_addr[23:0];
+			wr_fc_live   <= cpuFC;
 		end
 		if (cpuAS_n && wr_live) begin
 			wr_live <= 1'b0;
@@ -604,6 +606,9 @@ module dbg_wedge (
 					wpc0 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
 					wad0 <= wr_addr_live[16:1];
 					wdt0 <= wr_val_live;
+					// v3: the MMU-mode verdict — was the 24-bit map engaged
+					// while the spray writer's first store completed?
+					hit_ctx <= {hmmu_act, 4'b0, wr_fc_live, wr_pc_live[23:0]};
 				end else if (wsn_cnt == 6'd1) begin
 					wpc1 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
 					wad1 <= wr_addr_live[16:1];
@@ -613,10 +618,8 @@ module dbg_wedge (
 			end
 		end
 		if (if_event && !gv_frozen && sr2700_cnt != 8'd0) begin
-			if (cpuAddr[23:0] == 24'h006DC4) begin
-				if (copy_calls != 8'hFF) copy_calls <= copy_calls + 8'd1;
-				ca_idx <= 3'd0;   // arm the 6-word arg capture (last entry wins)
-			end
+			if (cpuAddr[23:0] == 24'h006DC4 && copy_calls != 8'hFF)
+				copy_calls <= copy_calls + 8'd1;
 			if (cpuAddr[23:0] == 24'h006A2E && cls_calls != 8'hFF)
 				cls_calls <= cls_calls + 8'd1;
 		end
@@ -713,11 +716,12 @@ module dbg_wedge (
 	always @(posedge clk) begin
 		case (prgr_source)
 			4'd0:  prgr_r <= {busrst_cnt, sr2700_cnt, 15'd0, trail_frozen};
-			// src1/2 + src12 repurposed 2026-07-13c (were selfail0 / dr_addr_full /
-			// data-ring [3] — all decoded, see the forensics-v2 block): the
-			// COPY-ARG capture — the runaway copy's stack args at its LAST entry.
-			4'd1:  prgr_r <= cpa3;   // runaway copy SRC pointer (a3, $c(a6))
-			4'd2:  prgr_r <= cpd7;   // runaway copy LEN (d7, $10(a6))
+			// src1/2 + srcC repurposed 2026-07-15c (were the copy-arg capture —
+			// decoded: garbage regs, wandering entry): the MMU-mode probe.
+			// src1/2 = hmmu_active transition ring, newest [0]; each half =
+			// {pc_is_high(1), pc[14:1], new_value(1)}.
+			4'd1:  prgr_r <= {hxr1, hxr0};   // hmmu transitions [1],[0]
+			4'd2:  prgr_r <= {hxr3, hxr2};   // hmmu transitions [3],[2]
 			// src3 = {wsn_cnt[5:0], gv_armed, gv_frozen, gv_pc0(newest IF PC)};
 			// wsn_cnt = post-exec driver-image WRITE count (snoop; 0x3F = sat).
 			4'd3:  prgr_r <= {wsn_cnt, gv_armed, gv_frozen, gv_pc0};
@@ -747,7 +751,10 @@ module dbg_wedge (
 			4'd8:  prgr_r <= {wpc1, wpc0};              // snoop writer PCs [2nd],[1st]
 			4'd9:  prgr_r <= {wad1, wad0};              // snoop addr[16:1]  [2nd],[1st]
 			4'd11: prgr_r <= {wdt1, wdt0};              // snoop data words  [2nd],[1st]
-			4'd12: prgr_r <= cpa4;   // runaway copy DST pointer (a4, $8(a6))
+			// srcC = first-spray-hit context: {hmmu_at_hit(1), 4'b0, fc(3),
+			// writer_pc[23:0]}. hmmu_at_hit=1 ⇒ the paint ran in 24-BIT mode
+			// (0xFE000A00+ masked to low RAM = the whole corruption).
+			4'd12: prgr_r <= hit_ctx;
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
 			4'd13: prgr_r <= {copy_calls, gv_pc1};       // give-up trail 1-back; top
 			                                            // byte = copy-1B96 entry

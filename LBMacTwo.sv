@@ -2010,6 +2010,7 @@ dbg_wedge dbg_wedge_inst (
 	.mac_dout_valid   (cpu_sdram_rd_done),
 	.cpu_din          (cpu_data_in),
 	.cpu_dout         (cpuDataOut),
+	.hmmu_act         (hmmu_active),
 	.fpu_dbg_cir_state(fpu_dbg_cir_state),
 	// happy-mac-reboot differential (2026-07-03; MacLCii PRC0/PRT/PSCW port)
 	.dbg_ncr2         (dbg_ncr2),
