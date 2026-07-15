@@ -149,6 +149,7 @@ bool heapspray_debug_enable = false;
 int heapspray_debug_count = 0;
 const int heapspray_debug_max = 6000;
 bool heapspray_prev_write_valid = false;
+bool heapspray_asc_prev_write_valid = false;
 bool bootmask_once_debug_enable = false;
 bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
@@ -1271,6 +1272,23 @@ int verilate() {
 						fprintf(stderr, "HEAPSPRAY cap reached\n");
 				}
 			}
+			// ASC-mode tracer (2026-07-15): log CPU writes to the ASC mode
+			// register ($50F14801) so we can tell FIFO(1) vs wavetable(2) for
+			// the boot chime. Gated under heapspray_debug to reuse the flag.
+			if (heapspray_debug_enable && !*bus.ioctl_download) {
+				bool cw = VERTOPINTERN->debug_write_valid &&
+				          !heapspray_asc_prev_write_valid;
+				uint32_t wa = VERTOPINTERN->debug_write_addr & 0x1FFFFF;
+				if (cw && (wa == 0x114801 || wa == 0x114803 ||
+				           (wa >= 0x114000 && wa <= 0x1147FF && (wa & 0x7F) == 0))) {
+					fprintf(stderr, "ASCWR frame=%d pc=%08X addr=%08X data=%04X\n",
+						video.count_frame, VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_write_addr,
+						VERTOPINTERN->debug_write_data);
+				}
+			}
+			heapspray_asc_prev_write_valid = VERTOPINTERN->debug_write_valid;
+
 			heapspray_prev_write_valid = VERTOPINTERN->debug_write_valid;
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
