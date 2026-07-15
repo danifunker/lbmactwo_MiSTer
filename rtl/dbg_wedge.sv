@@ -565,7 +565,8 @@ module dbg_wedge (
 	//    (frozen with gv) — shows the swap sequence and any ISR flipping it back.
 	reg        hmmu_d = 0;
 	reg [15:0] hxr0=0, hxr1=0, hxr2=0, hxr3=0;   // [15]=pc_is_high [14:1]=pc[14:1] [0]=new hmmu_act
-	reg [31:0] hit_ctx = 0;   // {hmmu_at_hit, 4'b0, fc[2:0], writer_pc[23:0]}
+	reg [31:0] hit_ctx = 0;   // v4: {hmmu_at_hit, addr[31:25], writer_pc[23:0]}
+	reg        hit_seen = 0;
 	reg [2:0]  wr_fc_live = 0;
 	always @(posedge clk) begin
 		// driver-execution arm: first program fetch inside the driver image.
@@ -599,22 +600,31 @@ module dbg_wedge (
 			wr_live <= 1'b0;
 			if (drv_exec && !gv_frozen &&
 			    wr_addr_live[23:0] >= 24'h00522E && wr_addr_live[23:0] < 24'h00782E) begin
-				// FIRST-wins: slot 0 = the very first post-exec in-image write
-				// (the original sin), slot 1 = the second. Later writes only
-				// bump the counter.
-				if (wsn_cnt == 6'd0) begin
-					wpc0 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
-					wad0 <= wr_addr_live[16:1];
-					wdt0 <= wr_val_live;
-					// v3: the MMU-mode verdict — was the 24-bit map engaged
-					// while the spray writer's first store completed?
-					hit_ctx <= {hmmu_act, 4'b0, wr_fc_live, wr_pc_live[23:0]};
-				end else if (wsn_cnt == 6'd1) begin
-					wpc1 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
-					wad1 <= wr_addr_live[16:1];
-					wdt1 <= wr_val_live;
+				// v4 (2026-07-15d): the v3 capture matched on addr[23:0] only —
+				// ambiguous between a true RAM write (0x0000522E) and the
+				// driver's slot-0 paint at 0xF000522E (undecoded space whose
+				// writes DTACK-and-DROP via the raw [23:21] ack, berr_inh=0 ✓).
+				// hit_ctx now records addr[31:25] of the FIRST masked-window
+				// write (any space) = the F0-vs-RAM verdict for the paint;
+				// the first-wins slots + wsn_cnt are gated to TRUE RAM writes
+				// (addr[31:24]==0) = the writer that actually corrupts the
+				// driver image.
+				if (!hit_seen) begin
+					hit_seen <= 1'b1;
+					hit_ctx  <= {hmmu_act, wr_addr_live[31:25], wr_pc_live[23:0]};
 				end
-				if (wsn_cnt != 6'h3F) wsn_cnt <= wsn_cnt + 6'd1;
+				if (wr_addr_live[31:24] == 8'h00) begin
+					if (wsn_cnt == 6'd0) begin
+						wpc0 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
+						wad0 <= wr_addr_live[16:1];
+						wdt0 <= wr_val_live;
+					end else if (wsn_cnt == 6'd1) begin
+						wpc1 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
+						wad1 <= wr_addr_live[16:1];
+						wdt1 <= wr_val_live;
+					end
+					if (wsn_cnt != 6'h3F) wsn_cnt <= wsn_cnt + 6'd1;
+				end
 			end
 		end
 		if (if_event && !gv_frozen && sr2700_cnt != 8'd0) begin
@@ -751,9 +761,10 @@ module dbg_wedge (
 			4'd8:  prgr_r <= {wpc1, wpc0};              // snoop writer PCs [2nd],[1st]
 			4'd9:  prgr_r <= {wad1, wad0};              // snoop addr[16:1]  [2nd],[1st]
 			4'd11: prgr_r <= {wdt1, wdt0};              // snoop data words  [2nd],[1st]
-			// srcC = first-spray-hit context: {hmmu_at_hit(1), 4'b0, fc(3),
-			// writer_pc[23:0]}. hmmu_at_hit=1 ⇒ the paint ran in 24-BIT mode
-			// (0xFE000A00+ masked to low RAM = the whole corruption).
+			// srcC = first masked-window write context (v4):
+			// {hmmu_at_hit(1), addr[31:25](7), writer_pc[23:0]}.
+			// addr[31:25]=1111000_ ⇒ the slot-0 paint at 0xF000xxxx (dropped
+			// writes); =0 ⇒ a true RAM write.
 			4'd12: prgr_r <= hit_ctx;
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
 			4'd13: prgr_r <= {copy_calls, gv_pc1};       // give-up trail 1-back; top
