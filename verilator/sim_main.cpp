@@ -3437,7 +3437,7 @@ static void maybe_print_frame_probe() {
 	                uint32_t(VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6]);
 	uint32_t pc = VERTOPINTERN->debug_pc;
 	fprintf(stderr, "FRAME_PROBE frame=%d time=%llu tick016A=%08X pc=%08X op=%04X region=%s "
-	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X\n",
+	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X MMUType=%02X MMU32=%02X\n",
 	        video.count_frame,
 	        (unsigned long long)main_time,
 	        tick,
@@ -3448,7 +3448,9 @@ static void maybe_print_frame_probe() {
 	        tg68_reg(5),
 	        tg68_reg(6),
 	        tg68_reg(8),
-	        tg68_reg(11));
+	        tg68_reg(11),
+	        ram_byte(0x0CB1),   // MMUType — 0 makes _SwapMMUMode a NO-OP
+	        ram_byte(0x0CB2));  // MMU32Bit flag
 	fflush(stderr);
 }
 
