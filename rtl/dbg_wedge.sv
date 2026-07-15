@@ -598,17 +598,16 @@ module dbg_wedge (
 		end
 		if (cpuAS_n && wr_live) begin
 			wr_live <= 1'b0;
-			// v6 (2026-07-15f): v5 dissolved — the 0xEA48/[0xE000,0xF800)
-			// region is the ROM's LEGIT RAM-resident boot workspace (first
-			// write = ptr 0x00004AE8 stored at 0xE2F4 by in-region code at
-			// 0xE6EA, 24-bit, early). The remaining hard corruption evidence
-			// is the alias CALL-WORDS fetched at driver CODE offsets. This
-			// build watches ONE known-corrupted code word: abs 0x60EC
-			// (driver+0x0EBE, file word 0x2A2B, fetched as a jsr/bsr alias).
-			// NOTHING legitimately writes mid-code — any hit is the corruptor.
-			// First-wins {pc,addr,data} x2 + count, true-RAM gated, armed from
-			// first ROM init.
-			if (!gv_frozen && sr2700_cnt != 8'd0 &&
+			// v7 (2026-07-15g): v6 (armed from sr2700) flooded with LEGIT
+			// pre-driver usage — 0x5xxx-0x7xxx is boot scratch before the
+			// loader claims it (15 writes incl. PC 0xF008 workspace scratch
+			// and the loader's own file-word store). Arm at drv_exec instead:
+			// the image is complete+checksummed by first driver instruction,
+			// so ANY later write to the code word 0x60EC is the corruptor
+			// (a re-copy would write the file word 0x2A2B; an alias-pattern
+			// value names the corruption directly). count=0 with corrupted
+			// fetches ⇒ NOT a CPU bus write ⇒ SDRAM write-path internal.
+			if (drv_exec && !gv_frozen &&
 			    wr_addr_live[31:24] == 8'h00 &&
 			    wr_addr_live[23:0] >= 24'h0060EC && wr_addr_live[23:0] < 24'h0060EE) begin
 				if (!hit_seen) begin
