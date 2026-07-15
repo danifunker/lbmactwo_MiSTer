@@ -1246,6 +1246,33 @@ int verilate() {
 				}
 			}
 
+			// Heap-spray watch (2026-07-15, relocated): must run EVERY tick —
+			// write_valid pulses on WRITE AS-rises, which never coincide with
+			// fetch ticks, so inside the fetch_valid gate it can never fire.
+			if (heapspray_debug_enable && !*bus.ioctl_download &&
+			    heapspray_debug_count < heapspray_debug_max) {
+				bool completed_write = VERTOPINTERN->debug_write_valid &&
+				                       !heapspray_prev_write_valid;
+				// debug_write_addr = RAW pre-hmmu tg68_a; mask to 24-bit
+				// significance (flagged MM pointers carry high bytes)
+				uint32_t waddr = VERTOPINTERN->debug_write_addr & 0xFFFFFF;
+				if (completed_write &&
+				    waddr >= 0x60D0 && waddr < 0x6120) {
+					fprintf(stderr,
+						"HEAPSPRAY frame=%d pc=%08X addr=%08X raw=%08X data=%04X "
+						"SP=%08X RET=%08X A4=%08X A5=%08X D6=%08X\n",
+						video.count_frame, VERTOPINTERN->debug_pc, waddr,
+						VERTOPINTERN->debug_write_addr,
+						VERTOPINTERN->debug_write_data,
+						tg68_reg(15), ram_long(tg68_reg(15) & 0x7FFFFF),
+						tg68_reg(12), tg68_reg(13), tg68_reg(6));
+					heapspray_debug_count++;
+					if (heapspray_debug_count == heapspray_debug_max)
+						fprintf(stderr, "HEAPSPRAY cap reached\n");
+				}
+			}
+			heapspray_prev_write_valid = VERTOPINTERN->debug_write_valid;
+
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
 				if (scsi_stall_history_enable && !scsi_stall_dumped) {
@@ -1375,28 +1402,6 @@ int verilate() {
 						lowmem_bit_debug_count++;
 					}
 				}
-				// Heap-spray watch: completed CPU writes into [0x2000,0x8000)
-				// from RAM-resident code (writer PC also below 0x8000). The
-				// FPGA capture shows the slot-probe helper (~PC 0x3250)
-				// spraying AAAA/5555 over the driver image at 0x522E+.
-				if (heapspray_debug_enable &&
-				    heapspray_debug_count < heapspray_debug_max) {
-					bool completed_write = VERTOPINTERN->debug_write_valid &&
-					                       !heapspray_prev_write_valid;
-					uint32_t waddr = VERTOPINTERN->debug_write_addr;
-					if (completed_write &&
-					    waddr >= 0x2000 && waddr < 0x8000 &&
-					    pc < 0x8000) {
-						fprintf(stderr,
-							"HEAPSPRAY frame=%d pc=%08X addr=%08X data=%04X\n",
-							video.count_frame, pc, waddr,
-							VERTOPINTERN->debug_write_data);
-						heapspray_debug_count++;
-						if (heapspray_debug_count == heapspray_debug_max)
-							fprintf(stderr, "HEAPSPRAY cap reached\n");
-					}
-				}
-				heapspray_prev_write_valid = VERTOPINTERN->debug_write_valid;
 				lowmem_bit_debug_prev_write_valid = VERTOPINTERN->debug_write_valid;
 				if (wait_debug_enable &&
 				    video.count_frame >= wait_debug_min_frame &&
@@ -3957,6 +3962,21 @@ int main(int argc, char** argv, char** env) {
 			}
 
 			if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
+				{
+					// LBMacTwo forensics: dump the ROM's RAM-glue region at exit
+					// (headless path twin of the GUI-loop dump).
+					FILE* gd = fopen("ramglue_1e00_f800.bin", "wb");
+					if (gd) {
+						for (uint32_t a = 0x1E00; a < 0xF800; a += 2) {
+							uint16_t w = ram_word(a);
+							uint8_t hi = w >> 8, lo = w & 0xFF;
+							fwrite(&hi, 1, 1, gd);
+							fwrite(&lo, 1, 1, gd);
+						}
+						fclose(gd);
+						printf("RAM glue dump written: ramglue_1e00_f800.bin\n");
+					}
+				}
 				if (took_screenshot_this_frame) {
 					printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
 						stop_at_frame,
@@ -4192,6 +4212,22 @@ int main(int argc, char** argv, char** env) {
 
 		// Check if we should stop at this frame
 		if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
+			{
+				// LBMacTwo forensics (2026-07-15): dump the ROM's RAM-resident
+				// glue region [0xE000,0xF800) at exit — identifies the code at
+				// the real-RAM corruptor PC 0xEA48 seen by the HW snoop.
+				FILE* gd = fopen("ramglue_1e00_f800.bin", "wb");
+				if (gd) {
+					for (uint32_t a = 0x1E00; a < 0xF800; a += 2) {
+						uint16_t w = ram_word(a);
+						uint8_t hi = w >> 8, lo = w & 0xFF;
+						fwrite(&hi, 1, 1, gd);
+						fwrite(&lo, 1, 1, gd);
+					}
+					fclose(gd);
+					printf("RAM glue dump written: ramglue_1e00_f800.bin\n");
+				}
+			}
 			if (took_screenshot_this_frame) {
 				printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
 					stop_at_frame,
