@@ -141,6 +141,14 @@ bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 bool iwm_state_debug_enable = false;
 bool boot_decision_debug_enable = false;
+// Heap-spray watch (2026-07-15, LBMacTwo driver-corruption forensics): log
+// completed CPU writes into low RAM [0x2000,0x8000) issued by RAM-resident
+// code (PC in the same window) — the Slot Manager's RAM-copied VRAM-sizing
+// probe writes AAAA/5555 there on the FPGA, killing the on-disk driver image.
+bool heapspray_debug_enable = false;
+int heapspray_debug_count = 0;
+const int heapspray_debug_max = 6000;
+bool heapspray_prev_write_valid = false;
 bool bootmask_once_debug_enable = false;
 bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
@@ -1367,6 +1375,28 @@ int verilate() {
 						lowmem_bit_debug_count++;
 					}
 				}
+				// Heap-spray watch: completed CPU writes into [0x2000,0x8000)
+				// from RAM-resident code (writer PC also below 0x8000). The
+				// FPGA capture shows the slot-probe helper (~PC 0x3250)
+				// spraying AAAA/5555 over the driver image at 0x522E+.
+				if (heapspray_debug_enable &&
+				    heapspray_debug_count < heapspray_debug_max) {
+					bool completed_write = VERTOPINTERN->debug_write_valid &&
+					                       !heapspray_prev_write_valid;
+					uint32_t waddr = VERTOPINTERN->debug_write_addr;
+					if (completed_write &&
+					    waddr >= 0x2000 && waddr < 0x8000 &&
+					    pc < 0x8000) {
+						fprintf(stderr,
+							"HEAPSPRAY frame=%d pc=%08X addr=%08X data=%04X\n",
+							video.count_frame, pc, waddr,
+							VERTOPINTERN->debug_write_data);
+						heapspray_debug_count++;
+						if (heapspray_debug_count == heapspray_debug_max)
+							fprintf(stderr, "HEAPSPRAY cap reached\n");
+					}
+				}
+				heapspray_prev_write_valid = VERTOPINTERN->debug_write_valid;
 				lowmem_bit_debug_prev_write_valid = VERTOPINTERN->debug_write_valid;
 				if (wait_debug_enable &&
 				    video.count_frame >= wait_debug_min_frame &&
@@ -3531,6 +3561,8 @@ int main(int argc, char** argv, char** env) {
 			iwm_debug_min_frame = atoi(argv[++i]);
 		} else if (strcmp(argv[i], "--iwm-state-debug") == 0) {
 			iwm_state_debug_enable = true;
+		} else if (strcmp(argv[i], "--heapspray-debug") == 0) {
+			heapspray_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug") == 0) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
