@@ -598,18 +598,19 @@ module dbg_wedge (
 		end
 		if (cpuAS_n && wr_live) begin
 			wr_live <= 1'b0;
-			// v5 (2026-07-15e): the v4 verdicts — the AAAA/5555 "spray" was the
-			// HEALTHY slot-E VRAM paint (0xFE00xxxx aliased into the [23:0]
-			// window); the real corruptor = code EXECUTING at RAM ~0xEA48
-			// (empty on Snow-disk AND sim-diskless boots — populated only on
-			// our failing boot) which stored long 0x0000000C at 0x55F4
-			// (driver+0x3C6). This build asks WHO populates that block:
-			// first-wins {pc,addr,data} of true-RAM writes into
-			// [0xE000,0xF800), armed from first ROM init (sr2700, NOT
-			// drv_exec — the block may be written pre-driver).
+			// v6 (2026-07-15f): v5 dissolved — the 0xEA48/[0xE000,0xF800)
+			// region is the ROM's LEGIT RAM-resident boot workspace (first
+			// write = ptr 0x00004AE8 stored at 0xE2F4 by in-region code at
+			// 0xE6EA, 24-bit, early). The remaining hard corruption evidence
+			// is the alias CALL-WORDS fetched at driver CODE offsets. This
+			// build watches ONE known-corrupted code word: abs 0x60EC
+			// (driver+0x0EBE, file word 0x2A2B, fetched as a jsr/bsr alias).
+			// NOTHING legitimately writes mid-code — any hit is the corruptor.
+			// First-wins {pc,addr,data} x2 + count, true-RAM gated, armed from
+			// first ROM init.
 			if (!gv_frozen && sr2700_cnt != 8'd0 &&
 			    wr_addr_live[31:24] == 8'h00 &&
-			    wr_addr_live[23:0] >= 24'h00E000 && wr_addr_live[23:0] < 24'h00F800) begin
+			    wr_addr_live[23:0] >= 24'h0060EC && wr_addr_live[23:0] < 24'h0060EE) begin
 				if (!hit_seen) begin
 					hit_seen <= 1'b1;
 					hit_ctx  <= {hmmu_act, wr_addr_live[31:25], wr_pc_live[23:0]};
