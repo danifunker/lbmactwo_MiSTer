@@ -598,33 +598,32 @@ module dbg_wedge (
 		end
 		if (cpuAS_n && wr_live) begin
 			wr_live <= 1'b0;
-			if (drv_exec && !gv_frozen &&
-			    wr_addr_live[23:0] >= 24'h00522E && wr_addr_live[23:0] < 24'h00782E) begin
-				// v4 (2026-07-15d): the v3 capture matched on addr[23:0] only —
-				// ambiguous between a true RAM write (0x0000522E) and the
-				// driver's slot-0 paint at 0xF000522E (undecoded space whose
-				// writes DTACK-and-DROP via the raw [23:21] ack, berr_inh=0 ✓).
-				// hit_ctx now records addr[31:25] of the FIRST masked-window
-				// write (any space) = the F0-vs-RAM verdict for the paint;
-				// the first-wins slots + wsn_cnt are gated to TRUE RAM writes
-				// (addr[31:24]==0) = the writer that actually corrupts the
-				// driver image.
+			// v5 (2026-07-15e): the v4 verdicts — the AAAA/5555 "spray" was the
+			// HEALTHY slot-E VRAM paint (0xFE00xxxx aliased into the [23:0]
+			// window); the real corruptor = code EXECUTING at RAM ~0xEA48
+			// (empty on Snow-disk AND sim-diskless boots — populated only on
+			// our failing boot) which stored long 0x0000000C at 0x55F4
+			// (driver+0x3C6). This build asks WHO populates that block:
+			// first-wins {pc,addr,data} of true-RAM writes into
+			// [0xE000,0xF800), armed from first ROM init (sr2700, NOT
+			// drv_exec — the block may be written pre-driver).
+			if (!gv_frozen && sr2700_cnt != 8'd0 &&
+			    wr_addr_live[31:24] == 8'h00 &&
+			    wr_addr_live[23:0] >= 24'h00E000 && wr_addr_live[23:0] < 24'h00F800) begin
 				if (!hit_seen) begin
 					hit_seen <= 1'b1;
 					hit_ctx  <= {hmmu_act, wr_addr_live[31:25], wr_pc_live[23:0]};
 				end
-				if (wr_addr_live[31:24] == 8'h00) begin
-					if (wsn_cnt == 6'd0) begin
-						wpc0 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
-						wad0 <= wr_addr_live[16:1];
-						wdt0 <= wr_val_live;
-					end else if (wsn_cnt == 6'd1) begin
-						wpc1 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
-						wad1 <= wr_addr_live[16:1];
-						wdt1 <= wr_val_live;
-					end
-					if (wsn_cnt != 6'h3F) wsn_cnt <= wsn_cnt + 6'd1;
+				if (wsn_cnt == 6'd0) begin
+					wpc0 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
+					wad0 <= wr_addr_live[16:1];
+					wdt0 <= wr_val_live;
+				end else if (wsn_cnt == 6'd1) begin
+					wpc1 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
+					wad1 <= wr_addr_live[16:1];
+					wdt1 <= wr_val_live;
 				end
+				if (wsn_cnt != 6'h3F) wsn_cnt <= wsn_cnt + 6'd1;
 			end
 		end
 		if (if_event && !gv_frozen && sr2700_cnt != 8'd0) begin
