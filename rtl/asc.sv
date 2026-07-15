@@ -65,16 +65,6 @@ module asc(
 	reg [7:0] asc_control;     // $802 - CONTROL: bit1=stereo
 	reg [7:0] asc_fifo_mode;   // $803 - FIFO_MODE: bit7=clear FIFOs
 	reg [7:0] asc_fifo_irq;    // $804 - FIFO_IRQ_STATUS (read clears)
-	// Boot-chime completion (2026-07-15): while the FIFO stays fully drained,
-	// MacOS leaves FIFO mode on and polls $804 for a PERIODIC empty IRQ to
-	// advance its sound-completion state. We used to assert the empty bit once
-	// (at count==1) and never again, so the boot Sound Driver's service loop
-	// never terminated — its synthesis buffer (RAM 0x60D0-0x6F50) stayed live
-	// and the .ASYC disk driver loaded on top of it was corrupted mid-boot
-	// (the ?-park). Re-pulse empty+half once every 1024 empty sample-ticks
-	// (Snow's empty_cycles model — too many IRQs would freeze the system,
-	// too few hang it). Mirrors snow core/src/mac/asc.rs sample_fifo().
-	reg [10:0] fifo_empty_cycles; // counts down 1024..0 while both FIFOs empty
 	reg [7:0] asc_wt_control;  // $805 - WAVETABLE_CONTROL
 	reg [7:0] asc_volume;      // $806 - VOLUME
 	reg [7:0] asc_clock_rate;  // $807 - CLOCK_RATE: 0=22,257Hz, non-zero=11,127Hz
@@ -350,7 +340,6 @@ module asc(
 			fifo_b_count <= 0;
 			fifo_last_l <= 0;
 			fifo_last_r <= 0;
-			fifo_empty_cycles <= 0;
 			audio_left <= 0;
 			audio_right <= 0;
 			byte_write_pending <= 0;
@@ -473,24 +462,6 @@ module asc(
 				if (fifo_a_count == 11'd1)   asc_fifo_irq[1] <= 1'b1;
 				if (ctrl_stereo && fifo_b_count == 11'd512) asc_fifo_irq[2] <= 1'b1;
 				if (ctrl_stereo && fifo_b_count == 11'd1)   asc_fifo_irq[3] <= 1'b1;
-
-				// Drained-and-empty: re-pulse the empty/half status once every
-				// 1024 empty sample-ticks so a chime that leaves FIFO mode on
-				// keeps getting its completion IRQ (see fifo_empty_cycles note).
-				if (fifo_a_count == 11'd0 &&
-				    (!ctrl_stereo || fifo_b_count == 11'd0)) begin
-					if (fifo_empty_cycles == 11'd0) begin
-						asc_fifo_irq[0] <= 1'b1;
-						asc_fifo_irq[1] <= 1'b1;
-						if (ctrl_stereo) begin
-							asc_fifo_irq[2] <= 1'b1;
-							asc_fifo_irq[3] <= 1'b1;
-						end
-						fifo_empty_cycles <= 11'd1023;
-					end else
-						fifo_empty_cycles <= fifo_empty_cycles - 11'd1;
-				end else
-					fifo_empty_cycles <= 11'd0;
 			end
 
 			// ----------------------------------------------------------
