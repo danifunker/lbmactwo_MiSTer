@@ -58,6 +58,7 @@ module dbg_wedge (
 	input  wire        mac_dout_valid,  // cpu_sdram_rd_done
 
 	input  wire [15:0] cpu_din,         // CPU read-data bus (opcode capture for the init-entry detector)
+	input  wire [15:0] cpu_dout,        // CPU write-data bus (driver-region write snoop, 2026-07-13c)
 	input  wire [31:0] fpu_dbg_cir_state,
 
 	// ---- happy-mac-reboot differential inputs (2026-07-03; port of the
@@ -516,48 +517,106 @@ module dbg_wedge (
 	wire is_call_word = (if_word[15:6] == 10'b0100111010) ||  // JSR  0x4E80-0x4EBF
 	                    (if_word[15:8] == 8'h61);              // BSR  0x61xx
 
-	// ---- driver data-read ring + runaway-copy discriminator (2026-07-13b) -----
-	// Static disasm shows EVERY loop in the parse chain is bounded by constants —
-	// EXCEPT that copy 1B96 reads its length from the STACK (1BA6 move.l $10(a6),d7).
-	// If that stack word is corrupted (e.g. 0x22 landing in the high half ⇒
-	// d7=0x220000), ONE runaway RAM-to-RAM copy runs ~1-2s: no SCSI ops, no berr,
-	// no escapes, frozen PC in the copy — matching every observation. Two probes
-	// decide between "one runaway copy" and "outer loop calling small copies":
-	//  * ring of the last 4 DATA-space reads issued from the driver PC window
-	//    ({addr[16:1], data} each + full 32-bit addr of the newest) — a runaway
-	//    shows sequential addresses marching FAR from any 22-byte source field;
-	//  * saturating entry counters for copy 1B96 (abs 0x6DC4) and classifier 1800
-	//    (abs 0x6A2E): runaway ⇒ copy_calls stays small; poll-storm ⇒ 0xFF.
-	// All frozen with the give-up trail (gv_frozen), armed after first ROM init.
-	reg [15:0] drd0=0, drd1=0, drd2=0, drd3=0;        // cpu_din word per read
-	reg [15:0] dra_lo0=0, dra_lo1=0, dra_lo2=0, dra_lo3=0; // addr[16:1] per read
-	reg [31:0] dr_addr_full = 0;                       // full addr, newest entry
+	// ---- runaway-copy forensics v2 (2026-07-13c) -------------------------------
+	// v1 (data-read ring, decoded 07-13) PROVED: copy_calls=2 / cls_calls=3 (no
+	// poll storm — ONE copy invocation never terminates), the copy's source
+	// marches up the STACK (0x3FFB94..9A) with stride 2 (word reads — the static
+	// 1BAC is a BYTE copy 0x18DB), and the call ring held 8 jsr/bsr-pattern words
+	// fetched at driver offsets whose FILE words are NOT calls (0x0AC6/0x0DF8/
+	// 0x0EBE/0x1380). Both instruments agree: the driver CODE IMAGE IN RAM is
+	// corrupted (delivery was xorr-proven byte-perfect and the ROM's pmBootCksum
+	// re-verified the RAM image THIS boot — the driver ran — so corruption strikes
+	// DURING driver execution). Two v2 probes discriminate the corruption channel:
+	//  * WRITE SNOOP (FIRST-wins): after the driver starts executing (first IF
+	//    in its image), capture the FIRST 2 bus-visible CPU writes into
+	//    [0x522E,0x782E) as {writer PC, addr[16:1], data} + a saturating count.
+	//    First-wins because the runaway copy may spray the image with thousands
+	//    of downstream writes — the FIRST write is the original sin. The video
+	//    arbiter port is tied off (VRAM = dedicated BRAM), so the CPU is the
+	//    ONLY SDRAM writer: count=0 with corruption present ⇒ no bus write ever
+	//    targeted the image ⇒ SDRAM-electrical / address-path-internal only.
+	//  * COPY-ARG CAPTURE: on each copy entry (IF at 0x6DC4) latch the six
+	//    stack-arg words the prologue reads (1B9E src, 1BA2 dst, 1BA6 len) —
+	//    last-wins = the runaway instance. Names the garbage src/dst/len exactly:
+	//    dst shows WHAT the runaway is trashing; len tells whether the stack arg
+	//    itself was corrupted.
 	reg        dr_live = 0;
 	reg [15:0] dr_val_live = 0;
-	reg [31:0] dr_addr_live = 0;
 	reg [7:0]  copy_calls = 0;   // IF fetches of 1B96 entry (0x522E+0x1B96=0x6DC4)
 	reg [7:0]  cls_calls  = 0;   // IF fetches of 1800 entry (0x522E+0x1800=0x6A2E)
-	wire dr_window = (last_if_addr >= 32'h00005000 && last_if_addr < 32'h00007900);
+	// write snoop
+	reg        drv_exec = 0;     // driver image has begun executing
+	reg        wr_live = 0;
+	reg [15:0] wr_val_live = 0;
+	reg [31:0] wr_addr_live = 0;
+	reg [23:0] wr_pc_live = 0;
+	reg [15:0] wpc0=0, wpc1=0;   // {pc_is_high, pc[15:1]} per write (flag ⇒ ROM/high PC)
+	reg [15:0] wad0=0, wad1=0;   // addr[16:1] per write
+	reg [15:0] wdt0=0, wdt1=0;   // data word per write
+	reg [5:0]  wsn_cnt = 0;      // saturating count of post-exec driver-image writes
+	// copy-arg capture
+	reg [2:0]  ca_idx = 3'd7;    // 7 = idle; 0..5 = capturing word n
+	reg [15:0] ca_w0=0, ca_w1=0, ca_w2=0, ca_w3=0, ca_w4=0, ca_w5=0;
+	wire [31:0] cpa3 = {ca_w0, ca_w1};   // copy SRC  (read first,  1B9E $c(a6))
+	wire [31:0] cpa4 = {ca_w2, ca_w3};   // copy DST  (read second, 1BA2 $8(a6))
+	wire [31:0] cpd7 = {ca_w4, ca_w5};   // copy LEN  (read third,  1BA6 $10(a6))
 	always @(posedge clk) begin
-		// sample any DATA-space CPU read while AS low; commit at AS rise (the
-		// same settle-safe idiom as the $da6 watch above)
+		// driver-execution arm: first program fetch inside the driver image.
+		// All loader writes precede this (the ROM loads + checksums, THEN jsr's).
+		if (if_event && sr2700_cnt != 8'd0 &&
+		    cpuAddr[23:0] >= 24'h00522E && cpuAddr[23:0] < 24'h00782E)
+			drv_exec <= 1'b1;
+		// data-read sampler (settle-safe commit idiom, as the $da6 watch above)
 		if (!cpuAS_n && cpuRW && (cpuFC == 3'b101 || cpuFC == 3'b001)) begin
 			dr_live      <= 1'b1;
 			dr_val_live  <= cpu_din;
-			dr_addr_live <= cpuAddr;
 		end
 		if (cpuAS_n && dr_live) begin
 			dr_live <= 1'b0;
-			if (!gv_frozen && sr2700_cnt != 8'd0 && dr_window) begin
-				drd0 <= dr_val_live;  drd1 <= drd0;  drd2 <= drd1;  drd3 <= drd2;
-				dra_lo0 <= dr_addr_live[16:1]; dra_lo1 <= dra_lo0;
-				dra_lo2 <= dra_lo1;            dra_lo3 <= dra_lo2;
-				dr_addr_full <= dr_addr_live;
+			// copy-arg capture: the 6 words the copy prologue pops off the frame
+			if (ca_idx != 3'd7) begin
+				case (ca_idx)
+					3'd0: ca_w0 <= dr_val_live;
+					3'd1: ca_w1 <= dr_val_live;
+					3'd2: ca_w2 <= dr_val_live;
+					3'd3: ca_w3 <= dr_val_live;
+					3'd4: ca_w4 <= dr_val_live;
+					default: ca_w5 <= dr_val_live;
+				endcase
+				ca_idx <= (ca_idx == 3'd5) ? 3'd7 : (ca_idx + 3'd1);
+			end
+		end
+		// CPU write sampler + driver-image snoop
+		if (!cpuAS_n && !cpuRW && (cpuFC == 3'b101 || cpuFC == 3'b001)) begin
+			wr_live      <= 1'b1;
+			wr_val_live  <= cpu_dout;
+			wr_addr_live <= cpuAddr;
+			wr_pc_live   <= last_if_addr[23:0];
+		end
+		if (cpuAS_n && wr_live) begin
+			wr_live <= 1'b0;
+			if (drv_exec && !gv_frozen &&
+			    wr_addr_live[23:0] >= 24'h00522E && wr_addr_live[23:0] < 24'h00782E) begin
+				// FIRST-wins: slot 0 = the very first post-exec in-image write
+				// (the original sin), slot 1 = the second. Later writes only
+				// bump the counter.
+				if (wsn_cnt == 6'd0) begin
+					wpc0 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
+					wad0 <= wr_addr_live[16:1];
+					wdt0 <= wr_val_live;
+				end else if (wsn_cnt == 6'd1) begin
+					wpc1 <= {(|wr_pc_live[23:16]), wr_pc_live[15:1]};
+					wad1 <= wr_addr_live[16:1];
+					wdt1 <= wr_val_live;
+				end
+				if (wsn_cnt != 6'h3F) wsn_cnt <= wsn_cnt + 6'd1;
 			end
 		end
 		if (if_event && !gv_frozen && sr2700_cnt != 8'd0) begin
-			if (cpuAddr[23:0] == 24'h006DC4 && copy_calls != 8'hFF)
-				copy_calls <= copy_calls + 8'd1;
+			if (cpuAddr[23:0] == 24'h006DC4) begin
+				if (copy_calls != 8'hFF) copy_calls <= copy_calls + 8'd1;
+				ca_idx <= 3'd0;   // arm the 6-word arg capture (last entry wins)
+			end
 			if (cpuAddr[23:0] == 24'h006A2E && cls_calls != 8'hFF)
 				cls_calls <= cls_calls + 8'd1;
 		end
@@ -654,21 +713,14 @@ module dbg_wedge (
 	always @(posedge clk) begin
 		case (prgr_source)
 			4'd0:  prgr_r <= {busrst_cnt, sr2700_cnt, 15'd0, trail_frozen};
-			// src1 repurposed 2026-07-12k (was trail_pc1, retired reset-deck):
-			// the v3.16 selection-failure tally, FROZEN at the abort edge.
-			// {attempts[7:0], blocked_nonidle[7:0], blocked_gate[7:0],
-			//  reason_or[3:0] (rst,busbusy,notmounted,nonidle), 4'd0}
-			// -> names WHY post-partmap selections never become dialogs.
-			4'd1:  prgr_r <= selfail0;
-			// src2 repurposed 2026-07-13b (was scsi_hs live handshake — the
-			// ?-park story is fully understood): FULL 32-bit bus address of the
-			// newest driver data-read ring entry (anchors src8/9/11/12's low
-			// 16-bit addresses; names the storming copy's live source pointer).
-			4'd2:  prgr_r <= dr_addr_full;
-			// src3/D/E/F repurposed 2026-07-12l (were sr_entry, last_vec_*):
-			// the give-up PC trail, frozen ~2s after the last read-ring change.
-			// src3 = {6'd0, gv_armed, gv_frozen, gv_pc0(newest IF PC)}.
-			4'd3:  prgr_r <= {6'd0, gv_armed, gv_frozen, gv_pc0};
+			// src1/2 + src12 repurposed 2026-07-13c (were selfail0 / dr_addr_full /
+			// data-ring [3] — all decoded, see the forensics-v2 block): the
+			// COPY-ARG capture — the runaway copy's stack args at its LAST entry.
+			4'd1:  prgr_r <= cpa3;   // runaway copy SRC pointer (a3, $c(a6))
+			4'd2:  prgr_r <= cpd7;   // runaway copy LEN (d7, $10(a6))
+			// src3 = {wsn_cnt[5:0], gv_armed, gv_frozen, gv_pc0(newest IF PC)};
+			// wsn_cnt = post-exec driver-image WRITE count (snoop; 0x3F = sat).
+			4'd3:  prgr_r <= {wsn_cnt, gv_armed, gv_frozen, gv_pc0};
 			// src4/5 + srcE/F repurposed 2026-07-13 (were the v3.8 5380 reg-write
 			// ring wringA-D, already decoded 07-12p): the CALL-HISTORY ring — the
 			// last 8 driver JSR/BSR call-site PCs (bits [16:1], 2 per word, chr0 =
@@ -686,15 +738,16 @@ module dbg_wedge (
 			4'd7:  prgr_r <= {gx_op_p, gx_v_p, cls_calls}; // prev-fault op+vec; low
 			                                            // byte = classifier-1800
 			                                            // entry count (sat FF)
-			// src8/9/11/12 repurposed 2026-07-13b (were lbar/xorr — both proven
-			// byte-perfect across 6+ boots, lbar0A still feeds the gv armer):
-			// the driver DATA-READ ring, newest [0]. Each = {addr[16:1], data16};
-			// full 32-bit addr of [0] on src2. A runaway copy reads as addr_lo
-			// stepping n,n,n+1,n+1,… far from any 22-byte source field.
-			4'd8:  prgr_r <= {dra_lo0, drd0};           // data-read ring [0] newest
-			4'd9:  prgr_r <= {dra_lo1, drd1};           // data-read ring [1]
-			4'd11: prgr_r <= {dra_lo2, drd2};           // data-read ring [2]
-			4'd12: prgr_r <= {dra_lo3, drd3};           // data-read ring [3]
+			// src8/9/11 repurposed 2026-07-13c (were the data-read ring, decoded:
+			// stride-2 stack reads = corrupted-code runaway): the WRITE SNOOP —
+			// FIRST 2 bus-visible CPU writes into the driver image [0x522E,0x782E)
+			// AFTER the driver began executing ([0] = first = the original sin;
+			// later writes only bump wsn_cnt). wpc half-word =
+			// {pc_is_high(1), pc[15:1]} — flag set ⇒ writer PC ≥ 0x10000 (ROM).
+			4'd8:  prgr_r <= {wpc1, wpc0};              // snoop writer PCs [2nd],[1st]
+			4'd9:  prgr_r <= {wad1, wad0};              // snoop addr[16:1]  [2nd],[1st]
+			4'd11: prgr_r <= {wdt1, wdt0};              // snoop data words  [2nd],[1st]
+			4'd12: prgr_r <= cpa4;   // runaway copy DST pointer (a4, $8(a6))
 			4'hA:  prgr_r <= 32'hACACACAC;              // unfreeze parked (see gx block)
 			4'd13: prgr_r <= {copy_calls, gv_pc1};       // give-up trail 1-back; top
 			                                            // byte = copy-1B96 entry
