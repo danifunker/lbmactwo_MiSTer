@@ -166,7 +166,8 @@ fprintf(stderr,"mounting flag cleared  %d\n",i);
         disk[i].clear();
         disk[i].seekg((lba) * kBLKSZ);
         disk[i].seekp((lba) * kBLKSZ);
-      //  printf("seek %06X lba: (%x) (%d,%d) drive %d reading %d writing %d ack %x\n", (lba) * kBLKSZ,lba,lba,kBLKSZ,i,reading,writing,*sd_ack);
+        fprintf(stderr, "BLKDEV seek drive=%d lba=%d rd=%x wr=%x cycles=%d\n",
+                i, lba, *sd_rd, *sd_wr, cycles);
         bytecnt = 0;
         *sd_buff_addr = 0;
         ack_delay = blkdev_read_latency();
