@@ -3460,7 +3460,8 @@ static void maybe_print_frame_probe() {
 	                uint32_t(VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6]);
 	uint32_t pc = VERTOPINTERN->debug_pc;
 	fprintf(stderr, "FRAME_PROBE frame=%d time=%llu tick016A=%08X pc=%08X op=%04X region=%s "
-	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X MMUType=%02X MMU32=%02X\n",
+	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X MMUType=%02X MMU32=%02X "
+	        "SysZ=%08X ApplZ=%08X ThZ=%08X HpEnd=%08X ApplLim=%08X MemTop=%08X BufPtr=%08X\n",
 	        video.count_frame,
 	        (unsigned long long)main_time,
 	        tick,
@@ -3473,7 +3474,14 @@ static void maybe_print_frame_probe() {
 	        tg68_reg(8),
 	        tg68_reg(11),
 	        ram_byte(0x0CB1),   // MMUType — 0 makes _SwapMMUMode a NO-OP
-	        ram_byte(0x0CB2));  // MMU32Bit flag
+	        ram_byte(0x0CB2),   // MMU32Bit flag
+	        ram_long(0x02A6),   // SysZone
+	        ram_long(0x02AA),   // ApplZone
+	        ram_long(0x0118),   // TheZone
+	        ram_long(0x0114),   // HeapEnd
+	        ram_long(0x0130),   // ApplLimit
+	        ram_long(0x0108),   // MemTop
+	        ram_long(0x010C));  // BufPtr
 	fflush(stderr);
 }
 
@@ -3993,6 +4001,19 @@ int main(int argc, char** argv, char** env) {
 						}
 						fclose(gd);
 						printf("RAM glue dump written: ramglue_1e00_f800.bin\n");
+					}
+					// Full low-RAM dump: low-mem globals + trap tables + entire
+					// system heap, for offline zone walking.
+					FILE* ld = fopen("lowram_00000_10000.bin", "wb");
+					if (ld) {
+						for (uint32_t a = 0x0000; a < 0x10000; a += 2) {
+							uint16_t w = ram_word(a);
+							uint8_t hi = w >> 8, lo = w & 0xFF;
+							fwrite(&hi, 1, 1, ld);
+							fwrite(&lo, 1, 1, ld);
+						}
+						fclose(ld);
+						printf("Low RAM dump written: lowram_00000_10000.bin\n");
 					}
 				}
 				if (took_screenshot_this_frame) {
