@@ -148,6 +148,12 @@ bool boot_decision_debug_enable = false;
 bool heapspray_debug_enable = false;
 int heapspray_debug_count = 0;
 const int heapspray_debug_max = 6000;
+// --watch-range LO:HI[:MINFRAME] — generic RAM write-watch (2026-07-16)
+bool watch_range_enable = false;
+uint32_t watch_range_lo = 0, watch_range_hi = 0;
+int watch_range_min_frame = 0;
+int watch_range_count = 0;
+const int watch_range_max = 12000;
 bool heapspray_prev_write_valid = false;
 bool heapspray_asc_prev_write_valid = false;
 // Driver-image forensics (2026-07-15e): mirror of Snow's heapwatch. drv_exec
@@ -1290,6 +1296,31 @@ int verilate() {
 					heapspray_debug_count++;
 					if (heapspray_debug_count == heapspray_debug_max)
 						fprintf(stderr, "HEAPSPRAY cap reached\n");
+				}
+			}
+			// Generic RAM write-watch (2026-07-16): --watch-range LO:HI[:MINFRAME]
+			// logs every completed CPU write landing in [LO,HI) from MINFRAME on.
+			// Same edge/alias filtering as the heapspray watch. Used to catch the
+			// in-RAM System resource-map smash during the LoadResource window.
+			if (watch_range_enable && !*bus.ioctl_download &&
+			    video.count_frame >= watch_range_min_frame &&
+			    watch_range_count < watch_range_max) {
+				bool completed_write = VERTOPINTERN->debug_write_valid &&
+				                       !heapspray_prev_write_valid;
+				uint32_t waddr = VERTOPINTERN->debug_write_addr & 0xFFFFFF;
+				bool ram_topbyte = ((VERTOPINTERN->debug_write_addr >> 24) & 0x1F) == 0;
+				if (completed_write && ram_topbyte &&
+				    waddr >= watch_range_lo && waddr < watch_range_hi) {
+					fprintf(stderr,
+						"WATCHWR frame=%d pc=%08X addr=%06X data=%04X "
+						"SP=%08X A0=%08X A1=%08X D0=%08X D1=%08X\n",
+						video.count_frame, VERTOPINTERN->debug_pc, waddr,
+						VERTOPINTERN->debug_write_data,
+						tg68_reg(15), tg68_reg(8), tg68_reg(9),
+						tg68_reg(0), tg68_reg(1));
+					watch_range_count++;
+					if (watch_range_count == watch_range_max)
+						fprintf(stderr, "WATCHWR cap reached\n");
 				}
 			}
 			// ASC-mode tracer (2026-07-15): log CPU writes to the ASC mode
@@ -3644,6 +3675,16 @@ int main(int argc, char** argv, char** env) {
 			heapspray_debug_enable = true;
 		} else if (strcmp(argv[i], "--drvtrace") == 0) {
 			drvtrace_enable = true;
+		} else if (strcmp(argv[i], "--watch-range") == 0 && i + 1 < argc) {
+			unsigned lo = 0, hi = 0; int mf = 0;
+			if (sscanf(argv[++i], "%x:%x:%d", &lo, &hi, &mf) >= 2) {
+				watch_range_enable = true;
+				watch_range_lo = lo; watch_range_hi = hi;
+				watch_range_min_frame = mf;
+				printf("Write-watch on [%06X,%06X) from frame %d\n", lo, hi, mf);
+			} else {
+				printf("bad --watch-range (want LO:HI[:MINFRAME] hex:hex[:dec])\n");
+			}
 		} else if (strcmp(argv[i], "--boot-decision-debug") == 0) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
@@ -4052,16 +4093,16 @@ int main(int argc, char** argv, char** env) {
 					}
 					// Full low-RAM dump: low-mem globals + trap tables + entire
 					// system heap, for offline zone walking.
-					FILE* ld = fopen("lowram_00000_10000.bin", "wb");
+					FILE* ld = fopen("lowram_00000_18000.bin", "wb");
 					if (ld) {
-						for (uint32_t a = 0x0000; a < 0x10000; a += 2) {
+						for (uint32_t a = 0x0000; a < 0x18000; a += 2) {
 							uint16_t w = ram_word(a);
 							uint8_t hi = w >> 8, lo = w & 0xFF;
 							fwrite(&hi, 1, 1, ld);
 							fwrite(&lo, 1, 1, ld);
 						}
 						fclose(ld);
-						printf("Low RAM dump written: lowram_00000_10000.bin\n");
+						printf("Low RAM dump written: lowram_00000_18000.bin\n");
 					}
 				}
 				if (took_screenshot_this_frame) {

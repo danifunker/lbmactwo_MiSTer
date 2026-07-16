@@ -302,12 +302,51 @@ module emu
 	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
+	// SLOT-OWNED RAM/ROM DTACK (2026-07-16 — sim twin of LBMacTwo.sv's
+	// cpu_sdram_rd_done/cpu_sdram_wr_done handshake, lines ~908-1008).
+	//
+	// The sim used the RAW immediate DTACK for RAM/ROM: the CPU could retire a
+	// read cycle BEFORE dataController's cpu_data latch fired at the slot tail
+	// (cpuSlotOwned && memoryLatch), sampling the PREVIOUS access's word. In
+	// tight back-to-back read cadences (the ROM's unrolled 8x move.b BlockMove
+	// loop) ~37% of reads returned the prior byte: the System resource map was
+	// BlockMove-copied with "longword low-word one byte late" damage, the DSAT
+	// ref ids read 0x00FF/0x02FF, GetResource('DSAT',0) came back NIL, and the
+	// ROM's Welcome SysError(40) fell into the Sad Mac painter (0F/0028) —
+	// a SIM-HARNESS artifact, not core RTL. Mirror the real top: hold DTACK
+	// for RAM/ROM cycles until a slot that STARTED with this CPU cycle's
+	// command has completed (its clk8_en_p tail = where dataController
+	// latches cpu_data). sim_ram is combinational, so no address-match or
+	// timeout machinery is needed — an owned slot always completes.
+	reg  sim_slot0_mark;
+	reg  sim_slot_cpu_rd, sim_slot_cpu_wr;
+	reg  cpu_mem_rd_done, cpu_mem_wr_done;
+	wire cpu_mem_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
+	wire cpu_mem_wr_cycle = (selectRAM || selectROM) && !_cpuRW && !_cpuAS;
+	always @(posedge clk_sys) begin
+		sim_slot0_mark <= clk8_en_p;
+		if (sim_slot0_mark) begin
+			sim_slot_cpu_rd <= cpuBusControl && cpu_mem_rd_cycle;
+			sim_slot_cpu_wr <= cpuBusControl && cpu_mem_wr_cycle;
+		end
+		if (_cpuAS) begin
+			cpu_mem_rd_done <= 1'b0;
+			cpu_mem_wr_done <= 1'b0;
+		end else begin
+			if (sim_slot_cpu_rd && clk8_en_p) cpu_mem_rd_done <= 1'b1;
+			if (sim_slot_cpu_wr && clk8_en_p) cpu_mem_wr_done <= 1'b1;
+		end
+	end
+	wire sim_ram_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+	wire sim_ram_dtack     = (cpu_mem_rd_cycle && !cpu_mem_rd_done) ? 1'b1 :
+	                         (cpu_mem_wr_cycle && !cpu_mem_wr_done) ? 1'b1 :
+	                                                                  sim_ram_dtack_raw;
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
 	assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
-	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+	                        sim_ram_dtack;
 
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
 	reg [8:0] berr_counter;
