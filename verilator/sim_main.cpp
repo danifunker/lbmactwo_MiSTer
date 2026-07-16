@@ -150,6 +150,16 @@ int heapspray_debug_count = 0;
 const int heapspray_debug_max = 6000;
 bool heapspray_prev_write_valid = false;
 bool heapspray_asc_prev_write_valid = false;
+// Driver-image forensics (2026-07-15e): mirror of Snow's heapwatch. drv_exec
+// arms on the first instruction fetch inside the loaded driver image; the
+// heapspray write-watch then covers the WHOLE image (healthy baseline from
+// Snow: ~7 vector-patch stores at +0x1F7C.. plus one byte at +0x17AC, nothing
+// else). --drvtrace additionally logs every driver-window fetch (PC stream)
+// for an instruction-level diff against Snow's healthy run.
+bool sim_drv_exec = false;
+bool drvtrace_enable = false;
+long drvtrace_count = 0;
+const long drvtrace_max = 6000000;
 bool bootmask_once_debug_enable = false;
 bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
@@ -1255,10 +1265,14 @@ int verilate() {
 				bool completed_write = VERTOPINTERN->debug_write_valid &&
 				                       !heapspray_prev_write_valid;
 				// debug_write_addr = RAW pre-hmmu tg68_a; mask to 24-bit
-				// significance (flagged MM pointers carry high bytes)
+				// significance (flagged MM pointers carry high bytes).
+				// Slot writes (0xFsxx_xxxx) alias into the masked window — only
+				// accept top bytes that are pure MM flag bits (bits 28..24 clear:
+				// 0x00/0x20/0x40/.../0xE0), which excludes 0xF1-0xFE slot space.
 				uint32_t waddr = VERTOPINTERN->debug_write_addr & 0xFFFFFF;
-				if (completed_write &&
-				    waddr >= 0x60D0 && waddr < 0x6120) {
+				bool ram_topbyte = ((VERTOPINTERN->debug_write_addr >> 24) & 0x1F) == 0;
+				if (completed_write && sim_drv_exec && ram_topbyte &&
+				    waddr >= 0x522E && waddr < 0x782E) {
 					fprintf(stderr,
 						"HEAPSPRAY frame=%d pc=%08X addr=%08X raw=%08X data=%04X "
 						"SP=%08X RET=%08X A4=%08X A5=%08X D6=%08X\n",
@@ -1293,6 +1307,25 @@ int verilate() {
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				// driver-exec arm + optional driver-window PC-stream trace
+				if ((pc & 0xFF000000) == 0 &&
+				    (pc & 0xFFFFFF) >= 0x522E && (pc & 0xFFFFFF) < 0x782E) {
+					if (!sim_drv_exec) {
+						sim_drv_exec = true;
+						fprintf(stderr, "DRVEXEC frame=%d first driver fetch pc=%08X\n",
+							video.count_frame, pc);
+					}
+					if (drvtrace_enable && drvtrace_count < drvtrace_max) {
+						fprintf(stderr, "DT %d %06X %04X %08X %08X %08X %08X %08X\n",
+							video.count_frame, pc & 0xFFFFFF,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0), tg68_reg(1),
+							tg68_reg(8), tg68_reg(9),
+							tg68_reg(15));
+						if (++drvtrace_count == drvtrace_max)
+							fprintf(stderr, "DT cap reached\n");
+					}
+				}
 				if (scsi_stall_history_enable && !scsi_stall_dumped) {
 					record_bootmask_history(pc);
 					// DREQ asserted but CPU not draining it -> count consecutive
@@ -3596,6 +3629,8 @@ int main(int argc, char** argv, char** env) {
 			iwm_state_debug_enable = true;
 		} else if (strcmp(argv[i], "--heapspray-debug") == 0) {
 			heapspray_debug_enable = true;
+		} else if (strcmp(argv[i], "--drvtrace") == 0) {
+			drvtrace_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug") == 0) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
