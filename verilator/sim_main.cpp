@@ -160,6 +160,12 @@ bool sim_drv_exec = false;
 bool drvtrace_enable = false;
 long drvtrace_count = 0;
 const long drvtrace_max = 6000000;
+// Self-adapting driver base: the ROM SCSI boot loader NewPtr,SYS's a block,
+// reads the driver into it, checksums it, and enters it with jsr (a3) at ROM
+// 0x40807BB0. Capturing A3 at that fetch gives the true base (Snow: 0x4D50,
+// HW: 0x522E, sim: varies with heap history) — the fixed 0x522E window arms
+// on video-card sExec blocks instead (seen at frame 580: base 0x7360).
+uint32_t drv_base = 0;   // 0 = not yet captured
 bool bootmask_once_debug_enable = false;
 bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
@@ -1272,7 +1278,7 @@ int verilate() {
 				uint32_t waddr = VERTOPINTERN->debug_write_addr & 0xFFFFFF;
 				bool ram_topbyte = ((VERTOPINTERN->debug_write_addr >> 24) & 0x1F) == 0;
 				if (completed_write && sim_drv_exec && ram_topbyte &&
-				    waddr >= 0x522E && waddr < 0x782E) {
+				    drv_base != 0 && waddr >= drv_base && waddr < drv_base + 0x2600) {
 					fprintf(stderr,
 						"HEAPSPRAY frame=%d pc=%08X addr=%08X raw=%08X data=%04X "
 						"SP=%08X RET=%08X A4=%08X A5=%08X D6=%08X\n",
@@ -1307,9 +1313,16 @@ int verilate() {
 
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				// Capture the disk-driver base at the loader's jsr (a3)
+				// (ROM 0x40807BB0); A3 = the NewPtr'd, checksummed image.
+				if (pc == 0x40807BB0 && drv_base == 0) {
+					drv_base = tg68_reg(11) & 0xFFFFFF;
+					fprintf(stderr, "DRVBASE frame=%d loader jsr (a3): base=%06X\n",
+						video.count_frame, drv_base);
+				}
 				// driver-exec arm + optional driver-window PC-stream trace
-				if ((pc & 0xFF000000) == 0 &&
-				    (pc & 0xFFFFFF) >= 0x522E && (pc & 0xFFFFFF) < 0x782E) {
+				if (drv_base != 0 && (pc & 0xFF000000) == 0 &&
+				    (pc & 0xFFFFFF) >= drv_base && (pc & 0xFFFFFF) < drv_base + 0x2600) {
 					if (!sim_drv_exec) {
 						sim_drv_exec = true;
 						fprintf(stderr, "DRVEXEC frame=%d first driver fetch pc=%08X\n",
