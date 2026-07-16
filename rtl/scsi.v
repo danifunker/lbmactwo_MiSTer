@@ -116,6 +116,7 @@ localparam PHASE_MESSAGE_OUT = 3'd5;
 reg sd_buff_sel;                   // WRITE double-buffer half (unchanged path)
 reg [22:0] rd_hps_blk;             // READ ring: # of sectors fetched this command
 reg [8:0]  fill_words;             // word strobes seen in the current fetch's ack window
+reg        rd_flush_pending = 0;   // an aborted fetch's completion is still due; swallow it
 
 // HPS sector-buffer byte order.  buffer0 always holds the byte the Mac reads
 // FIRST (even byte) and buffer1 the odd byte.  The byte that lands in each
@@ -250,6 +251,8 @@ always @(posedge clk) begin
 	// READ ring fetch counter: # of sectors the HPS has delivered this command.
 	// Reset alongside data_cnt (any non-transfer phase); bump on each io_ack
 	// falling edge during a read. Writes never touch it (they use sd_buff_sel).
+	// rd_flush_pending: an aborted command's completion must not be credited
+	// (see the orphan-delivery guard at the fetch engine).
 	//
 	// DELIVERY GATE (2026-07-12k, the boot-1 zero-read fix): only count a
 	// sector as delivered when its ack window actually carried the full 512
@@ -265,12 +268,18 @@ always @(posedge clk) begin
 	if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN &&
 	    phase != PHASE_STATUS_OUT && phase != PHASE_MESSAGE_OUT)
 		rd_hps_blk <= 23'd0;
-	else if (old_io_ack & ~io_ack & cmd_read & (fill_words == 9'd256))
+	else if (old_io_ack & ~io_ack & cmd_read & (fill_words == 9'd256) &
+	         ~rd_flush_pending)
 		rd_hps_blk <= rd_hps_blk + 23'd1;
 
 	// Count the word strobes of the current fetch's ack window.
 	if (!io_ack) fill_words <= 9'd0;
 	else if (sd_buff_wr && fill_words != 9'd511) fill_words <= fill_words + 9'd1;
+	// synthesis translate_off
+	if (io_ack && sd_buff_wr && fill_words < 9'd4)
+		$display("SCSI_FILL t=%0t blk=%0d slot=%0d addr=%0d data=%04x lba_reg=%0d",
+		         $time, rd_hps_blk, rd_hps_slot, sd_buff_addr, sd_buff_dout, lba);
+	// synthesis translate_on
 end
 
 // -----------------------------------------------------------
@@ -324,13 +333,36 @@ wire   io_busy = (phase == PHASE_DATA_OUT && cmd_read && (rd_cur_blk >= rd_hps_b
 	// from its FIFO). The System-7-era HD SC 4.3 driver polls CSR/BSR
 	// between 512-byte pseudo-DMA chunks — when it saw our dead bus it
 	// concluded the transfer died and parked forever (the Welcome wedge at
-	// data_cnt=512). Flow control is unaffected: the DACK path still stalls
-	// the CPU via `req` (DTACK gate) until the buffer half is really valid,
-	// so a premature data access waits instead of reading stale bytes.
+	// data_cnt=512). Flow control is unaffected for DACK cycles: that path
+	// stalls the CPU via `req` (DTACK gate) until the buffer is valid.
 	// Non-data phases keep the io_busy suppression (status byte must not
 	// be offered while a flush/fetch is still in flight).
+	//
+	// FIRST-FILL HONESTY (2026-07-15n): POLLED transfers (_SCSIRead/_SCSIWrite,
+	// selector 5/6 — used by the ROM boot loader AND the on-disk driver's
+	// partition-map reads) pace on THIS signal alone: CSR.REQ high = "byte
+	// valid", read data register, pulse ACK — the DACK/`req` stall never
+	// engages. Asserting req_bus for a block READ before the FIRST sector
+	// has arrived from the HPS serves the ring's previous contents as live
+	// data: the simulated disk boot drained the whole first driver-load
+	// block (512 bytes of LBA 0's DDM) before the LBA 64 fill landed, then
+	// executed DDM bytes as the boot driver (Sad Mac 0F/0003 every pass).
+	// On hardware the same race covers the fill latency window of EVERY
+	// polled read — the residual-corruption signature (a stale first block
+	// in a partition-map read -> garbage parse -> runaway copy -> no op#4).
+	// So: for block READs, only offer the bus-visible REQ while the sector
+	// the Mac is draining is actually in the ring (rd_cur_blk < rd_hps_blk
+	// — per-block honesty, same term as io_busy's read clause). The 32-deep
+	// prefetch ring keeps this continuously true mid-command once streaming
+	// (fetches dispatch back-to-back ahead of the drain), so the Welcome-
+	// wedge observable — REQ dropping at a chunk boundary mid-transfer —
+	// does not return; the only withheld window is the honest one (first
+	// fill / HPS stall), which every driver tolerates as seek latency.
+	// Non-read DATA_OUT commands (INQUIRY et al.) serve combinationally
+	// with rd_hps_blk pinned at 0 and must stay exempt.
 	assign req_bus = (phase != PHASE_IDLE) && !ack && !data_phase_complete &&
-	                 ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN) || !io_busy);
+	                 ((phase == PHASE_DATA_OUT) ? (!cmd_read || (rd_cur_blk < rd_hps_blk)) :
+	                  (phase == PHASE_DATA_IN)  ? 1'b1 : !io_busy);
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -538,13 +570,30 @@ always @(posedge clk) begin
 	// phase sees io_busy=1 (phase!=DATA && io_rd) which suppresses REQ, the
 	// command never transfers, the Mac times out and resets again -> the
 	// intermittent reset/re-scan loop observed on hardware.
+	//
+	// ORPHAN-DELIVERY GUARD (2026-07-15n): clearing io_rd here does NOT
+	// un-post the request on the HPS side — once main has latched sd_rd it
+	// completes the block transfer regardless. If the Mac aborts a command
+	// mid-data-wait (boot-scan timeout -> bus reset) and issues a new READ,
+	// that stale completion lands inside the NEW command's data phase and
+	// was credited as its first sector: rd_hps_blk bumped (the block DID
+	// carry 512 real strobes), lba bumped past the un-issued first sector,
+	// and the ring served the PREVIOUS command's data as block 1 — the
+	// simulated disk boot executed LBA 0's DDM bytes as the boot driver
+	// (Sad Mac 0F/0003 every pass). Remember the outstanding fetch at
+	// abort time and swallow exactly that one completion: no lba++, no
+	// rd_hps_blk credit — io_busy keeps REQ withheld and the fetch engine
+	// re-issues, so the slot is overwritten with the right sector.
 	if(rst) begin
+		rd_flush_pending <= rd_flush_pending | io_rd | rd_busy;
 		io_rd <= 1'b0;
 		io_wr <= 1'b0;
 		wr_pending <= 0;
 		old_wr <= 0;
 		rd_busy <= 0;
 	end else begin
+		if (old_io_ack & ~io_ack & rd_flush_pending)
+			rd_flush_pending <= 1'b0;
 		old_wr <= req_wr;
 		if(~old_wr & req_wr) wr_pending <= 1;
 
@@ -635,12 +684,17 @@ always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
 		data_cnt <= 0;
 		data_complete <= 0;
-	end else begin	
-		if(stb_adv)begin	
+	end else begin
+		if(stb_adv)begin
 			if(!data_complete) data_cnt <= data_cnt + 1'd1;
 			data_complete <= (data_len - 1'd1) == data_cnt;
 		end
 	end
+	// synthesis translate_off
+	if (stb_ack && phase == PHASE_DATA_OUT && cmd_read && data_cnt[8:0] < 9'd8)
+		$display("SCSI_DRAIN t=%0t cnt=%0d served=%02x cur_blk=%0d hps_blk=%0d req_bus=%b io_busy=%b",
+		         $time, data_cnt, dout, rd_cur_blk, rd_hps_blk, req_bus, io_busy);
+	// synthesis translate_on
 end
 
 `ifdef SIMULATION
@@ -735,7 +789,8 @@ reg [31:0] lba;
 reg [15:0] tlen;
 
 always @(posedge clk) begin
-	if (old_io_ack & ~io_ack) lba <= lba + 1'd1;
+	// orphan guard: an aborted command's completion must not advance lba
+	if (old_io_ack & ~io_ack & ~rd_flush_pending) lba <= lba + 1'd1;
 	if(cmd_cpl && (phase == PHASE_CMD_IN)) begin
 		lba <= cmd6_cpl?{11'd0, lba6}:lba10;
 		tlen <= cmd6_cpl?{7'd0, tlen6}:tlen10;
