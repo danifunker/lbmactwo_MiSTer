@@ -57,6 +57,9 @@ verilator/*.vcd
 verilator/obj_dir
 verilator/*.png
 verilator/*.txt
+verilator/*.bin
+verilator/*.out
+verilator/testdisk.hda
 
 # Local emulator checkout and ROMs used for boot comparison.
 /mame/
