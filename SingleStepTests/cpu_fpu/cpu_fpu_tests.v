@@ -10,6 +10,7 @@ module cpu_fpu_tests
    input         reset,           // active high
    input         phi1,
    input         phi2,
+   input  [3:0]  ram_waits,       // DTACK wait states for RAM accesses (0 = legacy)
 
    // Bus visible to host C harness for RAM-backed accesses.
    input  [15:0] data_in,
@@ -250,7 +251,16 @@ module cpu_fpu_tests
                                  && !cpu_as_n && !fpu_active_phase;
    wire eff_dsack0_n = fpu_inactive_phase_act ? 1'b0 : fpu_dsack0_n;
    wire eff_dsack1_n = fpu_inactive_phase_act ? 1'b1 : fpu_dsack1_n;
-   wire cpu_dtack_n  = fpu_addr_match ? (eff_dsack0_n & eff_dsack1_n) : 1'b0;
+   // RAM wait-state generator (2026-07-16, misaligned-longword timing repro):
+   // hold DTACK off for ram_waits phi1 ticks after AS falls, modeling the
+   // slot-gated SDRAM DTACK of the real core. 0 = legacy zero-wait behavior.
+   reg [3:0] ram_wait_cnt;
+   always @(posedge clk) begin
+      if (cpu_as_n) ram_wait_cnt <= 4'd0;
+      else if (phi1 && ram_wait_cnt != 4'hF) ram_wait_cnt <= ram_wait_cnt + 4'd1;
+   end
+   wire ram_dtack_n = (ram_wait_cnt < ram_waits);
+   wire cpu_dtack_n  = fpu_addr_match ? (eff_dsack0_n & eff_dsack1_n) : ram_dtack_n;
    // TG68K read mux:
    //  - Non-Operand: pass FPU's d_out[15:0] (16-bit response/save/etc).
    //  - Operand phase=0: HIGH word direct from FPU's d_out[31:16].

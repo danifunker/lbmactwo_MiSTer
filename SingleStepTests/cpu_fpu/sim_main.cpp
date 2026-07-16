@@ -328,8 +328,13 @@ int main(int argc, char** argv, char** env) {
     int rc;
     bool trace = false;
     int argi = 1;
-    if (argi < argc && std::string(argv[argi]) == "--trace") {
-        trace = true; ++argi;
+    top->ram_waits = 0;
+    for (;;) {
+        if (argi < argc && std::string(argv[argi]) == "--trace") {
+            trace = true; ++argi;
+        } else if (argi + 1 < argc && std::string(argv[argi]) == "--waits") {
+            top->ram_waits = uint8_t(atoi(argv[argi + 1]) & 0xF); argi += 2;
+        } else break;
     }
     if (argi >= argc)          rc = run_smoke(trace);
     else                       rc = run_corpus(argv[argi], trace);

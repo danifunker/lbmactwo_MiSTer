@@ -1048,9 +1048,31 @@ module emu
 						   ~_romOE        ? {2'b00, 1'b1, 5'b00000, memoryAddr[17:1]} : // ROM reads @ 0x400000+ (256K ROM)
 						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
 										  {3'b000, memoryAddr[22:1]};                  // RAM 0x000000-0x3FFFFF (8MB)
+	// CPU write data/lane latch (2026-07-16, misaligned-longword fix): the
+	// TG68 kernel's data_write mux and strobes are combinational and slide to
+	// the NEXT transfer piece's values one clock before the glue's write
+	// enable shuts off at the tail of a slot-gated (extended) cycle. sim_ram
+	// writes on every posedge while enabled, so the LAST write sampled the
+	// slid value: a misaligned move.l's middle word stored {b2,b3} instead of
+	// {b1,b2} (dst = {b0,b2,b3,b3}) — the System resource map corrupter.
+	// Latch data + lanes at the first strobed clock of the write cycle (the
+	// kernel holds them stable from cycle start) and drive RAM from the latch.
+	reg [15:0] cpu_wr_din_hold;
+	reg  [1:0] cpu_wr_ds_hold;
+	reg        cpu_wr_hold_valid;
+	always @(posedge clk_sys) begin
+		if (_cpuAS) cpu_wr_hold_valid <= 1'b0;
+		else if (!_cpuRW && !cpu_wr_hold_valid && (!_cpuUDS || !_cpuLDS)) begin
+			cpu_wr_din_hold   <= memoryDataOut;
+			cpu_wr_ds_hold    <= { !_cpuUDS, !_cpuLDS };
+			cpu_wr_hold_valid <= 1'b1;
+		end
+	end
 	// Use ioctl_dout directly for download (bypass registered dio_data)
-	wire [15:0] ram_din  = download_cycle ? ioctl_dout            : memoryDataOut;
-	wire  [1:0] ram_ds   = download_cycle ? 2'b11                 : { !_memoryUDS, !_memoryLDS };
+	wire [15:0] ram_din  = download_cycle ? ioctl_dout :
+	                       cpu_wr_hold_valid ? cpu_wr_din_hold : memoryDataOut;
+	wire  [1:0] ram_ds   = download_cycle ? 2'b11 :
+	                       cpu_wr_hold_valid ? cpu_wr_ds_hold : { !_memoryUDS, !_memoryLDS };
 	// Use ioctl_wr directly as write enable during download (bypass registered dio_write)
 	wire        ram_we   = download_cycle ? 1'b1                  : !_ramWE;
 	wire        ram_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
@@ -1099,6 +1121,21 @@ module emu
 			rf_dbg_cnt <= rf_dbg_cnt + 1;
 		end
 	end
+
+	// Misaligned-write forensics (2026-07-16): per-clock view of a CPU write
+	// cycle at BOTH interfaces (CPU emission vs sim_ram reception) inside the
+	// resource-map copy destination window. Enable with +misalign_debug.
+	// synthesis translate_off
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("misalign_debug") && !tg68_as_n && !tg68_rw &&
+		    tg68_a[23:0] >= 24'h012E00 && tg68_a[23:0] <= 24'h012F60)
+			$display("MISW t=%0t a=%06x u=%b l=%b dout=%04x | mem a=%06x u=%b l=%b | ram a=%07x ds=%b%b we=%b din=%04x | dtack=%b bc=%b lat=%b done=%b",
+			         $time, tg68_a[23:0], _cpuUDS, _cpuLDS, tg68_dout[15:0],
+			         memoryAddr, _memoryUDS, _memoryLDS,
+			         ram_addr, ram_ds[1], ram_ds[0], ram_we, ram_din,
+			         _cpuDTACK, cpuBusControl, memoryLatch, cpu_mem_wr_done);
+	end
+	// synthesis translate_on
 
 	// RAM debug outputs
 	assign debug_ram_addr = ram_addr;
