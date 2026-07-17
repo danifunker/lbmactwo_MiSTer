@@ -302,45 +302,7 @@ module emu
 	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
-	// SLOT-OWNED RAM/ROM DTACK (2026-07-16 — sim twin of LBMacTwo.sv's
-	// cpu_sdram_rd_done/cpu_sdram_wr_done handshake, lines ~908-1008).
-	//
-	// The sim used the RAW immediate DTACK for RAM/ROM: the CPU could retire a
-	// read cycle BEFORE dataController's cpu_data latch fired at the slot tail
-	// (cpuSlotOwned && memoryLatch), sampling the PREVIOUS access's word. In
-	// tight back-to-back read cadences (the ROM's unrolled 8x move.b BlockMove
-	// loop) ~37% of reads returned the prior byte: the System resource map was
-	// BlockMove-copied with "longword low-word one byte late" damage, the DSAT
-	// ref ids read 0x00FF/0x02FF, GetResource('DSAT',0) came back NIL, and the
-	// ROM's Welcome SysError(40) fell into the Sad Mac painter (0F/0028) —
-	// a SIM-HARNESS artifact, not core RTL. Mirror the real top: hold DTACK
-	// for RAM/ROM cycles until a slot that STARTED with this CPU cycle's
-	// command has completed (its clk8_en_p tail = where dataController
-	// latches cpu_data). sim_ram is combinational, so no address-match or
-	// timeout machinery is needed — an owned slot always completes.
-	reg  sim_slot0_mark;
-	reg  sim_slot_cpu_rd, sim_slot_cpu_wr;
-	reg  cpu_mem_rd_done, cpu_mem_wr_done;
-	wire cpu_mem_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
-	wire cpu_mem_wr_cycle = (selectRAM || selectROM) && !_cpuRW && !_cpuAS;
-	always @(posedge clk_sys) begin
-		sim_slot0_mark <= clk8_en_p;
-		if (sim_slot0_mark) begin
-			sim_slot_cpu_rd <= cpuBusControl && cpu_mem_rd_cycle;
-			sim_slot_cpu_wr <= cpuBusControl && cpu_mem_wr_cycle;
-		end
-		if (_cpuAS) begin
-			cpu_mem_rd_done <= 1'b0;
-			cpu_mem_wr_done <= 1'b0;
-		end else begin
-			if (sim_slot_cpu_rd && clk8_en_p) cpu_mem_rd_done <= 1'b1;
-			if (sim_slot_cpu_wr && clk8_en_p) cpu_mem_wr_done <= 1'b1;
-		end
-	end
-	wire sim_ram_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
-	wire sim_ram_dtack     = (cpu_mem_rd_cycle && !cpu_mem_rd_done) ? 1'b1 :
-	                         (cpu_mem_wr_cycle && !cpu_mem_wr_done) ? 1'b1 :
-	                                                                  sim_ram_dtack_raw;
+	wire sim_ram_dtack = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
 	assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
@@ -1048,43 +1010,25 @@ module emu
 						   ~_romOE        ? {2'b00, 1'b1, 5'b00000, memoryAddr[17:1]} : // ROM reads @ 0x400000+ (256K ROM)
 						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
 										  {3'b000, memoryAddr[22:1]};                  // RAM 0x000000-0x3FFFFF (8MB)
-	// CPU write data/lane latch (2026-07-16, misaligned-longword fix): the
-	// TG68 kernel's data_write mux and strobes are combinational and slide to
-	// the NEXT transfer piece's values one clock before the glue's write
-	// enable shuts off at the tail of a slot-gated (extended) cycle. sim_ram
-	// writes on every posedge while enabled, so the LAST write sampled the
-	// slid value: a misaligned move.l's middle word stored {b2,b3} instead of
-	// {b1,b2} (dst = {b0,b2,b3,b3}) — the System resource map corrupter.
-	// Latch data + lanes at the first strobed clock of the write cycle (the
-	// kernel holds them stable from cycle start) and drive RAM from the latch.
-	reg [15:0] cpu_wr_din_hold;
-	reg  [1:0] cpu_wr_ds_hold;
-	reg        cpu_wr_hold_valid;
-	always @(posedge clk_sys) begin
-		if (_cpuAS) cpu_wr_hold_valid <= 1'b0;
-		else if (!_cpuRW && !cpu_wr_hold_valid && (!_cpuUDS || !_cpuLDS)) begin
-			cpu_wr_din_hold   <= memoryDataOut;
-			cpu_wr_ds_hold    <= { !_cpuUDS, !_cpuLDS };
-			cpu_wr_hold_valid <= 1'b1;
-		end
-	end
 	// Use ioctl_dout directly for download (bypass registered dio_data)
-	wire [15:0] ram_din  = download_cycle ? ioctl_dout :
-	                       cpu_wr_hold_valid ? cpu_wr_din_hold : memoryDataOut;
-	wire  [1:0] ram_ds   = download_cycle ? 2'b11 :
-	                       cpu_wr_hold_valid ? cpu_wr_ds_hold : { !_memoryUDS, !_memoryLDS };
+	wire [15:0] ram_din  = download_cycle ? ioctl_dout            : memoryDataOut;
+	wire  [1:0] ram_ds   = download_cycle ? 2'b11                 : { !_memoryUDS, !_memoryLDS };
 	// Use ioctl_wr directly as write enable during download (bypass registered dio_write)
 	wire        ram_we   = download_cycle ? 1'b1                  : !_ramWE;
 	wire        ram_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 	wire [15:0] ram_do_raw;
-	wire [22:0] ram_next_word_addr = ram_addr[22:0] + 23'd1;
-	wire [15:0] ram_odd_word_do = {ram_do_raw[7:0], ram.mem[ram_next_word_addr][15:8]};
-	wire        ram_odd_full_read = !download_cycle && !(dskReadAckInt || dskReadAckExt) &&
-	                                ram_oe && !ram_we && memoryAddr[0] &&
-	                                !_memoryUDS && !_memoryLDS;
+	// Odd-addressed full-word reads (TG68's misaligned-transfer middle piece:
+	// memoryAddr[0]=1 with BOTH strobes) must return the CONTAINING word raw —
+	// the kernel does its own byte-lane extraction. This is the semantics the
+	// SingleStepTests cpu_fpu bench provides (ram_read16 masks A0) and passes
+	// with. A former "straddle" mux here ({byte@A, byte@A+1}) double-shifted
+	// misaligned reads: a misaligned move.l source read returned {b0,b2,b3,b3}
+	// and every misaligned BlockMove corrupted its destination (the System
+	// resource map's DSAT ids read 0x00FF/0x02FF -> GetResource NIL -> boot-time
+	// SysError(40) -> Sad Mac 0F/0028). Sim-harness bug only: the real top's
+	// SDRAM path is word-addressed and naturally serves the containing word.
 	wire [15:0] ram_do   = download_cycle ? 16'hffff :
 	                       (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux :
-	                       ram_odd_full_read ? ram_odd_word_do :
 	                       ram_do_raw;
 	wire [15:0] extra_rom_data_demux = memoryAddr[0] ?
 						   {ram_do_raw[7:0],ram_do_raw[7:0]}:{ram_do_raw[15:8],ram_do_raw[15:8]};
@@ -1129,11 +1073,11 @@ module emu
 	always @(posedge clk_sys) begin
 		if ($test$plusargs("misalign_debug") && !tg68_as_n && !tg68_rw &&
 		    tg68_a[23:0] >= 24'h012E00 && tg68_a[23:0] <= 24'h012F60)
-			$display("MISW t=%0t a=%06x u=%b l=%b dout=%04x | mem a=%06x u=%b l=%b | ram a=%07x ds=%b%b we=%b din=%04x | dtack=%b bc=%b lat=%b done=%b",
+			$display("MISW t=%0t a=%06x u=%b l=%b dout=%04x | mm=%06b odd=%b st=%b%b | dtack=%b",
 			         $time, tg68_a[23:0], _cpuUDS, _cpuLDS, tg68_dout[15:0],
-			         memoryAddr, _memoryUDS, _memoryLDS,
-			         ram_addr, ram_ds[1], ram_ds[0], ram_we, ram_din,
-			         _cpuDTACK, cpuBusControl, memoryLatch, cpu_mem_wr_done);
+			         tg68k_inst.tg68k.memmask,
+			         tg68k_inst.tg68k.oddout, tg68k_inst.tg68k.state[1], tg68k_inst.tg68k.state[0],
+			         _cpuDTACK);
 	end
 	// synthesis translate_on
 
