@@ -57,12 +57,19 @@ static inline void ram_write16(uint32_t a, uint16_t v, bool uds, bool lds) {
     if (lds) ram[a + 1] = uint8_t(v & 0xFF);
 }
 
+static bool buslog = false;
 static void service_ram() {
     if (top->as_n) return;
     if (top->fpu_select) return;
     const uint32_t a = top->addr_out;
     if (top->rw_n) top->data_in = ram_read16(a);
-    else           ram_write16(a, top->data_write, !top->uds_n, !top->lds_n);
+    else {
+        ram_write16(a, top->data_write, !top->uds_n, !top->lds_n);
+        if (buslog && a >= 0x3000 && a < 0x5000)
+            fprintf(stderr, "BUSW a=%06x uds=%d lds=%d data=%04x mm=%02x odd=%d st=%d\n",
+                    a, !top->uds_n, !top->lds_n, top->data_write,
+                    top->dbg_memmask, top->dbg_oddout, top->dbg_state);
+    }
 }
 
 static int phase = 0;
@@ -334,6 +341,8 @@ int main(int argc, char** argv, char** env) {
             trace = true; ++argi;
         } else if (argi + 1 < argc && std::string(argv[argi]) == "--waits") {
             top->ram_waits = uint8_t(atoi(argv[argi + 1]) & 0xF); argi += 2;
+        } else if (argi < argc && std::string(argv[argi]) == "--buslog") {
+            buslog = true; ++argi;
         } else break;
     }
     if (argi >= argc)          rc = run_smoke(trace);

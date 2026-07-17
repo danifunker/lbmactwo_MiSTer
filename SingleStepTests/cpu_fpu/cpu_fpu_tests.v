@@ -50,6 +50,8 @@ module cpu_fpu_tests
    output [31:0] dbg_last_data_read,
    output [31:0] dbg_data_read,
    output [1:0]  dbg_state,
+   output [5:0]  dbg_memmask,
+   output        dbg_oddout,
    output [79:0] dbg_fp0,
    // FPU-side internal taps for FMOVE-write-to-FP debugging.
    output        dbg_cir_move_pending,
@@ -93,6 +95,8 @@ module cpu_fpu_tests
    assign dbg_last_data_read = cpu.tg68k.last_data_read;
    assign dbg_data_read = cpu.tg68k.data_read;
    assign dbg_state = cpu.tg68k.state;
+   assign dbg_memmask = cpu.tg68k.memmask;
+   assign dbg_oddout  = cpu.tg68k.oddout;
    // FP register file is a packed reg [639:0] = 8x80 bits. ghdl-synth
    // convention is to map VHDL array index 0 to the HIGH bits — so FP0
    // lives at bits [639:560], FP7 at bits [79:0].
@@ -254,12 +258,20 @@ module cpu_fpu_tests
    // RAM wait-state generator (2026-07-16, misaligned-longword timing repro):
    // hold DTACK off for ram_waits phi1 ticks after AS falls, modeling the
    // slot-gated SDRAM DTACK of the real core. 0 = legacy zero-wait behavior.
+   // Sentinel modes: ram_waits==15 -> DTACK released only on slot_ctr[0]==0
+   // (mod-2 slot grid); ==14 -> only on slot_ctr[1:0]==0 (mod-4 slot grid).
+   // These quantize completion to a free-running slot counter like the
+   // core's clk8_en bus slots, so cycle lengths vary per piece.
    reg [3:0] ram_wait_cnt;
+   reg [1:0] slot_ctr;
    always @(posedge clk) begin
+      if (phi1) slot_ctr <= slot_ctr + 2'd1;
       if (cpu_as_n) ram_wait_cnt <= 4'd0;
       else if (phi1 && ram_wait_cnt != 4'hF) ram_wait_cnt <= ram_wait_cnt + 4'd1;
    end
-   wire ram_dtack_n = (ram_wait_cnt < ram_waits);
+   wire ram_dtack_n = (ram_waits == 4'hF) ? ~(ram_wait_cnt != 4'd0 && slot_ctr[0] == 1'b0) :
+                      (ram_waits == 4'hE) ? ~(ram_wait_cnt != 4'd0 && slot_ctr == 2'b00) :
+                      (ram_wait_cnt < ram_waits);
    wire cpu_dtack_n  = fpu_addr_match ? (eff_dsack0_n & eff_dsack1_n) : ram_dtack_n;
    // TG68K read mux:
    //  - Non-Operand: pass FPU's d_out[15:0] (16-bit response/save/etc).
