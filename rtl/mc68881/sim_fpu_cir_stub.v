@@ -82,15 +82,19 @@ module sim_fpu_cir_stub
 					CIR_RESTORE:   restore_format <= d_in[15:0];
 					default: ;
 				endcase
+				// synthesis translate_off
 				if ($test$plusargs("fpu_stub_debug")) begin
 					$display("[FPU_STUB_WR] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h",
 					         a_in, d_in[15:0], opword, command, condition, restore_format);
 				end
+				// synthesis translate_on
 			end
+			// synthesis translate_off
 			if (active && !active_d && rw && $test$plusargs("fpu_stub_debug")) begin
 				$display("[FPU_STUB_RD] reg=%0d data=%04h opword=%04h command=%04h condition=%04h restore=%04h size_n=%b",
 				         a_in, d_out[15:0], opword, command, condition, restore_format, size_n);
 			end
+			// synthesis translate_on
 		end
 	end
 endmodule
