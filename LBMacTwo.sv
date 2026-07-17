@@ -1006,6 +1006,28 @@ wire mac_is_sdram_write   = cpu_sdram_wr_cycle;
 wire ram_or_rom_dtack     = (mac_is_sdram_read  && !cpu_sdram_rd_done) ? 1'b1 :
                             (mac_is_sdram_write && !cpu_sdram_wr_done) ? 1'b1 :
                                                                          ram_or_rom_dtack_raw;
+
+// PHANTOM-WRITE PROBE (2026-07-17, deck v8): the write handshake above
+// completes DTACK when an owned slot STARTED with the CPU's write command —
+// but sdram.v only latches CMD_WRITE if `we` is high at the slot's
+// STATE_CMD_START; a late-settling `we` turns the slot into AUTO_REFRESH and
+// the write is silently lost (wr_escape_cnt never sees it — measured 0/0 on
+// failing boots). Count, at each completing owned write slot, whether the
+// controller really latched the write (committed) or not (phantom). The
+// counters initialize at FPGA configuration and are NEVER reset by the Mac's
+// reset line, so they accumulate across soft reboots, Sad Macs, and hangs —
+// readable over JTAG whenever, like busrst_cnt/inits.
+wire sdram_we_latch;
+reg  sdram_we_latch_s   = 1'b0;
+reg [15:0] phantom_wr_cnt   = 16'd0;
+reg [31:0] committed_wr_cnt = 32'd0;
+always @(posedge clk_sys) begin
+	sdram_we_latch_s <= sdram_we_latch;
+	if (sdram_slot_cpu_wr && clk8_en_p && !cpu_sdram_wr_done) begin
+		if (sdram_we_latch_s)                committed_wr_cnt <= committed_wr_cnt + 32'd1;
+		else if (phantom_wr_cnt != 16'hFFFF) phantom_wr_cnt   <= phantom_wr_cnt + 16'd1;
+	end
+end
 assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
@@ -1908,7 +1930,8 @@ sdram sdram
 	.we             ( sdram_we                 ),
 	.oe             ( sdram_oe                 ),
 	.dout           ( sdram_out                ),
-	.dout_addr      ( sdram_dout_addr          )   // DBG: address tag for the coherency probe
+	.dout_addr      ( sdram_dout_addr          ),  // DBG: address tag for the coherency probe
+	.dbg_we_latch   ( sdram_we_latch           )   // DBG: phantom-write probe
 );
 
 // SDRAM Arbiter - share SDRAM between Mac and NuBus video
@@ -2054,6 +2077,8 @@ dbg_wedge dbg_wedge_inst (
 	// SDRAM coherency timeout-escape counters (2026-07-12): PESC probe.
 	.rd_escapes       (rd_escape_cnt),
 	.wr_escapes       (wr_escape_cnt),
+	.phantom_wr       (phantom_wr_cnt),
+	.committed_wr     (committed_wr_cnt),
 	.berr_inhibit     (berr_inhibit_active),
 	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
 	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.

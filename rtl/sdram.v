@@ -43,7 +43,8 @@ module sdram
 	input [23:0]        addr,       // 24 bit word address
 	input [1:0]         ds,         // upper/lower data strobe
 	input               oe,         // cpu/chipset requests read
-	input               we          // cpu/chipset requests write
+	input               we,         // cpu/chipset requests write
+	output              dbg_we_latch // DBG: slot latched CMD_WRITE (phantom-write probe)
 );
 
 localparam RASCAS_DELAY   = 3'd2;   // tRCD=20ns -> 3 cycles@128MHz
@@ -130,6 +131,12 @@ assign sd_dqm = sd_addr[12:11];
 
 reg oe_latch, we_latch;
 reg [23:0] addr_latch;   // DBG: addr captured at slot t=0, travels with dout to STATE_READ
+// DBG (2026-07-17, phantom-write probe): expose the command-latch state so the
+// top level can verify a CPU-owned write slot actually latched CMD_WRITE. A
+// late-settling `we` at STATE_CMD_START turns the slot into AUTO_REFRESH (the
+// idle-else below) while the top's slot-start handshake still completes DTACK
+// — a silently lost write, invisible to wr_escape_cnt.
+assign dbg_we_latch = we_latch;
 
 always @(posedge clk_64) begin
 	sd_cmd <= CMD_INHIBIT;  // default: idle

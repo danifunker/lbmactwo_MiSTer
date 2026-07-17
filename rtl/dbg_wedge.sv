@@ -115,6 +115,9 @@ module dbg_wedge (
 	// ---- SDRAM coherency timeout-escape counters (2026-07-12: PESC) ----
 	input  wire [15:0] rd_escapes,      // read timeout-escapes (latched wrong word)
 	input  wire [15:0] wr_escapes,      // write timeout-escapes (forced done, no owned slot)
+	// ---- Phantom-write probe (2026-07-17: deck v8) ----
+	input  wire [15:0] phantom_wr,      // owned write slots completed WITHOUT CMD_WRITE latched
+	input  wire [31:0] committed_wr,    // owned write slots completed WITH CMD_WRITE latched
 	input  wire        berr_inhibit,    // TG68 berr_inhibit_active (68020 bus-error rerun)
 
 	// ---- coherency detector inputs (2026-06-13) ----
@@ -757,8 +760,8 @@ module dbg_wedge (
 			// AFTER the driver began executing ([0] = first = the original sin;
 			// later writes only bump wsn_cnt). wpc half-word =
 			// {pc_is_high(1), pc[15:1]} — flag set ⇒ writer PC ≥ 0x10000 (ROM).
-			4'd8:  prgr_r <= {wpc1, wpc0};              // snoop writer PCs [2nd],[1st]
-			4'd9:  prgr_r <= {wad1, wad0};              // snoop addr[16:1]  [2nd],[1st]
+			4'd8:  prgr_r <= {phantom_wr, wr_escapes};  // v8: phantom-committed writes | timeout escapes
+			4'd9:  prgr_r <= committed_wr;              // v8: committed (really-latched) write count
 			4'd11: prgr_r <= {wdt1, wdt0};              // snoop data words  [2nd],[1st]
 			// srcC = first masked-window write context (v4):
 			// {hmmu_at_hit(1), addr[31:25](7), writer_pc[23:0]}.
