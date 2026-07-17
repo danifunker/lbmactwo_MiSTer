@@ -225,6 +225,7 @@ localparam CONF_STR = {
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"O45,Memory,2MB,4MB,8MB;",
+	"O9,FPU,68881,None - soft SANE;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
 	"O13,NuBus Video,Color,B&W;",
@@ -242,6 +243,7 @@ localparam CONF_STR = {
 
 wire status_turbo = 1'b1; // Mac II always runs at C15M = 15.6672 MHz (CPU rides clk16_en)
 wire status_overlay_en = status[6];
+wire status_fpu_off    = status[9];  // OSD "FPU: None - soft SANE" (see fpu_stub mux)
 wire status_video_mono = status[13];
 // OSD "Monitor" select (status bit 16 = OSD char 'G'): which monitor the
 // MDC824 card advertises on its sense lines. Takes effect on the next Mac
@@ -1282,23 +1284,54 @@ wire [31:0] berr_data_out;
 // sense_n is an inout driven by the FPU internally to indicate presence
 
 wire [31:0] fpu_dbg_cir_state;
+// OSD "FPU: None (soft SANE)" (status[9], 2026-07-17): when set, the real FPU
+// is deselected and the CIR no-op stub answers every coprocessor dialog with
+// a non-Null/non-Transfer primary, so each FPU instruction takes the F-line
+// emulator trap and the OS falls back to software SANE — exactly a
+// no-FPU-socket Mac. Purpose: on-hardware A/B lever for the intermittent
+// System-7.1 boot failures (F-line Sad Mac / "debug failure" class) that the
+// converted-RTL sim FPU cannot reproduce; the stub path is boot-proven (the
+// Verilator sim booted System 7 on it throughout the harness era).
+wire [31:0] fpu_real_data_out, fpu_stub_data_out;
+wire fpu_real_dsack0_n, fpu_real_dsack1_n, fpu_real_sense_n;
+wire fpu_stub_dsack0_n, fpu_stub_dsack1_n, fpu_stub_sense_n;
 mc68881_fpu_lite fpu_inst (
 	.clk        ( clk_sys              ),
 	.reset_n    ( _cpuReset            ),
 	.a_in       ( fpu_addr_remapped    ),
 	.d_in       ( fpu_d_in_eff         ),
-	.d_out      ( fpu_data_out         ),
+	.d_out      ( fpu_real_data_out    ),
 	.size_n     ( fpu_size_n           ),
 	.as_n       ( _cpuAS               ),
-	.cs_n       ( fpu_cs_n_eff         ),
+	.cs_n       ( fpu_cs_n_eff | status_fpu_off ),
 	.rw         ( _cpuRW               ),
 	.ds_n       ( _cpuUDS & _cpuLDS    ),  // active when either byte lane selected
-	.dsack0_n   ( fpu_dsack0_n         ),
-	.dsack1_n   ( fpu_dsack1_n         ),
-	.sense_n    ( fpu_sense_n          ),
+	.dsack0_n   ( fpu_real_dsack0_n    ),
+	.dsack1_n   ( fpu_real_dsack1_n    ),
+	.sense_n    ( fpu_real_sense_n     ),
 	.status_valid (                    ),
 	.dbg_cir_state ( fpu_dbg_cir_state )
 );
+sim_fpu_cir_stub fpu_stub (
+	.clk        ( clk_sys              ),
+	.reset_n    ( _cpuReset            ),
+	.a_in       ( fpu_addr_remapped    ),
+	.d_in       ( fpu_d_in_eff         ),
+	.d_out      ( fpu_stub_data_out    ),
+	.size_n     ( fpu_size_n           ),
+	.as_n       ( _cpuAS               ),
+	.cs_n       ( fpu_cs_n_eff | ~status_fpu_off ),
+	.rw         ( _cpuRW               ),
+	.ds_n       ( _cpuUDS & _cpuLDS    ),
+	.dsack0_n   ( fpu_stub_dsack0_n    ),
+	.dsack1_n   ( fpu_stub_dsack1_n    ),
+	.sense_n    ( fpu_stub_sense_n     ),
+	.status_valid (                    )
+);
+assign fpu_data_out = status_fpu_off ? fpu_stub_data_out : fpu_real_data_out;
+assign fpu_dsack0_n = status_fpu_off ? fpu_stub_dsack0_n : fpu_real_dsack0_n;
+assign fpu_dsack1_n = status_fpu_off ? fpu_stub_dsack1_n : fpu_real_dsack1_n;
+assign fpu_sense_n  = status_fpu_off ? fpu_stub_sense_n  : fpu_real_sense_n;
 
 addrController_top ac0
 (

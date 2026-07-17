@@ -1,4 +1,5 @@
 set_global_assignment -name QIP_FILE rtl/tg68k/TG68K.qip
+set_global_assignment -name VERILOG_FILE rtl/mc68881/sim_fpu_cir_stub.v
 set_global_assignment -name VERILOG_FILE rtl/sdram.v
 set_global_assignment -name VERILOG_FILE rtl/sdram_arbiter.v
 set_global_assignment -name VERILOG_FILE rtl/scsi.v
