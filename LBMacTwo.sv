@@ -214,8 +214,8 @@ video_freak video_freak
 localparam CONF_STR = {
 	"LBMacTwo;;",
 	"-;",
-	"F1,DSKIMG,Mount Pri Floppy;",
-	"F2,DSKIMG,Mount Sec Floppy;",
+	"F1,DSK,Mount Pri Floppy;",
+	"F2,DSK,Mount Sec Floppy;",
 	"-;",
 	"SC0,IMGVHDHDA,Mount SCSI-0;",
 	"SC1,IMGVHDHDA,Mount SCSI-1;",
