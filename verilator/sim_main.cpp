@@ -1094,15 +1094,15 @@ static void print_boot_decision_debug(uint32_t pc) {
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd_cnt,
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd[0],
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableNext ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableInt ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableExt ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__iwmMode,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnable ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnableD ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__diskEnableInt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__diskEnableExt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__iwmMode,
+		0 /*swim-port: HUD tap retired*/,
+		0 /*swim-port: HUD tap retired*/,
 		ram_byte((a4 + 0x61) & 0x1FFFFF));
 }
 
@@ -2252,10 +2252,10 @@ int verilate() {
 					bool rw = VERTOPINTERN->debug_cpuRW;
 					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;
 					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;
-					bool iwm_select_ext = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__selectExternalDrive;
-					bool iwm_select_ext_next = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__selectExternalDriveNext;
-					bool iwm_enable = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable;
-					bool iwm_enable_next = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableNext;
+					bool iwm_select_ext = VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__selectExternalDrive;
+					bool iwm_select_ext_next = VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__selectExternalDriveNext;
+					bool iwm_enable = 0 /*swim-port: HUD tap retired*/;
+					bool iwm_enable_next = VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnableD;
 
 					fprintf(stderr,
 						"IWM_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%X din=%04X dout=%04X "
@@ -2271,39 +2271,39 @@ int verilate() {
 						reg,
 						data_in,
 						data_out,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca2 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca1 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca0 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca2Next ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca1Next ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca0Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca2 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca1 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca0 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca2Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca1Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca0Next ? 1 : 0,
 						iwm_select_ext ? 1 : 0,
 						iwm_select_ext_next ? 1 : 0,
 						(iwm_enable && !iwm_select_ext) ? 1 : 0,
 						(iwm_enable_next && !iwm_select_ext_next) ? 1 : 0,
 						(iwm_enable && iwm_select_ext) ? 1 : 0,
 						(iwm_enable_next && iwm_select_ext_next) ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7Next ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6Next ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__SEL ? 1 : 0,
-						(VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataInt >> 7) & 1,
-						(VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt >> 7) & 1,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataInt,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataLatch,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readLatchClearTimer,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataArmDelay,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyInt ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyExt ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveTrack,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveSide ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__diskImageData,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__diskDataByteTimer,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__readyToAdvanceHead ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs);
+						(0 /*swim-port: HUD tap retired*/ >> 7) & 1,
+						(0 /*swim-port: HUD tap retired*/ >> 7) & 1,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__readDataLatch,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__readLatchClearTimer,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__readDataArmDelay,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/);
 					iwm_debug_count++;
 				}
 				iwm_debug_prev_bus_control = bus_active;
