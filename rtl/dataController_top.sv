@@ -103,6 +103,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	input [1:0] insertDisk,
 	input [1:0] diskSides,
+	input [1:0] diskMFM,    // disk is MFM-format (ISM/SWIM path): {ext,int}
+	input [1:0] diskHD,     // disk is 1.44MB HD (vs 720K DD): {ext,int}
 	output [1:0] diskEject,
 	output [1:0] diskMotor,
 	output [1:0] diskAct,
@@ -203,7 +205,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire _viaIrq, _via2Irq, _sccIrq, sccWReq;
 	wire [15:0] viaDataOut;
 	wire [15:0] via2DataOut;
-	wire [15:0] iwmDataOut;
+	wire [15:0] iwmDataOut;   // SWIM read data (name kept for lineage)
 	wire [7:0] sccDataOut;
 	wire [15:0] scsiDataOut;
 	wire [7:0] ascDataOut;
@@ -1052,12 +1054,17 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// IWM — clocked at C15M (15.6672 MHz) per MAME spec; module divides by 2
 	// internally to recover the ~7.8336 MHz fclk that times GCR bit cells.
-	iwm i(
+	// IWM-era probe outputs with no SWIM equivalent: hold at 0 so the top-level
+	// probe wiring (dbg_iwm_ack_cnt / dbg_iwm_arm_high) stays connected.
+	assign dbg_iwm_ack_cnt  = 16'd0;
+	assign dbg_iwm_arm_high = 7'd0;
+
+	swim sw(
 		.clk(clk32),
-		.cep(clk16_en_p),
-		.cen(clk16_en_n),
+		.cep(clk8_en_p),
+		.cen(clk8_en_n),
 		._reset(_cpuReset),
-		.selectIWM(selectIWM),
+		.selectSWIM(selectIWM),
 		._cpuRW(_cpuRW),
 		._cpuUDS(_cpuUDS),
 		._cpuLDS(_cpuLDS),
@@ -1068,6 +1075,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dataOut(iwmDataOut),
 		.insertDisk(insertDisk),
 		.diskSides(diskSides),
+		.diskMFM(diskMFM),
+		.diskHD(diskHD),
 		.diskEject(diskEject),
 		.diskMotor(diskMotor),
 		.diskAct(diskAct),
@@ -1079,15 +1088,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dskReadData(memoryDataIn[7:0]),
 
 		// PFLP / PIWM diagnostic ports
-		.dbg_dsk_ack_cnt    (dbg_iwm_ack_cnt),
-		.dbg_read_data_latch(dbg_iwm_latch),
-		.dbg_arm_delay_high (dbg_iwm_arm_high),
-		.dbg_flp_byte_cnt   (dbg_flp_byte_cnt),
-		.dbg_flp_miss_cnt   (dbg_flp_miss_cnt),
-		.dbg_flp_disk_data  (dbg_flp_disk_data),
-		.dbg_flp_track      (dbg_flp_track),
-		.dbg_flp_side       (dbg_flp_side),
-		.dbg_flp_step_cnt   (dbg_flp_step_cnt)
+		.dbg_iwm_latch(dbg_iwm_latch),
+		.dbg_flp_byte_cnt(dbg_flp_byte_cnt),
+		.dbg_flp_miss_cnt(dbg_flp_miss_cnt),
+		.dbg_flp_disk_data(dbg_flp_disk_data),
+		.dbg_flp_track(dbg_flp_track),
+		.dbg_flp_side(dbg_flp_side),
+		.dbg_flp_step_cnt(dbg_flp_step_cnt)
 	);
 
 	// SCC

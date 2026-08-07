@@ -893,6 +893,8 @@ module emu
 
 		.insertDisk({dsk_ext_ins, dsk_int_ins}),
 		.diskSides({dsk_ext_ds, dsk_int_ds}),
+		.diskMFM({dsk_ext_mfm, dsk_int_mfm}),
+		.diskHD({dsk_ext_hd, dsk_int_hd}),
 		.diskEject(diskEject),
 		.dskReadAddrInt(dskReadAddrInt),
 		.dskReadAckInt(dskReadAckInt),
@@ -923,6 +925,8 @@ module emu
 	// Floppy disk image tracking
 	reg dsk_int_ds, dsk_ext_ds;
 	reg dsk_int_ss, dsk_ext_ss;
+	reg dsk_int_mfm = 0, dsk_ext_mfm = 0;   // SWIM: MFM image mounted
+	reg dsk_int_hd  = 0, dsk_ext_hd  = 0;   // SWIM: 1.44MB image mounted
 	wire dsk_int_ins = dsk_int_ds || dsk_int_ss;
 	wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss;
 
@@ -932,6 +936,8 @@ module emu
 		if(old_down && ~dio_download && dio_index == 2) begin
 			dsk_int_ds <= (dio_addr == 409600);
 			dsk_int_ss <= (dio_addr == 204800);
+			dsk_int_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
+			dsk_int_hd  <= (dio_addr == 737280);
 		end
 		if(diskEject[0]) begin
 			dsk_int_ds <= 0;
@@ -945,6 +951,8 @@ module emu
 		if(old_down && ~dio_download && dio_index == 3) begin
 			dsk_ext_ds <= (dio_addr == 409600);
 			dsk_ext_ss <= (dio_addr == 204800);
+			dsk_ext_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
+			dsk_ext_hd  <= (dio_addr == 737280);
 		end
 		if(diskEject[1]) begin
 			dsk_ext_ds <= 0;

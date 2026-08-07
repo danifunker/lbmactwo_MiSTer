@@ -214,8 +214,8 @@ video_freak video_freak
 localparam CONF_STR = {
 	"LBMacTwo;;",
 	"-;",
-	"F1,DSK,Mount Pri Floppy;",
-	"F2,DSK,Mount Sec Floppy;",
+	"F1,DSKIMG,Mount Pri Floppy;",
+	"F2,DSKIMG,Mount Sec Floppy;",
 	"-;",
 	"SC0,IMGVHDHDA,Mount SCSI-0;",
 	"SC1,IMGVHDHDA,Mount SCSI-1;",
@@ -1539,6 +1539,8 @@ dataController_top #(SCSI_DEVS) dc0
 	// floppy disk interface
 	.insertDisk({dsk_ext_ins, dsk_int_ins}),
 	.diskSides({dsk_ext_ds, dsk_int_ds}),
+	.diskMFM({dsk_ext_mfm, dsk_int_mfm}),
+	.diskHD({dsk_ext_hd, dsk_int_hd}),
 	.diskEject(diskEject),
 	.dskReadAddrInt(dskReadAddrInt),
 	.dskReadAckInt(dskReadAckInt),
@@ -1664,10 +1666,15 @@ wire  [7:0] dio_index;
 // good floppy image sizes are 819200 bytes and 409600 bytes
 reg dsk_int_ds, dsk_ext_ds;  // double sided image inserted
 reg dsk_int_ss, dsk_ext_ss;  // single sided image inserted
+// SWIM/ISM geometry (2026-08-07): an MFM image routes the SWIM's ISM path
+// instead of the IWM GCR path; HD distinguishes 1.44MB from 720K. Raw sizes
+// in WORDS (dio_addr counts words): 720K = 368640, 1.44M = 737280.
+reg dsk_int_mfm, dsk_ext_mfm;
+reg dsk_int_hd,  dsk_ext_hd;
 
 // any known type of disk image inserted?
-wire dsk_int_ins = dsk_int_ds || dsk_int_ss;
-wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss;
+wire dsk_int_ins = dsk_int_ds || dsk_int_ss || dsk_int_mfm;
+wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss || dsk_ext_mfm;
 
 // at the end of a download latch file size
 // diskEject is set by macos on eject
@@ -1682,11 +1689,15 @@ always @(posedge clk_sys) begin
 	if(old_down && ~dio_download && dio_index == 1) begin
 		dsk_int_ds <= (dio_addr == 409600);   // double sides disk, addr counts words, not bytes
 		dsk_int_ss <= (dio_addr == 204800);   // single sided disk
+		dsk_int_mfm <= (dio_addr == 368640) || (dio_addr == 737280);  // 720K / 1.44M MFM
+		dsk_int_hd  <= (dio_addr == 737280);                          // 1.44M only
 	end
 
 	if(diskEject[0]) begin
 		dsk_int_ds <= 0;
 		dsk_int_ss <= 0;
+		dsk_int_mfm <= 0;
+		dsk_int_hd  <= 0;
 	end
 end
 
@@ -1697,11 +1708,15 @@ always @(posedge clk_sys) begin
 	if(old_down && ~dio_download && dio_index == 2) begin  // F2 -> ioctl_index=2
 		dsk_ext_ds <= (dio_addr == 409600);   // double sided disk, addr counts words, not bytes
 		dsk_ext_ss <= (dio_addr == 204800);   // single sided disk
+		dsk_ext_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
+		dsk_ext_hd  <= (dio_addr == 737280);
 	end
 
 	if(diskEject[1]) begin
 		dsk_ext_ds <= 0;
 		dsk_ext_ss <= 0;
+		dsk_ext_mfm <= 0;
+		dsk_ext_hd  <= 0;
 	end
 end
 
