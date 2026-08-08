@@ -214,8 +214,7 @@ video_freak video_freak
 localparam CONF_STR = {
 	"LBMacTwo;;",
 	"-;",
-	"F1,DSK,Mount Pri Floppy;",
-	"F2,DSK,Mount Sec Floppy;",
+	"F1,DSK,Mount Floppy;",
 	"-;",
 	"SC0,IMGVHDHDA,Mount SCSI-0;",
 	"SC1,IMGVHDHDA,Mount SCSI-1;",
@@ -1537,10 +1536,15 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scc_irq_n(dbg_scc_irq_n),
 
 	// floppy disk interface
-	.insertDisk({dsk_ext_ins, dsk_int_ins}),
-	.diskSides({dsk_ext_ds, dsk_int_ds}),
-	.diskMFM({dsk_ext_mfm, dsk_int_mfm}),
-	.diskHD({dsk_ext_hd, dsk_int_hd}),
+	// External (second) floppy bay removed 2026-08-07 (optimize-core, owner
+	// call — fit headroom for BlueSCSI Toolbox/CD-ROM). Same recipe as
+	// MacIIvi 8b5f594: swim.v/dataController stay byte-identical (family
+	// law); the constants let synthesis fold the ext-drive cones (~300 ALMs).
+	// diskEject[1]/diskMotor[1]/diskAct[1] intentionally land nowhere.
+	.insertDisk({1'b0, dsk_int_ins}),
+	.diskSides({1'b0, dsk_int_ds}),
+	.diskMFM({1'b0, dsk_int_mfm}),
+	.diskHD({1'b0, dsk_int_hd}),
 	.diskEject(diskEject),
 	.dskReadAddrInt(dskReadAddrInt),
 	.dskReadAckInt(dskReadAckInt),
@@ -1664,17 +1668,16 @@ wire [23:0] dio_addr = ioctl_addr[24:1];
 wire  [7:0] dio_index;
 
 // good floppy image sizes are 819200 bytes and 409600 bytes
-reg dsk_int_ds, dsk_ext_ds;  // double sided image inserted
-reg dsk_int_ss, dsk_ext_ss;  // single sided image inserted
+reg dsk_int_ds;  // double sided image inserted
+reg dsk_int_ss;  // single sided image inserted
 // SWIM/ISM geometry (2026-08-07): an MFM image routes the SWIM's ISM path
 // instead of the IWM GCR path; HD distinguishes 1.44MB from 720K. Raw sizes
 // in WORDS (dio_addr counts words): 720K = 368640, 1.44M = 737280.
-reg dsk_int_mfm, dsk_ext_mfm;
-reg dsk_int_hd,  dsk_ext_hd;
+reg dsk_int_mfm;
+reg dsk_int_hd;
 
 // any known type of disk image inserted?
 wire dsk_int_ins = dsk_int_ds || dsk_int_ss || dsk_int_mfm;
-wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss || dsk_ext_mfm;
 
 // at the end of a download latch file size
 // diskEject is set by macos on eject
@@ -1701,24 +1704,10 @@ always @(posedge clk_sys) begin
 	end
 end
 
-always @(posedge clk_sys) begin
-	reg old_down;
-
-	old_down <= dio_download;
-	if(old_down && ~dio_download && dio_index == 2) begin  // F2 -> ioctl_index=2
-		dsk_ext_ds <= (dio_addr == 409600);   // double sided disk, addr counts words, not bytes
-		dsk_ext_ss <= (dio_addr == 204800);   // single sided disk
-		dsk_ext_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
-		dsk_ext_hd  <= (dio_addr == 737280);
-	end
-
-	if(diskEject[1]) begin
-		dsk_ext_ds <= 0;
-		dsk_ext_ss <= 0;
-		dsk_ext_mfm <= 0;
-		dsk_ext_hd  <= 0;
-	end
-end
+// (External-floppy F2 latch block removed 2026-08-07 with the second bay —
+// see the dc0 tie-off note. No F2 entry exists in CONF_STR, so ioctl_index=2
+// downloads no longer occur; the dio_a decode still sinks a stray index-2
+// stream into the retired 0x600000 window rather than the ROM catch-all.)
 
 // Boot-ROM load gate. On a cold/menu load the HPS streams boot0.rom (idx 0)
 // into memory AFTER the FPGA configures, concurrently with the CPU coming out
@@ -1823,13 +1812,15 @@ always @(posedge clk_sys) begin
 		// sim has its own separate top in verilator/sim.v).
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
 			dio_a <= {4'b0000, dio_addr[17:0]}; // boot0.rom @word 0x400000
-		// F1/F2 in conf_str map to ioctl_index 1/2 respectively (MiSTer hps_io
-		// convention; matches MacPlus_MiSTer and macplus-og). Place primary at
-		// SDRAM slot offset 0x80000 (+0x400000 base => 0x480000) and secondary at
-		// 0x100000 (=> 0x500000), each up to 512K words = 1MB. An 800K image
-		// (0x64000 words) fits in either slot with headroom.
-		else if (dio_index[1:0] == 1 || dio_index[1:0] == 2) // Floppy disk images
-			dio_a <= {dio_index[1:0], dio_addr[19:0]};  // slot1 @word 0x500000, slot2 @0x600000
+		// F1 in conf_str maps to ioctl_index 1 (MiSTer hps_io convention;
+		// matches MacPlus_MiSTer and macplus-og), staged in a 1M-word (2MB)
+		// window @word 0x500000. Index 2 (the retired F2 secondary) no longer
+		// has a CONF_STR entry so it cannot arrive from a well-behaved Main —
+		// but keep decoding it into the dead 0x600000 window as a defensive
+		// sink: falling through to the ROM catch-all is the exact class that
+		// once silently overwrote boot0.rom (see the F1 note above).
+		else if (dio_index[1:0] == 1 || dio_index[1:0] == 2) // Floppy disk image (F1)
+			dio_a <= {dio_index[1:0], dio_addr[19:0]};  // F1 @word 0x500000 (idx2 sink @0x600000)
 		else
 			dio_a <= {1'b0, dio_index[6], dio_addr[17:0]};
 
@@ -1997,9 +1988,15 @@ sdram_arbiter arbiter (
 	.mac_dout_valid(arb_mac_dout_valid)
 );
 
-// Cold-load integrity instrument — always on (tiny; see rtl/dbg_coldinit.sv).
-// ROM-download checksum + init-choreography timestamps + PLL-unlock counter,
-// read via JTAG ISSP (scripts/read_coldinit.tcl) without touching the HPS.
+// Cold-load integrity instrument (see rtl/dbg_coldinit.sv): ROM-download
+// checksum + init-choreography timestamps + PLL-unlock counter, read via JTAG
+// ISSP (scripts/read_coldinit.tcl) without touching the HPS.
+// 2026-08-07 (optimize-core): macro-gated for the resource diet (256 ALMs +
+// its share of the sld_hub). Re-enable with
+//   set_global_assignment -name VERILOG_MACRO "DBG_COLDINIT=1"
+// Every input below is a functional net with other consumers (reset/init
+// choreography), so no marginality-anchor coverage is needed for this strip.
+`ifdef DBG_COLDINIT
 dbg_coldinit dbg_coldinit_inst (
 	.clk            (clk_sys),
 	.pll_locked     (pll_locked),
@@ -2012,6 +2009,7 @@ dbg_coldinit dbg_coldinit_inst (
 	.clear_done     (clear_done),
 	.pram_ready     (pram_ready)
 );
+`endif
 
 // FPU CIR-state runtime probe (DBG_FPU diagnostic, read-only, no FPU logic change).
 // Reads fpu_dbg_cir_state live over JTAG to see what the FPU is wedged on at the
@@ -2028,6 +2026,77 @@ altsource_probe #(
 	.sld_auto_instance_index ("YES")
 ) p_fpcs (.probe(fpu_dbg_cir_state), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 `endif
+
+// ── Always-on marginality anchor (optimize-core 2026-08-07) ──────────────────
+// Ported law from MacLC 4dfb463 / MacIIvi MacIIvi.sv:937: on MacLC, probes-OFF
+// fits of this SCSI lineage deterministically corrupted the SCSI read path on
+// hardware (Finder colour-icon noise → error-11 / F-line bombs) while every
+// probe-bearing fit passed — and STA met either way, so timing analysis does
+// NOT predict the class. The protective effect bisected to the fanout of the
+// top-level probes. With DBG_WEDGE now stripped for the resource diet, these
+// sink registers keep the SAME nets loaded in every build, with no JTAG hub,
+// so the fitter treats the SCSI capture/ring/coherency cones as live logic.
+// One register per debug word, loaded directly (concatenation of narrow nets
+// is fine; XOR/parity folding is NOT — a reduction lets synthesis restructure
+// the cones). preserve+noprune = no merging, no retiming, no sweeping.
+// Do NOT remove, ifdef, or fold. ~1K FFs is the entire cost.
+//   * scsi/ring words = every cone the wedge deck consumed in the last
+//     probe-bearing hardware-good build (baseline-fanout consistency);
+//     lbar/xorr pin the ring-stale serve cone (MacLC 2026-08-03 extension).
+//   * flp words pin the floppy fetch cone (MacLC 2026-08-04 extension —
+//     an anchor-less LC build passed the SCSI icon gate yet failed a
+//     sustained floppy copy; same swim.v lineage as ours).
+//   * coh words pin the SDRAM coherency-escape counters (tap-only regs).
+//   * fpcs pins the FPU CIR observability cone (fpu_dbg_cir_state) — our
+//     residual-lottery history is FPU-adjacent; keep its layout stable and
+//     the DBG_FPU probe re-attachable without a netlist change.
+(* preserve, noprune *) reg [31:0] anchor_scsi,  anchor_scsi4, anchor_swr,
+                                   anchor_wr0,   anchor_regs;
+(* preserve, noprune *) reg [31:0] anchor_wringA, anchor_wringB,
+                                   anchor_wringC, anchor_wringD;
+(* preserve, noprune *) reg [31:0] anchor_selid, anchor_winhA, anchor_winhB,
+                                   anchor_iwh,   anchor_cmdr,  anchor_star;
+(* preserve, noprune *) reg [31:0] anchor_lbarA, anchor_lbarB,
+                                   anchor_xorrA, anchor_xorrB, anchor_self;
+(* preserve, noprune *) reg [31:0] anchor_ncr2,  anchor_via2;
+(* preserve, noprune *) reg [31:0] anchor_adb0,  anchor_adb1,
+                                   anchor_adb2,  anchor_adb3;
+(* preserve, noprune *) reg [31:0] anchor_coh0,  anchor_coh1;
+(* preserve, noprune *) reg [31:0] anchor_flp,   anchor_flp2;
+(* preserve, noprune *) reg [31:0] anchor_fpcs;
+always @(posedge clk_sys) begin
+	anchor_scsi   <= {dbg_scsi, dbg_scsi2};
+	anchor_scsi4  <= {dbg_selt0, 8'b0, dbg_scsi4};
+	anchor_swr    <= dbg_scsi_wr;
+	anchor_wr0    <= dbg_wr0;
+	anchor_regs   <= dbg_regs;
+	anchor_wringA <= dbg_wringA;
+	anchor_wringB <= dbg_wringB;
+	anchor_wringC <= dbg_wringC;
+	anchor_wringD <= dbg_wringD;
+	anchor_selid  <= dbg_selid;
+	anchor_winhA  <= dbg_winh0A;
+	anchor_winhB  <= dbg_winh0B;
+	anchor_iwh    <= dbg_iwh;
+	anchor_cmdr   <= dbg_cmdr0;
+	anchor_star   <= dbg_star0;
+	anchor_lbarA  <= dbg_lbar0A;
+	anchor_lbarB  <= dbg_lbar0B;
+	anchor_xorrA  <= dbg_xorr0A;
+	anchor_xorrB  <= dbg_xorr0B;
+	anchor_self   <= dbg_selfail0;
+	anchor_ncr2   <= dbg_ncr2;
+	anchor_via2   <= dbg_via2_irq;
+	anchor_adb0   <= dbg_adb;
+	anchor_adb1   <= {14'b0, dbg_adb2};
+	anchor_adb2   <= dbg_adb3;
+	anchor_adb3   <= dbg_adb4;
+	anchor_coh0   <= {rd_escape_cnt, wr_escape_cnt};
+	anchor_coh1   <= {phantom_wr_cnt, committed_wr_cnt[31:16]};
+	anchor_flp    <= {dbg_flp_byte_cnt, dbg_flp_miss_cnt};
+	anchor_flp2   <= {dbg_iwm_ack_cnt, dbg_iwm_latch, 1'b0, dbg_iwm_arm_high};
+	anchor_fpcs   <= fpu_dbg_cir_state;
+end
 
 // Focused early-boot CPU-wedge probe (5 instances; fits where dbg_min's 82 do
 // not). Enabled with `set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"`.

@@ -51,6 +51,15 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT LOW
 set_global_assignment -name SEED 1
 
+# M10K diet (optimize-core 2026-08-07, ported from the MacIIvi/MacLC m10k-repack
+# campaign): stop Q17 from converting pipeline delay lines into altshift_taps
+# M10Ks at 1-3% fill (ascal o_vpix, shadowmask vid, vga_out din1, yc phase ≈5
+# blocks here). MUST be global — Q17's shift-taps conversion works a global
+# budget, so per-instance pins just roll the block onto the next candidate
+# (MacIIvi.qsf:396-410, three failed per-instance attempts documented).
+# Cost: a few hundred registers. Framework constrained from our qsf; sys/ untouched.
+set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF
+
 #set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 
 #enable it only if 8bit indexed mode is used in core
@@ -75,7 +84,11 @@ set_global_assignment -name ENABLE_SIGNALTAP OFF
 # Removing these 5 JTAG probes is the biggest safe timing-relief lever (frees
 # logic + ISSP routing congestion) and yields the shippable config. Re-add for HW
 # probing only.
-set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
+# 2026-08-07 (optimize-core): OFF for the resource diet — wedge deck 855 ALMs +
+# sld_hub 283 + coldinit 256 ≈ 1.4K ALMs. The debug cones stay pinned by the
+# always-on marginality anchor in LBMacTwo.sv (MacLC 4dfb463 law: probes-off
+# fits corrupted SCSI reads on HW with STA met; the anchor is the proven cure).
+#set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
 
 # 2026-06-15: FPU CIR-state runtime probe (rtl: LBMacTwo.sv p_fpcs reading
 # fpu_dbg_cir_state). Read-only, ~1 ISSP probe, reuses dbg_coldinit's JTAG hub.
