@@ -127,6 +127,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	input                   sd_buff_wr,
 
 	// JTAG debug passthrough: NCR5380 selection/arbitration state
+	// (probe decks deleted 2026-08-08; these now feed ONLY the top-level
+	// marginality anchor — keep them wired, see LBMacTwo.sv anchor block)
+	output           [31:0] dbg_ring0,     // read-ring serve/refill, target 0 (anchor)
+	output           [31:0] dbg_ring1,     // read-ring serve/refill, target 1 (anchor)
 	output           [15:0] dbg_scsi,
 	output           [15:0] dbg_scsi2,
 	output           [15:0] dbg_scsi3,
@@ -349,7 +353,9 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_xorr0B(dbg_xorr0B),
 		.dbg_selfail0(dbg_selfail0),
 		.dbg_ncr(dbg_ncr),
-		.dbg_ncr2(dbg_ncr2)
+		.dbg_ncr2(dbg_ncr2),
+		.dbg_ring0(dbg_ring0),
+		.dbg_ring1(dbg_ring1)
 	);
 
 	// ASC (Apple Sound Chip)

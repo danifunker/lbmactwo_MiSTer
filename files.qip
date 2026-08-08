@@ -21,9 +21,6 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/dataController_top.sv
 set_global_assignment -name VERILOG_FILE rtl/videoTimer.v
 set_global_assignment -name VERILOG_FILE rtl/videoShifter.v
 set_global_assignment -name VERILOG_FILE rtl/rtc.v
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_min.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_coldinit.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_wedge.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_arbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_mdc824.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/vram_ram.sv

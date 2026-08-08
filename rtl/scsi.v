@@ -52,6 +52,7 @@ module scsi
 	output [31:0] dbg_lbarB,    // v3.15: read LBA ring [3],[2]
 	output [31:0] dbg_xorrA,    // v3.17: delivered-data XOR16 ring [1],[0] (pairs with lbar)
 	output [31:0] dbg_xorrB,    // v3.17: delivered-data XOR16 ring [3],[2]
+	output [31:0] dbg_ring,     // read-ring serve/refill bookkeeping (anchor feed — see assign)
 	output [31:0] dbg_selfail,  // v3.16: selection-failure reason tally (frozen)
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
@@ -601,6 +602,19 @@ wire        rd_blk_remain = (rd_hps_blk < rd_blk_total);
 wire        rd_ring_space = ((rd_hps_blk - rd_cur_blk) < RING_BLOCKS);
 wire req_rd = (phase == PHASE_DATA_OUT) && cmd_read && (data_len != 32'd0) &&
               !data_complete && rd_blk_remain && rd_ring_space;
+
+// Anchor feed (ported intent of MacLC scsi.v dbg_ring, 2026-08-08): the
+// ring-stale corruption class (MacLC f5a3dec/082dcc4/e66fd82, Finder
+// colour-icon noise 08-03) lives in exactly this cone — a slot served at/past
+// the rd_hps_blk fill boundary silently returns the slot's previous occupant.
+// MacLC's 11-word anchor proved INSUFFICIENT until these nets were pinned.
+// Composed from OUR ring engine's serve/refill decision nets (their
+// rd_ahead_* names post-date our port): the io_busy stall comparator, the
+// fetch-pacing comparators, and both frontier counters. The value is never
+// read — the word exists so probes-off fits keep these nets loaded as live
+// logic (see the anchor block in LBMacTwo.sv; do not trim or fold).
+assign dbg_ring = { io_busy, req_rd, rd_blk_remain, rd_ring_space,
+                    data_cnt[22:9], rd_hps_blk[13:0] };
 
 // generate an io_wr signal whenever a 512 byte block has been received or when the status
 // phase of a write command has been reached.

@@ -1590,6 +1590,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_selfail0(dbg_selfail0),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
+	.dbg_ring0(dbg_ring0),
+	.dbg_ring1(dbg_ring1),
 	.dbg_via2_irq(dbg_via2_irq),
 	.dbg_adb(dbg_adb),
 	.dbg_adb2(dbg_adb2),
@@ -1630,6 +1632,8 @@ wire [31:0] dbg_xorr0B;
 wire [31:0] dbg_selfail0;  // v3.16 target0 selection-failure tally
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
+wire [31:0] dbg_ring0;     // read-ring serve/refill, target 0 (anchor-only feed)
+wire [31:0] dbg_ring1;     // read-ring serve/refill, target 1 (anchor-only feed)
 wire [31:0] dbg_via2_irq;      // NCR5380 write loss-mechanism counters
 wire [31:0] dbg_adb;
 wire [17:0] dbg_adb2;
@@ -1988,44 +1992,17 @@ sdram_arbiter arbiter (
 	.mac_dout_valid(arb_mac_dout_valid)
 );
 
-// Cold-load integrity instrument (see rtl/dbg_coldinit.sv): ROM-download
-// checksum + init-choreography timestamps + PLL-unlock counter, read via JTAG
-// ISSP (scripts/read_coldinit.tcl) without touching the HPS.
-// 2026-08-07 (optimize-core): macro-gated for the resource diet (256 ALMs +
-// its share of the sld_hub). Re-enable with
-//   set_global_assignment -name VERILOG_MACRO "DBG_COLDINIT=1"
-// Every input below is a functional net with other consumers (reset/init
-// choreography), so no marginality-anchor coverage is needed for this strip.
-`ifdef DBG_COLDINIT
-dbg_coldinit dbg_coldinit_inst (
-	.clk            (clk_sys),
-	.pll_locked     (pll_locked),
-	.ioctl_download (dio_download),
-	.ioctl_index    (dio_index[7:0]),
-	.ioctl_wr       (ioctl_write),
-	.ioctl_data     (ioctl_data),
-	.img_mounted    (img_mounted[2:0]),
-	.rom_loaded     (rom_loaded),
-	.clear_done     (clear_done),
-	.pram_ready     (pram_ready)
-);
-`endif
-
-// FPU CIR-state runtime probe (DBG_FPU diagnostic, read-only, no FPU logic change).
-// Reads fpu_dbg_cir_state live over JTAG to see what the FPU is wedged on at the
-// SimpleText-launch hard lock. Layout (mc68881_top.vhd:46): [31:16] response prim,
-// [15:11] cir_state_reg, [10:6] MAX state seen, [2] except-seen, [1] restore-frame
-// -seen, [0] cir_active. Distinguishes a stuck ARITH op (cir_state=CIR_EXECUTE)
-// from a stuck FSAVE/FRESTORE context-switch (CIR_RESTORE_FRAME / CIR_SAVE_*).
-// Keys off the FPU's own FSM (clk_sys), so it reads correctly while the Mac is
-// frozen (unlike the SDRAM-slot-gated probes). scripts/read_fpu.tcl. Reuses
-// dbg_coldinit's JTAG hub. Strip by removing the DBG_FPU macro (LBMacTwo.qsf).
-`ifdef DBG_FPU
-altsource_probe #(
-	.instance_id ("FPCS"), .probe_width (32), .source_width (1),
-	.sld_auto_instance_index ("YES")
-) p_fpcs (.probe(fpu_dbg_cir_state), .source(), .source_clk(clk_sys), .source_ena(1'b1));
-`endif
+// ── ALL probe fabric deleted (2026-08-08, owner call) ────────────────────────
+// The JTAG instrument decks that lived here and below — dbg_coldinit (4 ISSP),
+// the DBG_FPU FPCS probe, dbg_wedge (20 ISSP), dbg_min (82 ISSP) and the
+// ncr5380 PWR2/PSEL pair — are physically removed from the core, matching
+// MacLC's release posture (probe-less bitstream + marginality anchor). Every
+// cone they consumed is pinned by the anchor block below, so their removal
+// does not change any net's loaded/unloaded status vs the last known-good
+// probe-off fits. To resurrect an instrument for a hardware hunt, revert the
+// deleting commit (git log --follow rtl/dbg_wedge.sv) — the read scripts
+// (scripts/read_wedge.tcl, read_coldinit.tcl, read_fpu.tcl, cpu_state.tcl)
+// are kept in-tree and match the reverted instruments as-is.
 
 // ── Always-on marginality anchor (optimize-core 2026-08-07) ──────────────────
 // Ported law from MacLC 4dfb463 / MacIIvi MacIIvi.sv:937: on MacLC, probes-OFF
@@ -2064,6 +2041,15 @@ altsource_probe #(
 (* preserve, noprune *) reg [31:0] anchor_coh0,  anchor_coh1;
 (* preserve, noprune *) reg [31:0] anchor_flp,   anchor_flp2;
 (* preserve, noprune *) reg [31:0] anchor_fpcs;
+// (2026-08-08) Ring-cone extension, ported from MacLC's 2026-08-03 anchor
+// extension: their 11-word anchor proved INSUFFICIENT — a probes-off fit
+// corrupted the Finder colour-icon read path with the anchor present. The
+// recurring fingerprint of this class is RING-STALE serving: a ring slot
+// served at/past the rd_hps_blk fill boundary. These two words pin that
+// exact cone per disk target (scsi.v dbg_ring: the io_busy stall comparator,
+// fetch-pacing comparators, and both frontier counters). Same law: never
+// remove, ifdef, or fold.
+(* preserve, noprune *) reg [31:0] anchor_ring0, anchor_ring1;
 always @(posedge clk_sys) begin
 	anchor_scsi   <= {dbg_scsi, dbg_scsi2};
 	anchor_scsi4  <= {dbg_selt0, 8'b0, dbg_scsi4};
@@ -2096,176 +2082,10 @@ always @(posedge clk_sys) begin
 	anchor_flp    <= {dbg_flp_byte_cnt, dbg_flp_miss_cnt};
 	anchor_flp2   <= {dbg_iwm_ack_cnt, dbg_iwm_latch, 1'b0, dbg_iwm_arm_high};
 	anchor_fpcs   <= fpu_dbg_cir_state;
+	anchor_ring0  <= dbg_ring0;
+	anchor_ring1  <= dbg_ring1;
 end
 
-// Focused early-boot CPU-wedge probe (5 instances; fits where dbg_min's 82 do
-// not). Enabled with `set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"`.
-// Probes PADR/PSTA/PACT/PFLO/PFST; read with scripts/read_wedge.tcl. (The trim
-// dropped PFLA, so cpu_state.tcl's F-line block stays silent — use read_wedge.)
-// Diagnoses the residual wedge (root cause = FPU conversion-datapath timing).
-`ifdef DBG_WEDGE
-dbg_wedge dbg_wedge_inst (
-	.clk              (clk_sys),
-	.cpuAddr          (cpuAddr),
-	.cpuFC            (cpuFC),
-	.cpuAS_n          (_cpuAS),
-	.cpuRW            (_cpuRW),
-	.cpuDTACK_n       (_cpuDTACK),
-	.cpuUDS_n         (_cpuUDS),
-	.cpuLDS_n         (_cpuLDS),
-	.selectFPU        (selectFPU),
-	.selectRAM        (selectRAM),
-	.selectROM        (selectROM),
-	.selectNuBus      (selectNuBus),
-	.fpu_dsack0_n     (fpu_dsack0_n),
-	.fpu_dsack1_n     (fpu_dsack1_n),
-	.mac_dout_valid   (cpu_sdram_rd_done),
-	.cpu_din          (cpu_data_in),
-	.cpu_dout         (cpuDataOut),
-	.hmmu_act         (hmmu_active),
-	.fpu_dbg_cir_state(fpu_dbg_cir_state),
-	// happy-mac-reboot differential (2026-07-03; MacLCii PRC0/PRT/PSCW port)
-	.dbg_ncr2         (dbg_ncr2),
-	.pscw             (dbg_scsi_wr),
-	.pscw0            (dbg_wr0),
-	.scsi2            (dbg_scsi2),
-	.ncr_regs         (dbg_regs),
-	.rst_count        (dbg_scsi4[15:8]),
-	.img_mnt0         (img_mounted[0]),
-	// matches scsi.v's own unmount condition: img_blocks (= img_size[40:9]) == 0
-	.img_size_zero    (img_size[40:9] == 32'd0),
-	.mounted0         (dbg_scsi[9]),
-	.scsi_hs          (dbg_scsi),
-	.selterms0        (dbg_selt0),
-	.berr_pulse       (berr_out),
-	.wringA           (dbg_wringA),
-	.wringB           (dbg_wringB),
-	.wringC           (dbg_wringC),
-	.wringD           (dbg_wringD),
-	.selid            (dbg_selid),
-	.winh0A           (dbg_winh0A),
-	.winh0B           (dbg_winh0B),
-	.iwh              (dbg_iwh),
-	.cmdr0            (dbg_cmdr0),
-	.star0            (dbg_star0),
-	.lbar0A           (dbg_lbar0A),
-	.lbar0B           (dbg_lbar0B),
-	.xorr0A           (dbg_xorr0A),
-	.xorr0B           (dbg_xorr0B),
-	.selfail0         (dbg_selfail0),
-	.via2_irq_state   (dbg_via2_irq),
-	// ADB/VIA1-SR stall probes (2026-07-11): System-startup ADB wait
-	.adb_state        (dbg_adb),
-	.adb_timer        (dbg_adb2),
-	.adb_rd_ring      (dbg_adb3),
-	.adb_ld_ring      (dbg_adb4),
-	.cpuReset_n       (_cpuReset),
-	// reset-cause snapshot (2026-07-11e): {sys_locked, pram_ready, clear_done,
-	// pram_force_reset, RESET, buttons[1], osd_reset_req} — decode per dbg_wedge.
-	.reset_src        ({sys_locked, pram_ready, clear_done, pram_force_reset, RESET, buttons[1], osd_reset_req}),
-	// SDRAM coherency timeout-escape counters (2026-07-12): PESC probe.
-	.rd_escapes       (rd_escape_cnt),
-	.wr_escapes       (wr_escape_cnt),
-	.phantom_wr       (phantom_wr_cnt),
-	.committed_wr     (committed_wr_cnt),
-	.berr_inhibit     (berr_inhibit_active),
-	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
-	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
-	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
-	// held CPU read cycle, same domain as the tagged dout_addr) — no slot-phase skew.
-	.rd_latch         (sdram_slot_cpu_rd && memoryLatch),
-	.cpu_rd_take      (cpu_rd_take),
-	.cpu_rd_addr      (arb_mac_addr[23:0]),
-	.dout_addr        (sdram_dout_addr),
-	.rd_word          (sdram_do)
-);
-`endif
 
-// Minimal JTAG CPU-state probes to diagnose the early-boot hang.
-// Stripped from production builds: `DBG_PROBES is left undefined so the ISSP
-// instrumentation — and, importantly, its timing-closure footprint — is removed
-// from the bitstream. Re-enable for hardware debug by defining DBG_PROBES (e.g.
-// a qsf `set_global_assignment -name VERILOG_MACRO "DBG_PROBES=1"`).
-`ifdef DBG_PROBES
-dbg_min dbg_min_inst (
-	.clk            (clk_sys),
-	.cpuAddr        (cpuAddr),
-	.cpuFC          (cpuFC),
-	.cpuAS_n        (_cpuAS),
-	.cpuRW          (_cpuRW),
-	.cpuDTACK_n     (_cpuDTACK),
-	.cpuUDS_n       (_cpuUDS),
-	.cpuLDS_n       (_cpuLDS),
-	.selectFPU      (selectFPU),
-	.selectRAM      (selectRAM),
-	.selectROM      (selectROM),
-	.selectNuBus    (selectNuBus),
-	.fpu_dsack0_n   (fpu_dsack0_n),
-	.fpu_dsack1_n   (fpu_dsack1_n),
-	// Rewired 2026-06-10 to the slot-owned read-done flag (the signal that
-	// now gates DTACK); the arbiter's blind-counted valid is vestigial.
-	.mac_dout_valid (cpu_sdram_rd_done),
-	.video_en       (dbg_video_en),
-	.vram_wr_cnt    (dbg_vram_wr_cnt),
-	.vram_fetch_cnt (dbg_vram_fetch_cnt),
-	.selectSCSI     (selectSCSI),
-	.scsi_rd_data   (dataControllerDataOut),
-	.img_mounted    (img_mounted[1:0]),
-	.sd_rd          (sd_rd[1:0]),
-	.sd_wr          (sd_wr[1:0]),
-	.sd_ack         (sd_ack[1:0]),
-	.scsi_dbg       (dbg_scsi),
-	.scsi_dbg2      (dbg_scsi2),
-	.scsi_dbg3      (dbg_scsi3),
-	.scsi_dbg4      (dbg_scsi4),
-	.scsi_dbg5      (dbg_scsi5),
-	.scsi_dbg_wr    (dbg_scsi_wr),
-	.scsi_dbg_ncr   (dbg_ncr),
-	.scsi_dbg_ncr2  (dbg_ncr2),
-	.via2_irq_state (dbg_via2_irq),
-	.sd_buff_dout   (sd_buff_dout),
-	.sd_buff_addr   (sd_buff_addr),
-	.sd_buff_wr     (sd_buff_wr),
-	.cpuIPL_n       (_cpuIPL),
-	.berr           (berr_out),
-	.ioctl_wr       (ioctl_write),
-	.ioctl_idx      (dio_index[7:0]),
-	.ioctl_addr     (ioctl_addr),
-	.ioctl_data     (ioctl_data),
-	.dbg_adb        (dbg_adb),
-	.dbg_adb2       (dbg_adb2),
-	.dbg_adb3       (dbg_adb3),
-	.dbg_adb4       (dbg_adb4),
-	.ps2_mouse      (ps2_mouse),
-	.mouse_has_event(adb_mouse_has_event),
-	// Audio-regression diagnosis
-	.selectASC      (selectASC),
-	.asc_irq_n      (dbg_asc_irq_n),
-	.asc_audio_l    (asc_audio_l),
-	.card_irq_cnt   (dbg_card_irq_cnt),
-	.card_ack_cnt   (dbg_card_ack_cnt),
-	.card_vbl_en    (dbg_card_vbl_en),
-	// PFLP / PIWM / PFLT
-	.flp_byte_cnt   (dbg_flp_byte_cnt),
-	.flp_miss_cnt   (dbg_flp_miss_cnt),
-	.flp_disk_data  (dbg_flp_disk_data),
-	.iwm_ack_cnt    (dbg_iwm_ack_cnt),
-	.iwm_latch      (dbg_iwm_latch),
-	.iwm_arm_high   (dbg_iwm_arm_high),
-	.flp_track      (dbg_flp_track),
-	.flp_side       (dbg_flp_side),
-	.flp_step_cnt   (dbg_flp_step_cnt),
-	.cpu_dout       (cpuDataOut),
-	.cpu_din        (cpu_data_in),
-	.via1_irq_n     (dbg_via1_irq_n),
-	.via2_irq_n     (dbg_via2_irq_n),
-	.scc_irq_n      (dbg_scc_irq_n),
-	.selectSCC      (selectSCC),
-	.selectVIA      (selectVIA),
-	.selectVIA2     (selectVIA2),
-	.selectIWM      (selectIWM),
-	.fpu_dbg_cir_state(fpu_dbg_cir_state)
-);
-`endif
 
 endmodule

@@ -76,31 +76,14 @@ set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF
 # Disable SignalTap (removes auto_signaltap_0 critical warning)
 set_global_assignment -name ENABLE_SIGNALTAP OFF
 
-# Early-boot CPU-wedge probe (rtl/dbg_wedge.sv, 6 JTAG probes). Diagnostic only
-# — remove this line for a probe-free release build. Does NOT enable dbg_min.
-# 2026-06-13: RE-ENABLED — the SDRAM-init fix cleared the Finder "illegal
-# instruction" bomb (dbg_coldinit: ROM sum OK, 0 PLL unlocks, healthy boot), but
-# boot now HANGS at the gray desktop (a later, previously-masked stall; the scc
-# LocalTalk ltlk fix is already in). Need PADR/PACT/PSTA to read the stuck PC.
-# 2026-06-14 (s3): DISABLED — the probe is RUNTIME-BLIND (keys off the SDRAM slot
-# handshake that stops at turbo; proven this session, see handoff_fline_fpu_timing
-# round-2). Board-free STA census shows all 31 failing setup paths are FSM/bus/
-# clkena-paced false-positives ⇒ the F-line bomb is timing-LOTTERY-sensitive.
-# Removing these 5 JTAG probes is the biggest safe timing-relief lever (frees
-# logic + ISSP routing congestion) and yields the shippable config. Re-add for HW
-# probing only.
-# 2026-08-07 (optimize-core): OFF for the resource diet — wedge deck 855 ALMs +
-# sld_hub 283 + coldinit 256 ≈ 1.4K ALMs. The debug cones stay pinned by the
-# always-on marginality anchor in LBMacTwo.sv (MacLC 4dfb463 law: probes-off
-# fits corrupted SCSI reads on HW with STA met; the anchor is the proven cure).
-#set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
-
-# 2026-06-15: FPU CIR-state runtime probe (rtl: LBMacTwo.sv p_fpcs reading
-# fpu_dbg_cir_state). Read-only, ~1 ISSP probe, reuses dbg_coldinit's JTAG hub.
-# Diagnoses the SimpleText-launch hard lock: is the FPU wedged in CIR_EXECUTE (a
-# stuck arith op) or CIR_RESTORE_FRAME/CIR_SAVE (a stuck FSAVE/FRESTORE context-
-# switch)? Read with scripts/read_fpu.tcl. Remove this line for a clean build.
-#set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
+# ALL probe fabric deleted from the core 2026-08-08 (owner call): dbg_wedge,
+# dbg_min, dbg_coldinit, the DBG_FPU FPCS probe and the ncr5380 PWR2/PSEL pair
+# no longer exist in the RTL, so the DBG_WEDGE / DBG_PROBES / DBG_COLDINIT /
+# DBG_FPU macros have no effect and are gone from this file. Every cone the
+# instruments consumed is pinned by the always-on marginality anchor in
+# LBMacTwo.sv (MacLC 4dfb463 law — do not remove it). To resurrect an
+# instrument for a hardware hunt, revert the deleting commit; the read
+# scripts in scripts/ are kept in-tree and match the reverted instruments.
 
 # disable bilinear filtering when downscaling
 #set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"

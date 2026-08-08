@@ -139,7 +139,12 @@ module ncr5380
 	//   [7:0]=blind_wr_count (i_dma_wr while dreq==0 => Mac wrote w/o DREQ = blind)
 	//   [13]=irq_latch [12]=dma_armed [11]=bsr_eodma [10]=dreq [9]=bsr_pmatch [8]=dma_en
 	//   [31:16]=req_drop_count (scsi_req 1->0 edges while dma_en — REQ pauses)
-	output      [31:0] dbg_ncr2
+	output      [31:0] dbg_ncr2,
+	// Read-ring serve/refill bookkeeping per disk target (scsi.v dbg_ring),
+	// anchor-only feed — the ring-stale cone (MacLC 2026-08-03 anchor
+	// extension). Never read; pinned by the top-level marginality anchor.
+	output      [31:0] dbg_ring0,
+	output      [31:0] dbg_ring1
 );
 	parameter DEVS = 2;
 	parameter ENABLE_EMPTY_CD = 0;
@@ -587,6 +592,7 @@ module ncr5380
 	wire [7:0]      target_cmd[DEVS];
 	wire [31:0]     target_wrsnap[DEVS];   // JTAG debug: first-word-write capture
 	wire [31:0]     target_selsnap[DEVS];  // JTAG debug: selection/command handshake
+	wire [31:0]     target_ring[DEVS];     // read-ring serve/refill (anchor feed)
 	wire [31:0]     target_wrstall[DEVS];  // JTAG debug: multi-block write-stall snapshot
 	wire [DEVS-1:0] target_bsy;
 
@@ -741,6 +747,7 @@ module ncr5380
 				.dbg_dma_lowbyte( dma_write_low_byte ),
 				.dbg_wrsnap( target_wrsnap[i] ),
 				.dbg_selsnap( target_selsnap[i] ),
+				.dbg_ring( target_ring[i] ),
 				.dbg_wrstall( target_wrstall[i] )
 			);
 		end
@@ -797,6 +804,8 @@ module ncr5380
 	assign dbg_star0  = target_statring[0];
 	assign dbg_lbar0A = target_lbarA[0];
 	assign dbg_lbar0B = target_lbarB[0];
+	assign dbg_ring0  = target_ring[0];
+	assign dbg_ring1  = target_ring[1];
 	assign dbg_xorr0A = target_xorrA[0];
 	assign dbg_xorr0B = target_xorrB[0];
 	assign dbg_selfail0 = target_selfail[0];
@@ -940,36 +949,12 @@ module ncr5380
 
 	assign dbg_scsi5 = { target_cmd[1], target_cmd[0] };
 
-	// JTAG ISSP: first-word-write capture for target 0 (ID 6, the boot disk).
-	// Read with quartus_stp via instance_id "PWR".
-	//   [7:0]   byte0 the target latched   [15:8]  byte1 the target latched
-	//   [23:16] ncr5380 intended odd byte  [24] dma_word_latched
-	//   [25] dma_longword_latched          [26] b0_seen [27] b1_seen
-	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
-	// JTAG In-System Source/Probe primitives are Altera/Quartus-only; exclude
-	// them from the Verilator build (SIMULATION) so the sim still elaborates.
-	// Gated on DBG_PROBES (left undefined in production) so the ISSP footprint
-	// is stripped from normal hardware builds too — matches the top-level
-	// dbg_min gate in LBMacTwo.sv. Define DBG_PROBES to re-enable for HW debug.
-`ifdef DBG_PROBES
-	altsource_probe #(
-		.instance_id ("PWR2"),
-		.probe_width (32),
-		.source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_pwr (.probe(target_wrsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
-
-	// JTAG ISSP: selection/command handshake for target 0. instance_id "PSEL".
-	//   [2:0] phase  [5:3] max_phase  [6] sel [7] bsy [8] req [9] ack
-	//   [10] reached_data  [18:11] req_while_sel  [26:19] cmd_bytes
-	// reached_data=1 and cmd_bytes>0 => command phase advanced (REQ fix worked).
-	altsource_probe #(
-		.instance_id ("PSEL"),
-		.probe_width (32),
-		.source_width(1),
-		.sld_auto_instance_index ("YES")
-	) cp_psel (.probe(target_selsnap[0]), .source(), .source_clk(clk), .source_ena(1'b1));
-`endif
+	// (JTAG ISSP probes PWR2/PSEL deleted 2026-08-08 — owner call, all probe
+	// fabric removed from the core. The nets they read (target_wrsnap[0],
+	// target_selsnap[0]) stay wired from the targets but now have no consumer
+	// — identical to every recent hardware build, where DBG_PROBES was left
+	// undefined and these cones were already swept. git history holds the
+	// instruments if a hardware hunt ever needs them.)
 
 `ifdef SIMULATION
 	// Host-side stall watchdog: when a target holds REQ but the host stops
