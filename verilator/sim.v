@@ -934,10 +934,10 @@ module emu
 		reg old_down;
 		old_down <= dio_download;
 		if(old_down && ~dio_download && dio_index == 2) begin
-			dsk_int_ds <= (dio_addr == 409600);
-			dsk_int_ss <= (dio_addr == 204800);
-			dsk_int_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
-			dsk_int_hd  <= (dio_addr == 737280);
+			dsk_int_ds <= (dio_addr >= 409599 && dio_addr <= 409600);
+			dsk_int_ss <= (dio_addr >= 204799 && dio_addr <= 204800);
+			dsk_int_mfm <= (dio_addr >= 368639 && dio_addr <= 368640) || (dio_addr >= 737279 && dio_addr <= 737280);
+			dsk_int_hd  <= (dio_addr >= 737279 && dio_addr <= 737280);
 		end
 		if(diskEject[0]) begin
 			dsk_int_ds <= 0;
@@ -949,10 +949,10 @@ module emu
 		reg old_down;
 		old_down <= dio_download;
 		if(old_down && ~dio_download && dio_index == 3) begin
-			dsk_ext_ds <= (dio_addr == 409600);
-			dsk_ext_ss <= (dio_addr == 204800);
-			dsk_ext_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
-			dsk_ext_hd  <= (dio_addr == 737280);
+			dsk_ext_ds <= (dio_addr >= 409599 && dio_addr <= 409600);
+			dsk_ext_ss <= (dio_addr >= 204799 && dio_addr <= 204800);
+			dsk_ext_mfm <= (dio_addr >= 368639 && dio_addr <= 368640) || (dio_addr >= 737279 && dio_addr <= 737280);
+			dsk_ext_hd  <= (dio_addr >= 737279 && dio_addr <= 737280);
 		end
 		if(diskEject[1]) begin
 			dsk_ext_ds <= 0;
@@ -1893,6 +1893,34 @@ module emu
 		end
 	end
 `endif
+
+// synthesis translate_off
+// SWIM/ISM trace (2026-08-07): the 1.44MB path stalls at the blinking-? and
+// the module's own debug set was never surfaced here. Print the ISM state on
+// every change so the failing stage is visible: does the ROM enter ISM mode,
+// does drive select assert, do the MFM geometry flags reach the drive, and are
+// MFM bytes actually strobing out of the encoder. Enable with +swimtrace.
+reg [7:0]  sw_mode_d;  reg sw_ism_d, sw_sel_d, sw_mfm_d, sw_hd_d;
+reg [15:0] sw_bcnt_d;  reg [7:0] sw_err_d;
+always @(posedge clk_sys) begin
+	if ($test$plusargs("swimtrace")) begin
+		if (dc0.sw.ism_mode !== sw_ism_d || dc0.sw.ism_mode_reg !== sw_mode_d ||
+		    dc0.sw.ism_devsel_int !== sw_sel_d || dc0.sw.diskMFM[0] !== sw_mfm_d ||
+		    dc0.sw.diskHD[0] !== sw_hd_d || dc0.sw.ism_error !== sw_err_d) begin
+			$display("SWIM t=%0t ism_mode=%b mode_reg=%02x devsel_int=%b devsel_ext=%b mfm=%b hd=%b err=%02x fifo=%0d bytecnt=%0d",
+			         $time, dc0.sw.ism_mode, dc0.sw.ism_mode_reg, dc0.sw.ism_devsel_int,
+			         dc0.sw.ism_devsel_ext, dc0.sw.diskMFM[0], dc0.sw.diskHD[0],
+			         dc0.sw.ism_error, dc0.sw.ism_fifo_pos, dc0.sw.dbg_flp_byte_cnt);
+		end
+		if (dc0.sw.dbg_flp_byte_cnt[9:0] == 10'd0 && dc0.sw.dbg_flp_byte_cnt !== sw_bcnt_d)
+			$display("SWIM-MFM t=%0t bytes=%0d (encoder delivering)", $time, dc0.sw.dbg_flp_byte_cnt);
+		sw_ism_d <= dc0.sw.ism_mode;   sw_mode_d <= dc0.sw.ism_mode_reg;
+		sw_sel_d <= dc0.sw.ism_devsel_int; sw_mfm_d <= dc0.sw.diskMFM[0];
+		sw_hd_d  <= dc0.sw.diskHD[0];  sw_err_d  <= dc0.sw.ism_error;
+		sw_bcnt_d <= dc0.sw.dbg_flp_byte_cnt;
+	end
+end
+// synthesis translate_on
 
 endmodule
 

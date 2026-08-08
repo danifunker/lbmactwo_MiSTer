@@ -340,6 +340,16 @@ module ncr5380
 	/* MR write */
 	always@(posedge clk or posedge reset) begin
 		if (reset) mr <= 8'b0;
+		else if (scsi_rst)
+			/* 5380 datasheet: asserting/observing RST clears MR's DMA MODE bit.
+			 * Without this, dma_en stays armed through the driver's recovery
+			 * bus reset: the target returns to IDLE but the host pseudo-DMA
+			 * keeps DREQ/DACK machinery live, and every CPU DACK access stalls
+			 * forever — an eternal wedge instead of a transient the driver can
+			 * retry. MAME's ncr5380 clears the bit; BlueSCSI survives Mac
+			 * recovery resets for the same reason. Ported from MacLC 35251e5
+			 * (HW-captured wedge there: berr_fires=255, dma_en=1 after rst). */
+			mr[`MR_DMA_MODE] <= 1'b0;
 		else if (reg_wr && (bus_rs == `WREG_MR)) mr <= wdata;
 	end
 
@@ -657,7 +667,16 @@ module ncr5380
 			// The ROM's own scan (6->0) finds the disk either way; the
 			// System-era driver does not rescan. LCII/MacLC (ID(i)) never
 			// exhibited this because their mapping matches the images.
-			scsi #(.ID(i[2:0]), .RING_LOG((i == 0) ? 5 : 1)) target
+			// RING_LOG 5 -> 4 (2026-08-07): 16 sectors / 8KB of read-ahead on the
+			// boot disk instead of 32/16KB. The mirror arrays make each sector cost
+			// THREE copies, so halving the depth returns ~24 M10K — the congestion
+			// relief that MacLC gets from its port-B prefetch redesign, which is
+			// NOT safe to import here: it bombed the sim at the extension parade
+			// (bisected 2026-08-07 — their version depends on the PDMA host-face
+			// pipeline registers of cc81843, which this core does not have). 8KB is
+			// still deep enough that the ring stays continuously ahead of the Mac
+			// mid-command (MacLC itself shipped 8 sectors for a period).
+			scsi #(.ID(i[2:0]), .RING_LOG((i == 0) ? 4 : 1)) target
 			(
 				.clk    ( clk ),
 				.rst    ( scsi_rst ),

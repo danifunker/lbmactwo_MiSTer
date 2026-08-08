@@ -204,19 +204,60 @@ wire [7:0] buffer1_dout_next2;
 //         path on a fit-marginal design; intermittent setup violations corrupt the
 //         write and cascade into a SCSI driver fault → Sad Mac on the first WRITE.
 //
-//   Refinement: latch the current word's odd byte LOCALLY at beat-1's stb_ack (when
-//   data_cnt is even and we're in PHASE_DATA_IN). At that moment dma_write_low_byte
-//   is stable with the current word's wdata[7:0]. Hold it across beat 2's storage.
+//   Refinement: latch the current word's odd byte LOCALLY at the word's FIRST
+//   beat (stb_ack in PHASE_DATA_IN). At that moment dma_write_low_byte is stable
+//   with the current word's wdata[7:0]. Hold it across beat 2's storage.
 //   This is both race-free (locked to the current word, immune to the next CPU
 //   access) and timing-friendly (BlockRAM data_b is now a short local-reg-to-RAM
 //   path). Byte-mode (dbg_dma_word=0) still uses din directly, unchanged.
-//   buffer0 (even byte) is untouched — it was already storing correctly.
+//
+//   BEAT-ROLE FIX (ported from MacLC f38c06f + ceaec45, the +1-inserted-byte
+//   write corruption): the original capture/pairing keyed on data_cnt[0]
+//   parity — capture at even beats, store odd_byte_r at odd beats — which
+//   assumes every word-mode pair lands (even,odd). The Mac driver hand-feeds
+//   the first bytes of a write in BYTE mode before flipping to word pseudo-DMA;
+//   when that prefix has ODD length the word beats land (odd,even): the first
+//   beat hit buffer1 which stored a STALE odd_byte_r (never captured this
+//   phase) and dropped the high byte on din — one garbage byte inserted, the
+//   rest of the phase shifted one position. Fix: key the DATA SOURCE on the
+//   beat's ROLE inside the word pair (wm_beat2), not on count parity. Beat A:
+//   din is reliable — store din, capture dma_write_low_byte. Beat B: din has
+//   reverted — store the captured odd_byte_r. Which BUFFER a beat lands in
+//   stays keyed on data_cnt[0] (pure byte-position addressing); only the value
+//   mux moves. Aligned pairs behave bit-identically to the proven path;
+//   store_low is beat-locked at stb_ack so the wren-cycle mux no longer
+//   samples the live dbg_dma_word (immune to a mid-train re-latch).
 reg [7:0] odd_byte_r;
+reg       wm_beat2;   // word pair half-done: next word-mode beat is beat B
+reg       store_low;  // this cycle's pending dpram write stores odd_byte_r
 always @(posedge clk) begin
-	if (rst)
+	if (rst) begin
 		odd_byte_r <= 8'h00;
-	else if (stb_ack && (phase == PHASE_DATA_IN) && ~data_cnt[0] && dbg_dma_word)
-		odd_byte_r <= dbg_dma_lowbyte;
+		wm_beat2   <= 1'b0;
+		store_low  <= 1'b0;
+	end else begin
+		store_low <= 1'b0;
+		if (phase != PHASE_DATA_IN)
+			wm_beat2 <= 1'b0;
+		else if (stb_ack) begin
+			// Test wm_beat2 FIRST (MacLC ceaec45): once a word pair is in
+			// flight the next beat IS beat B by construction — the decision
+			// must not consult the live mode signal, which re-latches on the
+			// next CPU bus-cycle rise and can land in the gap between the
+			// pair's two ACKs (the driver flips modes constantly). A mode-
+			// first test would mistake beat B for a byte beat and re-slip
+			// the lane this fix exists to protect.
+			if (wm_beat2) begin         // beat B: din stale, serve the captured low byte
+				store_low <= 1'b1;
+				wm_beat2  <= 1'b0;
+			end else if (dbg_dma_word) begin
+				// beat A: high byte on din, low byte stable in the ncr latch
+				odd_byte_r <= dbg_dma_lowbyte;
+				wm_beat2   <= 1'b1;
+			end
+			// byte beat: store din (store_low stays 0), wm_beat2 already clear
+		end
+	end
 end
 
 scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer1
@@ -229,7 +270,7 @@ scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer1
 	.q_a(buf1_q_a),
 
 	.address_b(mac_addr),
-	.data_b(dbg_dma_word ? odd_byte_r : din),
+	.data_b(store_low ? odd_byte_r : din),   // beat-role mux, see BEAT-ROLE FIX above
 	.wren_b(buffer1_wr),
 	.q_b(buffer1_dout),
 
@@ -303,9 +344,18 @@ assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase =
 // serve data combinationally with no HPS fetch (rd_hps_blk stays 0), so they must
 // NOT take this stall. Depth-independent; replaces the old 2-slot "half being
 // filled" test. WRITE + non-data clauses unchanged.
+// wr_pending lives at module scope (declared here, driven by the flush engine
+// below) because io_busy must include it: between a block's req_wr edge and
+// the flush issuing (io_wr rise) — one cycle normally, longer while a previous
+// flush is still in flight — neither io_wr nor io_ack is high, so the old
+// (io_wr | io_ack) busy term dropped REQ for that window and one extra
+// pseudo-DMA word could land in the slot the flush hadn't read yet. MacLC
+// forensics (17f5a85): a 7.5 MB write otherwise perfect except the FIRST WORD
+// of one 512-byte block — this window's exact signature.
+reg    wr_pending;
 wire   io_busy = (phase == PHASE_DATA_OUT && cmd_read && (rd_cur_blk >= rd_hps_blk)) ||
-                 (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
-                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
+                 (phase == PHASE_DATA_IN  && (io_wr | io_ack | wr_pending) && data_cnt[9] == sd_buff_sel) ||
+                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack | wr_pending));
 	// A zero-length transfer (e.g. INQUIRY with allocation length 0, or a
 	// WRITE with transfer length 0) must complete immediately: data_complete
 	// only sets on an ACK edge, which never comes when the initiator expects
@@ -561,7 +611,6 @@ wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt !
 
 always @(posedge clk) begin
 	reg old_wr;
-	reg wr_pending;
 	reg rd_busy;            // a read-prefetch sector fetch is outstanding
 
 	// A SCSI bus reset aborts any in-flight/queued disk IO.  Without this,
@@ -750,9 +799,18 @@ wire [7:0] op_code = cmd[0];
 wire [2:0] cmd_group = op_code[7:5];
 
 // check if a complete command has been received
-wire       cmd_cpl = cmd6_cpl || cmd10_cpl;
+wire       cmd_cpl = cmd6_cpl || cmd10_cpl || cmd12_cpl;
 wire       cmd6_cpl = (cmd_group == 3'b000) && (cmd_cnt == 6);
 wire       cmd10_cpl = ((cmd_group == 3'b010) || (cmd_group == 3'b001)) && (cmd_cnt == 10);
+// Group 5 (0xA0-0xBF) = 12-byte CDBs. Until now NOTHING completed them: the
+// target sat in PHASE_CMD_IN forever, so any 12-byte command from any
+// initiator WEDGED the bus (latent — MacOS sends none, but CD tools do; this
+// is the same failure class as the phantom-CD 12-byte wedge that forced
+// ENABLE_EMPTY_CD(0)). Completing them routes unknown group-5 opcodes to
+// CHECK CONDITION — the correct SCSI answer. Only cmd[0..9] are stored (the
+// array is 10 deep; out-of-range writes are discarded); bytes 10-11 are
+// reserved + CONTROL. Ported from MacLC 4938734 (bench-regressed there).
+wire       cmd12_cpl = (cmd_group == 3'b101) && (cmd_cnt == 12);
 
 // https://en.wikipedia.org/wiki/SCSI_command
 wire       cmd_read = cmd_read6 || cmd_read10;
