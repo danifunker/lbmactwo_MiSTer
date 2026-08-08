@@ -28,6 +28,13 @@ The Verilator simulator lives in `verilator/`. It is ideal-timing and bypasses
 the SDRAM arbiter, real HPS, and FPU — so it will not reproduce coherency/timing
 bugs that only appear on hardware. Treat sim and hardware as complementary.
 
+**Scaler/aspect path is NOT simulated** (`verilator/sim.v` has no
+`video_freak`): the OSD "Original" aspect once shipped as 256:171 — a Mac
+Plus 512×342 leftover that overflowed integer scaling on 5:4 panels (blank
+screen at 1280×1024) — now fixed to true 4:3 in `LBMacTwo.sv`. Gate any
+change to the `video_freak` ARX/ARY wiring with `scripts/aspect_check.py`
+(offline model of `sys/video_freak.sv`; exits non-zero on failure).
+
 ## WSL configuration (Verilator / GHDL / Yosys)
 
 On Windows hosts the repo lives on the NTFS side and all sim/conversion

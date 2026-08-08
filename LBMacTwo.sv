@@ -203,8 +203,19 @@ video_freak video_freak
 	.VGA_DE_IN(VGA_DE),
 	.VGA_DE(),
 
-	.ARX((!ar) ? 12'd256 : (ar - 1'd1)),
-	.ARY((!ar) ? 12'd171 : 12'd0),
+	// "Original" aspect = true 4:3. The old 256:171 (1.497:1) was the Mac
+	// Plus 512x342 screen, inherited at the initial import — but both MDC824
+	// monitor modes here are 4:3 (640x480 13" ID6 and 512x384 12"). Beyond
+	// the ~12% squish, 256:171 OVERFLOWED the integer scaler on 5:4/4:3
+	// panels (video_scale_int htarget = oheight*ARX/ARY: 1280x1024 V-Integer
+	// asked 1437px from a 1280px panel -> blank screen; 1024x768 12"-mode
+	// asked 1149 > 1024). 4:3 always yields htarget <= the 256:171 value and
+	// lands exactly on integer multiples of the source width, so all three
+	// integer modes agree. Offline gate: scripts/aspect_check.py (this path
+	// is NOT covered by the Verilator sim — sim.v has no video_freak).
+	// Do not change the ar != 0 branches (user-selected Full/[ARC1]/[ARC2]).
+	.ARX((!ar) ? 12'd4 : (ar - 1'd1)),
+	.ARY((!ar) ? 12'd3 : 12'd0),
 	.CROP_SIZE(0),
 	.CROP_OFF(0),
 	.SCALE(status[12:11])
