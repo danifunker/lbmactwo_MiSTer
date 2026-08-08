@@ -1801,7 +1801,12 @@ end
 wire clear_cycle = clear_active && dioBusControl && !dio_download;
 
 // disk images are being stored right after os rom at word offset 0x80000 and 0x100000
-reg [20:0] dio_a;
+// dio_a widened 21 -> 22 bits (2026-08-07): a 1.44MB floppy image is 737,280
+// words and did NOT fit the old 19-bit (512K-word) per-slot windows — the
+// download address WRAPPED and overwrote the image's own start, so the ROM
+// read garbage boot blocks and ejected the disk with an X. Each floppy slot
+// now gets a full 1M-word (2MB) window, like MacLC's layout.
+reg [21:0] dio_a;
 reg [15:0] dio_data;
 reg        dio_write;
 
@@ -1817,16 +1822,16 @@ always @(posedge clk_sys) begin
 		// boot2.hex), so no index-1 download exists on hardware (the Verilator
 		// sim has its own separate top in verilator/sim.v).
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
-			dio_a <= {3'b000, dio_addr[17:0]}; // Map to 0 (Slot 0 offset 0)
+			dio_a <= {4'b0000, dio_addr[17:0]}; // boot0.rom @word 0x400000
 		// F1/F2 in conf_str map to ioctl_index 1/2 respectively (MiSTer hps_io
 		// convention; matches MacPlus_MiSTer and macplus-og). Place primary at
 		// SDRAM slot offset 0x80000 (+0x400000 base => 0x480000) and secondary at
 		// 0x100000 (=> 0x500000), each up to 512K words = 1MB. An 800K image
 		// (0x64000 words) fits in either slot with headroom.
 		else if (dio_index[1:0] == 1 || dio_index[1:0] == 2) // Floppy disk images
-			dio_a <= {dio_index[1:0], dio_addr[18:0]};
+			dio_a <= {dio_index[1:0], dio_addr[19:0]};  // slot1 @word 0x500000, slot2 @0x600000
 		else
-			dio_a <= {dio_index[6], dio_addr[17:0]};
+			dio_a <= {1'b0, dio_index[6], dio_addr[17:0]};
 
 		ioctl_wait <= 1;
 	end
@@ -1853,10 +1858,10 @@ wire download_cycle = dio_download && dioBusControl;
 // Download has mux priority over the clear (downloads are externally paced and
 // must never be dropped); clear_cycle already excludes dio_download, so the two
 // are mutually exclusive — ordering download first is defensive.
-assign arb_mac_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
+assign arb_mac_addr = download_cycle ? {2'b00, 1'b1, dio_a[21:0] } :          // ROM/disk download @ 0x400000+
                       clear_cycle    ? {3'b000, clear_addr} :                       // RAM pre-clear @ 0x000000+
                       ~_romOE        ? {2'b00, 1'b1, 4'b0000, memoryAddr[18:1]} :    // Mac II ROM @ 0x400000+
-                      (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
+                      (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, memoryAddr[22:1]} : // disk image @ 0x400000+
                                        {3'b000, memoryAddr[22:1]};                   // RAM 0x000000-0x3FFFFF (8MB)
 
 assign arb_mac_din  = download_cycle ? dio_data   : clear_cycle ? 16'h0000     : memoryDataOut;

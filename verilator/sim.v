@@ -978,7 +978,7 @@ module emu
 			else if (dio_index == 8'd1)
 				dio_a <= {2'b11, dio_addr[18:0]};    // NuBus ROM is consumed directly
 			else if (dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3)
-				dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+				dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[19:0]};  // 1M-word floppy windows (1.44MB fits)
 			else
 				dio_a <= {dio_index[6], dio_addr[19:0]};
 			ioctl_wait <= 1;
@@ -1001,12 +1001,13 @@ module emu
 	// Combinational version of dio_a for download (avoids register latency)
 	// Mac II ROM (boot0.rom, 256K) starts at 0x40_0000 in address space
 	// ROM is 256K = 128K words, using dio_addr[16:0] (17 bits)
-	// Floppy disk images at word offsets 0x80000 and 0x100000.
-	wire [20:0] dio_a_floppy = {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
-	wire [20:0] dio_a_comb = (dio_index == 8'd0) ? {4'b0000, dio_addr[16:0]} :
-	                         (dio_index == 8'd1) ? {2'b11, dio_addr[18:0]} :
+	// Floppy disk images at word offsets 0x100000 and 0x200000 (1M-word windows:
+	// a 1.44MB image is 737,280 words and overflowed the old 512K-word slots).
+	wire [21:0] dio_a_floppy = {(dio_index[1:0] - 2'd1), dio_addr[19:0]};
+	wire [21:0] dio_a_comb = (dio_index == 8'd0) ? {5'b00000, dio_addr[16:0]} :
+	                         (dio_index == 8'd1) ? {3'b011, dio_addr[18:0]} :
 	                         ((dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3) ? dio_a_floppy :
-	                          {dio_index[6], dio_addr[19:0]});
+	                          {1'b0, dio_index[6], dio_addr[19:0]});
 
 	// Address mapping for sim_ram (matches the FPGA SDRAM map, 8MB-capable):
 	//   RAM        : 0x000000 - 0x3FFFFF (A22=0)  — up to 4M words = 8MB
@@ -1014,9 +1015,9 @@ module emu
 	//                                               window so it no longer
 	//                                               collides (it used to sit at
 	//                                               A21=0x200000, inside 8MB RAM).
-	wire [24:0] ram_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a_comb[20:0] } :   // ROM/disk download @ 0x400000+
+	wire [24:0] ram_addr = download_cycle ? {2'b00, 1'b1, dio_a_comb[21:0] } :   // ROM/disk download @ 0x400000+
 						   ~_romOE        ? {2'b00, 1'b1, 5'b00000, memoryAddr[17:1]} : // ROM reads @ 0x400000+ (256K ROM)
-						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
+						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, memoryAddr[22:1]} : // disk image @ 0x400000+
 										  {3'b000, memoryAddr[22:1]};                  // RAM 0x000000-0x3FFFFF (8MB)
 	// Use ioctl_dout directly for download (bypass registered dio_data)
 	wire [15:0] ram_din  = download_cycle ? ioctl_dout            : memoryDataOut;
