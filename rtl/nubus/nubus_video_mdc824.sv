@@ -130,15 +130,21 @@ module nubus_video_mdc824 #(
     // MLAB keeps the ASYNC read at the vga_r/g/b assigns (a sync-read M10K
     // would need a pixel-pipeline retime; dot clock ~30.24 MHz on a 31.33 MHz
     // clk_sys leaves no slack cycle). Same recipe as MacIIvi egret pram[0:255]
-    // (async-read 256-deep MLAB, 9f5d0d3: −1,958 ALMs). The initial grayscale
-    // ramp only matters pre-driver-load; the Mac writes the palette at boot.
+    // (async-read 256-deep MLAB, 9f5d0d3: −1,958 ALMs).
+    //
+    // Q17 inference contract (first attempt FAILED — Warning 10999 "can't
+    // infer memory for 'clut' with attribute MLAB"; build 2026-08-07 23:27):
+    //   * "MLAB,no_rw_check" — the bare "MLAB" pin trips the read-during-
+    //     write check on the async read (family law: only the full
+    //     type,no_rw_check pin works in Q17 Lite; cf. MacLC cd_sdp_mlab).
+    //   * NO initial block — a power-up init on the array blocks inference.
+    //     The old grayscale power-up ramp only ever mattered pre-driver-load,
+    //     and boot draws through the mono_pixel path (1bpp) anyway; the Mac
+    //     driver writes the full palette before any CLUT mode is enabled.
+    //   * ONE read expression (clut_q below) — the three per-channel
+    //     clut[pixel_idx] selects read as three ports and defeat inference.
     // ========================================================================
-    (* ramstyle = "MLAB" *) reg [23:0] clut [0:255];
-    integer ci;
-    initial begin
-        for (ci = 0; ci < 256; ci = ci + 1)
-            clut[ci] = {ci[7:0], ci[7:0], ci[7:0]};  // default grayscale ramp
-    end
+    (* ramstyle = "MLAB,no_rw_check" *) reg [23:0] clut [0:255];
 
     // ========================================================================
     // Declaration ROM — stored 16 KB (upper half of the 32 KB 341-0868 part),
@@ -668,9 +674,10 @@ module nubus_video_mdc824 #(
     wire mono_mode = DEFAULT_MONOCHROME || monochrome || (mode == 2'd0);
     // 1bpp (and forced mono): bit clear -> light (0xEE), set -> dark (0x22).
     wire [7:0] mono_pixel = pixel_idx[0] ? 8'h22 : 8'hEE;
-    assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][7:0])   : 8'd0;
-    assign vga_g = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][15:8])  : 8'd0;
-    assign vga_b = pixel_valid ? (mono_mode ? mono_pixel : clut[pixel_idx][23:16]) : 8'd0;
+    wire [23:0] clut_q = clut[pixel_idx];  // single read port (see CLUT note)
+    assign vga_r = pixel_valid ? (mono_mode ? mono_pixel : clut_q[7:0])   : 8'd0;
+    assign vga_g = pixel_valid ? (mono_mode ? mono_pixel : clut_q[15:8])  : 8'd0;
+    assign vga_b = pixel_valid ? (mono_mode ? mono_pixel : clut_q[23:16]) : 8'd0;
 
     // ========================================================================
     // JTAG debug exposures

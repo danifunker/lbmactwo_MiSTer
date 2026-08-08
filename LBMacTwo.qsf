@@ -29,7 +29,12 @@ set_global_assignment -name OPTIMIZE_POWER_DURING_FITTING OFF
 set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
-set_global_assignment -name OPTIMIZATION_MODE BALANCED
+# HIGH PERFORMANCE EFFORT + SEED 2 = the released MacLC recipe that produced
+# the first fully timing-met build (c24fb02 / 8635f75e: every domain positive).
+# The swim-goodbase merge silently regressed this to BALANCED/SEED 1 (its build
+# base predated c24fb02) — diet build #1 on BALANCED promptly missed clk_sys by
+# -0.882. Re-adopted 2026-08-08.
+set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
 set_global_assignment -name ALLOW_POWER_UP_DONT_CARE ON
 set_global_assignment -name QII_AUTO_PACKED_REGISTERS NORMAL
 set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
@@ -49,7 +54,7 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
 set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT LOW
-set_global_assignment -name SEED 1
+set_global_assignment -name SEED 2
 
 # M10K diet (optimize-core 2026-08-07, ported from the MacIIvi/MacLC m10k-repack
 # campaign): stop Q17 from converting pipeline delay lines into altshift_taps
