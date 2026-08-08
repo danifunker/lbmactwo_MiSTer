@@ -123,8 +123,17 @@ module nubus_video_mdc824 #(
     // ========================================================================
     // CLUT — 256 entries x 24-bit, stored as {B,G,R} (matches Snow palette
     // layout: low byte = R, mid = G, high = B).
+    //
+    // MLAB, not flops (optimize-core 2026-08-07): with no ramstyle pin this
+    // array inferred as 6,144 registers + a 256:1x24 read mux — the bulk of
+    // this module's ~2.7K ALMs (fit 2026-08-07: 6,512 of mdc824's 6,512 regs).
+    // MLAB keeps the ASYNC read at the vga_r/g/b assigns (a sync-read M10K
+    // would need a pixel-pipeline retime; dot clock ~30.24 MHz on a 31.33 MHz
+    // clk_sys leaves no slack cycle). Same recipe as MacIIvi egret pram[0:255]
+    // (async-read 256-deep MLAB, 9f5d0d3: −1,958 ALMs). The initial grayscale
+    // ramp only matters pre-driver-load; the Mac writes the palette at boot.
     // ========================================================================
-    reg [23:0] clut [0:255];
+    (* ramstyle = "MLAB" *) reg [23:0] clut [0:255];
     integer ci;
     initial begin
         for (ci = 0; ci < 256; ci = ci + 1)
@@ -132,28 +141,39 @@ module nubus_video_mdc824 #(
     end
 
     // ========================================================================
-    // Declaration ROM — 32 KB, byte lane 3, NOT inverted.
+    // Declaration ROM — stored 16 KB (upper half of the 32 KB 341-0868 part),
+    // byte lane 3, NOT inverted.
     //   ROM byte index = local_addr[16:2]  (one byte per NuBus longword)
     //   responds only when local_addr[1:0]==2'b11 (lane 3)
-    // boot2.hex = releases/341-0868.BIN as 16384 big-endian 16-bit word tokens
-    //   (xxd -p -c 2 releases/341-0868.BIN > boot2.hex)
+    //
+    // 16 KB, not 32 (optimize-core 2026-08-07): the lower 16 KB of 341-0868 is
+    // ALL 0x00 padding (verified byte scan of releases/341-0868.BIN; NuBus
+    // declaration content is top-aligned — the sResource directory sits at the
+    // top and all offsets run downward). Storing only the upper half saves 16
+    // M10K blocks; reads into the padding half (local_addr[16]==0) serve a
+    // constant 0x00, bit-identical to the full ROM.
+    // boot2.hex = upper 16 KB of releases/341-0868.BIN as 8192 big-endian
+    // 16-bit word tokens:
+    //   (tail -c 16384 releases/341-0868.BIN | xxd -p -c 2 > boot2.hex)
+    //   (keep verilator/boot2.hex in sync — the bench $readmemh's its own copy)
     //
     // Stored 16-bit-wide (NOT byte-wide) so the block has a SINGLE write port and
     // infers cleanly as M10K.  A byte-wide array with the 2-byte-per-ioctl-word
-    // download needs two write ports, which forces the whole 32 KB ROM (+ its
-    // 32768:1 read mux) into logic cells and overflows the device.
+    // download needs two write ports, which forces the whole ROM (+ its huge
+    // read mux) into logic cells and overflows the device.
     //
-    // ROM byte index = local_addr[16:2] (one byte per NuBus longword, lane 3):
-    //   word index = local_addr[16:3]; byte within word = local_addr[2]
+    // ROM byte index within the stored half = local_addr[15:2]:
+    //   word index = local_addr[15:3]; byte within word = local_addr[2]
     //   big-endian file -> even byte index (addr[2]==0) = high byte [15:8].
     // ========================================================================
-    (* ramstyle = "M10K" *) reg [15:0] rom [0:16383];
+    (* ramstyle = "M10K" *) reg [15:0] rom [0:8191];
     initial $readmemh("boot2.hex", rom);
 
     reg [15:0] rom_word;
     always @(posedge clk)
-        rom_word <= rom[local_addr[16:3]];
-    wire [7:0] rom_rdata = local_addr[2] ? rom_word[7:0] : rom_word[15:8];
+        rom_word <= rom[local_addr[15:3]];
+    wire [7:0] rom_rdata = !local_addr[16] ? 8'h00 :
+                           local_addr[2]   ? rom_word[7:0] : rom_word[15:8];
 
     wire rom_lane_valid = (local_addr[1:0] == 2'b11);
 
