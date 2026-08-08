@@ -217,17 +217,21 @@ localparam CONF_STR = {
 	"F1,DSK,Mount Pri Floppy;",
 	"F2,DSK,Mount Sec Floppy;",
 	"-;",
-	"SC0,IMGVHDHDA,Mount SCSI-6;",
-	"SC1,IMGVHDHDA,Mount SCSI-5;",
+	"SC0,IMGVHDHDA,Mount SCSI-0;",
+	"SC1,IMGVHDHDA,Mount SCSI-1;",
+	"SC2,NVR,Mount PRAM (reboots);",
 	"-;",
 	"O78,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OBC,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
-	"O45,Memory,1MB,2MB,4MB,8MB;",
+	"O45,Memory,2MB,4MB,8MB;",
 	"-;",
 	"O6,Debug Overlay,Off,On;",
 	"O13,NuBus Video,Color,B&W;",
+	"OG,Monitor,640x480 13in,512x384 12in;",
 	"-;",
+	"RE,Interrupt (NMI / MacsBug);",
+	"RF,Reset PRAM & Core;",
 	"R0,Reset & Apply CPU+Memory;",
 	"-;",
 	"v,0;", // [optional] config version 0-99.
@@ -239,6 +243,10 @@ localparam CONF_STR = {
 wire status_turbo = 1'b1; // Mac II always runs at C15M = 15.6672 MHz (CPU rides clk16_en)
 wire status_overlay_en = status[6];
 wire status_video_mono = status[13];
+// OSD "Monitor" select (status bit 16 = OSD char 'G'): which monitor the
+// MDC824 card advertises on its sense lines. Takes effect on the next Mac
+// reboot (the Slot Manager / card declaration ROM probes sense at boot).
+wire status_monitor_512 = status[16];
 
 ////////////////////   CLOCKS   ///////////////////
 
@@ -252,6 +260,34 @@ pll pll
 	.outclk_1(clk_sys),      // 31.3344 MHz, 180° - System (2 × C15M, divides to 15.6672/7.8336 MHz)
 	.locked(pll_locked)
 );
+
+// ---- PLL-lock-stable reset synchronizer ------------------------------------
+// pll_locked is a raw PLL output in an asynchronous domain.  Consuming it
+// directly inside clk_sys logic (and as sdram.init / arbiter.reset) means the
+// very clock that is unstable during a lock event also clocks the machine that
+// is supposed to be holding everything in reset — and on relock there is no
+// defined settle window.  Synchronize it into clk_sys and hold reset for a
+// fixed number of STABLE clk_sys cycles after lock, so every configure (cold or
+// warm) and every unlock-recovery presents the same clean, fully-settled
+// release.  Drives the machine reset, the SDRAM controller init, the arbiter
+// reset and the PRAM/clear sequencers — i.e. the whole init choreography keys
+// off one debounced lock signal instead of the raw PLL output.
+reg [1:0]  lock_sync = 2'b00;   // 2-FF synchronizer for pll_locked into clk_sys
+reg [9:0]  lock_hold = 10'd0;   // settle counter after lock (~1024 clk_sys ≈ 33us)
+reg        sys_locked = 1'b0;   // lock-stable: clk_sys has run a full settle since lock
+always @(posedge clk_sys or negedge pll_locked) begin
+	if (!pll_locked) begin
+		lock_sync  <= 2'b00;
+		lock_hold  <= 10'd0;
+		sys_locked <= 1'b0;
+	end else begin
+		lock_sync <= {lock_sync[0], 1'b1};
+		if (lock_sync[1]) begin
+			if (lock_hold == 10'h3FF) sys_locked <= 1'b1;
+			else                      lock_hold  <= lock_hold + 1'b1;
+		end
+	end
+end
 
 reg [1:0] status_mem;
 reg [1:0] status_mod;
@@ -281,8 +317,11 @@ always @(posedge clk_sys) begin
 	if (clk8_en_p) begin
 		// various sources can reset the mac
 		// Note: ~_cpuReset_o must NOT be here - that's the CPU's RESET instruction
-		// output which resets peripherals only, not the CPU itself
-		if(~pll_locked || osd_reset_req || buttons[1] || RESET || !clear_done) begin
+		// output which resets peripherals only, not the CPU itself.
+		// !pram_ready holds the machine until the PRAM image mount status is
+		// known (the ROM reads the clock chip early in boot) — released by the
+		// PRAM FSM on load/no-image/backstop, see the PRAM persistence block.
+		if(!sys_locked || osd_reset_req || buttons[1] || RESET || !clear_done || pram_force_reset || !pram_ready) begin
 			rst_cnt <= '1;
 			n_reset <= 0;
 		end
@@ -299,21 +338,37 @@ end
 
 ///////////////////////////////////////////////////
 
-localparam SCSI_DEVS = 2;
+localparam SCSI_DEVS = 2;          // SCSI block devices -> hps_io slots 0,1
+localparam VD_PRAM   = 2;          // PRAM NVRAM save image -> hps_io slot 2
+localparam VDNUM     = 3;          // total hps_io block devices
 
 // the status register is controlled by the on screen display (OSD)
 wire [31:0] status;
 wire  [1:0] buttons;
-wire [31:0] sd_lba[SCSI_DEVS];
-wire  [SCSI_DEVS-1:0] sd_rd;
-wire  [SCSI_DEVS-1:0] sd_wr;
-wire  [SCSI_DEVS-1:0] sd_ack;
+
+// hps_io block-device buses (all VDNUM devices)
+wire [31:0] sd_lba[VDNUM];
+wire  [VDNUM-1:0] sd_rd;
+wire  [VDNUM-1:0] sd_wr;
+wire  [VDNUM-1:0] sd_ack;
 wire            [7:0] sd_buff_addr;
 wire           [15:0] sd_buff_dout;
-wire           [15:0] sd_buff_din[SCSI_DEVS];
+wire           [15:0] sd_buff_din[VDNUM];
 wire                  sd_buff_wr;
-wire  [SCSI_DEVS-1:0] img_mounted;
+wire  [VDNUM-1:0] img_mounted;
 wire           [63:0] img_size;
+
+// SCSI side (slots 0,1): separate buses driven by dataController, stitched
+// into the shared hps_io buses so the PRAM save image (slot 2) can coexist.
+wire [31:0] scsi_lba[SCSI_DEVS];
+wire  [SCSI_DEVS-1:0] scsi_rd, scsi_wr;
+wire           [15:0] scsi_buff_din[SCSI_DEVS];
+assign sd_lba[0]      = scsi_lba[0];
+assign sd_lba[1]      = scsi_lba[1];
+assign sd_rd[1:0]     = scsi_rd;
+assign sd_wr[1:0]     = scsi_wr;
+assign sd_buff_din[0] = scsi_buff_din[0];
+assign sd_buff_din[1] = scsi_buff_din[1];
 
 wire        ioctl_write;
 reg         ioctl_wait = 0;
@@ -327,7 +382,222 @@ wire [15:0] ioctl_data;
 
 wire [32:0] TIMESTAMP;
 
-hps_io #(.CONF_STR(CONF_STR), .VDNUM(SCSI_DEVS), .WIDE(1)) hps_io
+// =====================================================================
+// PRAM persistence (NVRAM) — autosave to a mounted save image (slot 2).
+//   load  : when the PRAM image mounts (img_mounted[VD_PRAM], size>0)
+//   flush : when the OSD opens and PRAM changed since the last save
+//   RF    : "Reset PRAM & Core" — zero PRAM, flush zeros, reboot the machine
+// One 512-byte sector at LBA 0 holds the 256 PRAM bytes (rest padded).
+// The 343-0042 clock chip (rtl/rtc.v, serial behind VIA1 port B) owns the
+// canonical pram[]; we shuttle it through pram_buf via the pram_load_*/
+// pram_save_* ports threaded through dataController_top. Mechanism ported
+// from MacLC_MiSTer — there the PRAM owner is the Egret MCU; the Mac II
+// has no Egret, its XPRAM lives in the discrete RTC chip (MAME macii.cpp
+// RTC3430042 / Snow macii via1.rtc). SD handshake mirrors scsi.v: drop
+// rd/wr on io_ack rising, sector done on io_ack falling.
+// =====================================================================
+reg        pram_load_wr;
+reg  [7:0] pram_load_addr, pram_load_data, pram_save_addr;
+wire [7:0] pram_save_data;
+wire       pram_wr_stb;
+
+reg        pram_rd, pram_wr_req;
+wire       pram_ack = sd_ack[VD_PRAM];
+assign sd_lba[VD_PRAM] = 32'd0;             // single 512B sector at LBA 0
+assign sd_rd [VD_PRAM] = pram_rd;
+assign sd_wr [VD_PRAM] = pram_wr_req;
+
+localparam [3:0] P_IDLE=0, P_LD_RD=1, P_LD_DAT=2, P_LD_ADDR=3,
+                 P_FILL=4, P_SV_WR=5, P_SV_DAT=6, P_CLR=7, P_RST=8,
+                 P_LD_B0=9, P_LD_B1=10, P_FILL2=11, P_FILL3=12;
+reg  [3:0] pst;
+reg  [8:0] pcnt;
+reg  [6:0] rst_hold;
+
+// Staging buffer <-> SD sector: 128x16 BRAM words, word = {odd byte, even
+// byte}. NOT a byte array — the old reg[7:0] buf[0:255] with async reads
+// cost ~2K registers + wide muxes and helped blow the 2026-06-12 LAB
+// budget. Single write port (SD capture / save pack / PRAM clear are
+// mutually exclusive in time) + single registered read port shared by the
+// HPS readback and the load FSM — the same 1-cycle readback latency
+// scsi_dpram already proves against hps_io on the SCSI save path.
+(* ramstyle = "no_rw_check" *) reg [15:0] pram_buf16[0:127];
+reg [15:0] pbuf_q;
+reg  [7:0] fill_lo;        // even-byte latch while packing save words
+
+// read port (load FSM states steal the address; HPS only reads during save)
+wire pram_loading = (pst == P_LD_ADDR) || (pst == P_LD_B0) || (pst == P_LD_B1);
+wire [6:0] pbuf_raddr = pram_loading ? pcnt[7:1] : sd_buff_addr[6:0];
+always @(posedge clk_sys)
+	pbuf_q <= pram_buf16[pbuf_raddr];
+assign sd_buff_din[VD_PRAM] = (sd_buff_addr < 8'd128) ? pbuf_q : 16'h0000;
+
+// write port
+always @(posedge clk_sys) begin
+	if (pram_ack && sd_buff_wr && sd_buff_addr < 8'd128)
+		pram_buf16[sd_buff_addr[6:0]] <= sd_buff_dout;             // SD capture
+	else if (pst == P_FILL3 && pcnt[0])
+		pram_buf16[pcnt[7:1]] <= {pram_save_data, fill_lo};        // save pack
+	else if (pst == P_CLR)
+		pram_buf16[pcnt[7:1]] <= 16'h0000;                         // PRAM reset
+end
+
+reg        pram_ena;                        // a save image is mounted (size>0)
+reg        pram_dirty;                      // PRAM changed since last save
+reg        pram_rst_after;                  // pulse reset after the current save
+reg        pram_load_pending, pram_flush_pending, pram_clr_pending;
+reg        pram_late_load;   // image loaded AFTER boot released -> reboot to apply
+reg        old_pack, old_osd, old_mnt2, old_rstpram;
+reg        pram_ready;        // releases n_reset: pram[] loaded (or no image / timed out)
+reg [31:0] pram_rdy_cnt;      // ready backstop so a missing image never delays boot long
+reg        pram_force_reset;  // "Reset PRAM & Core" / late PRAM load -> system reset pulse
+
+always @(posedge clk_sys) begin
+	if (!sys_locked) begin
+		pst <= P_IDLE; pram_rd <= 0; pram_wr_req <= 0; pram_load_wr <= 0;
+		pram_ena <= 0; pram_dirty <= 0; pram_force_reset <= 0; pram_rst_after <= 0;
+		pram_load_pending <= 0; pram_flush_pending <= 0; pram_clr_pending <= 0;
+		pram_late_load <= 0;
+		old_pack <= 0; old_osd <= 0; old_mnt2 <= 0; old_rstpram <= 0; rst_hold <= 0;
+		pram_ready <= 0; pram_rdy_cnt <= 0;
+	end else begin
+		old_pack    <= pram_ack;
+		old_osd     <= OSD_STATUS;
+		old_mnt2    <= img_mounted[VD_PRAM];
+		old_rstpram <= status[15];
+		pram_load_wr <= 1'b0;                  // default low; pulsed in copy/clear
+		// (SD-sector capture into pram_buf16 lives in the dedicated BRAM
+		// write-port block above, not here.)
+
+		// Mac-side clock-chip PRAM writes mark the image dirty
+		if (pram_wr_stb) pram_dirty <= 1'b1;
+
+		// event latches
+		if (img_mounted[VD_PRAM] && !old_mnt2) begin
+			// Only accept a real PRAM image: a .NVR is exactly 512 bytes
+			// (allow a little slack). Anything big is a DISK mounted into
+			// the PRAM slot by accident (e.g. an old .mgl with type="s"
+			// index="2" — iotest.mgl does this): loading it would feed
+			// garbage PRAM, and the OSD-open flush would overwrite its
+			// sector 0 (the Driver Descriptor Map) with PRAM bytes =
+			// instant disk corruption. Refuse: no load, never flushed,
+			// boot released immediately.
+			if (img_size != 0 && img_size <= 64'd4096) begin
+				pram_ena          <= 1'b1;
+				pram_load_pending <= 1'b1;        // load runs -> P_LD_B1 sets pram_ready
+				pram_late_load    <= pram_ready;  // boot already released? reboot after load
+			end else begin
+				pram_ena   <= 1'b0;               // unmount report / not a PRAM image
+				pram_ready <= 1'b1;               // release the boot now
+			end
+		end
+		if (OSD_STATUS && !old_osd && pram_dirty && pram_ena) pram_flush_pending <= 1'b1;
+		if (status[15] && !old_rstpram) pram_clr_pending <= 1'b1;
+
+		// PRAM-ready gate. n_reset holds the machine briefly so an
+		// auto-remounted PRAM image can load before the ROM's first clock-chip
+		// read. HW-MEASURED 2026-06-12: MiSTer sends NO img_mounted event at
+		// core load for an empty S-slot (no config/<core>.s2), so the original
+		// MacLC-style 60s "mount status will surely come" backstop turned
+		// EVERY imageless core start into a ~60s black screen. The backstop is
+		// now short (~3s @31.3344MHz, concurrent with ROM load + RAM clear);
+		// a load that lands later (slow auto-remount, or a manual mount while
+		// running) self-heals via pram_late_load -> P_RST: the Mac reboots
+		// once and reads the freshly loaded PRAM.
+		if (!pram_ready) begin
+			if (pram_rdy_cnt >= 32'd94_000_000) pram_ready <= 1'b1;
+			else pram_rdy_cnt <= pram_rdy_cnt + 1'b1;
+		end
+
+		// hold the reset pulse long enough for the clk8_en_p reset block to latch
+		if (pram_force_reset) begin
+			if (rst_hold == 0) pram_force_reset <= 1'b0;
+			else rst_hold <= rst_hold - 1'b1;
+		end
+
+		case (pst)
+		P_IDLE: begin
+			if (pram_clr_pending) begin
+				pram_clr_pending <= 0; pcnt <= 0; pst <= P_CLR;
+			end else if (pram_load_pending) begin
+				pram_load_pending <= 0; pram_rd <= 1'b1; pst <= P_LD_RD;
+			end else if (pram_flush_pending) begin
+				pram_flush_pending <= 0; pram_rst_after <= 0; pcnt <= 0; pst <= P_FILL;
+			end
+		end
+
+		// ---- LOAD: SD sector -> pram_buf16 -> rtc pram[] (2 bytes/word) ----
+		// pbuf_q is a registered BRAM read: P_LD_ADDR presents the word
+		// address, the data is valid one state later, then the two bytes
+		// stream into the rtc load port. pcnt stays byte-granular (+2/word).
+		P_LD_RD:  if (pram_ack) begin pram_rd <= 1'b0; pst <= P_LD_DAT; end
+		P_LD_DAT: if (old_pack && !pram_ack) begin pcnt <= 0; pst <= P_LD_ADDR; end
+		P_LD_ADDR: pst <= P_LD_B0;                 // pbuf_q latches this edge
+		P_LD_B0: begin                             // even byte = low half
+			pram_load_wr   <= 1'b1;
+			pram_load_addr <= {pcnt[7:1], 1'b0};
+			pram_load_data <= pbuf_q[7:0];
+			pst <= P_LD_B1;
+		end
+		P_LD_B1: begin                             // odd byte = high half
+			pram_load_wr   <= 1'b1;
+			pram_load_addr <= {pcnt[7:1], 1'b1};
+			pram_load_data <= pbuf_q[15:8];
+			if (pcnt[7:1] == 7'd127) begin
+				pram_dirty <= 0; pram_ena <= 1; pram_ready <= 1'b1;
+				// Image landed after the Mac already started booting (late
+				// auto-remount or manual mount): reboot once so the ROM
+				// reads the loaded PRAM instead of the defaults.
+				pst <= pram_late_load ? P_RST : P_IDLE;
+				pram_late_load <= 0;
+			end else begin
+				pcnt <= pcnt + 9'd2; pst <= P_LD_ADDR;
+			end
+		end
+
+		// ---- SAVE: rtc pram[] -> pram_buf16 -> SD sector ----
+		// rtc pram_save_data is registered (valid 2 clocks after the
+		// address), so each byte is a 3-state issue/wait/capture loop; odd
+		// bytes commit a 16-bit word via the BRAM write-port block above.
+		P_FILL: begin
+			pram_save_addr <= pcnt[7:0];
+			pst <= P_FILL2;
+		end
+		P_FILL2: pst <= P_FILL3;                   // rtc port-B q latches this edge
+		P_FILL3: begin
+			if (!pcnt[0]) fill_lo <= pram_save_data;
+			if (pcnt == 9'd255) pst <= P_SV_WR;
+			else begin pcnt <= pcnt + 9'd1; pst <= P_FILL; end
+		end
+		P_SV_WR: begin
+			pram_wr_req <= 1'b1;
+			if (pram_ack) begin pram_wr_req <= 1'b0; pst <= P_SV_DAT; end
+		end
+		P_SV_DAT: if (old_pack && !pram_ack) begin
+			pram_dirty <= 0;
+			if (pram_rst_after) begin pram_rst_after <= 0; pst <= P_RST; end
+			else pst <= P_IDLE;
+		end
+
+		// ---- Reset PRAM & Core ----
+		P_CLR: begin                                   // zero rtc pram[] byte-wise
+			pram_load_wr   <= 1'b1;                    // (pram_buf16 word-clears in
+			pram_load_addr <= pcnt[7:0];               //  the write-port block above)
+			pram_load_data <= 8'h00;
+			if (pcnt == 9'd255) begin
+				if (pram_ena) begin pram_rst_after <= 1; pst <= P_SV_WR; end
+				else pst <= P_RST;
+			end else pcnt <= pcnt + 1'b1;
+		end
+		P_RST: begin
+			pram_force_reset <= 1'b1; rst_hold <= 7'd127; pst <= P_IDLE;
+		end
+		default: pst <= P_IDLE;
+		endcase
+	end
+end
+
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(VDNUM), .WIDE(1)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -420,7 +690,12 @@ assign AUDIO_MIX = 0;
 // set the real-world inputs to sane defaults
 localparam 	  configROMSize = 2'b10;  // 128K ROM
 
-wire [1:0] configRAMSize = status_mem; // 00=1MB, 01=2MB, 10=4MB, 11=8MB
+// 1MB removed from the OSD "Memory" menu (it never sized correctly). The O45
+// list is now 2MB,4MB,8MB at indices 0/1/2, so remap: index 0 => 2MB. A pre-
+// change saved 8MB config (status_mem==3) also maps to 8MB, not wrapping to 1MB.
+wire [1:0] configRAMSize = (status_mem == 2'd0) ? 2'b01 :  // index 0 => 2MB
+                           (status_mem == 2'd1) ? 2'b10 :  // index 1 => 4MB
+                                                  2'b11;   // index 2 (or 3) => 8MB
 wire selectNuBus;
 
 // Mac II uses SCC for serial communication, not UARTs
@@ -445,7 +720,8 @@ wire clk8_en_p, clk8_en_n;
 wire clk16_en_p, clk16_en_n;
 wire _cpuVMA, _cpuVPA, _cpuDTACK;
 wire E_rising, E_falling;
-wire [2:0] _cpuIPL;
+wire [2:0] _cpuIPL;       // final IPL to CPU (programmer's-switch NMI applied below)
+wire [2:0] _cpuIPL_dc;    // raw IPL from dataController (VIA1 / VIA2 / SCC)
 wire [2:0] cpuFC;
 wire [7:0] cpuAddrHi;
 wire [31:0] cpuAddr;
@@ -632,25 +908,160 @@ wire ram_or_rom_dtack_raw = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_tu
 reg  slot0_mark;          // busPhase==0 marker (the clk after clk8_en_p)
 reg  sdram_slot_cpu_rd;   // this SDRAM slot started with the CPU's read cmd
 reg  cpu_sdram_rd_done;   // an owned slot has completed for this bus cycle
+// DBG (2026-07-12): SDRAM coherency TIMEOUT-ESCAPE counters. The residual
+// boot corruption is deterministic at PC 0x447E (A-line); these test whether
+// the read/write handshake's bounded timeout fallback is accepting wrong-read /
+// forcing uncommitted-write under System-load contention. Cumulative, never
+// reset (initial-only) so they accrue across the whole boot.
+reg [15:0] rd_escape_cnt = 16'd0;   // read timeout-escapes (latched wrong word)
+reg [15:0] wr_escape_cnt = 16'd0;   // write timeout-escapes (forced done, no owned slot)
 wire cpu_sdram_rd_cycle = (selectRAM || selectROM) && _cpuRW && !_cpuAS;
+
+// COHERENCY FIX (2026-06-13): only accept SDRAM read data whose source address
+// (sdram_dout_addr, tagged in sdram.v) matches the address the CPU's read wanted
+// (arb_mac_addr). This stops the cpu_data latch from taking a NEIGHBOR slot's
+// word -- the captured leak was a RAM read of word 0x013660 latching the adjacent
+// ROM-fetch word from 0x413660 (differ only in bit 22 = RAM vs ROM/disk region).
+// cpu_rd_take also gates the cpu_data latch+mux in dataController_top. The bounded
+// cpu_rd_wait timeout guarantees every read completes within ~5 owned slots (well
+// under the 8us bus-error window), so a marginal case falls back to the prior
+// behaviour instead of ever wedging. Common case (match at the first owned-slot
+// tail) adds ZERO delay.
+wire cpu_rd_addr_match = (sdram_dout_addr == arb_mac_addr[23:0]);
+reg [2:0] cpu_rd_wait;
+wire cpu_rd_take = cpu_rd_addr_match || cpu_rd_wait[2];   // match, or timeout fallback
+
 always @(posedge clk_sys) begin
 	slot0_mark <= clk8_en_p;
 	if (slot0_mark)
 		sdram_slot_cpu_rd <= cpuBusControl && cpu_sdram_rd_cycle;
-	if (_cpuAS)
+	if (_cpuAS) begin
 		cpu_sdram_rd_done <= 1'b0;
-	else if (sdram_slot_cpu_rd && clk8_en_p)
-		cpu_sdram_rd_done <= 1'b1;
+		cpu_rd_wait       <= 3'd0;
+	end else if (sdram_slot_cpu_rd && clk8_en_p) begin
+		if (cpu_rd_take)     cpu_sdram_rd_done <= 1'b1;   // complete only on address-match (or timeout)
+		if (!cpu_rd_wait[2]) cpu_rd_wait       <= cpu_rd_wait + 3'd1;
+		// DBG (2026-07-12): read TIMEOUT-ESCAPE counter. cpu_rd_take fired via
+		// the wait[2] timeout while the returned slot's addr does NOT match =>
+		// the CPU is about to latch a WRONG (neighbour) word. Cumulative, never
+		// reset (initial-only) so it accrues across the whole boot.
+		if (cpu_rd_wait[2] && !cpu_rd_addr_match && !cpu_sdram_rd_done &&
+		    rd_escape_cnt != 16'hFFFF)
+			rd_escape_cnt <= rd_escape_cnt + 16'd1;
+	end
 end
 
 wire mac_is_sdram_read    = cpu_sdram_rd_cycle;
-wire ram_or_rom_dtack     = (mac_is_sdram_read && !cpu_sdram_rd_done) ? 1'b1
-                                                                      : ram_or_rom_dtack_raw;
+
+// SLOT-OWNED WRITE HANDSHAKE (2026-06-15 — the write-side twin of the read
+// handshake above; residual "illegal instruction" / bad-F-line corruption fix).
+//
+// A CPU RAM/ROM write took the raw immediate (turbo) DTACK and retired its bus
+// cycle before the SDRAM controller sampled mac_we/mac_addr/mac_din at the next
+// slot t=0 (clk8_en_p). The arbiter grant is combinational with Mac priority and
+// the controller latches the command only at t=0 (sdram_arbiter.v: "Writes ...
+// keep the fast path"), so a fast write that BEGINS AND ENDS between two slots is
+// never committed -> RAM keeps stale bytes, later fetched as a garbage opcode ->
+// illegal-instruction / bad-F-line crashes (FPU-innocent; invisible to the
+// open-bus read fix because it is write-side; the corruption detector is
+// read-only so this was never caught red-handed).
+//
+// Fix (mirror of cpu_sdram_rd_done): hold write DTACK until an SDRAM slot that
+// STARTED with the CPU's write command at its t=0 has completed, so the CPU
+// holds addr/we/din stable across the whole write sequence and the write
+// commits. mac_active(=mac_we) blocks video, so the Mac wins the next t=0 and an
+// owned slot always arrives within ~1-2 SDRAM cycles. The bounded cpu_wr_wait
+// forces completion after 4 SDRAM cycles (~0.5us, well under the 8us BERR
+// window) so this can NEVER wedge boot — it falls back to the prior immediate
+// behaviour instead.
+reg  sdram_slot_cpu_wr;   // this SDRAM slot started with the CPU's write cmd
+reg  cpu_sdram_wr_done;   // an owned write slot has completed for this bus cycle
+reg  [2:0] cpu_wr_wait;
+wire cpu_sdram_wr_cycle = (selectRAM || selectROM) && !_cpuRW && !_cpuAS;
+
+always @(posedge clk_sys) begin
+	if (slot0_mark)
+		sdram_slot_cpu_wr <= cpuBusControl && cpu_sdram_wr_cycle;
+	if (_cpuAS) begin
+		cpu_sdram_wr_done <= 1'b0;
+		cpu_wr_wait       <= 3'd0;
+	end else begin
+		if (clk8_en_p && !cpu_wr_wait[2]) cpu_wr_wait <= cpu_wr_wait + 3'd1;
+		if ((sdram_slot_cpu_wr && clk8_en_p) || cpu_wr_wait[2])
+			cpu_sdram_wr_done <= 1'b1;
+		// DBG (2026-07-12 v2, FIXED): write TIMEOUT-ESCAPE counter. MUST gate on
+		// cpu_sdram_wr_cycle — cpu_wr_wait increments during EVERY bus cycle
+		// (read+write; wr_done is just unused on reads), so the v1 counter fired
+		// on reads too and saturated (bogus 0xFFFF). Now: only during an actual
+		// CPU WRITE cycle, when the wait[2] timeout forces done with no owned
+		// write slot having arrived (!cpu_sdram_wr_done) => the write may not
+		// have committed (stale RAM = boot-block/resource corruption candidate).
+		if (cpu_sdram_wr_cycle && cpu_wr_wait[2] && !(sdram_slot_cpu_wr && clk8_en_p) &&
+		    !cpu_sdram_wr_done && wr_escape_cnt != 16'hFFFF)
+			wr_escape_cnt <= wr_escape_cnt + 16'd1;
+	end
+end
+
+wire mac_is_sdram_write   = cpu_sdram_wr_cycle;
+wire ram_or_rom_dtack     = (mac_is_sdram_read  && !cpu_sdram_rd_done) ? 1'b1 :
+                            (mac_is_sdram_write && !cpu_sdram_wr_done) ? 1'b1 :
+                                                                         ram_or_rom_dtack_raw;
+
+// PHANTOM-WRITE PROBE (2026-07-17, deck v8): the write handshake above
+// completes DTACK when an owned slot STARTED with the CPU's write command —
+// but sdram.v only latches CMD_WRITE if `we` is high at the slot's
+// STATE_CMD_START; a late-settling `we` turns the slot into AUTO_REFRESH and
+// the write is silently lost (wr_escape_cnt never sees it — measured 0/0 on
+// failing boots). Count, at each completing owned write slot, whether the
+// controller really latched the write (committed) or not (phantom). The
+// counters initialize at FPGA configuration and are NEVER reset by the Mac's
+// reset line, so they accumulate across soft reboots, Sad Macs, and hangs —
+// readable over JTAG whenever, like busrst_cnt/inits.
+wire sdram_we_latch;
+reg  sdram_we_latch_s   = 1'b0;
+reg [15:0] phantom_wr_cnt   = 16'd0;
+reg [31:0] committed_wr_cnt = 32'd0;
+always @(posedge clk_sys) begin
+	sdram_we_latch_s <= sdram_we_latch;
+	if (sdram_slot_cpu_wr && clk8_en_p && !cpu_sdram_wr_done) begin
+		if (sdram_we_latch_s)                committed_wr_cnt <= committed_wr_cnt + 32'd1;
+		else if (phantom_wr_cnt != 16'hFFFF) phantom_wr_cnt   <= phantom_wr_cnt + 16'd1;
+	end
+end
 assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
                         selectNuBus ? nubusAck :
                         selectSCSIDMA ? ~scsiDREQ :
                         viaAccess ? 1'b1 :
+                        fixup_take ? 1'b0 :   // DF/DIB fixup: complete the re-run cycle
                         ram_or_rom_dtack;
+
+// ── Programmer's switch / Level-7 NMI (debug aid, ported from MacLC) ────────
+// An OSD button (status[14], the "RE" momentary trigger) fires a non-maskable
+// Level-7 interrupt so MacsBug can break into a HUNG system — the core has no
+// other way in (it otherwise generates only IPL 1/2/4). The 68k takes the
+// level-7 autovector through the same FC=7/VPA path that already serves the
+// normal interrupts (selectFPU cycles are carved out and unaffected). The
+// latch clears on the level-7 IACK (addr[19:16]=$F, addr[3:1]=7) so it fires
+// exactly ONCE and never masks levels 1/2/4; a ~2 ms timeout backstop
+// releases it if the CPU can't ack (e.g. it is already running at mask 7).
+wire       nmi_iack  = (cpuFC == 3'b111) && !_cpuAS &&
+                       (cpuAddr[19:16] == 4'hF) && (cpuAddr[3:1] == 3'b111);
+reg        nmi_req   = 1'b0;
+reg        nmi_btn_d = 1'b0;
+reg [15:0] nmi_to    = 16'd0;
+always @(posedge clk_sys) begin
+	nmi_btn_d <= status[14];
+	if (status[14] && !nmi_btn_d) begin
+		nmi_req <= 1'b1;
+		nmi_to  <= 16'hFFFF;
+	end else if (nmi_req) begin
+		if (nmi_iack || nmi_to == 16'd0)
+			nmi_req <= 1'b0;
+		else
+			nmi_to <= nmi_to - 1'b1;
+	end
+end
+assign _cpuIPL = nmi_req ? 3'b000 : _cpuIPL_dc;
 
 // Debug LED tracking - extended duration for visibility
 reg [27:0] nubus_act_ctr, mem_act_ctr, video_act_ctr;
@@ -731,21 +1142,81 @@ wire any_select = selectRAM | selectROM | selectVIA | selectVIA2 | selectSCC
                 | selectSCSI | selectIWM | selectASC | nubus_acked | selectSEOverlay | selectFPU;
 wire is_cpu_space = (cpuFC == 3'b111);
 
+// ── 68020 format-$B DF/DIB software-fixup engine (2026-07-12) ────────────────
+// The Mac II ROM's bus-error catchers at $4080E590/$4080E59C clear SSW.DF in
+// the stacked frame, write a substitute value into the Data Input Buffer at
+// +$2C ($00000000 / $FFFFFFFF), and RTE — the real 68020 then resumes the
+// faulted instruction mid-pipe consuming the DIB in place of the pending data
+// fetch. TG68K restarts the instruction instead (kernel now pushes exe_pc for
+// trap_berr so the restart is well-defined). The OLD top-level implementation
+// fed berr_data into EVERY read while berr_inhibit was active and cleared at
+// the first setopcode — i.e. the post-RTE re-FETCH consumed the DIB and the
+// handler's substitute value EXECUTED AS AN OPCODE ($FFFF ⇒ F-line ⇒ Sad Mac
+// 0F/000A; $0000 ⇒ ori.b swallows the real opcode ⇒ desync ⇒ illegal/priv
+// bombs) — the Happy-Mac soft-reboot class.
+// New scheme — LAZY SUBSTITUTION: on the kernel's berr_inhibit rising edge
+// (a $B RTE whose handler cleared DF) latch {DIB, pending}; all bus cycles
+// run NORMALLY (real re-fetch, real EA reads); when the restarted read to the
+// RECORDED fault address times out where the 8 µs BERR would fire, complete
+// the cycle instead — synthetic DTACK + the DIB word (hi/lo by A1). Writes to
+// the fault address complete silently (WB-clear semantics). The window
+// retires when the low word is consumed, at the first completed fetch after
+// a substitution, or after ~1.6 ms. A DF=1 rerun (handler wants a true
+// retry) never arms this, and a re-run to a now-valid address completes
+// normally — the pending window just expires.
+reg [31:0] berr_fault_addr_top = 32'd0; // address of the ORIGINAL faulting cycle
+reg        fixup_pending = 1'b0;        // a DF-cleared RTE armed a DIB substitution
+reg [31:0] fixup_data = 32'd0;          // the handler's DIB value (kernel berr_data)
+reg        fixup_take = 1'b0;           // substituting THIS bus cycle (holds till AS rise)
+reg        fixup_took = 1'b0;           // >=1 beat substituted in this window
+reg        berr_inhibit_a_d = 1'b0;
+reg [15:0] fixup_expire = 16'd0;
+wire fixup_match = fixup_pending && (cpuAddr[31:2] == berr_fault_addr_top[31:2]);
+
 always @(posedge clk_sys) begin
 	if (!_cpuReset) begin
 		berr_counter <= 0;
 		berr_out <= 0;
+		fixup_pending <= 0; fixup_take <= 0; fixup_took <= 0;
+		berr_inhibit_a_d <= 0;
 	end else begin
+		berr_inhibit_a_d <= berr_inhibit_active;
+		// arm at the RTE that cleared DF (kernel latched the DIB from the frame)
+		if (berr_inhibit_active && !berr_inhibit_a_d) begin
+			fixup_pending <= 1'b1;
+			fixup_took    <= 1'b0;
+			fixup_data    <= berr_data_out;
+			fixup_expire  <= 16'd50000;   // ~1.6 ms backstop
+		end else if (fixup_pending) begin
+			if (fixup_expire == 16'd0) fixup_pending <= 1'b0;
+			else fixup_expire <= fixup_expire - 1'd1;
+		end
 		if (_cpuAS) begin
 			berr_counter <= 0;
 			berr_out <= 0;
-		end else if (berr_out) begin
-			// Hold BERR until AS deasserts (CPU ends bus cycle)
+			if (fixup_take) begin
+				fixup_take <= 0;
+				// low/odd word consumed => the DIB long is complete; retire
+				if (cpuAddr[1]) fixup_pending <= 0;
+			end
+			// bound a word/byte substitution to its own instruction: the first
+			// completed FETCH after a substituted beat retires the window
+			if (fixup_took && !fixup_take && cpuFC[1:0] == 2'b10 && _cpuRW)
+				fixup_pending <= 0;
+		end else if (berr_out || fixup_take) begin
+			// Hold BERR / the substitution until AS deasserts (CPU ends cycle)
 		end else if (is_cpu_space || any_select)
 			berr_counter <= 0;
-		else if (berr_counter == 9'd251)  // ~8us at 31.3344 MHz
-			begin berr_out <= 1; berr_counter <= 0; end
-		else
+		else if (berr_counter == 9'd251) begin  // ~8us at 31.3344 MHz
+			if (fixup_match) begin
+				fixup_take <= 1'b1;   // complete with the DIB instead of BERR
+				fixup_took <= 1'b1;
+			end else begin
+				berr_out <= 1;
+				berr_fault_addr_top <= cpuAddr;   // remember the fault site
+			end
+			berr_counter <= 0;
+		end else
 			berr_counter <= berr_counter + 1'd1;
 	end
 end
@@ -766,9 +1237,21 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire [15:0] cpu_data_in = berr_inhibit_active ? berr_data_out[15:0] :
+// 2026-07-12: the old first term `berr_inhibit_active ? berr_data_out[15:0]`
+// fed the DIB into EVERY read of the post-RTE window — including the
+// instruction re-fetch, which executed the handler's DIB as an opcode (the
+// Happy-Mac soft-reboot / Sad Mac 0F class). Replaced by the lazy-substitution
+// engine above: only the timed-out re-run read of the recorded fault address
+// receives the DIB (hi/lo word by A1).
+wire [15:0] cpu_data_in = fixup_take ? (cpuAddr[1] ? fixup_data[15:0] : fixup_data[31:16]) :
                           selectFPU ? fpu_d_to_cpu :
                           fpu_data_hold_valid ? fpu_data_hold :
+                          // Open-bus default for UNDECODED reads (port of MacLC f9fbf56).
+                          // Return $FFFF, never the stale neighbour SDRAM word that the mux
+                          // otherwise falls through to (dataController_top.sv cpu_data). This is
+                          // exactly the undecoded set the ~8us BERR already targets, so it cannot
+                          // affect any decoded RAM/ROM/peripheral/FPU read. (FC=7 excluded.)
+                          (~any_select & ~is_cpu_space) ? 16'hFFFF :
                           dataControllerDataOut;
 
 tg68k tg68k_inst (
@@ -798,7 +1281,11 @@ tg68k tg68k_inst (
 	.bgack_n    ( 1'b1         ),
 
 	.ipl        ( _cpuIPL      ),
-	.berr       ( berr_inhibit_active ? 1'b0 : berr_out ),
+	// 2026-07-12: unmasked — the old `berr_inhibit_active ? 1'b0 : berr_out`
+	// blanket-suppressed real bus errors during the post-RTE window; the
+	// fixup engine now completes the one matched cycle instead, so berr
+	// keeps its normal meaning everywhere.
+	.berr       ( berr_out     ),
 		.din        ( cpu_data_in   ),
 		.dout       ( tg68_dout    ),
 		.longword   ( tg68_longword ),
@@ -890,7 +1377,13 @@ addrController_top ac0
 wire [1:0] diskEject;
 wire [1:0] diskMotor, diskAct;
 
-nubus_video_mdc824 nubus_card (
+// Card VRAM size: 384 KB of BRAM (196608 16-bit words) — covers 8 bpp at
+// 640x480 (300 KB) with headroom. 512 KB does NOT fit: it alone needs 512 of
+// the device's 553 M10K blocks (the rest of the core uses ~105). Single
+// source of truth for both the card's bound check and the vram_ram instance.
+localparam VRAM_WORDS = 196608;
+
+nubus_video_mdc824 #(.VRAM_WORDS(VRAM_WORDS)) nubus_card (
 	.clk(clk_sys),
 	.reset(!_cpuReset),
 	.addr(cpuAddr),
@@ -930,6 +1423,7 @@ nubus_video_mdc824 nubus_card (
 
 	.overlay_en(status_overlay_en),
 	.monochrome(status_video_mono),
+	.monitor_512(status_monitor_512),
 
 	.ioctl_wr(ioctl_write),
 	.ioctl_addr(ioctl_addr),
@@ -970,7 +1464,7 @@ dataController_top #(SCSI_DEVS) dc0
 	.configRAMSize(configRAMSize),
 	._systemReset(n_reset),
 	._cpuReset(_cpuReset),
-	._cpuIPL(_cpuIPL),
+	._cpuIPL(_cpuIPL_dc),
 	._cpuUDS(_cpuUDS),
 	._cpuLDS(_cpuLDS),
 	._cpuRW(_cpuRW),
@@ -996,6 +1490,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.cpuAddrASC(cpuAddr[12:0]),
 	.cpuBusControl(cpuBusControl),
 	.cpuSlotOwned(sdram_slot_cpu_rd),
+	.cpu_rd_take(cpu_rd_take),   // COHERENCY FIX: gate cpu_data latch/mux on address-match
+
 	.videoBusControl(videoBusControl),
 	.memoryDataOut(memoryDataOut),
 	.memoryDataIn(sdram_do),
@@ -1013,6 +1509,14 @@ dataController_top #(SCSI_DEVS) dc0
 
 	// rtc unix ticks
 	.timestamp(TIMESTAMP),
+
+	// PRAM persistence (HPS NVRAM image <-> rtc pram[])
+	.pram_load_wr(pram_load_wr),
+	.pram_load_addr(pram_load_addr),
+	.pram_load_data(pram_load_data),
+	.pram_save_addr(pram_save_addr),
+	.pram_save_data(pram_save_data),
+	.pram_wr_stb(pram_wr_stb),
 
 	// Mac II has no built-in video (inputs still needed from addrController timing)
 	._hblank(_hblank),
@@ -1035,6 +1539,8 @@ dataController_top #(SCSI_DEVS) dc0
 	// floppy disk interface
 	.insertDisk({dsk_ext_ins, dsk_int_ins}),
 	.diskSides({dsk_ext_ds, dsk_int_ds}),
+	.diskMFM({dsk_ext_mfm, dsk_int_mfm}),
+	.diskHD({dsk_ext_hd, dsk_int_hd}),
 	.diskEject(diskEject),
 	.dskReadAddrInt(dskReadAddrInt),
 	.dskReadAckInt(dskReadAckInt),
@@ -1043,17 +1549,18 @@ dataController_top #(SCSI_DEVS) dc0
 	.diskMotor(diskMotor),
 	.diskAct(diskAct),
 
-	// block device interface for scsi disk
-	.img_mounted(img_mounted),
+	// block device interface for scsi disk (hps_io slots 0,1 only — slot 2
+	// is the PRAM save image, serviced by the PRAM FSM above)
+	.img_mounted(img_mounted[SCSI_DEVS-1:0]),
 	.img_size(img_size[40:9]),
-	.io_lba(sd_lba),
-	.io_rd(sd_rd),
-	.io_wr(sd_wr),
-	.io_ack(sd_ack),
+	.io_lba(scsi_lba),
+	.io_rd(scsi_rd),
+	.io_wr(scsi_wr),
+	.io_ack(sd_ack[SCSI_DEVS-1:0]),
 
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din(sd_buff_din),
+	.sd_buff_din(scsi_buff_din),
 	.sd_buff_wr(sd_buff_wr),
 	.dbg_scsi(dbg_scsi),
 	.dbg_scsi2(dbg_scsi2),
@@ -1061,6 +1568,22 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi4(dbg_scsi4),
 	.dbg_scsi5(dbg_scsi5),
 	.dbg_scsi_wr(dbg_scsi_wr),
+	.dbg_wr0(dbg_wr0),
+	.dbg_regs(dbg_regs),
+	.dbg_selt0(dbg_selt0),
+	.dbg_wringA(dbg_wringA), .dbg_wringB(dbg_wringB),
+	.dbg_wringC(dbg_wringC), .dbg_wringD(dbg_wringD),
+	.dbg_selid(dbg_selid),
+	.dbg_winh0A(dbg_winh0A),
+	.dbg_winh0B(dbg_winh0B),
+	.dbg_iwh(dbg_iwh),
+	.dbg_cmdr0(dbg_cmdr0),
+	.dbg_star0(dbg_star0),
+	.dbg_lbar0A(dbg_lbar0A),
+	.dbg_lbar0B(dbg_lbar0B),
+	.dbg_xorr0A(dbg_xorr0A),
+	.dbg_xorr0B(dbg_xorr0B),
+	.dbg_selfail0(dbg_selfail0),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
 	.dbg_via2_irq(dbg_via2_irq),
@@ -1086,6 +1609,21 @@ wire [15:0] dbg_scsi3;
 wire [15:0] dbg_scsi4;
 wire [15:0] dbg_scsi5;
 wire [31:0] dbg_scsi_wr;   // target0 multi-block write-stall snapshot
+wire [31:0] dbg_wr0;       // target0 dbg_wrstall un-muxed (v3 starve diagnosis)
+wire [31:0] dbg_regs;      // live 5380 registers + bus lines (v3.2)
+wire [7:0]  dbg_selt0;     // target0 selection-gate sampler (v3.6)
+wire [31:0] dbg_wringA, dbg_wringB, dbg_wringC, dbg_wringD;  // v3.8 reg-write ring
+wire [31:0] dbg_selid;     // v3.9 selection-target detective
+wire [31:0] dbg_winh0A;    // v3.11 target0 window history
+wire [31:0] dbg_winh0B;
+wire [31:0] dbg_iwh;       // v3.12 initiator per-window counters
+wire [31:0] dbg_cmdr0;     // v3.14 target0 command-opcode ring
+wire [31:0] dbg_star0;     // v3.14 target0 status ring
+wire [31:0] dbg_lbar0A;    // v3.15 target0 read LBA ring
+wire [31:0] dbg_lbar0B;
+wire [31:0] dbg_xorr0A;    // v3.17 target0 delivered-data XOR ring
+wire [31:0] dbg_xorr0B;
+wire [31:0] dbg_selfail0;  // v3.16 target0 selection-failure tally
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
 wire [31:0] dbg_via2_irq;      // NCR5380 write loss-mechanism counters
@@ -1128,10 +1666,15 @@ wire  [7:0] dio_index;
 // good floppy image sizes are 819200 bytes and 409600 bytes
 reg dsk_int_ds, dsk_ext_ds;  // double sided image inserted
 reg dsk_int_ss, dsk_ext_ss;  // single sided image inserted
+// SWIM/ISM geometry (2026-08-07): an MFM image routes the SWIM's ISM path
+// instead of the IWM GCR path; HD distinguishes 1.44MB from 720K. Raw sizes
+// in WORDS (dio_addr counts words): 720K = 368640, 1.44M = 737280.
+reg dsk_int_mfm, dsk_ext_mfm;
+reg dsk_int_hd,  dsk_ext_hd;
 
 // any known type of disk image inserted?
-wire dsk_int_ins = dsk_int_ds || dsk_int_ss;
-wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss;
+wire dsk_int_ins = dsk_int_ds || dsk_int_ss || dsk_int_mfm;
+wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss || dsk_ext_mfm;
 
 // at the end of a download latch file size
 // diskEject is set by macos on eject
@@ -1146,11 +1689,15 @@ always @(posedge clk_sys) begin
 	if(old_down && ~dio_download && dio_index == 1) begin
 		dsk_int_ds <= (dio_addr == 409600);   // double sides disk, addr counts words, not bytes
 		dsk_int_ss <= (dio_addr == 204800);   // single sided disk
+		dsk_int_mfm <= (dio_addr == 368640) || (dio_addr == 737280);  // 720K / 1.44M MFM
+		dsk_int_hd  <= (dio_addr == 737280);                          // 1.44M only
 	end
 
 	if(diskEject[0]) begin
 		dsk_int_ds <= 0;
 		dsk_int_ss <= 0;
+		dsk_int_mfm <= 0;
+		dsk_int_hd  <= 0;
 	end
 end
 
@@ -1161,11 +1708,15 @@ always @(posedge clk_sys) begin
 	if(old_down && ~dio_download && dio_index == 2) begin  // F2 -> ioctl_index=2
 		dsk_ext_ds <= (dio_addr == 409600);   // double sided disk, addr counts words, not bytes
 		dsk_ext_ss <= (dio_addr == 204800);   // single sided disk
+		dsk_ext_mfm <= (dio_addr == 368640) || (dio_addr == 737280);
+		dsk_ext_hd  <= (dio_addr == 737280);
 	end
 
 	if(diskEject[1]) begin
 		dsk_ext_ds <= 0;
 		dsk_ext_ss <= 0;
+		dsk_ext_mfm <= 0;
+		dsk_ext_hd  <= 0;
 	end
 end
 
@@ -1197,27 +1748,43 @@ end
 // ROM) fixes the cold-boot garbled chime + frozen mouse without relying on the
 // ROM's own RAM test. Paced exactly like the ROM download (one SDRAM write per
 // extra bus slot via dioBusControl), reusing the proven download write timing.
-// Word-address limit by configured RAM size (RAM lives in the A22=0 region):
-wire [21:0] clear_limit = (configRAMSize == 2'b00) ? 22'h07FFFF :  // 1MB
-                          (configRAMSize == 2'b01) ? 22'h0FFFFF :  // 2MB
-                          (configRAMSize == 2'b10) ? 22'h1FFFFF :  // 4MB
-                                                     22'h3FFFFF;   // 8MB
+// Clear the FULL 8 MB RAM window unconditionally.  The extent used to be sized
+// from configRAMSize (= status_mem), but status_mem is not latched until AFTER
+// the clear has already run — it is captured during the n_reset release
+// countdown, which is itself gated on clear_done.  So the clear ran against an
+// un-latched, power-up-don't-care size and could zero as little as the low
+// 1 MB, leaving upper RAM as garbage on a cold configure (the "garbled chime /
+// clean after a reload" lottery).  The SDRAM chip backs all 8 MB regardless of
+// the configured size, so zeroing addresses above the installed RAM is harmless
+// and removes the ordering dependency entirely.  (status_mem still latches at
+// reset release for addrController's runtime size limiting / OSD re-apply.)
+localparam [21:0] clear_limit = 22'h3FFFFF;   // full 8 MB, config-independent
 reg [21:0] clear_addr   = 0;
 reg        clear_active = 0;
 reg        clear_done   = 0;
 reg        clear_write  = 0;
 reg        clear_old_cyc = 0;
 always @(posedge clk_sys) begin
-	if(!rom_loaded) begin
+	// Reset the clear on every lock-stable epoch — a cold configure OR a
+	// PLL-unlock recovery (a lock loss can corrupt RAM).  Keyed off sys_locked
+	// rather than rom_loaded (which never de-asserts) so RAM is re-zeroed after
+	// any unlock event before the machine is let go again.
+	if(!sys_locked) begin
 		clear_active  <= 1'b0;
 		clear_done    <= 1'b0;
 		clear_addr    <= 22'd0;
 		clear_write   <= 1'b0;
 		clear_old_cyc <= 1'b0;
 	end else begin
-		if(!clear_done && !clear_active) clear_active <= 1'b1;   // start once ROM is loaded
+		if(!clear_done && !clear_active && rom_loaded) clear_active <= 1'b1;  // start once boot0.rom is in
 		clear_old_cyc <= dioBusControl;
-		if(clear_active) begin
+		// Yield every dio slot to an in-flight download: the arbiter address
+		// mux gives download_cycle priority, so a clear write that shared a slot
+		// with a ROM/disk download word would be silently dropped (and the
+		// ioctl_wait handshake desynced).  Pausing while dio_download is high
+		// makes the clear consume only idle slots — it can begin right after the
+		// ROM and politely interleave with any trailing disk-image stream.
+		if(clear_active && !dio_download) begin
 			if(~dioBusControl) clear_write <= 1'b1;                  // arm write before the slot
 			if(clear_old_cyc & ~dioBusControl & clear_write) begin   // extra slot just completed
 				clear_write <= 1'b0;
@@ -1231,10 +1798,15 @@ always @(posedge clk_sys) begin
 		end
 	end
 end
-wire clear_cycle = clear_active && dioBusControl;
+wire clear_cycle = clear_active && dioBusControl && !dio_download;
 
 // disk images are being stored right after os rom at word offset 0x80000 and 0x100000
-reg [20:0] dio_a;
+// dio_a widened 21 -> 22 bits (2026-08-07): a 1.44MB floppy image is 737,280
+// words and did NOT fit the old 19-bit (512K-word) per-slot windows — the
+// download address WRAPPED and overwrote the image's own start, so the ROM
+// read garbage boot blocks and ejected the disk with an X. Each floppy slot
+// now gets a full 1M-word (2MB) window, like MacLC's layout.
+reg [21:0] dio_a;
 reg [15:0] dio_data;
 reg        dio_write;
 
@@ -1250,16 +1822,16 @@ always @(posedge clk_sys) begin
 		// boot2.hex), so no index-1 download exists on hardware (the Verilator
 		// sim has its own separate top in verilator/sim.v).
 		if (dio_index == 0) // boot0.rom - Mac II system ROM (256K)
-			dio_a <= {3'b000, dio_addr[17:0]}; // Map to 0 (Slot 0 offset 0)
+			dio_a <= {4'b0000, dio_addr[17:0]}; // boot0.rom @word 0x400000
 		// F1/F2 in conf_str map to ioctl_index 1/2 respectively (MiSTer hps_io
 		// convention; matches MacPlus_MiSTer and macplus-og). Place primary at
 		// SDRAM slot offset 0x80000 (+0x400000 base => 0x480000) and secondary at
 		// 0x100000 (=> 0x500000), each up to 512K words = 1MB. An 800K image
 		// (0x64000 words) fits in either slot with headroom.
 		else if (dio_index[1:0] == 1 || dio_index[1:0] == 2) // Floppy disk images
-			dio_a <= {dio_index[1:0], dio_addr[18:0]};
+			dio_a <= {dio_index[1:0], dio_addr[19:0]};  // slot1 @word 0x500000, slot2 @0x600000
 		else
-			dio_a <= {dio_index[6], dio_addr[17:0]};
+			dio_a <= {1'b0, dio_index[6], dio_addr[17:0]};
 
 		ioctl_wait <= 1;
 	end
@@ -1283,16 +1855,19 @@ wire download_cycle = dio_download && dioBusControl;
 //                                               collides with the 8MB RAM window
 //                                               (it used to sit at A21=0x200000,
 //                                               inside the 8MB RAM span).
-assign arb_mac_addr = clear_cycle    ? {3'b000, clear_addr} :                       // RAM pre-clear @ 0x000000+
-                      download_cycle ? {2'b00, 1'b1, 1'b0, dio_a[20:0] } :          // ROM/disk download @ 0x400000+
+// Download has mux priority over the clear (downloads are externally paced and
+// must never be dropped); clear_cycle already excludes dio_download, so the two
+// are mutually exclusive — ordering download first is defensive.
+assign arb_mac_addr = download_cycle ? {2'b00, 1'b1, dio_a[21:0] } :          // ROM/disk download @ 0x400000+
+                      clear_cycle    ? {3'b000, clear_addr} :                       // RAM pre-clear @ 0x000000+
                       ~_romOE        ? {2'b00, 1'b1, 4'b0000, memoryAddr[18:1]} :    // Mac II ROM @ 0x400000+
-                      (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
+                      (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, memoryAddr[22:1]} : // disk image @ 0x400000+
                                        {3'b000, memoryAddr[22:1]};                   // RAM 0x000000-0x3FFFFF (8MB)
 
-assign arb_mac_din  = clear_cycle ? 16'h0000 : download_cycle ? dio_data  : memoryDataOut;
-assign arb_mac_ds   = clear_cycle ? 2'b11    : download_cycle ? 2'b11     : { !_memoryUDS, !_memoryLDS };
-assign arb_mac_we   = clear_cycle ? clear_write : download_cycle ? dio_write : !_ramWE;
-assign arb_mac_oe   = clear_cycle ? 1'b0     : download_cycle ? 1'b0      : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
+assign arb_mac_din  = download_cycle ? dio_data   : clear_cycle ? 16'h0000     : memoryDataOut;
+assign arb_mac_ds   = download_cycle ? 2'b11      : clear_cycle ? 2'b11        : { !_memoryUDS, !_memoryLDS };
+assign arb_mac_we   = download_cycle ? dio_write  : clear_cycle ? clear_write  : !_ramWE;
+assign arb_mac_oe   = download_cycle ? 1'b0       : clear_cycle ? 1'b0         : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 
 wire [15:0] sdram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux : arb_mac_dout;
 
@@ -1301,6 +1876,7 @@ wire [15:0] sdram_do   = download_cycle ? 16'hffff : (dskReadAckInt || dskReadAc
 // we thus need to properly demultiplex the word returned from sdram in that case
 wire [15:0] extra_rom_data_demux = memoryAddr[0]? {sdram_out[7:0],sdram_out[7:0]}:{sdram_out[15:8],sdram_out[15:8]};
 wire [15:0] sdram_out;
+wire [23:0] sdram_dout_addr;   // DBG: word-address that produced sdram_out (coherency probe; pruned if unused)
 
 assign SDRAM_CKE = 1;
 
@@ -1328,7 +1904,7 @@ wire        vram_bram_ready;
 wire [24:0] vram_scan_addr;
 wire        vram_scan_rd;
 wire [15:0] vram_scan_data;
-vram_ram #(.AW(16)) vram_inst (   // 2^16 words = 128 KB (1/2 bpp @ 640x480; dual-port)
+vram_ram #(.WORDS(VRAM_WORDS)) vram_inst (   // 384 KB dual-port (1-8 bpp @ 640x480)
 	.clk    (clk_sys),
 	// Port A — CPU read/write (card FSM)
 	.addr   (arb_vram_addr),
@@ -1352,7 +1928,7 @@ wire        sdram_oe;
 sdram sdram
 (
 	// system interface
-	.init           ( !pll_locked              ),
+	.init           ( !sys_locked              ),  // hold SDRAM in init until clk_sys is lock-stable
 	.clk_64         ( clk_mem                  ),
 	.clk_8          ( clk8                     ),
 
@@ -1373,14 +1949,16 @@ sdram sdram
 	.ds             ( sdram_ds                 ),
 	.we             ( sdram_we                 ),
 	.oe             ( sdram_oe                 ),
-	.dout           ( sdram_out                )
+	.dout           ( sdram_out                ),
+	.dout_addr      ( sdram_dout_addr          ),  // DBG: address tag for the coherency probe
+	.dbg_we_latch   ( sdram_we_latch           )   // DBG: phantom-write probe
 );
 
 // SDRAM Arbiter - share SDRAM between Mac and NuBus video
 sdram_arbiter arbiter (
 	.clk(clk_sys),
 	.clk8_en_p(clk8_en_p),  // SDRAM cycle T0 marker for the coherency handshake
-	.reset(!pll_locked),  // Reset with SDRAM, not CPU
+	.reset(!sys_locked),  // Reset with SDRAM (lock-stable), not CPU
 
 	// Mac system port
 	.mac_addr(arb_mac_addr),
@@ -1419,7 +1997,127 @@ sdram_arbiter arbiter (
 	.mac_dout_valid(arb_mac_dout_valid)
 );
 
+// Cold-load integrity instrument — always on (tiny; see rtl/dbg_coldinit.sv).
+// ROM-download checksum + init-choreography timestamps + PLL-unlock counter,
+// read via JTAG ISSP (scripts/read_coldinit.tcl) without touching the HPS.
+dbg_coldinit dbg_coldinit_inst (
+	.clk            (clk_sys),
+	.pll_locked     (pll_locked),
+	.ioctl_download (dio_download),
+	.ioctl_index    (dio_index[7:0]),
+	.ioctl_wr       (ioctl_write),
+	.ioctl_data     (ioctl_data),
+	.img_mounted    (img_mounted[2:0]),
+	.rom_loaded     (rom_loaded),
+	.clear_done     (clear_done),
+	.pram_ready     (pram_ready)
+);
+
+// FPU CIR-state runtime probe (DBG_FPU diagnostic, read-only, no FPU logic change).
+// Reads fpu_dbg_cir_state live over JTAG to see what the FPU is wedged on at the
+// SimpleText-launch hard lock. Layout (mc68881_top.vhd:46): [31:16] response prim,
+// [15:11] cir_state_reg, [10:6] MAX state seen, [2] except-seen, [1] restore-frame
+// -seen, [0] cir_active. Distinguishes a stuck ARITH op (cir_state=CIR_EXECUTE)
+// from a stuck FSAVE/FRESTORE context-switch (CIR_RESTORE_FRAME / CIR_SAVE_*).
+// Keys off the FPU's own FSM (clk_sys), so it reads correctly while the Mac is
+// frozen (unlike the SDRAM-slot-gated probes). scripts/read_fpu.tcl. Reuses
+// dbg_coldinit's JTAG hub. Strip by removing the DBG_FPU macro (LBMacTwo.qsf).
+`ifdef DBG_FPU
+altsource_probe #(
+	.instance_id ("FPCS"), .probe_width (32), .source_width (1),
+	.sld_auto_instance_index ("YES")
+) p_fpcs (.probe(fpu_dbg_cir_state), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+`endif
+
+// Focused early-boot CPU-wedge probe (5 instances; fits where dbg_min's 82 do
+// not). Enabled with `set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"`.
+// Probes PADR/PSTA/PACT/PFLO/PFST; read with scripts/read_wedge.tcl. (The trim
+// dropped PFLA, so cpu_state.tcl's F-line block stays silent — use read_wedge.)
+// Diagnoses the residual wedge (root cause = FPU conversion-datapath timing).
+`ifdef DBG_WEDGE
+dbg_wedge dbg_wedge_inst (
+	.clk              (clk_sys),
+	.cpuAddr          (cpuAddr),
+	.cpuFC            (cpuFC),
+	.cpuAS_n          (_cpuAS),
+	.cpuRW            (_cpuRW),
+	.cpuDTACK_n       (_cpuDTACK),
+	.cpuUDS_n         (_cpuUDS),
+	.cpuLDS_n         (_cpuLDS),
+	.selectFPU        (selectFPU),
+	.selectRAM        (selectRAM),
+	.selectROM        (selectROM),
+	.selectNuBus      (selectNuBus),
+	.fpu_dsack0_n     (fpu_dsack0_n),
+	.fpu_dsack1_n     (fpu_dsack1_n),
+	.mac_dout_valid   (cpu_sdram_rd_done),
+	.cpu_din          (cpu_data_in),
+	.cpu_dout         (cpuDataOut),
+	.hmmu_act         (hmmu_active),
+	.fpu_dbg_cir_state(fpu_dbg_cir_state),
+	// happy-mac-reboot differential (2026-07-03; MacLCii PRC0/PRT/PSCW port)
+	.dbg_ncr2         (dbg_ncr2),
+	.pscw             (dbg_scsi_wr),
+	.pscw0            (dbg_wr0),
+	.scsi2            (dbg_scsi2),
+	.ncr_regs         (dbg_regs),
+	.rst_count        (dbg_scsi4[15:8]),
+	.img_mnt0         (img_mounted[0]),
+	// matches scsi.v's own unmount condition: img_blocks (= img_size[40:9]) == 0
+	.img_size_zero    (img_size[40:9] == 32'd0),
+	.mounted0         (dbg_scsi[9]),
+	.scsi_hs          (dbg_scsi),
+	.selterms0        (dbg_selt0),
+	.berr_pulse       (berr_out),
+	.wringA           (dbg_wringA),
+	.wringB           (dbg_wringB),
+	.wringC           (dbg_wringC),
+	.wringD           (dbg_wringD),
+	.selid            (dbg_selid),
+	.winh0A           (dbg_winh0A),
+	.winh0B           (dbg_winh0B),
+	.iwh              (dbg_iwh),
+	.cmdr0            (dbg_cmdr0),
+	.star0            (dbg_star0),
+	.lbar0A           (dbg_lbar0A),
+	.lbar0B           (dbg_lbar0B),
+	.xorr0A           (dbg_xorr0A),
+	.xorr0B           (dbg_xorr0B),
+	.selfail0         (dbg_selfail0),
+	.via2_irq_state   (dbg_via2_irq),
+	// ADB/VIA1-SR stall probes (2026-07-11): System-startup ADB wait
+	.adb_state        (dbg_adb),
+	.adb_timer        (dbg_adb2),
+	.adb_rd_ring      (dbg_adb3),
+	.adb_ld_ring      (dbg_adb4),
+	.cpuReset_n       (_cpuReset),
+	// reset-cause snapshot (2026-07-11e): {sys_locked, pram_ready, clear_done,
+	// pram_force_reset, RESET, buttons[1], osd_reset_req} — decode per dbg_wedge.
+	.reset_src        ({sys_locked, pram_ready, clear_done, pram_force_reset, RESET, buttons[1], osd_reset_req}),
+	// SDRAM coherency timeout-escape counters (2026-07-12): PESC probe.
+	.rd_escapes       (rd_escape_cnt),
+	.wr_escapes       (wr_escape_cnt),
+	.phantom_wr       (phantom_wr_cnt),
+	.committed_wr     (committed_wr_cnt),
+	.berr_inhibit     (berr_inhibit_active),
+	// coherency detector (2026-06-13): catch the SDRAM neighbor-word read leak in the act.
+	// rd_latch = the exact gate dataController uses to latch cpu_data from sdram.
+	// cpu_rd_addr = arb_mac_addr (the Mac's word addr; combinationally stable for the whole
+	// held CPU read cycle, same domain as the tagged dout_addr) — no slot-phase skew.
+	.rd_latch         (sdram_slot_cpu_rd && memoryLatch),
+	.cpu_rd_take      (cpu_rd_take),
+	.cpu_rd_addr      (arb_mac_addr[23:0]),
+	.dout_addr        (sdram_dout_addr),
+	.rd_word          (sdram_do)
+);
+`endif
+
 // Minimal JTAG CPU-state probes to diagnose the early-boot hang.
+// Stripped from production builds: `DBG_PROBES is left undefined so the ISSP
+// instrumentation — and, importantly, its timing-closure footprint — is removed
+// from the bitstream. Re-enable for hardware debug by defining DBG_PROBES (e.g.
+// a qsf `set_global_assignment -name VERILOG_MACRO "DBG_PROBES=1"`).
+`ifdef DBG_PROBES
 dbg_min dbg_min_inst (
 	.clk            (clk_sys),
 	.cpuAddr        (cpuAddr),
@@ -1443,10 +2141,10 @@ dbg_min dbg_min_inst (
 	.vram_fetch_cnt (dbg_vram_fetch_cnt),
 	.selectSCSI     (selectSCSI),
 	.scsi_rd_data   (dataControllerDataOut),
-	.img_mounted    (img_mounted),
-	.sd_rd          (sd_rd),
-	.sd_wr          (sd_wr),
-	.sd_ack         (sd_ack),
+	.img_mounted    (img_mounted[1:0]),
+	.sd_rd          (sd_rd[1:0]),
+	.sd_wr          (sd_wr[1:0]),
+	.sd_ack         (sd_ack[1:0]),
 	.scsi_dbg       (dbg_scsi),
 	.scsi_dbg2      (dbg_scsi2),
 	.scsi_dbg3      (dbg_scsi3),
@@ -1499,5 +2197,6 @@ dbg_min dbg_min_inst (
 	.selectIWM      (selectIWM),
 	.fpu_dbg_cir_state(fpu_dbg_cir_state)
 );
+`endif
 
 endmodule

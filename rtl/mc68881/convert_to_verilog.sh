@@ -80,16 +80,18 @@ convert_count=0
 # fpu_lite top in $OUT_DIR/fpu_lite/.
 OUT_DIR="$SCRIPT_DIR"
 
-# Top-level lite mode (fpu_lite_g => true) is the production build flavor.
-# MC68040 hardware subset: 11 ALU ops, no trig/sglops/divrem/modrem/getexp/getman.
+# Production build flavor = 68040-class subset: fpu_lite_g=true (no trig) PLUS
+# enable_divrem_g=true (FDIV/FSQRT/FMOD/FREM/FSCALE/SGLDIV/SGLMUL in hardware).
+# These MUST match mc68881_fpu_lite.vhd's generic map so the Verilator bench
+# exercises the same FPU the FPGA build ships. Still NO trig/getexp/getman.
 # Only regen the lite top — the per-unit .v files and the full-mode top are
 # unused by the Verilator bench (it instantiates mc68881_top in fpu_lite/).
 entity="${TOP_FILE%.vhd}"
 mkdir -p "$OUT_DIR/fpu_lite"
 out="$OUT_DIR/fpu_lite/${entity}.v"
-echo "  Converting: $TOP_FILE -> $out (fpu_lite_g=true)"
+echo "  Converting: $TOP_FILE -> $out (fpu_lite_g=true, enable_divrem_g=true)"
 ghdl synth --std=08 -fsynopsys -fexplicit --latches \
-    --out=verilog -gfpu_lite_g=true "$entity" > "$out"
+    --out=verilog -gfpu_lite_g=true -genable_divrem_g=true "$entity" > "$out"
 convert_count=$((convert_count + 1))  # `set -e` + post-inc returns 0 = bail
 
 echo ""

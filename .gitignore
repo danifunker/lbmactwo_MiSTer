@@ -57,6 +57,9 @@ verilator/*.vcd
 verilator/obj_dir
 verilator/*.png
 verilator/*.txt
+verilator/*.bin
+verilator/*.out
+verilator/testdisk.hda
 
 # Local emulator checkout and ROMs used for boot comparison.
 /mame/
@@ -81,3 +84,10 @@ scripts/local.env
 # screenshots, session-specific notes, etc. See CLAUDE.md "Scratch
 # directory" for the convention.
 scratch/
+
+# Python bytecode caches (e.g. scripts/__pycache__)
+__pycache__/
+*.pyc
+
+# Quartus internal-error / crash dumps (quartus_fit access-violation reports)
+cr_ie_info*.json

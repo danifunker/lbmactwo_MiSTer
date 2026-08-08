@@ -151,6 +151,23 @@ module via6522 (
     wire [1:0] ca2_out_mode          = pcr[2:1];
     wire       ca1_edge_select       = pcr[0];
     reg [7:0] ira = 8'h00;
+    // Port A reads must return the OUTPUT LATCH for pins configured as
+    // outputs and the input register only for input pins (6522 datasheet;
+    // ported from MacLC 6c8438f, HW-validated there). Returning `ira` for
+    // every bit corrupts every read-modify-write instruction that touches
+    // Port A (BSET/BCLR on ORA): a bit the guest just wrote reads back as
+    // the PIN state, and external loading/timing skew rewrites sibling
+    // output bits on the writeback. On the Mac II VIA1, PA bits carry drive
+    // SEL/head-select and sound volume — any unrelated Port A RMW would
+    // rewrite them from the pin sample.
+    // Bit 7 is EXCLUDED on this core: dataController_top wires via_pa_i[7]
+    // to the live SCC /WREQ input (never the output latch), and the floppy
+    // driver polls it. Masking it here would hand back a stale latch value if
+    // DDRA[7] were ever set as an output. Bits [6:0] keep the datasheet
+    // behavior; note the Mac II top ALREADY applies the same output-latch
+    // masking externally, so this is belt-and-braces for module portability.
+    wire [7:0] pra_masked = (ira & ~pio_i_ddra) | (pio_i_pra & pio_i_ddra);
+    wire [7:0] pra_read   = { ira[7], pra_masked[6:0] };
     reg [7:0] irb = 8'h00;
 
     reg write_t1c_l;
@@ -410,11 +427,11 @@ module via6522 (
                 end
             end
             4'h1: begin // ORA
-                data_out <= ira;
+                data_out <= pra_read;
 `ifdef SIMULATION
                 if (ren && $test$plusargs("via_debug"))
-                    $display("VIA1 ORA READ: addr=%h ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
-                        addr, ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
+                    $display("VIA1 ORA READ: addr=%h pra_read=%h ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
+                        addr, pra_read, ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
 `endif
             end
             4'h2: begin // DDRB
@@ -457,11 +474,11 @@ module via6522 (
                 data_out <= {1'b1, irq_mask};
             end
             4'hF: begin // ORA
-                data_out <= ira;
+                data_out <= pra_read;
 `ifdef SIMULATION
                 if (ren && $test$plusargs("via_debug"))
-                    $display("VIA1 ORA_NH READ: ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
-                        ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
+                    $display("VIA1 ORA_NH READ: pra_read=%h ira=%h port_a_c=%h port_a_i=%h pra=%h ddra=%h",
+                        pra_read, ira, port_a_c, port_a_i, pio_i_pra, pio_i_ddra);
 `endif
             end
             default: begin

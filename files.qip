@@ -11,7 +11,8 @@ set_global_assignment -name VERILOG_FILE rtl/ps2_mouse.v
 set_global_assignment -name VERILOG_FILE rtl/scc.v
 set_global_assignment -name VERILOG_FILE rtl/uart/rxuart.v
 set_global_assignment -name VERILOG_FILE rtl/uart/txuart.v
-set_global_assignment -name VERILOG_FILE rtl/iwm.v
+set_global_assignment -name VERILOG_FILE rtl/swim.v
+set_global_assignment -name VERILOG_FILE rtl/mfm_track_encoder.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/via6522.sv
 set_global_assignment -name VERILOG_FILE rtl/addrDecoder.v
 set_global_assignment -name VERILOG_FILE rtl/addrController_top.v
@@ -21,6 +22,8 @@ set_global_assignment -name VERILOG_FILE rtl/videoTimer.v
 set_global_assignment -name VERILOG_FILE rtl/videoShifter.v
 set_global_assignment -name VERILOG_FILE rtl/rtc.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_min.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_coldinit.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_wedge.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_arbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/nubus_video_mdc824.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/vram_ram.sv
@@ -29,3 +32,4 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/nubus/vram_ram.sv
 set_global_assignment -name QIP_FILE rtl/mc68881/mc68881.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/asc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE LBMacTwo.sv
+set_global_assignment -name SDC_FILE LBMacTwo.sdc

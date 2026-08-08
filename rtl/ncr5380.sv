@@ -65,6 +65,14 @@ module ncr5380
 	// HD SC 4.3 driver's async path SLEEPS on those VIA2 flags between
 	// pseudo-DMA chunks — without them it polls the IFR forever (Welcome wedge).
 	output        o_irq,
+	// Live bus REQ level for the VIA2 CA2 / IFR-bit-0 view ONLY (Snow
+	// get_drq() parity: REQ visible in ANY phase, no DMA-mode/arm gate, no
+	// ack-train/settle masking, no CSR deferral). Snow's healthy MacAtrium
+	// boot trace (2026-07-11) shows the System driver's per-dialog
+	// completion signal is this REQ level reaching IFR bit 0 — the 5380 IRQ
+	// latch is never even cleared (no reg-7 reads all boot). `dreq` above
+	// remains the flow-controlled DACK/DTACK pacing signal — do NOT swap.
+	output        o_drq_lvl,
 	input  [15:0] wdata,
 	output [15:0] rdata,
 
@@ -102,6 +110,24 @@ module ncr5380
 	//   [15:0]=data_cnt [18:16]=phase [19]=data_complete [20]=io_wr [21]=io_ack
 	//   [22]=io_busy [23]=sd_buff_sel [24]=cmd_write [30:25]=tlen [31]=req
 	output      [31:0] dbg_scsi_wr,
+	output      [31:0] dbg_wr0,      // target 0 dbg_wrstall, un-muxed (live)
+	output      [31:0] dbg_regs,     // live {icr_read, mr, tcr, bus lines} (v3.2)
+	output      [7:0]  dbg_selt0,    // target0 selection-gate term sampler (v3.6)
+	output      [31:0] dbg_wringA,   // v3.8 reg-write ring [7],[6]
+	output      [31:0] dbg_wringB,   // v3.8 reg-write ring [5],[4]
+	output      [31:0] dbg_wringC,   // v3.8 reg-write ring [3],[2]
+	output      [31:0] dbg_wringD,   // v3.8 reg-write ring [1],[0] + head/frozen/count
+	output      [31:0] dbg_selid,    // v3.9 selection-target detective {frozen or/last, live or/last}
+	output      [31:0] dbg_winh0A,   // v3.11 target0 window history [1],[0]
+	output      [31:0] dbg_winh0B,   // v3.11 target0 window history [3],[2] + count
+	output      [31:0] dbg_iwh,      // v3.12 initiator per-window {sel6,selany} x4
+	output      [31:0] dbg_cmdr0,    // v3.14 target0 last-4 command opcodes
+	output      [31:0] dbg_star0,    // v3.14 target0 last-4 status bytes
+	output      [31:0] dbg_lbar0A,   // v3.15 target0 read LBA ring [1],[0]
+	output      [31:0] dbg_lbar0B,   // v3.15 target0 read LBA ring [3],[2]
+	output      [31:0] dbg_xorr0A,   // v3.17 target0 delivered-data XOR ring [1],[0]
+	output      [31:0] dbg_xorr0B,   // v3.17 target0 delivered-data XOR ring [3],[2]
+	output      [31:0] dbg_selfail0, // v3.16 target0 selection-failure tally
 	// JTAG debug: NCR5380 host-side pseudo-DMA stall (why DREQ stops feeding).
 	//   [0]=dreq [1]=scsi_req [2]=scsi_ack [3]=dma_en [4]=dma_ack
 	//   [5]=dma_ack_busy [8:6]=dma_ack_holdoff [9]=mr_dma_mode [10]=bsr_pmatch
@@ -139,6 +165,7 @@ module ncr5380
 	reg reg_wr;
 	reg dma_ack;
 	reg [2:0] dma_ack_holdoff;
+	reg [2:0] dma_settle;
 	reg dma_word_latched;
 	reg dma_longword_latched;
 	reg dma_second_word_latched;
@@ -150,7 +177,20 @@ module ncr5380
 	reg old_dma_wr;
 	reg old_reg_wr;
 
-	wire dma_ack_busy = dma_ack | (dma_ack_holdoff != 3'd0);
+	/* dma_settle: post-ACK-train data-path settle time. The target advances
+	 * data_cnt two clocks after each ACK falling edge (old_ack/stb_adv
+	 * pipeline in scsi.v) and its sector-buffer dpram q outputs update one
+	 * clock after that, so the byte pair presented on din_pair/din_pair_next
+	 * is stale for 3 clocks after the last ACK of a train retires. DREQ used
+	 * to re-assert inside that window; the TG68 bus samples DTACK(=~DREQ) on
+	 * the phi2 grid and latches data two clocks later, which lands INSIDE the
+	 * stale window on one of the two phase parities — the host then re-reads
+	 * the previous byte/word (stream shifted -1/-2) or, for longwords,
+	 * pre-latches a duplicate second word. Holding dma_ack_busy through the
+	 * settle window makes DREQ mean "presented data is valid", for every
+	 * host sampling alignment. (verilator/scsi_bench reproduces all three.)
+	 */
+	wire dma_ack_busy = dma_ack | (dma_ack_holdoff != 3'd0) | (dma_settle != 3'd0);
 	assign dreq = scsi_req & dma_en & !dma_ack_busy;
 
 	wire i_dma_rd = bus_cs &  dack & ior;
@@ -168,6 +208,7 @@ module ncr5380
 			dma_wr <= 0;
 			dma_ack <= 0;
 			dma_ack_holdoff <= 0;
+			dma_settle <= 0;
 			reg_wr <= 0;
 			dma_word_latched <= 0;
 			dma_longword_latched <= 0;
@@ -185,6 +226,15 @@ module ncr5380
 			dma_ack <= 0;
 			reg_wr <= 0;
 
+			/* Re-arm the settle window on every ACK pulse; after the last
+			 * pulse of a train it counts down 4,3,2,1 so dma_ack_busy (and
+			 * therefore !DREQ) covers the target's data_cnt+dpram update
+			 * pipeline (see dma_settle declaration). 4 = 1 (ACK-fall detect
+			 * in scsi.v) + 2 (stb_adv -> data_cnt) + 1 (dpram q).
+			 */
+			if (dma_ack) dma_settle <= 3'd4;
+			else if (dma_settle != 3'd0) dma_settle <= dma_settle - 3'd1;
+
 			if(~old_dma_rd & i_dma_rd) begin
 				dma_word_latched <= dma_word;
 				dma_longword_latched <= dma_longword;
@@ -192,8 +242,15 @@ module ncr5380
 				dma_suppress_ack_latched <= dma_longword_second_pending & dma_second_word;
 				dma_longword_second_pending <= (dma_longword_second_pending & dma_second_word) ? 1'b0 :
 				                               (dma_word & dma_longword & !dma_second_word);
-				if (dma_word & dma_longword & !dma_second_word)
-					dma_second_word_data <= din_pair_next;
+				/* NOTE: dma_second_word_data is NOT captured here. The CPU
+				 * asserts the bus cycle before DREQ gates it (DTACK holds it
+				 * off), so this rising edge can land while a previous ACK
+				 * train is still advancing the target — din_pair_next would
+				 * be mid-update garbage (the "second word duplicates the
+				 * first" corruption). It is captured at the END of the first
+				 * longword cycle below, where DREQ-gated completion plus the
+				 * settle window guarantee it is valid.
+				 */
 			end
 			if(~old_dma_wr & i_dma_wr) begin
 				dma_word_latched <= dma_word;
@@ -213,6 +270,14 @@ module ncr5380
 			end else if((old_dma_wr & ~i_dma_wr) |
 			            (old_dma_rd & ~i_dma_rd &
 			             !dma_suppress_ack_latched)) begin
+				/* First cycle of a longword read is ending: capture the pair
+				 * the target presents at +2/+3 as the (ACK-suppressed) second
+				 * word, BEFORE the ACK train below consumes all four bytes.
+				 * The cycle completed => DREQ was up => the pair is settled.
+				 */
+				if (old_dma_rd & ~i_dma_rd &
+				    dma_longword_latched & dma_word_latched & !dma_second_word_latched)
+					dma_second_word_data <= din_pair_next;
 				dma_ack <= dma_en & bsr_pmatch;
 				if (dma_en & bsr_pmatch)
 					dma_ack_holdoff <= (old_dma_rd & ~i_dma_rd) ?
@@ -275,6 +340,16 @@ module ncr5380
 	/* MR write */
 	always@(posedge clk or posedge reset) begin
 		if (reset) mr <= 8'b0;
+		else if (scsi_rst)
+			/* 5380 datasheet: asserting/observing RST clears MR's DMA MODE bit.
+			 * Without this, dma_en stays armed through the driver's recovery
+			 * bus reset: the target returns to IDLE but the host pseudo-DMA
+			 * keeps DREQ/DACK machinery live, and every CPU DACK access stalls
+			 * forever — an eternal wedge instead of a transient the driver can
+			 * retry. MAME's ncr5380 clears the bit; BlueSCSI survives Mac
+			 * recovery resets for the same reason. Ported from MacLC 35251e5
+			 * (HW-captured wedge there: berr_fires=255, dma_en=1 after rst). */
+			mr[`MR_DMA_MODE] <= 1'b0;
 		else if (reg_wr && (bus_rs == `WREG_MR)) mr <= wdata;
 	end
 
@@ -330,9 +405,9 @@ module ncr5380
 
 	/* Latched 5380 interrupt + DMA-armed tracking (2026-06-10d).
 	 * Starting a DMA transfer (write to Start DMA Send / Start DMA Initiator
-	 * Receive) arms the phase-mismatch monitor; while MR.DMA_MODE is set and
-	 * armed, a FALLING edge of phase-match latches IRQ — this is how drivers
-	 * detect that a pseudo-DMA transfer ended (target moved to STATUS).
+	 * Receive) arms the phase-mismatch monitor; a FALLING edge of phase-match
+	 * latches IRQ — this is how drivers detect that a pseudo-DMA transfer
+	 * ended (target moved to STATUS).
 	 * Reading the RESET PARITY/INTERRUPT register (reg 7) clears it.
 	 * Mirrors Snow controller.rs (IRQ on dma_armed && prev_pmatch && !pmatch).
 	 */
@@ -350,13 +425,21 @@ module ncr5380
 		end else begin
 			old_rst_rd <= rst_rd;
 			pmatch_d   <= bsr_pmatch;
-			if (!mr[`MR_DMA_MODE])
-				dma_armed <= 1'b0;
-			else if (reg_wr && (bus_rs == `WREG_DMAS || bus_rs == `WREG_IDMAR))
+			// Completion-IRQ latch (port of MacLC/LCII 2a2bd7c — fixes the
+			// System 7 boot-time SCSI completion loss: the happy-Mac reboot /
+			// "Welcome" wedge class). Keep dma_armed across a DMA-mode clear
+			// and latch the IRQ on the target's DATA->STATUS phase-mismatch
+			// regardless of MR.DMA_MODE (the real 5380 latches EOP/phase-
+			// mismatch in HW). The disk driver often clears DMA mode just
+			// before the phase change; the old MR.DMA_MODE-gated latch dropped
+			// the IRQ and the HD SC 4.3 async path slept on a completion that
+			// never came (ParamBlockRec.ioResult never cleared). Cleared on
+			// the latch itself, a reg-7 read, or bus reset.
+			if (reg_wr && (bus_rs == `WREG_DMAS || bus_rs == `WREG_IDMAR))
 				dma_armed <= 1'b1;
 			if (~old_rst_rd & rst_rd)
 				irq_latch <= 1'b0;
-			if (mr[`MR_DMA_MODE] && dma_armed && pmatch_d && !bsr_pmatch) begin
+			if (dma_armed && pmatch_d && !bsr_pmatch) begin
 				irq_latch <= 1'b1;
 				dma_armed <= 1'b0;
 			end
@@ -367,6 +450,7 @@ module ncr5380
 		end
 	end
 	assign o_irq = irq_latch;
+	assign o_drq_lvl = scsi_req_bus;
 
 	/* Deferred bus-visible REQ (Snow controller.rs `set_req` semantics).
 	 * The SCSI Manager's between-chunk settle loop (decoded live from the
@@ -487,6 +571,16 @@ module ncr5380
 
 	// input signals from targets
 	wire [DEVS-1:0] target_mounted;
+	wire [7:0]      target_selterms[DEVS];
+	wire [31:0]     target_winhA[DEVS];
+	wire [31:0]     target_winhB[DEVS];
+	wire [31:0]     target_cmdring[DEVS];
+	wire [31:0]     target_statring[DEVS];
+	wire [31:0]     target_lbarA[DEVS];
+	wire [31:0]     target_lbarB[DEVS];
+	wire [31:0]     target_xorrA[DEVS];
+	wire [31:0]     target_xorrB[DEVS];
+	wire [31:0]     target_selfail[DEVS];
 	wire [2:0]      target_phase[DEVS];
 	wire [7:0]      target_hs[DEVS];
 	wire [3:0]      target_hs2[DEVS];
@@ -557,7 +651,32 @@ module ncr5380
 		genvar i;
 		for (i = 0; i < DEVS; i = i + 1) begin : target
 			// connect a target
-			scsi #(.ID(3'd6 - i[2:0])) target
+			// 16KB read-ahead ring on the BOOT disk (target 0 / ID6) only; the
+			// second disk keeps the original 2-sector double buffer (RING_LOG=1)
+			// to stay within the M10K budget — the 16KB ring costs ~42 M10K and
+			// both disks would not fit alongside the 8bpp framebuffer. Ported
+			// from MacLC rtl/scsi.v read-prefetch ring (much smoother heavy reads).
+			// v3.13 (B4 FIX): slot->ID mapping {0,1}, LCII parity (was 3'd6-i =
+			// {6,5}, chosen 2026-06 for ROM scan priority). The B3 paired
+			// per-window counters proved the happy-mac-reboot mechanism: the
+			// MacAtrium images' installed disk driver addresses its recorded
+			// unit at ID 0 directly during System startup (one selection
+			// without bus bit6 in the fatal window; every ID6 selection
+			// accounted for initiator==target), gets no response — we had
+			// nothing at ID 0 — times out its phase walk and aborts the bus.
+			// The ROM's own scan (6->0) finds the disk either way; the
+			// System-era driver does not rescan. LCII/MacLC (ID(i)) never
+			// exhibited this because their mapping matches the images.
+			// RING_LOG 5 -> 4 (2026-08-07): 16 sectors / 8KB of read-ahead on the
+			// boot disk instead of 32/16KB. The mirror arrays make each sector cost
+			// THREE copies, so halving the depth returns ~24 M10K — the congestion
+			// relief that MacLC gets from its port-B prefetch redesign, which is
+			// NOT safe to import here: it bombed the sim at the extension parade
+			// (bisected 2026-08-07 — their version depends on the PDMA host-face
+			// pipeline registers of cc81843, which this core does not have). 8KB is
+			// still deep enough that the ring stays continuously ahead of the Mac
+			// mid-command (MacLC itself shipped 8 sectors for a period).
+			scsi #(.ID(i[2:0]), .RING_LOG((i == 0) ? 4 : 1)) target
 			(
 				.clk    ( clk ),
 				.rst    ( scsi_rst ),
@@ -597,6 +716,16 @@ module ncr5380
 				.sd_buff_din( sd_buff_din[i] ),
 				.sd_buff_wr( sd_buff_wr & target_bsy[i] ),
 				.dbg_mounted( target_mounted[i] ),
+				.dbg_selterms( target_selterms[i] ),
+				.dbg_winhA( target_winhA[i] ),
+				.dbg_winhB( target_winhB[i] ),
+				.dbg_cmdring( target_cmdring[i] ),
+				.dbg_statring( target_statring[i] ),
+				.dbg_lbarA( target_lbarA[i] ),
+				.dbg_lbarB( target_lbarB[i] ),
+				.dbg_xorrA( target_xorrA[i] ),
+				.dbg_xorrB( target_xorrB[i] ),
+				.dbg_selfail( target_selfail[i] ),
 				.dbg_phase( target_phase[i] ),
 				.dbg_hs( target_hs[i] ),
 				.dbg_hs2( target_hs2[i] ),
@@ -641,6 +770,115 @@ module ncr5380
 	                     (target_phase[1] == 3'd2) ? target_wrstall[1] :
 	                     (target_phase[0] == 3'd2) ? target_wrstall[0] :
 	                     target_wrstall[1];
+
+	// Fixed (un-muxed) target-0 snapshot for the boot-disk starve diagnosis:
+	// the phase-priority mux above hides target 0 whenever both are idle.
+	assign dbg_wr0 = target_wrstall[0];
+
+	// Live chip registers + bus lines (v3.2): is the driver's programming
+	// landing, and what is the initiator asserting right now?
+	//   [31:24]=icr_read [23:16]=mr [15:12]=tcr [11:8]=0
+	//   [7]=scsi_rst [6]=scsi_sel [5]=scsi_bsy [4]=scsi_req_bus
+	//   [3]=scsi_ack [2]=scsi_atn [1]=dma_en [0]=dreq
+	assign dbg_regs = { icr_read, mr, tcr, 4'd0,
+	                    scsi_rst, scsi_sel, scsi_bsy, scsi_req_bus,
+	                    scsi_ack, scsi_atn, dma_en, dreq };
+
+	assign dbg_selt0 = target_selterms[0];
+	assign dbg_winh0A = target_winhA[0];
+	assign dbg_winh0B = target_winhB[0];
+	assign dbg_cmdr0  = target_cmdring[0];
+	assign dbg_star0  = target_statring[0];
+	assign dbg_lbar0A = target_lbarA[0];
+	assign dbg_lbar0B = target_lbarB[0];
+	assign dbg_xorr0A = target_xorrA[0];
+	assign dbg_xorr0B = target_xorrB[0];
+	assign dbg_selfail0 = target_selfail[0];
+
+	// v3.8: register-write ring — the last 8 host register writes {rs, value},
+	// frozen at the SECOND bus reset (= the System driver's abort). The v3.7
+	// capture proved the System-era window contains ZERO selection attempts at
+	// the target: its operations die before SEL ever asserts (arbitration-wait
+	// timeout per the ROM disassembly). This ring is the driver's dying words:
+	// what it programmed (ODR? MODE.ARB? ICR?) before giving up.
+	reg [10:0] wring [0:7];
+	reg [3:0]  wring_n = 4'd0;
+	reg [2:0]  wring_h = 3'd0;
+	reg        wring_frozen = 1'b0;
+	integer wi0;
+	initial for (wi0 = 0; wi0 < 8; wi0 = wi0 + 1) wring[wi0] = 11'd0;
+	always @(posedge clk) begin
+		if (!wring_frozen && reg_wr) begin
+			wring[wring_h] <= {bus_rs, wdata[7:0]};
+			wring_h <= wring_h + 3'd1;
+			if (wring_n != 4'hF) wring_n <= wring_n + 4'd1;
+		end
+		if (dbg_rst_count >= 8'd2 && !wring_frozen) wring_frozen <= 1'b1;
+	end
+	// two 11-bit entries per word: [26:16] and [10:0]; decode {rs[2:0], val[7:0]}
+	assign dbg_wringA = {5'd0, wring[7], 5'd0, wring[6]};
+	assign dbg_wringB = {5'd0, wring[5], 5'd0, wring[4]};
+	assign dbg_wringC = {5'd0, wring[3], 5'd0, wring[2]};
+	// D: [31:30]=0 [29:19]=wring[1] [18:8]=wring[0] [7:5]=head [4]=frozen [3:0]=count
+	assign dbg_wringD = {2'd0, wring[1], wring[0], wring_h, wring_frozen, wring_n};
+
+	// v3.9: selection-target detective. Accumulate (OR) every byte the
+	// initiator drives on the data bus while it asserts SEL, windowed by bus
+	// resets; freeze at the abort like the write ring. The System-era deaf
+	// window shows zero selections at target ID6 — this names the ID actually
+	// being selected: 0x81 = initiator(7)+ID0 (the LCII-image mapping),
+	// 0xC0 = initiator(7)+ID6 (ours). Also latch the LAST such byte.
+	reg [7:0] sel_id_or   = 8'd0;
+	reg [7:0] sel_id_last = 8'd0;
+	reg [7:0] sel_id_or_f = 8'd0, sel_id_last_f = 8'd0;
+	reg       selid_rst_d = 1'b0, selid_frozen = 1'b0;
+	always @(posedge clk) begin
+		selid_rst_d <= scsi_rst;
+		if (scsi_rst && !selid_rst_d) begin
+			if (dbg_rst_count >= 8'd1 && !selid_frozen) begin
+				// freeze on the edge that will make count 2 (the abort)
+				sel_id_or_f   <= sel_id_or;
+				sel_id_last_f <= sel_id_last;
+				selid_frozen  <= 1'b1;
+			end
+			sel_id_or <= 8'd0;
+		end else if (scsi_sel && out_en) begin
+			sel_id_or   <= sel_id_or | scsi_bus_data;
+			sel_id_last <= scsi_bus_data;
+		end
+	end
+	assign dbg_selid = {sel_id_or_f, sel_id_last_f, sel_id_or, sel_id_last};
+
+	// v3.12 (B3): initiator-side PER-WINDOW selection counters, latched at the
+	// same scsi_rst edges as the target-side winh — the paired discriminator.
+	// Per window (8b): {sel6_cnt[3:0], selany_cnt[3:0]} = edges of "driving a
+	// selection at ID6" (scsi_sel && out_en && scsi_bus_data[6]) vs "driving
+	// any selection" (scsi_sel && out_en). w1 sel6 > target w1 attempts =>
+	// a driven ID6 selection never reached the target (bus-mux blinding);
+	// equal => the System scan never drove ID6 and died earlier.
+	reg [3:0] iw_sel6 = 4'd0, iw_selany = 4'd0;
+	reg       iw_sel6_d = 1'b0, iw_selany_d = 1'b0;
+	reg [7:0] iwh [0:3];
+	reg [2:0] iwh_n = 3'd0;
+	initial begin iwh[0]=8'd0; iwh[1]=8'd0; iwh[2]=8'd0; iwh[3]=8'd0; end
+	always @(posedge clk) begin
+		iw_sel6_d   <= scsi_sel && out_en && scsi_bus_data[6];
+		iw_selany_d <= scsi_sel && out_en;
+		if (scsi_rst && !selid_rst_d) begin
+			if (iwh_n < 3'd4) begin
+				iwh[iwh_n[1:0]] <= { iw_sel6, iw_selany };
+				iwh_n <= iwh_n + 3'd1;
+			end
+			iw_sel6   <= 4'd0;
+			iw_selany <= 4'd0;
+		end else begin
+			if ((scsi_sel && out_en && scsi_bus_data[6]) && !iw_sel6_d && iw_sel6 != 4'hF)
+				iw_sel6 <= iw_sel6 + 4'd1;
+			if ((scsi_sel && out_en) && !iw_selany_d && iw_selany != 4'hF)
+				iw_selany <= iw_selany + 4'd1;
+		end
+	end
+	assign dbg_iwh = { iwh[3], iwh[2], iwh[1], iwh[0] };
 
 	// Host-side pseudo-DMA write counter (i_dma_wr rising edges since power-on).
 	// Boot reads use i_dma_rd, so this counts ONLY the bench's result write:
@@ -704,7 +942,10 @@ module ncr5380
 	// byte1==byte0 (and != intended odd byte) => low byte dropped in serialization.
 	// JTAG In-System Source/Probe primitives are Altera/Quartus-only; exclude
 	// them from the Verilator build (SIMULATION) so the sim still elaborates.
-`ifndef SIMULATION
+	// Gated on DBG_PROBES (left undefined in production) so the ISSP footprint
+	// is stripped from normal hardware builds too — matches the top-level
+	// dbg_min gate in LBMacTwo.sv. Define DBG_PROBES to re-enable for HW debug.
+`ifdef DBG_PROBES
 	altsource_probe #(
 		.instance_id ("PWR2"),
 		.probe_width (32),

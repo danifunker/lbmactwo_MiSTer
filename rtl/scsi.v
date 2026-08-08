@@ -43,6 +43,16 @@ module scsi
 	input         sd_buff_wr,
 
 	output        dbg_mounted,  // JTAG debug: is a disk mounted on this target?
+	output  [7:0] dbg_selterms, // JTAG debug: gate terms at the last selection attempt (v3.6)
+	output [31:0] dbg_winhA,    // v3.11: window history [1],[0] (race-free, latched at edge)
+	output [31:0] dbg_winhB,    // v3.11: window history [3],[2] + window count
+	output [31:0] dbg_cmdring,  // v3.14: last 4 command opcodes (cmdr[0] newest)
+	output [31:0] dbg_statring, // v3.14: last 4 status bytes sent (star[0] newest)
+	output [31:0] dbg_lbarA,    // v3.15: read LBA ring [1],[0]
+	output [31:0] dbg_lbarB,    // v3.15: read LBA ring [3],[2]
+	output [31:0] dbg_xorrA,    // v3.17: delivered-data XOR16 ring [1],[0] (pairs with lbar)
+	output [31:0] dbg_xorrB,    // v3.17: delivered-data XOR16 ring [3],[2]
+	output [31:0] dbg_selfail,  // v3.16: selection-failure reason tally (frozen)
 	output [2:0]  dbg_phase,    // JTAG debug: current target phase
 	output [7:0]  dbg_hs,       // JTAG debug: REQ/ACK handshake observations
 	output [3:0]  dbg_hs2,      // JTAG debug: completion flags (survive bus reset)
@@ -70,6 +80,21 @@ module scsi
 // SCSI device id
 parameter [2:0] ID = 0;
 
+// Read-prefetch ring depth (log2 of 512-byte sectors held in the read buffer).
+// Ported from MacLC rtl/scsi.v: the read path keeps RING_BLOCKS sectors fetched
+// AHEAD of the Mac so per-sector HPS fetch latency is hidden and heavy reads
+// (e.g. Control Panels / extension loading) STREAM instead of stalling at every
+// 512-byte boundary (the pseudo-DMA heavy-read stall). RING_LOG=1 reproduces the
+// original two-sector double buffer exactly. WRITES are unchanged: they always
+// use the two-slot double buffer (slots 0/1) regardless of RING_LOG.
+//   Default 1 (cheap). Only the BOOT disk (ID6) is instantiated with RING_LOG=5
+//   (32 sectors / 16KB) in ncr5380.sv — widening just one target keeps us within
+//   the M10K budget (16KB ring = ~42 M10K; both disks would exceed 553 M10K with
+//   the 8bpp framebuffer present).
+parameter  RING_LOG    = 1;
+localparam RING_BLOCKS = 1 << RING_LOG; // sectors buffered for reads
+localparam BUF_AW      = 8 + RING_LOG;  // dpram word-address width (256 words/sector)
+
 assign dbg_mounted = mounted;
 assign dbg_phase = phase;
 
@@ -79,11 +104,19 @@ localparam PHASE_DATA_OUT    = 3'd2;
 localparam PHASE_DATA_IN     = 3'd3;
 localparam PHASE_STATUS_OUT  = 3'd4;
 localparam PHASE_MESSAGE_OUT = 3'd5;
-reg [2:0]  phase;
+// v3.10: preserve/dont_replicate — it5's PSID proved the initiator held
+// SEL+ID6 level-high through the fatal window while this FSM's own windowed
+// probes showed it never leaving IDLE: physically impossible in this RTL
+// unless synthesis replicated `phase` and the copies diverged (gate, bsy,
+// and probes reading different copies). Zero functional change.
+(* preserve, dont_replicate *) reg [2:0]  phase;
 
 // ------------ sector buffer IO controller read/write -----------------------
-// the buffer itself. Can hold two sectors
-reg sd_buff_sel;
+// the buffer itself. Holds RING_BLOCKS sectors for reads; writes use slots 0/1.
+reg sd_buff_sel;                   // WRITE double-buffer half (unchanged path)
+reg [22:0] rd_hps_blk;             // READ ring: # of sectors fetched this command
+reg [8:0]  fill_words;             // word strobes seen in the current fetch's ack window
+reg        rd_flush_pending = 0;   // an aborted fetch's completion is still due; swallow it
 
 // HPS sector-buffer byte order.  buffer0 always holds the byte the Mac reads
 // FIRST (even byte) and buffer1 the odd byte.  The byte that lands in each
@@ -104,27 +137,50 @@ wire [7:0] buf1_data_a = sd_buff_dout[15:8];
 assign sd_buff_din = {buf1_q_a, buf0_q_a};
 `endif
 
+// Buffer addressing. READS span the whole RING_BLOCKS-sector ring; WRITES stay
+// on the original two-slot double buffer so the write path is byte-for-byte
+// unchanged. A command is either a read or a write, so the two schemes never
+// collide on a port. The 2-slot addresses are zero-extended to BUF_AW by
+// assignment (no replication, so RING_LOG=1 / BUF_AW=9 exactly reproduces the
+// original double buffer).
+wire [22:0] rd_cur_blk = data_cnt[31:9];                      // sector the Mac is reading
+wire [RING_LOG-1:0] rd_hps_slot = rd_hps_blk[RING_LOG-1:0];
+wire [BUF_AW-1:0] hps_addr_wr = {sd_buff_sel, sd_buff_addr};  // write flush: slot 0/1
+wire [BUF_AW-1:0] mac_addr_wr = data_cnt[9:1];                // Mac write: slot 0/1
+// HPS side (port A): read fills target the ring fetch-slot; write flushes keep
+// the original sd_buff_sel half.
+wire [BUF_AW-1:0] hps_addr = cmd_write ? hps_addr_wr : { rd_hps_slot, sd_buff_addr };
+// Mac side (port B): reads address the full ring; writes the 2-slot half.
+wire [BUF_AW-1:0] mac_addr = (phase == PHASE_DATA_IN) ? mac_addr_wr : data_cnt[BUF_AW:1];
+
 wire [7:0] buffer0_dout;
 wire [7:0] buffer0_dout_next;
 wire [7:0] buffer0_dout_next2;
-scsi_dpram buffer0
+// HPS-side buffer writes are gated on OUR per-device ack window (io_ack is
+// already sd_ack[ID] & bsy at the ncr5380 level). The raw strobe fires for
+// EVERY device's transfer on the shared sd bus — most relevantly the PRAM
+// slot's .NVR auto-load, which lands exactly at mount time and otherwise
+// scribbles into a busy target's incoming ring slot (2026-07-12k).
+wire hps_fill_wr = sd_buff_wr && io_ack;
+
+scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer0
 (
 	.clock(clk),
 
-	.address_a({sd_buff_sel, sd_buff_addr}),
+	.address_a(hps_addr),
 	.data_a(buf0_data_a),
-	.wren_a(sd_buff_wr),
+	.wren_a(hps_fill_wr),
 	.q_a(buf0_q_a),
 
-	.address_b(data_cnt[9:1]),
+	.address_b(mac_addr),
 	.data_b(din),
 	.wren_b(buffer0_wr),
 	.q_b(buffer0_dout),
 
-	.address_c(data_cnt[9:1] + 9'd1),
+	.address_c(mac_addr + 1'b1),
 	.q_c(buffer0_dout_next),
 
-	.address_d(data_cnt[9:1] + 9'd2),
+	.address_d(mac_addr + 2'd2),
 	.q_d(buffer0_dout_next2)
 );
 
@@ -148,39 +204,80 @@ wire [7:0] buffer1_dout_next2;
 //         path on a fit-marginal design; intermittent setup violations corrupt the
 //         write and cascade into a SCSI driver fault → Sad Mac on the first WRITE.
 //
-//   Refinement: latch the current word's odd byte LOCALLY at beat-1's stb_ack (when
-//   data_cnt is even and we're in PHASE_DATA_IN). At that moment dma_write_low_byte
-//   is stable with the current word's wdata[7:0]. Hold it across beat 2's storage.
+//   Refinement: latch the current word's odd byte LOCALLY at the word's FIRST
+//   beat (stb_ack in PHASE_DATA_IN). At that moment dma_write_low_byte is stable
+//   with the current word's wdata[7:0]. Hold it across beat 2's storage.
 //   This is both race-free (locked to the current word, immune to the next CPU
 //   access) and timing-friendly (BlockRAM data_b is now a short local-reg-to-RAM
 //   path). Byte-mode (dbg_dma_word=0) still uses din directly, unchanged.
-//   buffer0 (even byte) is untouched — it was already storing correctly.
+//
+//   BEAT-ROLE FIX (ported from MacLC f38c06f + ceaec45, the +1-inserted-byte
+//   write corruption): the original capture/pairing keyed on data_cnt[0]
+//   parity — capture at even beats, store odd_byte_r at odd beats — which
+//   assumes every word-mode pair lands (even,odd). The Mac driver hand-feeds
+//   the first bytes of a write in BYTE mode before flipping to word pseudo-DMA;
+//   when that prefix has ODD length the word beats land (odd,even): the first
+//   beat hit buffer1 which stored a STALE odd_byte_r (never captured this
+//   phase) and dropped the high byte on din — one garbage byte inserted, the
+//   rest of the phase shifted one position. Fix: key the DATA SOURCE on the
+//   beat's ROLE inside the word pair (wm_beat2), not on count parity. Beat A:
+//   din is reliable — store din, capture dma_write_low_byte. Beat B: din has
+//   reverted — store the captured odd_byte_r. Which BUFFER a beat lands in
+//   stays keyed on data_cnt[0] (pure byte-position addressing); only the value
+//   mux moves. Aligned pairs behave bit-identically to the proven path;
+//   store_low is beat-locked at stb_ack so the wren-cycle mux no longer
+//   samples the live dbg_dma_word (immune to a mid-train re-latch).
 reg [7:0] odd_byte_r;
+reg       wm_beat2;   // word pair half-done: next word-mode beat is beat B
+reg       store_low;  // this cycle's pending dpram write stores odd_byte_r
 always @(posedge clk) begin
-	if (rst)
+	if (rst) begin
 		odd_byte_r <= 8'h00;
-	else if (stb_ack && (phase == PHASE_DATA_IN) && ~data_cnt[0] && dbg_dma_word)
-		odd_byte_r <= dbg_dma_lowbyte;
+		wm_beat2   <= 1'b0;
+		store_low  <= 1'b0;
+	end else begin
+		store_low <= 1'b0;
+		if (phase != PHASE_DATA_IN)
+			wm_beat2 <= 1'b0;
+		else if (stb_ack) begin
+			// Test wm_beat2 FIRST (MacLC ceaec45): once a word pair is in
+			// flight the next beat IS beat B by construction — the decision
+			// must not consult the live mode signal, which re-latches on the
+			// next CPU bus-cycle rise and can land in the gap between the
+			// pair's two ACKs (the driver flips modes constantly). A mode-
+			// first test would mistake beat B for a byte beat and re-slip
+			// the lane this fix exists to protect.
+			if (wm_beat2) begin         // beat B: din stale, serve the captured low byte
+				store_low <= 1'b1;
+				wm_beat2  <= 1'b0;
+			end else if (dbg_dma_word) begin
+				// beat A: high byte on din, low byte stable in the ncr latch
+				odd_byte_r <= dbg_dma_lowbyte;
+				wm_beat2   <= 1'b1;
+			end
+			// byte beat: store din (store_low stays 0), wm_beat2 already clear
+		end
+	end
 end
 
-scsi_dpram buffer1
+scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer1
 (
 	.clock(clk),
 
-	.address_a({sd_buff_sel, sd_buff_addr}),
+	.address_a(hps_addr),
 	.data_a(buf1_data_a),
-	.wren_a(sd_buff_wr),
+	.wren_a(hps_fill_wr),
 	.q_a(buf1_q_a),
 
-	.address_b(data_cnt[9:1]),
-	.data_b(dbg_dma_word ? odd_byte_r : din),
+	.address_b(mac_addr),
+	.data_b(store_low ? odd_byte_r : din),   // beat-role mux, see BEAT-ROLE FIX above
 	.wren_b(buffer1_wr),
 	.q_b(buffer1_dout),
 
-	.address_c(data_cnt[9:1] + 9'd1),
+	.address_c(mac_addr + 1'b1),
 	.q_c(buffer1_dout_next),
 
-	.address_d(data_cnt[9:1] + 9'd2),
+	.address_d(mac_addr + 2'd2),
 	.q_d(buffer1_dout_next2)
 );
 
@@ -191,6 +288,39 @@ always @(posedge clk) begin
 		sd_buff_sel <= 0;
 	else
 		if (old_io_ack & ~io_ack) sd_buff_sel <= !sd_buff_sel;
+
+	// READ ring fetch counter: # of sectors the HPS has delivered this command.
+	// Reset alongside data_cnt (any non-transfer phase); bump on each io_ack
+	// falling edge during a read. Writes never touch it (they use sd_buff_sel).
+	// rd_flush_pending: an aborted command's completion must not be credited
+	// (see the orphan-delivery guard at the fetch engine).
+	//
+	// DELIVERY GATE (2026-07-12k, the boot-1 zero-read fix): only count a
+	// sector as delivered when its ack window actually carried the full 512
+	// bytes (256 word strobes). At core start the ROM's first disk probes race
+	// MiSTer main's image attach: main ACKS the sd read but streams NOTHING,
+	// and the un-gated bump then served the zero-initialized ring slot as disk
+	// data — the ROM read 4x zeros at LBA 0, declared "no bootable disk", and
+	// parked at the blinking-'?' (measured 4/4 boots, xorr ring, lbar_poll_c*).
+	// With the gate, a data-less ack leaves rd_hps_blk unbumped; io_busy keeps
+	// REQ withheld and the fetch engine simply re-requests the same sector
+	// until real bytes land — the ROM just sees a slower first read, exactly
+	// like a real drive spinning up.
+	if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN &&
+	    phase != PHASE_STATUS_OUT && phase != PHASE_MESSAGE_OUT)
+		rd_hps_blk <= 23'd0;
+	else if (old_io_ack & ~io_ack & cmd_read & (fill_words == 9'd256) &
+	         ~rd_flush_pending)
+		rd_hps_blk <= rd_hps_blk + 23'd1;
+
+	// Count the word strobes of the current fetch's ack window.
+	if (!io_ack) fill_words <= 9'd0;
+	else if (sd_buff_wr && fill_words != 9'd511) fill_words <= fill_words + 9'd1;
+	// synthesis translate_off
+	if (io_ack && sd_buff_wr && fill_words < 9'd4)
+		$display("SCSI_FILL t=%0t blk=%0d slot=%0d addr=%0d data=%04x lba_reg=%0d",
+		         $time, rd_hps_blk, rd_hps_slot, sd_buff_addr, sd_buff_dout, lba);
+	// synthesis translate_on
 end
 
 // -----------------------------------------------------------
@@ -208,9 +338,24 @@ assign msg = (phase == PHASE_MESSAGE_OUT);
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 
-wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == sd_buff_sel) ||
-                 (phase == PHASE_DATA_IN  && (io_wr | io_ack) && data_cnt[9] == sd_buff_sel) ||
-                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack));
+// READ stall: for a block READ, the sector the Mac wants (rd_cur_blk) has not
+// been fetched yet (only sectors [0, rd_hps_blk) are in the ring). Gated on
+// cmd_read — INQUIRY/READ_CAPACITY/MODE_SENSE/REQUEST_SENSE also use DATA_OUT but
+// serve data combinationally with no HPS fetch (rd_hps_blk stays 0), so they must
+// NOT take this stall. Depth-independent; replaces the old 2-slot "half being
+// filled" test. WRITE + non-data clauses unchanged.
+// wr_pending lives at module scope (declared here, driven by the flush engine
+// below) because io_busy must include it: between a block's req_wr edge and
+// the flush issuing (io_wr rise) — one cycle normally, longer while a previous
+// flush is still in flight — neither io_wr nor io_ack is high, so the old
+// (io_wr | io_ack) busy term dropped REQ for that window and one extra
+// pseudo-DMA word could land in the slot the flush hadn't read yet. MacLC
+// forensics (17f5a85): a 7.5 MB write otherwise perfect except the FIRST WORD
+// of one 512-byte block — this window's exact signature.
+reg    wr_pending;
+wire   io_busy = (phase == PHASE_DATA_OUT && cmd_read && (rd_cur_blk >= rd_hps_blk)) ||
+                 (phase == PHASE_DATA_IN  && (io_wr | io_ack | wr_pending) && data_cnt[9] == sd_buff_sel) ||
+                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd | io_wr | io_ack | wr_pending));
 	// A zero-length transfer (e.g. INQUIRY with allocation length 0, or a
 	// WRITE with transfer length 0) must complete immediately: data_complete
 	// only sets on an ACK edge, which never comes when the initiator expects
@@ -238,13 +383,36 @@ wire   io_busy = (phase == PHASE_DATA_OUT && (io_rd | io_ack) && data_cnt[9] == 
 	// from its FIFO). The System-7-era HD SC 4.3 driver polls CSR/BSR
 	// between 512-byte pseudo-DMA chunks — when it saw our dead bus it
 	// concluded the transfer died and parked forever (the Welcome wedge at
-	// data_cnt=512). Flow control is unaffected: the DACK path still stalls
-	// the CPU via `req` (DTACK gate) until the buffer half is really valid,
-	// so a premature data access waits instead of reading stale bytes.
+	// data_cnt=512). Flow control is unaffected for DACK cycles: that path
+	// stalls the CPU via `req` (DTACK gate) until the buffer is valid.
 	// Non-data phases keep the io_busy suppression (status byte must not
 	// be offered while a flush/fetch is still in flight).
+	//
+	// FIRST-FILL HONESTY (2026-07-15n): POLLED transfers (_SCSIRead/_SCSIWrite,
+	// selector 5/6 — used by the ROM boot loader AND the on-disk driver's
+	// partition-map reads) pace on THIS signal alone: CSR.REQ high = "byte
+	// valid", read data register, pulse ACK — the DACK/`req` stall never
+	// engages. Asserting req_bus for a block READ before the FIRST sector
+	// has arrived from the HPS serves the ring's previous contents as live
+	// data: the simulated disk boot drained the whole first driver-load
+	// block (512 bytes of LBA 0's DDM) before the LBA 64 fill landed, then
+	// executed DDM bytes as the boot driver (Sad Mac 0F/0003 every pass).
+	// On hardware the same race covers the fill latency window of EVERY
+	// polled read — the residual-corruption signature (a stale first block
+	// in a partition-map read -> garbage parse -> runaway copy -> no op#4).
+	// So: for block READs, only offer the bus-visible REQ while the sector
+	// the Mac is draining is actually in the ring (rd_cur_blk < rd_hps_blk
+	// — per-block honesty, same term as io_busy's read clause). The 32-deep
+	// prefetch ring keeps this continuously true mid-command once streaming
+	// (fetches dispatch back-to-back ahead of the drain), so the Welcome-
+	// wedge observable — REQ dropping at a chunk boundary mid-transfer —
+	// does not return; the only withheld window is the honest one (first
+	// fill / HPS stall), which every driver tolerates as seek latency.
+	// Non-read DATA_OUT commands (INQUIRY et al.) serve combinationally
+	// with rd_hps_blk pinned at 0 and must stay exempt.
 	assign req_bus = (phase != PHASE_IDLE) && !ack && !data_phase_complete &&
-	                 ((phase == PHASE_DATA_OUT) || (phase == PHASE_DATA_IN) || !io_busy);
+	                 ((phase == PHASE_DATA_OUT) ? (!cmd_read || (rd_cur_blk < rd_hps_blk)) :
+	                  (phase == PHASE_DATA_IN)  ? 1'b1 : !io_busy);
 
 assign bsy = (phase != PHASE_IDLE);
 
@@ -292,79 +460,43 @@ wire [7:0] request_sense_dout_next  = (data_cnt_next  == 32'd0)?8'h70:(data_cnt_
 wire [7:0] request_sense_dout_next2 = (data_cnt_next2 == 32'd0)?8'h70:(data_cnt_next2 == 32'd7)?8'h0a:8'h00;
 wire [7:0] request_sense_dout_next3 = (data_cnt_next3 == 32'd0)?8'h70:(data_cnt_next3 == 32'd7)?8'h0a:8'h00;
 
-// output of inquiry command, identify as "SEAGATE ST225N"
+// output of inquiry command, identify as "MiSTer  VIRTUAL DISKx" (x = SCSI ID)
+//   vendor  (bytes  8-15): "MiSTer  "        (8 chars, space-padded)
+//   product (bytes 16-31): "VIRTUAL DISKx   " (16 chars, x = '0'+ID)
 // additional-length byte = 31 -> standard 36-byte INQUIRY response (5 + 31),
 // matching real drives and Snow. It was 32 (=37 total): a driver that reads
 // the standard 36 bytes then left 1 unserved byte on the target -> REQ held
 // forever -> the post-clamp Welcome wedge of 2026-06-10c.
-wire [7:0] inquiry_dout =
-		(data_cnt == 32'd4 )?8'd31:  // additional length
+function [7:0] inquiry_byte;
+	input [31:0] cnt;
+	begin
+		inquiry_byte =
+			(cnt == 32'd4 )?8'd31:  // additional length
 
-		(data_cnt == 32'd8 )?" ":(data_cnt == 32'd9 )?"S":
-		(data_cnt == 32'd10)?"E":(data_cnt == 32'd11)?"A":
-		(data_cnt == 32'd12)?"G":(data_cnt == 32'd13)?"A":
-		(data_cnt == 32'd14)?"T":(data_cnt == 32'd15)?"E":
-		(data_cnt == 32'd16)?" ":(data_cnt == 32'd17)?" ":
-		(data_cnt == 32'd18)?" ":(data_cnt == 32'd19)?" ":
-		(data_cnt == 32'd20)?" ":(data_cnt == 32'd21)?" ":
-		(data_cnt == 32'd22)?" ":(data_cnt == 32'd23)?" ":
-		(data_cnt == 32'd24)?" ":(data_cnt == 32'd25)?" ":
+			(cnt == 32'd8 )?"M":(cnt == 32'd9 )?"i":
+			(cnt == 32'd10)?"S":(cnt == 32'd11)?"T":
+			(cnt == 32'd12)?"e":(cnt == 32'd13)?"r":
+			(cnt == 32'd14)?" ":(cnt == 32'd15)?" ":
 
-		(data_cnt == 32'd26)?"S":(data_cnt == 32'd27)?"T":
-		(data_cnt == 32'd28)?"2":(data_cnt == 32'd29)?"2":
-		(data_cnt == 32'd30)?"5":(data_cnt == 32'd31)?"N" + {5'd0, ID}: // TESTING. ElectronAsh.
-		8'h00;
+			(cnt == 32'd16)?"V":(cnt == 32'd17)?"I":
+			(cnt == 32'd18)?"R":(cnt == 32'd19)?"T":
+			(cnt == 32'd20)?"U":(cnt == 32'd21)?"A":
+			(cnt == 32'd22)?"L":(cnt == 32'd23)?" ":
+			(cnt == 32'd24)?"D":(cnt == 32'd25)?"I":
+			(cnt == 32'd26)?"S":(cnt == 32'd27)?"K":
+			(cnt == 32'd28)?"0" + {5'd0, ID}:
+			(cnt == 32'd29)?" ":(cnt == 32'd30)?" ":
+			(cnt == 32'd31)?" ":
+			8'h00;
+	end
+endfunction
 wire [31:0] data_cnt_next = data_cnt + 32'd1;
 wire [31:0] data_cnt_next2 = data_cnt + 32'd2;
 wire [31:0] data_cnt_next3 = data_cnt + 32'd3;
-wire [7:0] inquiry_dout_next =
-		(data_cnt_next == 32'd4 )?8'd31:
-		(data_cnt_next == 32'd8 )?" ":(data_cnt_next == 32'd9 )?"S":
-		(data_cnt_next == 32'd10)?"E":(data_cnt_next == 32'd11)?"A":
-		(data_cnt_next == 32'd12)?"G":(data_cnt_next == 32'd13)?"A":
-		(data_cnt_next == 32'd14)?"T":(data_cnt_next == 32'd15)?"E":
-		(data_cnt_next == 32'd16)?" ":(data_cnt_next == 32'd17)?" ":
-		(data_cnt_next == 32'd18)?" ":(data_cnt_next == 32'd19)?" ":
-		(data_cnt_next == 32'd20)?" ":(data_cnt_next == 32'd21)?" ":
-		(data_cnt_next == 32'd22)?" ":(data_cnt_next == 32'd23)?" ":
-		(data_cnt_next == 32'd24)?" ":(data_cnt_next == 32'd25)?" ":
-
-		(data_cnt_next == 32'd26)?"S":(data_cnt_next == 32'd27)?"T":
-		(data_cnt_next == 32'd28)?"2":(data_cnt_next == 32'd29)?"2":
-		(data_cnt_next == 32'd30)?"5":(data_cnt_next == 32'd31)?"N" + {5'd0, ID}:
-		8'h00;
-wire [7:0] inquiry_dout_next2 =
-		(data_cnt_next2 == 32'd4 )?8'd31:
-		(data_cnt_next2 == 32'd8 )?" ":(data_cnt_next2 == 32'd9 )?"S":
-		(data_cnt_next2 == 32'd10)?"E":(data_cnt_next2 == 32'd11)?"A":
-		(data_cnt_next2 == 32'd12)?"G":(data_cnt_next2 == 32'd13)?"A":
-		(data_cnt_next2 == 32'd14)?"T":(data_cnt_next2 == 32'd15)?"E":
-		(data_cnt_next2 == 32'd16)?" ":(data_cnt_next2 == 32'd17)?" ":
-		(data_cnt_next2 == 32'd18)?" ":(data_cnt_next2 == 32'd19)?" ":
-		(data_cnt_next2 == 32'd20)?" ":(data_cnt_next2 == 32'd21)?" ":
-		(data_cnt_next2 == 32'd22)?" ":(data_cnt_next2 == 32'd23)?" ":
-		(data_cnt_next2 == 32'd24)?" ":(data_cnt_next2 == 32'd25)?" ":
-
-		(data_cnt_next2 == 32'd26)?"S":(data_cnt_next2 == 32'd27)?"T":
-		(data_cnt_next2 == 32'd28)?"2":(data_cnt_next2 == 32'd29)?"2":
-		(data_cnt_next2 == 32'd30)?"5":(data_cnt_next2 == 32'd31)?"N" + {5'd0, ID}:
-		8'h00;
-wire [7:0] inquiry_dout_next3 =
-		(data_cnt_next3 == 32'd4 )?8'd31:
-		(data_cnt_next3 == 32'd8 )?" ":(data_cnt_next3 == 32'd9 )?"S":
-		(data_cnt_next3 == 32'd10)?"E":(data_cnt_next3 == 32'd11)?"A":
-		(data_cnt_next3 == 32'd12)?"G":(data_cnt_next3 == 32'd13)?"A":
-		(data_cnt_next3 == 32'd14)?"T":(data_cnt_next3 == 32'd15)?"E":
-		(data_cnt_next3 == 32'd16)?" ":(data_cnt_next3 == 32'd17)?" ":
-		(data_cnt_next3 == 32'd18)?" ":(data_cnt_next3 == 32'd19)?" ":
-		(data_cnt_next3 == 32'd20)?" ":(data_cnt_next3 == 32'd21)?" ":
-		(data_cnt_next3 == 32'd22)?" ":(data_cnt_next3 == 32'd23)?" ":
-		(data_cnt_next3 == 32'd24)?" ":(data_cnt_next3 == 32'd25)?" ":
-
-		(data_cnt_next3 == 32'd26)?"S":(data_cnt_next3 == 32'd27)?"T":
-		(data_cnt_next3 == 32'd28)?"2":(data_cnt_next3 == 32'd29)?"2":
-		(data_cnt_next3 == 32'd30)?"5":(data_cnt_next3 == 32'd31)?"N" + {5'd0, ID}:
-		8'h00;
+wire [7:0] inquiry_dout       = inquiry_byte(data_cnt);
+wire [7:0] inquiry_dout_next  = inquiry_byte(data_cnt_next);
+wire [7:0] inquiry_dout_next2 = inquiry_byte(data_cnt_next2);
+wire [7:0] inquiry_dout_next3 = inquiry_byte(data_cnt_next3);
 
 // output of read capacity command
 //wire [31:0] capacity = 32'd41056;   // 40960 + 96 blocks = 20MB
@@ -457,9 +589,18 @@ reg [7:0]  cmd [9:0];
 
 assign io_lba = lba;
 
-// generate an io_rd signal whenever the first byte of a 512 byte block is required
-// start fetching the next sector when the 20th byte is read, and it's not the last sector
-wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_cnt[8:0] == 9'd20 && data_cnt[31:9] != ({7'd0, tlen} - 1'd1))) && !data_complete && (data_len != 32'd0));
+// READ prefetch (ring): keep issuing sequential sector fetches while sectors
+// remain (rd_hps_blk < tlen) and the ring has space (fetched no more than
+// RING_BLOCKS ahead of the Mac). LEVEL signal — the fetch engine below pumps one
+// sector per io_ack until the ring is full, hiding per-sector HPS latency (vs.
+// the old 1-deep "fetch next at byte 20" which stalled the CPU at every 512-byte
+// boundary). rd_hps_blk >= rd_cur_blk is invariant (the Mac stalls via io_busy
+// before it can pass the fetch frontier), so the subtraction never underflows.
+wire [22:0] rd_blk_total  = {7'd0, tlen};
+wire        rd_blk_remain = (rd_hps_blk < rd_blk_total);
+wire        rd_ring_space = ((rd_hps_blk - rd_cur_blk) < RING_BLOCKS);
+wire req_rd = (phase == PHASE_DATA_OUT) && cmd_read && (data_len != 32'd0) &&
+              !data_complete && rd_blk_remain && rd_ring_space;
 
 // generate an io_wr signal whenever a 512 byte block has been received or when the status
 // phase of a write command has been reached.
@@ -469,8 +610,8 @@ wire req_rd = ((phase == PHASE_DATA_OUT) && cmd_read && (data_cnt == 0 || (data_
 wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt != 0)) || (phase == PHASE_STATUS_OUT)) && cmd_write && (data_len != 32'd0));
 
 always @(posedge clk) begin
-	reg old_rd, old_wr;
-	reg wr_pending, rd_pending;
+	reg old_wr;
+	reg rd_busy;            // a read-prefetch sector fetch is outstanding
 
 	// A SCSI bus reset aborts any in-flight/queued disk IO.  Without this,
 	// io_rd/io_wr (and the pending latches) survive the reset; if the Mac
@@ -478,33 +619,45 @@ always @(posedge clk) begin
 	// phase sees io_busy=1 (phase!=DATA && io_rd) which suppresses REQ, the
 	// command never transfers, the Mac times out and resets again -> the
 	// intermittent reset/re-scan loop observed on hardware.
+	//
+	// ORPHAN-DELIVERY GUARD (2026-07-15n): clearing io_rd here does NOT
+	// un-post the request on the HPS side — once main has latched sd_rd it
+	// completes the block transfer regardless. If the Mac aborts a command
+	// mid-data-wait (boot-scan timeout -> bus reset) and issues a new READ,
+	// that stale completion lands inside the NEW command's data phase and
+	// was credited as its first sector: rd_hps_blk bumped (the block DID
+	// carry 512 real strobes), lba bumped past the un-issued first sector,
+	// and the ring served the PREVIOUS command's data as block 1 — the
+	// simulated disk boot executed LBA 0's DDM bytes as the boot driver
+	// (Sad Mac 0F/0003 every pass). Remember the outstanding fetch at
+	// abort time and swallow exactly that one completion: no lba++, no
+	// rd_hps_blk credit — io_busy keeps REQ withheld and the fetch engine
+	// re-issues, so the slot is overwritten with the right sector.
 	if(rst) begin
+		rd_flush_pending <= rd_flush_pending | io_rd | rd_busy;
 		io_rd <= 1'b0;
 		io_wr <= 1'b0;
-		rd_pending <= 0;
 		wr_pending <= 0;
-		old_rd <= 0;
 		old_wr <= 0;
+		rd_busy <= 0;
 	end else begin
-		old_rd <= req_rd;
+		if (old_io_ack & ~io_ack & rd_flush_pending)
+			rd_flush_pending <= 1'b0;
 		old_wr <= req_wr;
-		if(~old_rd & req_rd) rd_pending <= 1;
 		if(~old_wr & req_wr) wr_pending <= 1;
 
-		if(io_ack) begin
-			io_rd <= 1'b0;
-			io_wr <= 1'b0;
-		end else begin
-			if (rd_pending && !io_rd) begin
-				io_rd <= 1;
-				rd_pending <= 0;
-			end
+		// READ prefetch engine: while req_rd (sectors remain AND ring has
+		// space), issue back-to-back sector fetches — one per io_ack — to keep
+		// the ring filled ahead of the Mac. rd_busy holds across a fetch until
+		// rd_hps_blk advances on the io_ack falling edge, so exactly one fetch
+		// is issued per sector and the next can start immediately after.
+		if(io_ack) io_rd <= 1'b0;
+		else if(req_rd && !io_rd && !rd_busy) begin io_rd <= 1'b1; rd_busy <= 1'b1; end
+		if(old_io_ack & ~io_ack) rd_busy <= 1'b0;
 
-			if (wr_pending && !io_wr) begin
-				io_wr <= 1;
-				wr_pending <= 0;
-			end
-		end
+		// WRITE flush engine — unchanged two-slot double-buffer behavior.
+		if(io_ack) io_wr <= 1'b0;
+		else if(wr_pending && !io_wr) begin io_wr <= 1'b1; wr_pending <= 0; end
 	end
 end
 
@@ -580,12 +733,17 @@ always @(posedge clk) begin
 	if((phase != PHASE_DATA_OUT) && (phase != PHASE_DATA_IN) && (phase != PHASE_STATUS_OUT) && (phase != PHASE_MESSAGE_OUT)) begin
 		data_cnt <= 0;
 		data_complete <= 0;
-	end else begin	
-		if(stb_adv)begin	
+	end else begin
+		if(stb_adv)begin
 			if(!data_complete) data_cnt <= data_cnt + 1'd1;
 			data_complete <= (data_len - 1'd1) == data_cnt;
 		end
 	end
+	// synthesis translate_off
+	if (stb_ack && phase == PHASE_DATA_OUT && cmd_read && data_cnt[8:0] < 9'd8)
+		$display("SCSI_DRAIN t=%0t cnt=%0d served=%02x cur_blk=%0d hps_blk=%0d req_bus=%b io_busy=%b",
+		         $time, data_cnt, dout, rd_cur_blk, rd_hps_blk, req_bus, io_busy);
+	// synthesis translate_on
 end
 
 `ifdef SIMULATION
@@ -595,12 +753,12 @@ end
 // is visible, not just a REQ-high host stall.  Also logs every phase change.
 reg [31:0] stall_cnt;
 reg [31:0] data_cnt_seen;
-reg  [2:0] phase_d;
+reg  [2:0] phase_d_wd;  // sim-only shadow; phase_d (synth) is the v3.11 window one
 always @(posedge clk) begin
-	phase_d <= phase;
-	if (phase != phase_d && $test$plusargs("scsi_stall_debug"))
+	phase_d_wd <= phase;
+	if (phase != phase_d_wd && $test$plusargs("scsi_stall_debug"))
 		$display("SCSI_PHASE ID=%0d %0d->%0d data_cnt=%0d data_len=%0d complete=%0d cmd=%02h tlen=%0d lba=%0d",
-		         ID, phase_d, phase, data_cnt, data_len, data_complete, cmd[0], tlen, lba);
+		         ID, phase_d_wd, phase, data_cnt, data_len, data_complete, cmd[0], tlen, lba);
 	if (phase == PHASE_DATA_OUT || phase == PHASE_DATA_IN) begin
 		if (data_cnt != data_cnt_seen) begin
 			data_cnt_seen <= data_cnt;
@@ -641,9 +799,18 @@ wire [7:0] op_code = cmd[0];
 wire [2:0] cmd_group = op_code[7:5];
 
 // check if a complete command has been received
-wire       cmd_cpl = cmd6_cpl || cmd10_cpl;
+wire       cmd_cpl = cmd6_cpl || cmd10_cpl || cmd12_cpl;
 wire       cmd6_cpl = (cmd_group == 3'b000) && (cmd_cnt == 6);
 wire       cmd10_cpl = ((cmd_group == 3'b010) || (cmd_group == 3'b001)) && (cmd_cnt == 10);
+// Group 5 (0xA0-0xBF) = 12-byte CDBs. Until now NOTHING completed them: the
+// target sat in PHASE_CMD_IN forever, so any 12-byte command from any
+// initiator WEDGED the bus (latent — MacOS sends none, but CD tools do; this
+// is the same failure class as the phantom-CD 12-byte wedge that forced
+// ENABLE_EMPTY_CD(0)). Completing them routes unknown group-5 opcodes to
+// CHECK CONDITION — the correct SCSI answer. Only cmd[0..9] are stored (the
+// array is 10 deep; out-of-range writes are discarded); bytes 10-11 are
+// reserved + CONTROL. Ported from MacLC 4938734 (bench-regressed there).
+wire       cmd12_cpl = (cmd_group == 3'b101) && (cmd_cnt == 12);
 
 // https://en.wikipedia.org/wiki/SCSI_command
 wire       cmd_read = cmd_read6 || cmd_read10;
@@ -680,13 +847,129 @@ reg [31:0] lba;
 reg [15:0] tlen;
 
 always @(posedge clk) begin
-	if (old_io_ack & ~io_ack) lba <= lba + 1'd1;
+	// orphan guard: an aborted command's completion must not advance lba
+	if (old_io_ack & ~io_ack & ~rd_flush_pending) lba <= lba + 1'd1;
 	if(cmd_cpl && (phase == PHASE_CMD_IN)) begin
 		lba <= cmd6_cpl?{11'd0, lba6}:lba10;
 		tlen <= cmd6_cpl?{7'd0, tlen6}:tlen10;
 	end
 end
    
+// v3.14 (B5): target-side command/status ring. B4 proved the disk is found
+// and read, then the driver rejects post-data — so capture WHICH commands the
+// target answered and HOW. At each cmd_cpl, shift {cmd[0], accept} into a
+// 4-deep opcode ring; at each STATUS byte send, shift the status byte into a
+// parallel 4-deep ring. Reading them names the dialog the driver bails after
+// (INQUIRY 0x12 / TEST-UNIT-READY 0x00 / READ-CAPACITY 0x25 / MODE-SENSE 0x1A
+// / READ(6) 0x08 ...) and whether the target ever returned CHECK CONDITION.
+reg [7:0] cmdr [0:3];      // last 4 opcodes (cmdr[0] newest)
+reg [7:0] star [0:3];      // last 4 status bytes sent (star[0] newest)
+reg       cmd_cpl_d = 1'b0;
+reg       status_sent_d = 1'b0;
+initial begin
+	cmdr[0]=8'hFF; cmdr[1]=8'hFF; cmdr[2]=8'hFF; cmdr[3]=8'hFF;
+	star[0]=8'hFF; star[1]=8'hFF; star[2]=8'hFF; star[3]=8'hFF;
+end
+always @(posedge clk) begin
+	cmd_cpl_d     <= cmd_cpl && (phase == PHASE_CMD_IN);
+	status_sent_d <= status_sent;
+	if ((cmd_cpl && (phase == PHASE_CMD_IN)) && !cmd_cpl_d) begin
+		cmdr[3] <= cmdr[2]; cmdr[2] <= cmdr[1]; cmdr[1] <= cmdr[0];
+		cmdr[0] <= cmd[0];
+	end
+	if (status_sent && !status_sent_d) begin
+		star[3] <= star[2]; star[2] <= star[1]; star[1] <= star[0];
+		star[0] <= status;
+	end
+end
+assign dbg_cmdring = { cmdr[3], cmdr[2], cmdr[1], cmdr[0] };
+assign dbg_statring = { star[3], star[2], star[1], star[0] };
+
+// v3.15 (B6): READ LBA ring — the retry-vs-advance discriminator. B5 proved
+// every command returns GOOD and the driver still rejects post-data. If the
+// driver is rejecting the DATA it re-reads the same LBA (repeats in the ring);
+// if reads succeed and a handshake/IRQ fails it, the LBAs advance monotonically
+// then stop. Captures low 16 bits of `lba` at each READ cmd_cpl (enough to see
+// repeats/advance across boot-block + early-system reads).
+reg [15:0] lbar [0:3];      // last 4 read LBAs (lbar[0] newest)
+initial begin lbar[0]=16'hFFFF; lbar[1]=16'hFFFF; lbar[2]=16'hFFFF; lbar[3]=16'hFFFF; end
+always @(posedge clk) begin
+	if ((cmd_cpl && (phase == PHASE_CMD_IN)) && !cmd_cpl_d && cmd_read) begin
+		lbar[3] <= lbar[2]; lbar[2] <= lbar[1]; lbar[1] <= lbar[0];
+		lbar[0] <= cmd6_cpl ? {5'd0, lba6[10:0]} : lba10[15:0];
+	end
+end
+assign dbg_lbarA = { lbar[1], lbar[0] };
+assign dbg_lbarB = { lbar[3], lbar[2] };
+
+// v3.17 (2026-07-12k): delivered-DATA integrity ring — the missing half of
+// v3.15. xr_acc XOR16-accumulates every byte this target actually serves
+// during a READ's DATA_OUT phase (big-endian pairing by data_cnt parity, so
+// the value equals a word-wise XOR of the sectors as the initiator consumed
+// them — one ACK per byte, data_cnt advances on the falling edge, so at
+// stb_ack data_cnt is the CURRENT byte index and dout the byte being taken).
+// Pushed into xorr[] when the READ's STATUS byte goes out, so xorr[n] pairs
+// with lbar[n]. Compare offline against the same sectors of the mounted
+// .hda: mismatch = the delivery path corrupted data the HPS served; match
+// on a failing boot = bytes arrived intact, the fault is above SCSI.
+reg [15:0] xr_acc;
+reg [15:0] xorr [0:3];
+initial begin xorr[0]=16'hFFFF; xorr[1]=16'hFFFF; xorr[2]=16'hFFFF; xorr[3]=16'hFFFF; end
+always @(posedge clk) begin
+	if ((cmd_cpl && (phase == PHASE_CMD_IN)) && !cmd_cpl_d)
+		xr_acc <= 16'd0;
+	else if (stb_ack && (phase == PHASE_DATA_OUT) && cmd_read) begin
+		if (!data_cnt[0]) xr_acc[15:8] <= xr_acc[15:8] ^ dout;
+		else              xr_acc[7:0]  <= xr_acc[7:0]  ^ dout;
+	end
+	if (status_sent && !status_sent_d && cmd_read) begin
+		xorr[3] <= xorr[2]; xorr[2] <= xorr[1]; xorr[1] <= xorr[0];
+		xorr[0] <= xr_acc;
+	end
+end
+assign dbg_xorrA = { xorr[1], xorr[0] };
+assign dbg_xorrB = { xorr[3], xorr[2] };
+
+// v3.16 (B7): selection-FAILURE reason capture — the decisive test of the
+// "target unselectable after N dialogs" finding (PWHA w1: 14 attempts, only
+// 6 dialogs). At each rising edge of (sel && din[ID]) that does NOT advance
+// the FSM into CMD_IN, record WHY. Windowed by bus reset, frozen at abort.
+// Hypothesis: blocked_nonidle dominates = target lingers non-IDLE (didn't
+// return to bus-free after MESSAGE) so the next SEL finds it busy -> fix the
+// MESSAGE->IDLE / bus-free path. If blocked_gate (mounted/bus_busy) dominates
+// instead, the cause is elsewhere.
+//   dbg_selfail = { attempt_cnt[7:0], blk_nonidle[7:0], blk_gate[7:0],
+//                   reason_or[3:0] (rst,busbusy,notmounted,nonidle), 4'd0 }
+reg [7:0] sf_att = 8'd0, sf_nonidle = 8'd0, sf_gate = 8'd0;
+reg [3:0] sf_or = 4'd0;
+reg [7:0] sf_att_f = 8'd0, sf_nonidle_f = 8'd0, sf_gate_f = 8'd0;
+reg [3:0] sf_or_f = 4'd0;
+reg       sf_rst_d = 1'b0, sf_frozen = 1'b0;
+wire      sel_edge = (sel && din[ID]) && !sel_att_d;   // reuse v3.2 edge reg
+wire      sel_takes = (phase == PHASE_IDLE) && mounted && !bus_busy && !rst;
+always @(posedge clk) begin
+	sf_rst_d <= rst;
+	if (rst && !sf_rst_d) begin
+		if (!sf_frozen) begin       // freeze the FIRST window's tally at the 2nd reset
+			if (sf_att != 8'd0) begin
+				sf_att_f <= sf_att; sf_nonidle_f <= sf_nonidle;
+				sf_gate_f <= sf_gate; sf_or_f <= sf_or; sf_frozen <= 1'b1;
+			end
+		end
+		sf_att <= 8'd0; sf_nonidle <= 8'd0; sf_gate <= 8'd0; sf_or <= 4'd0;
+	end else if (sel_edge && !sel_takes) begin
+		if (sf_att != 8'hFF) sf_att <= sf_att + 8'd1;
+		if ((phase != PHASE_IDLE) && sf_nonidle != 8'hFF) sf_nonidle <= sf_nonidle + 8'd1;
+		if ((phase == PHASE_IDLE) && (!mounted || bus_busy) && sf_gate != 8'hFF) sf_gate <= sf_gate + 8'd1;
+		sf_or <= sf_or | { rst, bus_busy, ~mounted, (phase != PHASE_IDLE) };
+	end
+end
+// Serve the LIVE tally until a window has frozen (bit0 = frozen flag) — a
+// selection-failure storm that postdates the last bus reset would otherwise
+// read as all-zeros (2026-07-12k).
+assign dbg_selfail = sf_frozen ? { sf_att_f, sf_nonidle_f, sf_gate_f, sf_or_f, 3'd0, 1'b1 }
+                               : { sf_att,   sf_nonidle,   sf_gate,   sf_or,   3'd0, 1'b0 };
+
 // logical block address
 wire [7:0] cmd1 = cmd[1];
 wire [20:0] lba6 = { cmd1[4:0], cmd[2], cmd[3] };
@@ -853,9 +1136,146 @@ end
 assign dbg_wrsnap = { 4'd0, dbg_b1_seen, dbg_b0_seen, dbg_long_l, dbg_word_l,
                       dbg_low_l, dbg_b1, dbg_b0 };
 
-// Multi-block WRITE stall snapshot (2026-06-10). Live data-transfer state.
-assign dbg_wrstall = { req, tlen[5:0], cmd_write, sd_buff_sel, io_busy,
-                       io_ack, io_wr, data_complete, phase, data_cnt[15:0] };
+// ---- Bus-reset snapshot (PSCW probe, port of MacLC f880c15) ----
+// Capture, at the FIRST SCSI bus reset (rst = the Mac asserting ICR.RST), HOW
+// FAR the transaction that triggered it actually got: the high-water phase
+// this window (IDLE => target never left IDLE = selection never succeeded;
+// CMD_IN => command failed; DATA/STATUS/MSG => transaction progressed),
+// whether a cmd_read COMPLETED, whether SEL was ever asserted, and the last
+// full command opcode. win_* accumulate per window (since the previous
+// reset) and snapshot into the sticky brst_* at the reset edge. brst_*
+// survive rst (initial only). Phase encoding is monotonic with progress
+// (IDLE0 < CMD_IN1 < DATA2/3 < STATUS4 < MSG5), so the numeric max IS the
+// furthest phase.
+reg  [2:0] win_maxphase;   // high-water phase since the last bus reset
+reg        win_read_done;  // a cmd_read DATA_OUT reached data_complete this window
+reg  [7:0] win_lastop;     // last full command opcode assembled
+reg        win_sel_seen;   // SEL asserted this window
+reg        brst_rst_d;
+reg        brst_valid;
+reg  [2:0] brst_maxphase;
+reg        brst_read_done;
+reg        brst_sel_seen;
+reg  [6:0] brst_count;
+reg  [7:0] brst_lastop;
+initial begin
+	win_maxphase = 0; win_read_done = 0; win_lastop = 0; win_sel_seen = 0;
+	brst_rst_d = 0; brst_valid = 0; brst_maxphase = 0; brst_read_done = 0;
+	brst_sel_seen = 0; brst_count = 0; brst_lastop = 0;
+end
+// v3.11 (B2): per-window HISTORY. The dbg_wedge freeze lands 1-2 clk after
+// the reset edge (rst_count crosses two registered hops), but the windowed
+// accumulators clear AT the edge here — every wedge-frozen "window" readout
+// was post-clear zeros (the source of it5/it6's impossible probe states).
+// Latch each window's truth HERE, same-block, same-edge (nonblocking reads
+// give pre-edge values = race-free), for the first FOUR windows:
+//   winh[k][10:0] = {maxphase[2:0], read_done, sel_lvl_seen, gate_all_ever,
+//                    sel_att_win[4:0] (windowed attempt count, sat 31)}
+reg [4:0]  win_sel_att = 5'd0;
+reg [4:0]  win_dialogs = 5'd0;   // v3.12: CMD_IN entries this window (gate fires)
+reg [2:0]  phase_d     = 3'd0;
+reg [10:0] winh [0:3];
+reg [2:0]  winh_n = 3'd0;
+initial begin winh[0]=11'd0; winh[1]=11'd0; winh[2]=11'd0; winh[3]=11'd0; end
+
+always @(posedge clk) begin
+	brst_rst_d <= rst;
+	// per-window accumulation
+	if (phase > win_maxphase)                                   win_maxphase  <= phase;
+	if (cmd_read && (phase == PHASE_DATA_OUT) && data_complete) win_read_done <= 1'b1;
+	if (cmd_cpl && (phase == PHASE_CMD_IN))                     win_lastop    <= cmd[0];
+	if (sel)                                                    win_sel_seen  <= 1'b1;
+	// bus-reset rising edge: snapshot this window, then clear for the next
+	if (rst && !brst_rst_d) begin
+		if (brst_count != 7'h7F) brst_count <= brst_count + 7'd1;
+		if (!brst_valid) begin
+			brst_valid     <= 1'b1;
+			brst_maxphase  <= win_maxphase;
+			brst_read_done <= win_read_done;
+			brst_sel_seen  <= win_sel_seen;
+			brst_lastop    <= win_lastop;
+		end
+		if (winh_n < 3'd4) begin
+			// v3.12: repack — {maxphase[2:0], read_done, sel_att_win[3:0],
+			// dialogs_win[2:0]} : attempts vs dialogs per window is the
+			// ROM-era/System-era discriminator (sel_lvl/gate_all dropped:
+			// both were 1 whenever attempts>0 in every capture).
+			winh[winh_n[1:0]] <= { win_maxphase, win_read_done,
+			                       win_sel_att[3:0], win_dialogs[2:0] };
+			winh_n <= winh_n + 3'd1;
+		end
+		win_sel_att   <= 5'd0;
+		win_dialogs   <= 5'd0;
+		win_maxphase  <= 3'd0;
+		win_read_done <= 1'b0;
+		win_sel_seen  <= 1'b0;
+	end else begin
+		if ((sel && din[ID]) && !sel_att_d && win_sel_att != 5'h1F)
+			win_sel_att <= win_sel_att + 5'd1;
+		if ((phase == PHASE_CMD_IN) && (phase_d == PHASE_IDLE) && win_dialogs != 5'h1F)
+			win_dialogs <= win_dialogs + 5'd1;
+	end
+	phase_d <= phase;
+end
+assign dbg_winhA = { 10'd0, winh[1], winh[0] };
+assign dbg_winhB = { 7'd0, winh_n, winh[3], winh[2] };
+// Selection-attempt counter (v3.2): every rising edge of "initiator is
+// selecting THIS id" (sel && our ID bit on the bus), counted INDEPENDENT of
+// the mounted/bus_busy gates — distinguishes "retries never reach the
+// target" from "target sees selection but the gate rejects it".
+reg [7:0] dbg_sel_att = 8'd0;
+reg       sel_att_d   = 1'b0;
+always @(posedge clk) begin
+	sel_att_d <= sel && din[ID];
+	if ((sel && din[ID]) && !sel_att_d && dbg_sel_att != 8'hFF)
+		dbg_sel_att <= dbg_sel_att + 8'd1;
+end
+
+// v3.6: selection-gate term sampler. The v3.5 capture proved mounted=1
+// through a 19-attempt deaf window, contradicting the gate analysis — so
+// sample the actual terms at each attempt edge instead of deducing:
+//   dbg_selterms = { gate_fire_cnt[3:0], rst@att, bus_busy@att, mounted@att, 0 }
+// gate_fire_cnt counts attempts where EVERY term was true with phase==IDLE
+// (each such attempt must move the FSM; a nonzero count with the FSM stuck
+// would indict synthesis, not logic).
+// v3.10: LEVEL-sampled gate-truth accumulators (the v3.7 edge-based sampler
+// was blind to a held-level selection — it5 proved SEL+ID6 stayed high with
+// no edges). Windowed by bus resets; PFWS freezes this byte at the abort.
+//   [7] ever_all_true : some cycle had sel && din[ID] && mounted && !bus_busy
+//                       && !rst && phase==IDLE  -> the FSM MUST have advanced;
+//                       1 here with maxphase==IDLE = synthesis pathology proven
+//   [6] ~mounted seen while sel&&din[ID]&&phase==IDLE (term-false witness)
+//   [5] bus_busy seen while ...                       (term-false witness)
+//   [4] rst seen while ...                            (term-false witness)
+//   [3] any sel&&din[ID] cycle seen this window (level, not edge)
+//   [2:0] live phase
+reg       selw_rst_d    = 1'b0;
+reg       gate_all_ever = 1'b0;
+reg [2:0] gate_false_or = 3'd0;
+reg       sel_lvl_seen  = 1'b0;
+always @(posedge clk) begin
+	selw_rst_d <= rst;
+	if (rst && !selw_rst_d) begin
+		gate_all_ever <= 1'b0;
+		gate_false_or <= 3'd0;
+		sel_lvl_seen  <= 1'b0;
+	end else if (sel && din[ID]) begin
+		sel_lvl_seen <= 1'b1;
+		if (phase == PHASE_IDLE) begin
+			if (mounted && !bus_busy && !rst) gate_all_ever <= 1'b1;
+			gate_false_or <= gate_false_or | {~mounted, bus_busy, rst};
+		end
+	end
+end
+assign dbg_selterms = {gate_all_ever, gate_false_or, sel_lvl_seen, phase};
+
+//  PSCW layout: [31]=valid [30:28]=brst_maxphase [27]=read_done [26]=sel_seen
+//               [25:19]=reset_count(7) [18:11]=last_opcode(8)
+//               [10:8]=live win_maxphase [7]=live win_read_done
+//               [6:0] (v3.2) = dbg_sel_att[6:0] (selection-attempt count, sat 127)
+assign dbg_wrstall = { brst_valid, brst_maxphase, brst_read_done, brst_sel_seen,
+                       brst_count, brst_lastop, win_maxphase, win_read_done,
+                       dbg_sel_att[6:0] };
 
 // ---- Selection/command handshake observability (PSEL probe) -----------
 // Live state {phase,sel,bsy,req,ack} plus sticky high-water/counters that
@@ -932,6 +1352,7 @@ reg        message_sent;
 reg        data_complete;
 
 assign msg = (phase == PHASE_MESSAGE_OUT);
+// (empty_cd module — phase attributes not needed; ENABLE_EMPTY_CD is 0)
 assign cd = (phase == PHASE_CMD_IN) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase == PHASE_MESSAGE_OUT);
 	// data_len == 0 (e.g. INQUIRY alloc 0): complete the data phase without

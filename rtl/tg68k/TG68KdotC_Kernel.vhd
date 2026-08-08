@@ -1122,7 +1122,24 @@ PROCESS (clk)
 				END IF;	
 				
 				IF writePC='1' THEN
-					data_write_tmp <= TG68_PC;
+					IF trap_berr='1' THEN
+						-- Format $B frame PC must be RESTARTABLE: TG68K cannot
+						-- resume mid-instruction like a real 68020 (no pipe state
+						-- in the frame), so RTE re-executes the faulted
+						-- instruction from its start. TG68_PC here is already
+						-- past the opcode word (fault+2 measured in sim), which
+						-- made RTE land on the extension word / next instruction
+						-- and silently SKIP the faulted access (stale register →
+						-- the Resource Manager guarded-deref fixups at
+						-- $4080E590/E59C returned garbage). exe_pc latches the
+						-- current instruction's start at every setopcode.
+						-- (A berr on a PREFETCH pushes the previous instruction's
+						-- start — harmless: fetch faults reach longjmp handlers
+						-- that never RTE the frame.)
+						data_write_tmp <= exe_pc;
+					ELSE
+						data_write_tmp <= TG68_PC;
+					END IF;
 				ELSIF exec(writePC_add)='1' THEN
 					data_write_tmp <= TG68_PC_add;
 -- paste and copy form TH	---------	
@@ -3798,15 +3815,24 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					berr_frame_cnt <= 20;
 				ELSIF next_micro_state = rte_berr20 AND micro_state /= rte_berr20 THEN
 					berr_frame_cnt <= 19;
-					-- Latch SSW from SP+8: rte4 just read it, available in last_data_read
-					-- SSW is in the low word, DF is bit 8
-					berr_ssw_df <= last_data_read(8);
+					-- (DF latch moved to cnt=18 below: at THIS transition the
+					-- rte4-issued +$08 pop is still in flight and last_data_read
+					-- holds the FORMAT word $B008, whose bit 8 is always 0 — the
+					-- old latch here read DF=0 on every $B RTE.)
 				ELSIF (micro_state = trap_berr20 OR micro_state = rte_berr20) AND berr_frame_cnt > 0 THEN
 					berr_frame_cnt <= berr_frame_cnt - 1;
 				END IF;
-				-- During rte_berr20: latch data input buffer when cnt=10
-				IF micro_state = rte_berr20 AND berr_frame_cnt = 10 THEN
-					berr_data_buf <= last_data_read;
+				-- Pop pipeline: during the tick where berr_frame_cnt = C,
+				-- last_data_read holds the long at frame offset $08 + 4*(18-C)
+				-- (each pop completes one tick after issue). SSW long {internal,
+				-- SSW} at +$08 -> C=18; Data Input Buffer at +$2C -> C=9. The
+				-- old DIB latch at C=10 read the +$28 internal word (pushed as
+				-- zero, never written by handlers) instead of the DIB.
+				IF micro_state = rte_berr20 AND berr_frame_cnt = 18 THEN
+					berr_ssw_df <= last_data_read(8);   -- SSW.DF (bit 8 of low word)
+				END IF;
+				IF micro_state = rte_berr20 AND berr_frame_cnt = 9 THEN
+					berr_data_buf <= last_data_read;    -- DIB long from +$2C
 				END IF;
 				-- After rte_berr20 completes: if DF was cleared by handler,
 				-- set berr_inhibit so re-executed instruction uses saved data

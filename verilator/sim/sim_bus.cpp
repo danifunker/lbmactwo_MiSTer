@@ -65,9 +65,14 @@ void SimBus::BeforeEval()
 		ioctl_file = fopen(currentDownload.file.c_str(), "rb");
 		if (!ioctl_file) {
 			console.AddLog("Cannot open file for download %s\n", currentDownload.file.c_str());
+			// Headless runs never see the ImGui console — a silent open failure
+			// here leaves the core with NO ROM and the CPU wanders zeroed RAM.
+			fprintf(stderr, "DOWNLOAD: cannot open %s\n", currentDownload.file.c_str());
 		}
 		else {
 			console.AddLog("Starting download: %s %d", currentDownload.file.c_str(), ioctl_next_addr, ioctl_next_addr);
+			fprintf(stderr, "DOWNLOAD: start %s index=%d addr=%d\n",
+				currentDownload.file.c_str(), currentDownload.index, ioctl_next_addr);
 		}
 	}
 
@@ -80,6 +85,7 @@ void SimBus::BeforeEval()
 				*ioctl_download = 0;
 				*ioctl_wr = 0;
 				console.AddLog("ioctl_download complete %d", ioctl_next_addr);
+				fprintf(stderr, "DOWNLOAD: complete, next_addr=%d\n", ioctl_next_addr);
 			}
 			if (ioctl_file) {
 				// Read 2 bytes for 16-bit ioctl_dout (MacLC)

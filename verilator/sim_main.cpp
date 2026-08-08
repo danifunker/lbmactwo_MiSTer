@@ -141,6 +141,37 @@ bool scc_bus_debug_enable = false;
 bool ram_size_cpu_debug_enable = false;
 bool iwm_state_debug_enable = false;
 bool boot_decision_debug_enable = false;
+// Heap-spray watch (2026-07-15, LBMacTwo driver-corruption forensics): log
+// completed CPU writes into low RAM [0x2000,0x8000) issued by RAM-resident
+// code (PC in the same window) — the Slot Manager's RAM-copied VRAM-sizing
+// probe writes AAAA/5555 there on the FPGA, killing the on-disk driver image.
+bool heapspray_debug_enable = false;
+int heapspray_debug_count = 0;
+const int heapspray_debug_max = 6000;
+// --watch-range LO:HI[:MINFRAME] — generic RAM write-watch (2026-07-16)
+bool watch_range_enable = false;
+uint32_t watch_range_lo = 0, watch_range_hi = 0;
+int watch_range_min_frame = 0;
+int watch_range_count = 0;
+const int watch_range_max = 12000;
+bool heapspray_prev_write_valid = false;
+bool heapspray_asc_prev_write_valid = false;
+// Driver-image forensics (2026-07-15e): mirror of Snow's heapwatch. drv_exec
+// arms on the first instruction fetch inside the loaded driver image; the
+// heapspray write-watch then covers the WHOLE image (healthy baseline from
+// Snow: ~7 vector-patch stores at +0x1F7C.. plus one byte at +0x17AC, nothing
+// else). --drvtrace additionally logs every driver-window fetch (PC stream)
+// for an instruction-level diff against Snow's healthy run.
+bool sim_drv_exec = false;
+bool drvtrace_enable = false;
+long drvtrace_count = 0;
+const long drvtrace_max = 6000000;
+// Self-adapting driver base: the ROM SCSI boot loader NewPtr,SYS's a block,
+// reads the driver into it, checksums it, and enters it with jsr (a3) at ROM
+// 0x40807BB0. Capturing A3 at that fetch gives the true base (Snow: 0x4D50,
+// HW: 0x522E, sim: varies with heap history) — the fixed 0x522E window arms
+// on video-card sExec blocks instead (seen at frame 580: base 0x7360).
+uint32_t drv_base = 0;   // 0 = not yet captured
 bool bootmask_once_debug_enable = false;
 bool bootmask_once_stop_requested = false;
 bool scsi_transition_debug_enable = false;
@@ -1063,15 +1094,15 @@ static void print_boot_decision_debug(uint32_t pc) {
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd_cnt,
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd[0],
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableNext ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableInt ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableExt ? 1 : 0,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__iwmMode,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
-		VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7 ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnable ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnableD ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__diskEnableInt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__diskEnableExt ? 1 : 0,
+		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__iwmMode,
+		0 /*swim-port: HUD tap retired*/,
+		0 /*swim-port: HUD tap retired*/,
 		ram_byte((a4 + 0x61) & 0x1FFFFF));
 }
 
@@ -1104,7 +1135,7 @@ static void print_scsi_stop_state() {
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__ack ? 1 : 0,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__din,
-	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+	       0 /* req_rd inlined by verilator 5.049 */,
 	       VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_wr ? 1 : 0,
 	       blockdevice.current_disk,
 	       blockdevice.reading ? 1 : 0,
@@ -1238,8 +1269,107 @@ int verilate() {
 				}
 			}
 
+			// Heap-spray watch (2026-07-15, relocated): must run EVERY tick —
+			// write_valid pulses on WRITE AS-rises, which never coincide with
+			// fetch ticks, so inside the fetch_valid gate it can never fire.
+			if (heapspray_debug_enable && !*bus.ioctl_download &&
+			    heapspray_debug_count < heapspray_debug_max) {
+				bool completed_write = VERTOPINTERN->debug_write_valid &&
+				                       !heapspray_prev_write_valid;
+				// debug_write_addr = RAW pre-hmmu tg68_a; mask to 24-bit
+				// significance (flagged MM pointers carry high bytes).
+				// Slot writes (0xFsxx_xxxx) alias into the masked window — only
+				// accept top bytes that are pure MM flag bits (bits 28..24 clear:
+				// 0x00/0x20/0x40/.../0xE0), which excludes 0xF1-0xFE slot space.
+				uint32_t waddr = VERTOPINTERN->debug_write_addr & 0xFFFFFF;
+				bool ram_topbyte = ((VERTOPINTERN->debug_write_addr >> 24) & 0x1F) == 0;
+				if (completed_write && sim_drv_exec && ram_topbyte &&
+				    drv_base != 0 && waddr >= drv_base && waddr < drv_base + 0x2600) {
+					fprintf(stderr,
+						"HEAPSPRAY frame=%d pc=%08X addr=%08X raw=%08X data=%04X "
+						"SP=%08X RET=%08X A4=%08X A5=%08X D6=%08X\n",
+						video.count_frame, VERTOPINTERN->debug_pc, waddr,
+						VERTOPINTERN->debug_write_addr,
+						VERTOPINTERN->debug_write_data,
+						tg68_reg(15), ram_long(tg68_reg(15) & 0x7FFFFF),
+						tg68_reg(12), tg68_reg(13), tg68_reg(6));
+					heapspray_debug_count++;
+					if (heapspray_debug_count == heapspray_debug_max)
+						fprintf(stderr, "HEAPSPRAY cap reached\n");
+				}
+			}
+			// Generic RAM write-watch (2026-07-16): --watch-range LO:HI[:MINFRAME]
+			// logs every completed CPU write landing in [LO,HI) from MINFRAME on.
+			// Same edge/alias filtering as the heapspray watch. Used to catch the
+			// in-RAM System resource-map smash during the LoadResource window.
+			if (watch_range_enable && !*bus.ioctl_download &&
+			    video.count_frame >= watch_range_min_frame &&
+			    watch_range_count < watch_range_max) {
+				bool completed_write = VERTOPINTERN->debug_write_valid &&
+				                       !heapspray_prev_write_valid;
+				uint32_t waddr = VERTOPINTERN->debug_write_addr & 0xFFFFFF;
+				bool ram_topbyte = ((VERTOPINTERN->debug_write_addr >> 24) & 0x1F) == 0;
+				if (completed_write && ram_topbyte &&
+				    waddr >= watch_range_lo && waddr < watch_range_hi) {
+					fprintf(stderr,
+						"WATCHWR frame=%d pc=%08X addr=%06X data=%04X "
+						"SP=%08X A0=%08X A1=%08X D0=%08X D1=%08X\n",
+						video.count_frame, VERTOPINTERN->debug_pc, waddr,
+						VERTOPINTERN->debug_write_data,
+						tg68_reg(15), tg68_reg(8), tg68_reg(9),
+						tg68_reg(0), tg68_reg(1));
+					watch_range_count++;
+					if (watch_range_count == watch_range_max)
+						fprintf(stderr, "WATCHWR cap reached\n");
+				}
+			}
+			// ASC-mode tracer (2026-07-15): log CPU writes to the ASC mode
+			// register ($50F14801) so we can tell FIFO(1) vs wavetable(2) for
+			// the boot chime. Gated under heapspray_debug to reuse the flag.
+			if (heapspray_debug_enable && !*bus.ioctl_download) {
+				bool cw = VERTOPINTERN->debug_write_valid &&
+				          !heapspray_asc_prev_write_valid;
+				uint32_t wa = VERTOPINTERN->debug_write_addr & 0x1FFFFF;
+				if (cw && (wa == 0x114801 || wa == 0x114803 ||
+				           (wa >= 0x114000 && wa <= 0x1147FF && (wa & 0x7F) == 0))) {
+					fprintf(stderr, "ASCWR frame=%d pc=%08X addr=%08X data=%04X\n",
+						video.count_frame, VERTOPINTERN->debug_pc,
+						VERTOPINTERN->debug_write_addr,
+						VERTOPINTERN->debug_write_data);
+				}
+			}
+			heapspray_asc_prev_write_valid = VERTOPINTERN->debug_write_valid;
+
+			heapspray_prev_write_valid = VERTOPINTERN->debug_write_valid;
+
 			if (VERTOPINTERN->debug_fetch_valid && !*bus.ioctl_download) {
 				uint32_t pc = VERTOPINTERN->debug_pc;
+				// Capture the disk-driver base at the loader's jsr (a3)
+				// (ROM 0x40807BB0); A3 = the NewPtr'd, checksummed image.
+				if (pc == 0x40807BB0 && drv_base == 0) {
+					drv_base = tg68_reg(11) & 0xFFFFFF;
+					fprintf(stderr, "DRVBASE frame=%d loader jsr (a3): base=%06X\n",
+						video.count_frame, drv_base);
+				}
+				// driver-exec arm + optional driver-window PC-stream trace
+				if (drv_base != 0 && (pc & 0xFF000000) == 0 &&
+				    (pc & 0xFFFFFF) >= drv_base && (pc & 0xFFFFFF) < drv_base + 0x2600) {
+					if (!sim_drv_exec) {
+						sim_drv_exec = true;
+						fprintf(stderr, "DRVEXEC frame=%d first driver fetch pc=%08X\n",
+							video.count_frame, pc);
+					}
+					if (drvtrace_enable && drvtrace_count < drvtrace_max) {
+						fprintf(stderr, "DT %d %06X %04X %08X %08X %08X %08X %08X\n",
+							video.count_frame, pc & 0xFFFFFF,
+							VERTOPINTERN->debug_opcode,
+							tg68_reg(0), tg68_reg(1),
+							tg68_reg(8), tg68_reg(9),
+							tg68_reg(15));
+						if (++drvtrace_count == drvtrace_max)
+							fprintf(stderr, "DT cap reached\n");
+					}
+				}
 				if (scsi_stall_history_enable && !scsi_stall_dumped) {
 					record_bootmask_history(pc);
 					// DREQ asserted but CPU not draining it -> count consecutive
@@ -2014,7 +2144,7 @@ int verilate() {
 						VERTOPINTERN->sd_buff_wr ? 1 : 0,
 						VERTOPINTERN->sd_buff_addr,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+						0 /* req_rd inlined by verilator 5.049 */,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0);
 					scsi_debug_t0_data_count++;
 				}
@@ -2122,10 +2252,10 @@ int verilate() {
 					bool rw = VERTOPINTERN->debug_cpuRW;
 					uint16_t data_in = VERTOPINTERN->debug_cpuDataIn;
 					uint16_t data_out = VERTOPINTERN->debug_cpuDataOut;
-					bool iwm_select_ext = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__selectExternalDrive;
-					bool iwm_select_ext_next = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__selectExternalDriveNext;
-					bool iwm_enable = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnable;
-					bool iwm_enable_next = VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__diskEnableNext;
+					bool iwm_select_ext = VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__selectExternalDrive;
+					bool iwm_select_ext_next = VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__selectExternalDriveNext;
+					bool iwm_enable = 0 /*swim-port: HUD tap retired*/;
+					bool iwm_enable_next = VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnableD;
 
 					fprintf(stderr,
 						"IWM_DBG frame=%d tick=%08X time=%llu pc=%08X %s addr=%08X reg=%X din=%04X dout=%04X "
@@ -2141,39 +2271,39 @@ int verilate() {
 						reg,
 						data_in,
 						data_out,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca2 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca1 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca0 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca2Next ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca1Next ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__ca0Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca2 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca1 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca0 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca2Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca1Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__ca0Next ? 1 : 0,
 						iwm_select_ext ? 1 : 0,
 						iwm_select_ext_next ? 1 : 0,
 						(iwm_enable && !iwm_select_ext) ? 1 : 0,
 						(iwm_enable_next && !iwm_select_ext_next) ? 1 : 0,
 						(iwm_enable && iwm_select_ext) ? 1 : 0,
 						(iwm_enable_next && iwm_select_ext_next) ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6 ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q7Next ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__q6Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6 ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7Next ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6Next ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__SEL ? 1 : 0,
-						(VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataInt >> 7) & 1,
-						(VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt >> 7) & 1,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataInt,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataExt,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataLatch,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readLatchClearTimer,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__readDataArmDelay,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyInt ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__newByteReadyExt ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveTrack,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveSide ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__diskImageData,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__diskDataByteTimer,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__readyToAdvanceHead ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyInt__DOT__driveRegs,
-						VERTOPINTERN->emu__DOT__dc0__DOT__i__DOT__floppyExt__DOT__driveRegs);
+						(0 /*swim-port: HUD tap retired*/ >> 7) & 1,
+						(0 /*swim-port: HUD tap retired*/ >> 7) & 1,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__readDataLatch,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__readLatchClearTimer,
+						VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__readDataArmDelay,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/ ? 1 : 0,
+						0 /*swim-port: HUD tap retired*/,
+						0 /*swim-port: HUD tap retired*/);
 					iwm_debug_count++;
 				}
 				iwm_debug_prev_bus_control = bus_active;
@@ -2518,7 +2648,7 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__sd_buff_sel ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__req_rd ? 1 : 0,
+						0 /* req_rd inlined by verilator 5.049 */,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__phase,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__mounted ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__1__KET____DOT__target__DOT__cmd_cnt,
@@ -2974,6 +3104,70 @@ int verilate() {
 			}
 
 			// ===================================================================
+			// berr-rerun / format-$B RTE incident tracer (2026-07-12)
+			// Question under test: after a handler RTEs a format-$B frame, does
+			// TG68K's berr_inhibit window (a) fire even when the handler left
+			// SSW.DF=1 (DF latch samples the format word, whose bit8 is always 0),
+			// (b) feed berr_data_buf into the instruction FETCH after RTE (garbage
+			// opcode into the decode stream), (c) hold the right DIB value at all?
+			// Per incident: every FC=5 write (frame push descending + handler
+			// fixup writes into the frame), every FC=5 read (RTE pops ascending),
+			// the inhibit window with berr_data, then the next bus cycles with
+			// the word the CPU actually received.
+			{
+				static int inc_n = 0;
+				static bool inc_open = false;
+				static int inc_wr = 0, inc_rd = 0, inc_post = 0;
+				static uint64_t inc_ev = 0;
+				static bool last_inh = false;
+				static const int MAX_INC = 14;
+				bool inh = VERTOPINTERN->debug_berr_inhibit != 0;
+				static int last_berr2 = 0;
+				int berr_now2 = VERTOPINTERN->debug_berr ? 1 : 0;
+				if (berr_now2 && !last_berr2 && !*bus.ioctl_download && inc_n < MAX_INC) {
+					inc_n++; inc_open = true; inc_wr = inc_rd = inc_post = 0; inc_ev = 0;
+					fprintf(stderr, "[BINC %d] START cycle=%llu pc=%08X addr=%08X\n",
+						inc_n, (unsigned long long)main_time,
+						VERTOPINTERN->debug_pc, VERTOPINTERN->debug_cpuAddr);
+				}
+				last_berr2 = berr_now2;
+				if (inc_open && VERTOPINTERN->debug_busev_valid) {
+					uint32_t a = VERTOPINTERN->debug_busev_addr;
+					uint16_t d = VERTOPINTERN->debug_busev_data;
+					int rw = VERTOPINTERN->debug_busev_rw;
+					int fc = VERTOPINTERN->debug_busev_fc;
+					inc_ev++;
+					if (inc_post > 0) {
+						fprintf(stderr, "[BINC %d] POST%d %s a=%08X fc=%d d=%04X inh=%d pc=%08X\n",
+							inc_n, 13 - inc_post, rw ? "RD" : "WR", a, fc, d, inh ? 1 : 0,
+							VERTOPINTERN->debug_pc);
+						if (--inc_post == 0) { inc_open = false; fprintf(stderr, "[BINC %d] END\n", inc_n); }
+					} else if (fc == 5 && !rw && inc_wr < 120) {
+						fprintf(stderr, "[BINC %d] WR %08X = %04X (pc=%08X)\n",
+							inc_n, a, d, VERTOPINTERN->debug_pc);
+						inc_wr++;
+					} else if (fc == 5 && rw && inc_rd < 96) {
+						fprintf(stderr, "[BINC %d] RD %08X = %04X\n", inc_n, a, d);
+						inc_rd++;
+					}
+					if (inc_ev > 60000 && inc_post == 0) {
+						inc_open = false;
+						fprintf(stderr, "[BINC %d] END-TIMEOUT (no inhibit window seen)\n", inc_n);
+					}
+				}
+				if (inh && !last_inh) {
+					fprintf(stderr, "[BINC %d] INHIBIT_ON cycle=%llu berr_data=%08X pc=%08X\n",
+						inc_n, (unsigned long long)main_time,
+						(uint32_t)VERTOPINTERN->debug_berr_data, VERTOPINTERN->debug_pc);
+					if (inc_open) inc_post = 12;
+				}
+				if (!inh && last_inh)
+					fprintf(stderr, "[BINC %d] INHIBIT_OFF cycle=%llu\n",
+						inc_n, (unsigned long long)main_time);
+				last_inh = inh;
+			}
+
+			// ===================================================================
 			// KMAP pointer corruption watchpoint (added 2026-04-20)
 			// Per docs/bootproblems.md: $40807880 calls _GetResource('KMAP'),
 			// $40807888 stores master pointer via `move.l (A0),(A2)`, and later
@@ -3343,7 +3537,8 @@ static void maybe_print_frame_probe() {
 	                uint32_t(VERTOPINTERN->emu__DOT__ram__DOT__mem[0x00B6]);
 	uint32_t pc = VERTOPINTERN->debug_pc;
 	fprintf(stderr, "FRAME_PROBE frame=%d time=%llu tick016A=%08X pc=%08X op=%04X region=%s "
-	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X\n",
+	        "D0=%08X D5=%08X D6=%08X A0=%08X A3=%08X MMUType=%02X MMU32=%02X "
+	        "SysZ=%08X ApplZ=%08X ThZ=%08X HpEnd=%08X ApplLim=%08X MemTop=%08X BufPtr=%08X\n",
 	        video.count_frame,
 	        (unsigned long long)main_time,
 	        tick,
@@ -3354,7 +3549,16 @@ static void maybe_print_frame_probe() {
 	        tg68_reg(5),
 	        tg68_reg(6),
 	        tg68_reg(8),
-	        tg68_reg(11));
+	        tg68_reg(11),
+	        ram_byte(0x0CB1),   // MMUType — 0 makes _SwapMMUMode a NO-OP
+	        ram_byte(0x0CB2),   // MMU32Bit flag
+	        ram_long(0x02A6),   // SysZone
+	        ram_long(0x02AA),   // ApplZone
+	        ram_long(0x0118),   // TheZone
+	        ram_long(0x0114),   // HeapEnd
+	        ram_long(0x0130),   // ApplLimit
+	        ram_long(0x0108),   // MemTop
+	        ram_long(0x010C));  // BufPtr
 	fflush(stderr);
 }
 
@@ -3467,6 +3671,20 @@ int main(int argc, char** argv, char** env) {
 			iwm_debug_min_frame = atoi(argv[++i]);
 		} else if (strcmp(argv[i], "--iwm-state-debug") == 0) {
 			iwm_state_debug_enable = true;
+		} else if (strcmp(argv[i], "--heapspray-debug") == 0) {
+			heapspray_debug_enable = true;
+		} else if (strcmp(argv[i], "--drvtrace") == 0) {
+			drvtrace_enable = true;
+		} else if (strcmp(argv[i], "--watch-range") == 0 && i + 1 < argc) {
+			unsigned lo = 0, hi = 0; int mf = 0;
+			if (sscanf(argv[++i], "%x:%x:%d", &lo, &hi, &mf) >= 2) {
+				watch_range_enable = true;
+				watch_range_lo = lo; watch_range_hi = hi;
+				watch_range_min_frame = mf;
+				printf("Write-watch on [%06X,%06X) from frame %d\n", lo, hi, mf);
+			} else {
+				printf("bad --watch-range (want LO:HI[:MINFRAME] hex:hex[:dec])\n");
+			}
 		} else if (strcmp(argv[i], "--boot-decision-debug") == 0) {
 			boot_decision_debug_enable = true;
 		} else if (strcmp(argv[i], "--boot-decision-debug-min-frame") == 0 && i + 1 < argc) {
@@ -3859,6 +4077,34 @@ int main(int argc, char** argv, char** env) {
 			}
 
 			if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
+				{
+					// LBMacTwo forensics: dump the ROM's RAM-glue region at exit
+					// (headless path twin of the GUI-loop dump).
+					FILE* gd = fopen("ramglue_1e00_f800.bin", "wb");
+					if (gd) {
+						for (uint32_t a = 0x1E00; a < 0xF800; a += 2) {
+							uint16_t w = ram_word(a);
+							uint8_t hi = w >> 8, lo = w & 0xFF;
+							fwrite(&hi, 1, 1, gd);
+							fwrite(&lo, 1, 1, gd);
+						}
+						fclose(gd);
+						printf("RAM glue dump written: ramglue_1e00_f800.bin\n");
+					}
+					// Full low-RAM dump: low-mem globals + trap tables + entire
+					// system heap, for offline zone walking.
+					FILE* ld = fopen("lowram_00000_18000.bin", "wb");
+					if (ld) {
+						for (uint32_t a = 0x0000; a < 0x18000; a += 2) {
+							uint16_t w = ram_word(a);
+							uint8_t hi = w >> 8, lo = w & 0xFF;
+							fwrite(&hi, 1, 1, ld);
+							fwrite(&lo, 1, 1, ld);
+						}
+						fclose(ld);
+						printf("Low RAM dump written: lowram_00000_18000.bin\n");
+					}
+				}
 				if (took_screenshot_this_frame) {
 					printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
 						stop_at_frame,
@@ -4094,6 +4340,22 @@ int main(int argc, char** argv, char** env) {
 
 		// Check if we should stop at this frame
 		if (stop_at_frame_enabled && video.count_frame >= stop_at_frame) {
+			{
+				// LBMacTwo forensics (2026-07-15): dump the ROM's RAM-resident
+				// glue region [0xE000,0xF800) at exit — identifies the code at
+				// the real-RAM corruptor PC 0xEA48 seen by the HW snoop.
+				FILE* gd = fopen("ramglue_1e00_f800.bin", "wb");
+				if (gd) {
+					for (uint32_t a = 0x1E00; a < 0xF800; a += 2) {
+						uint16_t w = ram_word(a);
+						uint8_t hi = w >> 8, lo = w & 0xFF;
+						fwrite(&hi, 1, 1, gd);
+						fwrite(&lo, 1, 1, gd);
+					}
+					fclose(gd);
+					printf("RAM glue dump written: ramglue_1e00_f800.bin\n");
+				}
+			}
 			if (took_screenshot_this_frame) {
 				printf("Reached stop frame %d after taking screenshot, exiting... PC=%08X Op=%04X VBR=%08X\n",
 					stop_at_frame,

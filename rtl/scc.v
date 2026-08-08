@@ -144,6 +144,11 @@ module scc
 	reg		eom_latch_b;
 	reg		tx_empty_latch_a;
 	reg		tx_empty_latch_b;
+	/* Sync/Hunt latches (RR0 bit 4) - receiver in hunt mode = line idle.
+	 * Load-bearing for 7.x AppleTalk boot - see the DO NOT "CLEAN UP" block
+	 * at the RR0 assembly + docs/advisory_scc_localtalk_2026-06-12.md. */
+	reg		sync_hunt_a;
+	reg		sync_hunt_b;
 	wire		cts_ip_a;
 	wire		dcd_ip_a;
 	wire		dcd_ip_b;
@@ -792,10 +797,32 @@ module scc
 	end
 `endif
 	/* RR0 */
+	/* ============================ DO NOT "CLEAN UP" ============================
+	 * Three RR0 bits below are LOAD-BEARING for every System 7.x boot with
+	 * AppleTalk enabled in PRAM (the LAP Manager .MPP lapENQ transmit worker
+	 * polls them; docs/advisory_scc_localtalk_2026-06-12.md, MAME-validated):
+	 *
+	 *   bit 4 Sync/Hunt  (sync_hunt_*) — gate at worker entry: btst #4. Must
+	 *         read 1 on an idle line ("receiver hunting") or every LLAP send
+	 *         takes the defer path and parks the boot on an SCC ext/status
+	 *         interrupt this core never raises -> unbounded "Welcome to
+	 *         Macintosh" / INIT-parade hang (the 0xA44C4 ltlk wedge).
+	 *   bit 6 Tx Underrun/EOM (eom_latch_*) — must SET on transmit underrun
+	 *         (shifter+buffer empty after WR0=$C0 reset), or the frame-tail
+	 *         poll deadlocks the same way.
+	 *   bit 2 Tx Empty (tx_empty_latch_*) — must be truthful; forcing it 0
+	 *         (old MacLC post-loopback hack) deadlocks the per-byte poll.
+	 *
+	 * MacLC's scc.v diverged here once (datasheet-async-purity cleanup,
+	 * a89c671 era) and wedged 7.x boot forever; it re-converged to THIS file's
+	 * semantics 2026-06-12. This scc.v is the canonical copy — port changes
+	 * both ways deliberately, and smoke-test a 7.x boot before shipping SCC
+	 * changes.
+	 * ========================================================================= */
 	assign rr0_a = { 1'b0, /* Break */
 			 eom_latch_a, /* Tx Underrun/EOM - use latch instead of hardcoded 1 */
 			 1'b1, /* CTS - hardcode to 1 (always ready) for now */
-			 1'b0, /* Sync/Hunt */
+			 sync_hunt_a, /* Sync/Hunt - hunt latch (1 = hunting = line idle) */
 			 wr15_a[3] ? dcd_latch_a : dcd_a, /* DCD */
 			 tx_empty_latch_a, /* Tx Empty - use latch like Clemens does */
 			 1'b0, /* Zero Count */
@@ -816,7 +843,7 @@ module scc
 	assign rr0_b = { 1'b0, /* Break */
 			 eom_latch_b, /* Tx Underrun/EOM - use latch instead of hardcoded 1 */
 			 1'b1, /* CTS - HARDCODED to 1 (no modem on channel B) */
-			 1'b0, /* Sync/Hunt */
+			 sync_hunt_b, /* Sync/Hunt - hunt latch (1 = hunting = line idle) */
 			 1'b1, /* DCD - HARDCODED to 1 (no modem on channel B) */
 			 tx_empty_latch_b, /* Tx Empty - use latch */
 			 1'b0, /* Zero Count */
@@ -1187,8 +1214,14 @@ end
 			if (wreg_a && rindex_latch == 0 && wdata[7:6] == 2'b11) begin
 				eom_latch_a <= 1'b0;  // Clear EOM latch
 			end
-			// Future enhancement: Set EOM on actual transmit underrun
-			// if (tx_underrun_detected_a) eom_latch_a <= 1'b1;
+			// Set on transmit underrun: shifter and buffer both empty.
+			// ltlk's SDLC end-of-frame poll clears the latch (WR0=$C0) then
+			// spins with no timeout until it sets again; a latch that never
+			// sets wedges LocalTalk transmit (and System 7 boot).
+			// MAME-validated on MacLC: docs/advisory_scc_localtalk_2026-06-12.md
+			if (!tx_busy_a && !tx_buffer_full_a) begin
+				eom_latch_a <= 1'b1;
+			end
 		end
 	end
 
@@ -1203,8 +1236,45 @@ end
 			if (wreg_b && rindex_latch == 0 && wdata[7:6] == 2'b11) begin
 				eom_latch_b <= 1'b0;  // Clear EOM latch
 			end
-			// Future enhancement: Set EOM on actual transmit underrun
-			// if (tx_underrun_detected_b) eom_latch_b <= 1'b1;
+			// Set on transmit underrun: shifter and buffer both empty
+			// (see channel A note - LocalTalk end-of-frame poll needs this).
+			if (!tx_busy_b && !tx_buffer_full_b) begin
+				eom_latch_b <= 1'b1;
+			end
+		end
+	end
+
+	/* Sync/Hunt latch (RR0 bit 4)
+	 * Z8530: the receiver enters hunt mode on reset and on the WR3 "Enter
+	 * Hunt Mode" command (D4); hunt also re-arms when the receiver is
+	 * disabled (WR3 D0=0). The WR0 "Reset External/Status Interrupts"
+	 * command (cmd 010) re-latches the current state, which Snow models as
+	 * clearing the latched value. We have no SDLC receiver so sync is never
+	 * achieved and the latch stays in hunt until software clears it.
+	 *
+	 * Load-bearing for LocalTalk: ltlk reads this bit as carrier sense
+	 * before every LAP transmit (1 = hunting = line idle = OK to send).
+	 * The previous hardcoded 0 read as "line busy" forever, so the .MPP
+	 * node-acquisition lapENQ deferred to an ext/status interrupt that
+	 * never fires and System 7 boot wedged in the INIT parade.
+	 */
+	always@(posedge clk or posedge reset_hw) begin
+		if (reset_hw) begin
+			sync_hunt_a <= 1'b1;
+			sync_hunt_b <= 1'b1;
+		end else if (cen) begin
+			if (reset_a)
+				sync_hunt_a <= 1'b1;
+			else if (wreg_a && rindex_latch == 3 && (wdata[4] || !wdata[0]))
+				sync_hunt_a <= 1'b1;
+			else if (do_extreset_a)
+				sync_hunt_a <= 1'b0;
+			if (reset_b)
+				sync_hunt_b <= 1'b1;
+			else if (wreg_b && rindex_latch == 3 && (wdata[4] || !wdata[0]))
+				sync_hunt_b <= 1'b1;
+			else if (do_extreset_b)
+				sync_hunt_b <= 1'b0;
 		end
 	end
 

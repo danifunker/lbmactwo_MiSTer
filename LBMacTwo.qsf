@@ -29,7 +29,7 @@ set_global_assignment -name OPTIMIZE_POWER_DURING_FITTING OFF
 set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
-set_global_assignment -name OPTIMIZATION_MODE "BALANCED"
+set_global_assignment -name OPTIMIZATION_MODE BALANCED
 set_global_assignment -name ALLOW_POWER_UP_DONT_CARE ON
 set_global_assignment -name QII_AUTO_PACKED_REGISTERS NORMAL
 set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
@@ -62,6 +62,28 @@ set_global_assignment -name SEED 1
 # Disable SignalTap (removes auto_signaltap_0 critical warning)
 set_global_assignment -name ENABLE_SIGNALTAP OFF
 
+# Early-boot CPU-wedge probe (rtl/dbg_wedge.sv, 6 JTAG probes). Diagnostic only
+# — remove this line for a probe-free release build. Does NOT enable dbg_min.
+# 2026-06-13: RE-ENABLED — the SDRAM-init fix cleared the Finder "illegal
+# instruction" bomb (dbg_coldinit: ROM sum OK, 0 PLL unlocks, healthy boot), but
+# boot now HANGS at the gray desktop (a later, previously-masked stall; the scc
+# LocalTalk ltlk fix is already in). Need PADR/PACT/PSTA to read the stuck PC.
+# 2026-06-14 (s3): DISABLED — the probe is RUNTIME-BLIND (keys off the SDRAM slot
+# handshake that stops at turbo; proven this session, see handoff_fline_fpu_timing
+# round-2). Board-free STA census shows all 31 failing setup paths are FSM/bus/
+# clkena-paced false-positives ⇒ the F-line bomb is timing-LOTTERY-sensitive.
+# Removing these 5 JTAG probes is the biggest safe timing-relief lever (frees
+# logic + ISSP routing congestion) and yields the shippable config. Re-add for HW
+# probing only.
+set_global_assignment -name VERILOG_MACRO "DBG_WEDGE=1"
+
+# 2026-06-15: FPU CIR-state runtime probe (rtl: LBMacTwo.sv p_fpcs reading
+# fpu_dbg_cir_state). Read-only, ~1 ISSP probe, reuses dbg_coldinit's JTAG hub.
+# Diagnoses the SimpleText-launch hard lock: is the FPU wedged in CIR_EXECUTE (a
+# stuck arith op) or CIR_RESTORE_FRAME/CIR_SAVE (a stuck FSAVE/FRESTORE context-
+# switch)? Read with scripts/read_fpu.tcl. Remove this line for a clean build.
+#set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
+
 # disable bilinear filtering when downscaling
 #set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"
 
@@ -81,3 +103,4 @@ source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+

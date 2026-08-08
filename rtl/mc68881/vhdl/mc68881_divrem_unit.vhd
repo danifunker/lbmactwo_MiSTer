@@ -76,6 +76,7 @@ architecture rtl of mc68881_divrem_unit is
     ST_IDLE,
     ST_CLASSIFY,
     ST_DIV_ITER,
+    ST_POST_DIV_PRE,
     ST_POST_DIV,
     ST_POST_DIV_ROUND,
     ST_SQRT_ITER,
@@ -632,6 +633,10 @@ begin
               sqrt_root_reg <= (others => '0');
               rem_reg <= (others => '0');
               sqrt_iter_idx_reg <= 0;
+              -- sqrt result is always positive; ST_POST_DIV_ROUND (shared with
+              -- the divide path since the ST_SQRT_POST split) packs with
+              -- div_sign_reg.
+              div_sign_reg <= '0';
               state_reg <= ST_SQRT_ITER;
             end if;
           else
@@ -728,7 +733,7 @@ begin
             quot_reg <= quot_next;
 
             if iter_idx_reg <= 1 then
-              state_reg <= ST_POST_DIV;
+              state_reg <= ST_POST_DIV_PRE;
             else
               iter_idx_reg <= iter_idx_reg - 2;
             end if;
@@ -754,6 +759,15 @@ begin
           end if;
 
         when ST_SQRT_POST =>
+          -- Timing split (2026-07-01): this state used to do sticky-OR +
+          -- gradual-underflow shift + rounding + packing in the ONE cycle
+          -- after rem_reg's final ST_SQRT_ITER write -- the same single-cycle
+          -- shape as the ST_POST_DIV cone that produced wrong FDIV results on
+          -- silicon (see ST_POST_DIV_PRE). Cycle 1 now only normalizes into
+          -- the post_* registers (idle outside the divide path, so they are
+          -- free here); rounding and packing run in the shared
+          -- ST_POST_DIV_ROUND with div_sign_reg = '0' set at sqrt launch.
+          -- +1 op-internal cycle, invisible through the busy/done handshake.
           mant_ext := sqrt_root_reg;
           exp_res_i := sqrt_exp_out_reg;
           inexact_local := '0';
@@ -768,37 +782,25 @@ begin
             exp_res_i := 0;
           end if;
 
-          apply_rounding('0', mant_ext, exp_res_i, rm_reg, rp_reg, mant_main, exp_res_i, inexact_local);
+          post_mant_ext_reg <= mant_ext;
+          post_exp_reg <= exp_res_i;
+          post_inexact_reg <= inexact_local;
+          post_rm_reg <= rm_reg;
+          post_rp_reg <= rp_reg;
+          state_reg <= ST_POST_DIV_ROUND;
 
-          -- Promote to minimum normal if rounding set the integer bit
-          if exp_res_i = 0 and mant_main(mant_main'left) = '1' then
-            exp_res_i := 1;
-          end if;
-
-          div_res_u.sign := '0';
-          if mant_main = 0 then
-            div_res_u.exp := (others => '0');
-            div_res_u.mant := (others => '0');
-            div_final_result := pack_fp80(div_res_u);
-          elsif exp_res_i <= 0 then
-            div_res_u.exp := (others => '0');
-            div_res_u.mant := mant_main;
-            div_final_result := pack_fp80(div_res_u);
-            flag_underflow_reg <= '1';
-          elsif exp_res_i >= FP_EXP_MAX then
-            div_res_u.exp := FP_EXP_ALL_ONES;
-            div_res_u.mant := (others => '0');
-            div_final_result := pack_fp80(div_res_u);
-            flag_overflow_reg <= '1';
-          else
-            div_res_u.exp := to_unsigned(exp_res_i, FP_EXP_WIDTH);
-            div_res_u.mant := mant_main;
-            div_final_result := pack_fp80(div_res_u);
-          end if;
-
-          result_reg <= div_final_result;
-          flag_inexact_reg <= inexact_local;
-          state_reg <= ST_DONE;
+        when ST_POST_DIV_PRE =>
+          -- Timing pipeline beat (2026-06-15): hold ONE cycle so the deep
+          -- ST_POST_DIV cone (quot_reg -> post_mant_ext_reg: a ~115-bit
+          -- leading-one priority encode + OR-prefix scan + barrel-shift +
+          -- gradual-underflow shift, ~37 ns) gets TWO clk_sys periods to settle
+          -- instead of one. quot_reg is final at the ST_DIV_ITER exit and is NOT
+          -- rewritten here, so the matching LBMacTwo.sdc multicycle
+          -- (-setup 2, quot_reg -> post_mant_ext_reg) is honest. Without this the
+          -- cone failed setup by -5.456 ns on silicon (ideal-timing sim hid it),
+          -- producing a wrong FDIV quotient mantissa -> Finder hard-lock on
+          -- app launch. +1 cycle of (op-internal, invisible) latency.
+          state_reg <= ST_POST_DIV;
 
         when ST_POST_DIV =>
           -- Cycle 1: leading-one detection, mantissa extraction, exponent calc
@@ -899,7 +901,9 @@ begin
           div_result_reg <= div_final_result;
           flag_inexact_reg <= inexact_local;
 
-          if op_reg = FPU_OP_DIV or not enable_modrem_post then
+          -- FDIV and FSQRT (routed here since the ST_SQRT_POST split) are
+          -- complete after rounding; only FMOD/FREM continue into modrem.
+          if op_reg = FPU_OP_DIV or op_reg = FPU_OP_SQRT or not enable_modrem_post then
             result_reg <= div_final_result;
             state_reg <= ST_DONE;
           else

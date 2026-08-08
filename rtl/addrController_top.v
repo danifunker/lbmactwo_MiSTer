@@ -155,8 +155,8 @@ module addrController_top(
 	assign dskReadAckExt = (extraBusControl == 1'b1) && (extra_slot_count == 1);
 
 	assign memoryAddr =
-		dskReadAckInt ? {1'b0, dskReadAddrInt} + 23'h100000:   // first dsk image at 1MB
-		dskReadAckExt ? {1'b0, dskReadAddrExt} + 23'h200000:   // second dsk image at 2MB
+		dskReadAckInt ? {1'b0, dskReadAddrInt} + 23'h200000:   // first dsk image at word 0x500000 (2MB window)
+		dskReadAckExt ? {1'b0, dskReadAddrExt} + 23'h400000:   // second dsk image at word 0x600000 (2MB window)
 		macAddr;
 
 	// address decoding

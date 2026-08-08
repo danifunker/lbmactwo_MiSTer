@@ -23,6 +23,11 @@ entity mc68881_top is
     -- `true`: MC68040 hardware subset (11 ALU ops, no trig/sglops/modrem/getexp/getman).
     -- `false`: full MC68881 (37 ALU ops + 10 control/move).
     fpu_lite_g : boolean := false;
+    -- `true` (with fpu_lite_g=true): a 68040-class subset = lite + the divrem &
+    -- sgl_ops hardware (FDIV/FSQRT/FMOD/FREM/FSCALE/FSGLDIV/FSGLMUL) but WITHOUT
+    -- the trig unit (transcendentals don't fit on Cyclone V). Those + GETEXP/
+    -- GETMAN remain F-line-trapped. See mc68881_alu.vhd enable_divrem.
+    enable_divrem_g : boolean := false;
     -- FPU version: FPU_68881 (default) or FPU_68882.
     -- Selects FSAVE frame format and enables pending instruction pipeline.
     fpu_version_g : fpu_version_t := FPU_68881
@@ -282,6 +287,26 @@ architecture rtl of mc68881_top is
   signal cir_arith_active_reg  : std_logic := '0';           -- Tracks CIR-launched arith op in alu_control_proc
   signal cir_move_pending_reg  : std_logic := '0';           -- One-cycle deferred FMOVE copy
 
+  -- FPU conversion pipeline stage (timing closure).
+  -- The fp80_from_single/double/int/packed format conversion is the worst
+  -- combinational cone in the design (cir_operand_staging -> operand_reg,
+  -- slow-corner setup violation). Previously this conversion fanned straight
+  -- into operand_reg on the cir_launch_alu edge -- one edge before the ALU /
+  -- deferred-move consumes operand_reg -- so the whole deep cone had to settle
+  -- in a single period. Splitting it behind a dedicated register gives the
+  -- conversion its OWN clock edge: the dialog FSM pulses cir_conv_start one
+  -- beat earlier (in CIR_XFER_SRC_WAIT, where cir_operand_staging has long been
+  -- stable), bus_frame_proc latches the converted value into cir_conv_src_reg,
+  -- and the later cir_launch_alu edge only does a shallow copy into operand_reg.
+  -- cir_conv_src_reg has exactly one driver (this conversion), so the deep cone
+  -- is now an isolated, FSM-spaced register-to-register path. Functionally this
+  -- is identical to the old code -- only +1 cycle of (CPU-paced, invisible)
+  -- latency. See cir_dialog_proc CIR_XFER_SRC_WAIT and the bus_frame_proc
+  -- conversion-stage / cir_launch_alu blocks.
+  signal cir_conv_start   : std_logic := '0';                 -- Pulse: dialog FSM -> bus_frame_proc, latch conversion
+  signal cir_conv_src_reg : fp80_t := (others => '0');        -- Registered converted source operand
+  signal cir_conv_dst_reg : fp80_t := (others => '0');        -- Registered destination FP-reg snapshot (dyadic ops)
+
   -- MC68882 pending instruction pipeline (1-deep queue).
   -- In FPU_68881 mode these signals stay at default and all CIR_PENDING_* states are unreachable.
   signal pending_valid_reg       : std_logic := '0';
@@ -351,6 +376,51 @@ architecture rtl of mc68881_top is
   signal exc_event_force_inexact_reg : std_logic := '0';
   signal exc_event_force_invalid_reg : std_logic := '0';
   signal exc_event_force_bsun_reg : std_logic := '0';
+
+  -- FMOVE-to-memory exception-event pipeline stage (round-2 timing closure).
+  -- The FMOVE FPn->mem (.S/.D) exception derivation runs a full
+  -- fp80->single->fp80 (resp. fp80->double->fp80) round trip plus an fp80
+  -- inequality and a magnitude compare, then collapses the inexact/under/
+  -- overflow result straight onto exc_event_force_inexact_reg / exc_event_
+  -- result_reg on the op-issue edge. The slow-corner setup audit put ~99% of
+  -- the worst-setup endpoints on exc_event_force_inexact_reg, fed by exactly
+  -- this cone. Round 1 registered the inbound conversion (cir_conv_src_reg);
+  -- this stage does the same for the outbound exception derivation: it is
+  -- recomputed every edge from the already-combinational conv_fp_src /
+  -- conv_single_out / conv_double_out (which track the move source and are
+  -- stable for several cycles before issue) and captured here, so the inline
+  -- move block's exc_event_* writes become shallow register->register copies.
+  -- Each of these has exactly one driver, turning the deep round-trip cone into
+  -- an isolated register-to-register path the FPGA session can close (or
+  -- surgically multicycle) without touching the many-driver exc_event_*_reg.
+  -- Only the .S/.D round trip needs staging: reg-to-reg / mem-to-reg / integer
+  -- moves never raise inexact/under/overflow in this block. +1 cycle of latency,
+  -- functionally identical. See the move-exc stage block at the top of
+  -- alu_control_proc and the MOVE_CFG_MODE_REG_TO_MEM .S/.D cases.
+  signal move_exc_single_rt_reg      : fp80_t := (others => '0');  -- fp80_from_single(conv_single_out)
+  signal move_exc_double_rt_reg      : fp80_t := (others => '0');  -- fp80_from_double(conv_double_out)
+  signal move_exc_single_inexact_reg : std_logic := '0';
+  signal move_exc_single_unfl_reg    : std_logic := '0';
+  signal move_exc_single_ovfl_reg    : std_logic := '0';
+  signal move_exc_double_inexact_reg : std_logic := '0';
+  signal move_exc_double_unfl_reg    : std_logic := '0';
+  signal move_exc_double_ovfl_reg    : std_logic := '0';
+  -- Round-3 timing closure: pre-stage the deep fp80_from_single/double round
+  -- trip ONE edge before the inexact compare. These registers terminate the
+  -- fp80_from_* cone; move_exc_{single,double}_rt_reg and the inexact compare
+  -- then read them, so move_exc_double_inexact_reg's fan-in is a register-to-
+  -- register difference rather than the whole round trip collapsing onto it on
+  -- the op-issue edge (slow-corner worst-setup endpoints).
+  signal move_exc_single_rt_pre_reg  : fp80_t := (others => '0');  -- fp80_from_single(conv_single_out), pre-stage
+  signal move_exc_double_rt_pre_reg  : fp80_t := (others => '0');  -- fp80_from_double(conv_double_out), pre-stage
+  -- Round-3 timing closure: pre-stage the fast packed (.P) encoder. The inline
+  -- fp80_to_packed96_fast(move_result) on the move-issue edge was the single
+  -- worst path in the design (fp80 -> 96-bit BCD on one edge). Recompute it
+  -- every edge from conv_fp_src (== move_result for reg->mem moves, stable for
+  -- cycles before issue) so the inline packed_word assignment is a shallow
+  -- register read. Only the fast fallback path (packed_decimal_full_g = false,
+  -- the fpu_lite build) uses this; the full packed engine is untouched.
+  signal move_packed_encode_reg      : std_logic_vector(95 downto 0) := (others => '0');
 
   type packed_req_mode_t is (PACKED_REQ_NONE, PACKED_REQ_ENCODE, PACKED_REQ_DECODE);
 
@@ -452,22 +522,31 @@ architecture rtl of mc68881_top is
   -- gen_sglops_full, is_divrem_op-but-not-DIV/SQRT, GETEXP/GETMAN).
   -- Used to route lite-unsupported ops to CIR_EXCEPT_PRE with the F-line
   -- vector instead of silently completing with a zeroed result.
-  function op_disabled_by_lite(op : fpu_op_t) return boolean is
+  function op_disabled_by_lite(op : fpu_op_t; enable_divrem : boolean) return boolean is
   begin
-    return op = FPU_OP_SIN     or op = FPU_OP_COS     or op = FPU_OP_TAN     or
-           op = FPU_OP_SINCOS  or op = FPU_OP_ACOS    or op = FPU_OP_ASIN    or
-           op = FPU_OP_ATAN    or op = FPU_OP_ATANH   or op = FPU_OP_COSH    or
-           op = FPU_OP_ETOX    or op = FPU_OP_ETOXM1  or op = FPU_OP_LOGN    or
-           op = FPU_OP_LOGNP1  or op = FPU_OP_LOG10   or op = FPU_OP_LOG2    or
-           op = FPU_OP_SINH    or op = FPU_OP_TANH    or op = FPU_OP_TENTOX  or
-           op = FPU_OP_TWOTOX  or
-           op = FPU_OP_MOD     or op = FPU_OP_REM     or
-           op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL  or
-           -- DIV/SQRT now also disabled in lite: the hardware divrem unit
-           -- (~6,000 ALMs) is omitted from the lite build, so these F-line
-           -- trap to the software FPSP like the other divrem ops.
-           op = FPU_OP_DIV     or op = FPU_OP_SQRT    or
-           op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN;
+    -- Transcendentals (mc68881_trig_unit, ~17.6k ALUTs) + GETEXP/GETMAN have NO
+    -- hardware even with enable_divrem: the trig unit does not fit on Cyclone V,
+    -- and GETEXP/GETMAN ride the fpu_lite-gated simple path. These ALWAYS F-line-
+    -- trap in a lite-family build (a software FPSP would be needed to run them).
+    if op = FPU_OP_SIN     or op = FPU_OP_COS     or op = FPU_OP_TAN     or
+       op = FPU_OP_SINCOS  or op = FPU_OP_ACOS    or op = FPU_OP_ASIN    or
+       op = FPU_OP_ATAN    or op = FPU_OP_ATANH   or op = FPU_OP_COSH    or
+       op = FPU_OP_ETOX    or op = FPU_OP_ETOXM1  or op = FPU_OP_LOGN    or
+       op = FPU_OP_LOGNP1  or op = FPU_OP_LOG10   or op = FPU_OP_LOG2    or
+       op = FPU_OP_SINH    or op = FPU_OP_TANH    or op = FPU_OP_TENTOX  or
+       op = FPU_OP_TWOTOX  or
+       op = FPU_OP_GETEXP  or op = FPU_OP_GETMAN then
+      return true;
+    end if;
+    -- divrem + sgl_ops set: in pure lite the hardware units are omitted so these
+    -- F-line-trap; with enable_divrem the mc68881_divrem_unit / mc68881_sgl_ops_
+    -- unit ARE generated, so DIV/SQRT/MOD/REM/SCALE/SGLDIV/SGLMUL run in hardware.
+    if op = FPU_OP_DIV     or op = FPU_OP_SQRT    or
+       op = FPU_OP_MOD     or op = FPU_OP_REM     or
+       op = FPU_OP_SCALE   or op = FPU_OP_SGLDIV  or op = FPU_OP_SGLMUL then
+      return not enable_divrem;
+    end if;
+    return false;
   end function;
 
   function signed16_to_integer(bits : std_logic_vector(15 downto 0)) return integer is
@@ -585,6 +664,16 @@ architecture rtl of mc68881_top is
   constant POW2_SMALL : natural12_t := (
     1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
   );
+
+  -- Powers of ten for the divider-free fast packed encode/decode below.
+  -- 10**9 is the largest power of ten representable in a 31-bit natural;
+  -- fp80_to_int_trunc saturates at integer'high (< 10**10) so index 9 covers
+  -- the whole magnitude range.
+  type natural10_t is array (0 to 9) of natural;
+  constant POW10_N : natural10_t := (
+    1, 10, 100, 1000, 10000, 100000,
+    1000000, 10000000, 100000000, 1000000000
+  );
   constant FP80_ONE : fp80_t := x"3FFF8000000000000000";
   constant FP80_TEN_POW_1 : fp80_t := x"4002A000000000000000";
   constant FP80_TEN_POW_2 : fp80_t := x"4005C800000000000000";
@@ -688,10 +777,9 @@ architecture rtl of mc68881_top is
     variable int_mag : integer := 0;
     variable mag_n : natural := 0;
     variable exp10 : natural range 0 to 9 := 0;
-    variable exp0 : natural := 0;
-    variable exp1 : natural := 0;
-    variable exp2 : natural := 0;
-    variable exp3 : natural := 0;
+    variable msd : natural range 1 to 9 := 1;
+    variable mag_u : unsigned(34 downto 0) := (others => '0');
+    variable spow_u : unsigned(30 downto 0) := (others => '0');
   begin
     packed(95) := value(FP_WIDTH-1);
 
@@ -731,25 +819,38 @@ architecture rtl of mc68881_top is
       return packed;
     end if;
 
-    for idx in 0 to 8 loop
-      exit when mag_n < 10;
-      mag_n := mag_n / 10;
-      exp10 := exp10 + 1;
+    -- Divider-free digit extraction. The previous "/10 loop + mod 10"
+    -- synthesized as two chained combinational 32-bit lpm_divide arrays
+    -- (~65 ns each): the -112.6 ns worst setup path of the entire design.
+    -- This fallback encoder only needs floor(log10(mag)) and the leading
+    -- decimal digit, and both are comparator problems:
+    --   exp10 = max k with mag >= 10**k          (9 parallel constant compares)
+    --   msd   = max d with mag >= d * 10**exp10  (8 compares against a 10-entry
+    --           constant mux; exact because mag < 10**(exp10+1))
+    -- 35-bit unsigned arithmetic because 9 * 10**9 overflows a 32-bit integer.
+    -- exp10 <= 9, so the packed exponent is a single BCD digit (exp1..exp3 = 0).
+    for k in 1 to 9 loop
+      if mag_n >= POW10_N(k) then
+        exp10 := k;
+      end if;
     end loop;
 
-    exp0 := exp10 mod 10;
-    exp1 := (exp10 / 10) mod 10;
-    exp2 := (exp10 / 100) mod 10;
-    exp3 := (exp10 / 1000) mod 10;
+    mag_u := resize(to_unsigned(mag_n, 31), 35);
+    spow_u := to_unsigned(POW10_N(exp10), 31);
+    for d in 2 to 9 loop
+      if mag_u >= (to_unsigned(d, 4) * spow_u) then
+        msd := d;
+      end if;
+    end loop;
 
     packed(94) := '0';
     packed(93 downto 92) := "00";
-    packed(91 downto 88) := bcd_digit(exp2);
-    packed(87 downto 84) := bcd_digit(exp1);
-    packed(83 downto 80) := bcd_digit(exp0);
-    packed(79 downto 76) := bcd_digit(exp3);
+    packed(91 downto 88) := x"0";
+    packed(87 downto 84) := x"0";
+    packed(83 downto 80) := std_logic_vector(to_unsigned(exp10, 4));
+    packed(79 downto 76) := x"0";
     packed(75 downto 68) := (others => '0');
-    packed(67 downto 64) := bcd_digit(mag_n mod 10);
+    packed(67 downto 64) := std_logic_vector(to_unsigned(msd, 4));
 
     return packed;
   end function;
@@ -767,6 +868,7 @@ architecture rtl of mc68881_top is
     variable lead_digit : integer := 0;
     variable value_n : natural := 0;
     variable pos_scale : natural := 0;
+    variable dec_prod_u : unsigned(34 downto 0) := (others => '0');
   begin
     sign_m := packed(95);
 
@@ -796,17 +898,27 @@ architecture rtl of mc68881_top is
 
     value_n := natural(lead_digit);
     if exp10 > 0 then
+      -- Multiplier-chain-free scaling. The previous nine-iteration
+      -- "value_n * 10" loop synthesized as a serial add chain that, fanned
+      -- through fp80_from_int and the FMOVE dispatch mux, collapsed onto
+      -- fp_reg_file_reg / result_* in a single cycle (-12.5 ns, x821 paths).
+      -- lead_digit * 10**k is one 4x31-bit product against a constant-mux
+      -- power of ten. The closed-form saturate (product > integer'high) is
+      -- exactly the loop's progressive "> integer'high/10" saturation: they
+      -- could only disagree on products in {2**31, 2**31+1}, and a multiple
+      -- of 10 (k >= 1 here) cannot land there. pos_scale > 9 keeps the old
+      -- behavior of saturating even when lead_digit = 0.
       pos_scale := natural(exp10);
-      for idx in 1 to 9 loop
-        exit when idx > pos_scale;
-        if value_n > natural(integer'high / 10) then
-          value_n := natural(integer'high);
-          exit;
-        end if;
-        value_n := value_n * 10;
-      end loop;
       if pos_scale > 9 then
         value_n := natural(integer'high);
+      else
+        dec_prod_u := to_unsigned(natural(lead_digit), 4) *
+                      to_unsigned(POW10_N(pos_scale), 31);
+        if dec_prod_u > to_unsigned(integer'high, 35) then
+          value_n := natural(integer'high);
+        else
+          value_n := to_integer(dec_prod_u);
+        end if;
       end if;
     elsif exp10 < 0 then
       value_n := 0;
@@ -1927,7 +2039,8 @@ begin
 
   alu_inst : entity work.mc68881_alu
     generic map (
-      fpu_lite => fpu_lite_g
+      fpu_lite      => fpu_lite_g,
+      enable_divrem => enable_divrem_g
     )
     port map (
       clk    => clk,
@@ -2003,6 +2116,8 @@ begin
       op_sel_reg <= FPU_OP_NOP;
       operand_reg <= (others => (others => '0'));
       operand_hi16_reg <= (others => (others => '0'));
+      cir_conv_src_reg <= (others => '0');
+      cir_conv_dst_reg <= (others => '0');
       fpcr_reg <= (others => '0');
       fpsr_reg <= (others => '0');
       fpiar_reg <= (others => '0');
@@ -2128,6 +2243,56 @@ begin
         end case;
       end if;
 
+      -- CIR conversion-stage capture (timing-closure pipeline beat).
+      -- Pulsed by the dialog FSM in CIR_XFER_SRC_WAIT, one edge BEFORE the
+      -- cir_launch_alu copy below. cir_operand_staging has been stable since
+      -- the last operand word arrived in CIR_XFER_SRC, so this latches the deep
+      -- fp80 format conversion into its own dedicated register. The launch edge
+      -- then only does a shallow copy (cir_conv_src_reg -> operand_reg) instead
+      -- of fanning the full conversion cone straight into operand_reg one edge
+      -- before the ALU/move reads it. Only the memory-source formats route
+      -- through here (reg-to-reg is a shallow fp_reg_file mux handled inline at
+      -- launch). cir_conv_dst_reg snapshots the dyadic destination register at
+      -- the same edge (it cannot change before launch -- the op has not run).
+      if cir_conv_start = '1' then
+        case cir_src_fmt is
+          when CIR_SRC_LONG =>
+            cir_conv_src_reg <= fp80_from_int(
+              signed32_to_integer(cir_operand_staging(31 downto 0)));
+          when CIR_SRC_SINGLE =>
+            cir_conv_src_reg <= fp80_from_single(
+              cir_operand_staging(31 downto 0));
+          when CIR_SRC_EXTENDED =>
+            -- MC68881 .X memory layout: byte 0-1 = sign+exp, byte 2-3 =
+            -- reserved, byte 4-11 = mantissa. Long 1 (staging[31:0]) holds
+            -- bytes 0-3, so the sign+exp lives in the HIGH half (staging
+            -- [31:16]); the LOW half (staging[15:0]) is the reserved word and
+            -- is dropped.
+            cir_conv_src_reg <= cir_operand_staging(31 downto 16) &
+                                cir_operand_staging(63 downto 32) &
+                                cir_operand_staging(95 downto 64);
+          when CIR_SRC_WORD =>
+            cir_conv_src_reg <= fp80_from_int(
+              signed16_to_integer(cir_operand_staging(15 downto 0)));
+          when CIR_SRC_DOUBLE =>
+            cir_conv_src_reg <= fp80_from_double(
+              cir_operand_staging(31 downto 0) &
+              cir_operand_staging(63 downto 32));
+          when CIR_SRC_BYTE =>
+            cir_conv_src_reg <= fp80_from_int(
+              signed8_to_integer(cir_operand_staging(7 downto 0)));
+          when CIR_SRC_PACKED =>
+            cir_conv_src_reg <= packed96_to_fp80_fast(
+              cir_operand_staging(31 downto 0) &
+              cir_operand_staging(63 downto 32) &
+              cir_operand_staging(95 downto 64),
+              fp_reg_file_reg(cir_dst_reg_idx));
+          when others =>
+            cir_conv_src_reg <= (others => '0');
+        end case;
+        cir_conv_dst_reg <= fp_reg_file_reg(cir_dst_reg_idx);
+      end if;
+
       -- CIR launch: load operands (and op_sel for cpGEN) into ALU inputs.
       -- For monadic ops the ALU uses only a_in (operand_reg(0)) as the source,
       -- so we must place the source operand there (not the destination FP reg).
@@ -2141,60 +2306,49 @@ begin
           operand_reg(0)(5 downto 0) <= cir_condition_reg;
         else
           op_sel_reg <= cir_decoded_op;
-          -- Compute source value into variable for potential use in both slots.
           if cir_reg_to_reg = '1' then
+            -- Register-to-register source: a shallow fp_reg_file_reg mux, NOT
+            -- the deep fp80 format conversion -- compute it inline at launch
+            -- (this path is not pipelined; it never enters the WAIT states).
             cir_source_val := fp_reg_file_reg(cir_src_reg_idx);
+            operand_reg(1) <= cir_source_val;
+            -- Monadic ops: ALU uses only a_in, so source goes to operand_reg(0).
+            -- Dyadic ops: a_in = FPn (destination register), b_in = source.
+            if op_is_monadic(cir_decoded_op) then
+              operand_reg(0) <= cir_source_val;
+            else
+              operand_reg(0) <= fp_reg_file_reg(cir_dst_reg_idx);
+            end if;
           else
-            case cir_src_fmt is
-              when CIR_SRC_LONG =>
-                cir_source_val := fp80_from_int(
-                  signed32_to_integer(cir_operand_staging(31 downto 0)));
-              when CIR_SRC_SINGLE =>
-                cir_source_val := fp80_from_single(
-                  cir_operand_staging(31 downto 0));
-              when CIR_SRC_EXTENDED =>
-                -- MC68881 .X memory layout: byte 0-1 = sign+exp,
-                -- byte 2-3 = reserved, byte 4-11 = mantissa.
-                -- Long 1 (staging[31:0]) holds bytes 0-3, so the
-                -- sign+exp lives in the HIGH half: staging[31:16].
-                -- The LOW half (staging[15:0]) is the reserved word
-                -- and is dropped.
-                cir_source_val := cir_operand_staging(31 downto 16) &
-                                  cir_operand_staging(63 downto 32) &
-                                  cir_operand_staging(95 downto 64);
-              when CIR_SRC_WORD =>
-                cir_source_val := fp80_from_int(
-                  signed16_to_integer(cir_operand_staging(15 downto 0)));
-              when CIR_SRC_DOUBLE =>
-                cir_source_val := fp80_from_double(
-                  cir_operand_staging(31 downto 0) &
-                  cir_operand_staging(63 downto 32));
-              when CIR_SRC_BYTE =>
-                cir_source_val := fp80_from_int(
-                  signed8_to_integer(cir_operand_staging(7 downto 0)));
-              when CIR_SRC_PACKED =>
-                cir_source_val := packed96_to_fp80_fast(
-                  cir_operand_staging(31 downto 0) &
-                  cir_operand_staging(63 downto 32) &
-                  cir_operand_staging(95 downto 64),
-                  fp_reg_file_reg(cir_dst_reg_idx));
-              when others =>
-                cir_source_val := (others => '0');
-            end case;
-          end if;
-          operand_reg(1) <= cir_source_val;
-          -- Monadic ops: ALU uses only a_in, so source goes to operand_reg(0).
-          -- Dyadic ops: a_in = FPn (destination register), b_in = source.
-          if op_is_monadic(cir_decoded_op) then
-            operand_reg(0) <= cir_source_val;
-          else
-            operand_reg(0) <= fp_reg_file_reg(cir_dst_reg_idx);
+            -- Memory source: the timing-critical fp80 conversion already ran in
+            -- the conversion-stage block on the previous edge (cir_conv_start).
+            -- All formats (.L/.S/.X/.W/.D/.B/packed) are in cir_conv_src_reg, and
+            -- the dyadic destination snapshot is in cir_conv_dst_reg. Launch is
+            -- now a shallow register copy instead of the full conversion cone.
+            operand_reg(1) <= cir_conv_src_reg;
+            if op_is_monadic(cir_decoded_op) then
+              operand_reg(0) <= cir_conv_src_reg;
+            else
+              operand_reg(0) <= cir_conv_dst_reg;
+            end if;
           end if;
         end if;
       end if;
 
       -- MC68882 pending instruction auto-launch: mirrors cir_launch_alu but reads
       -- from pending_* registers. Only fires for cpGEN (arithmetic/move).
+      --
+      -- NOTE: this block is statically unreachable in the FPU_68881 build (the
+      -- production / verilator configuration -- fpu_version_g defaults to
+      -- FPU_68881, so synthesis optimizes the whole block away and it carries
+      -- no timing path). It is therefore deliberately NOT pipelined through the
+      -- cir_conv_* conversion stage: pending_launch_reg fires from
+      -- CIR_EXECUTE_DONE with no spare WAIT beat to host the capture. If a
+      -- FPU_68882 build is ever produced, this conversion must be moved to a
+      -- conversion-stage register the same way as the normal path above
+      -- (latch one edge before pending_launch_reg, then shallow-copy into
+      -- operand_reg), otherwise this cone re-introduces the slow-corner
+      -- setup violation for back-to-back 68882 dialogs.
       if fpu_version_g = FPU_68882 and pending_launch_reg = '1' then
         op_sel_reg <= pending_decoded_op;
         if pending_reg_to_reg = '1' then
@@ -2700,6 +2854,17 @@ begin
       exc_event_force_inexact_reg <= '0';
       exc_event_force_invalid_reg <= '0';
       exc_event_force_bsun_reg <= '0';
+      move_exc_single_rt_reg <= (others => '0');
+      move_exc_double_rt_reg <= (others => '0');
+      move_exc_single_rt_pre_reg <= (others => '0');
+      move_exc_double_rt_pre_reg <= (others => '0');
+      move_exc_single_inexact_reg <= '0';
+      move_exc_single_unfl_reg <= '0';
+      move_exc_single_ovfl_reg <= '0';
+      move_exc_double_inexact_reg <= '0';
+      move_exc_double_unfl_reg <= '0';
+      move_exc_double_ovfl_reg <= '0';
+      move_packed_encode_reg <= (others => '0');
       cir_arith_active_reg <= '0';
       cir_move_pending_reg <= '0';
       sys_ctrl_save_req_reg <= '0';
@@ -2732,6 +2897,73 @@ begin
       exc_event_force_bsun_reg <= '0';
       sys_ctrl_save_req_reg <= '0';
       sys_ctrl_restore_req_reg <= '0';
+
+      -- FMOVE-to-memory exception-event pipeline stage (round-2 timing closure).
+      -- Recompute the .S/.D round trip and the derived inexact/under/overflow
+      -- flags one edge ahead of op-issue, from the combinational conv_fp_src /
+      -- conv_single_out / conv_double_out that already track the move source
+      -- (fp_reg_file_reg(move_cfg_decoded_reg.src_idx) outside CIR_XFER_DST,
+      -- stable for several cycles before a reg->mem move issues). The inline
+      -- MOVE_CFG_MODE_REG_TO_MEM .S/.D cases below then read these as shallow
+      -- register copies instead of doing the round trip + compare on the
+      -- op-issue edge, which fanned the deep cone straight onto
+      -- exc_event_force_inexact_reg / exc_event_result_reg (the slow-corner
+      -- worst-setup endpoints). The expressions are identical to the old inline
+      -- derivation with move_result == conv_fp_src; reg-to-reg / mem-to-reg /
+      -- integer moves never reach the inexact/under/overflow tests, so only
+      -- these two formats are staged.
+      -- Round-3 timing closure: terminate the deep fp80_from_single/double
+      -- round trip at a dedicated pre-stage register, then feed BOTH the staged
+      -- round-trip value (move_exc_*_rt_reg) and the inexact compare from that
+      -- register. conv_fp_src / conv_single_out / conv_double_out are stable for
+      -- several cycles before a reg->mem move issues (round-2 note), so this
+      -- extra edge is invisible to numeric results / FPSR flags; it just moves
+      -- the fp80_from_* cone off the move_exc_*_inexact_reg fan-in.
+      move_exc_single_rt_pre_reg <= fp80_from_single(conv_single_out);
+      move_exc_double_rt_pre_reg <= fp80_from_double(conv_double_out);
+      move_exc_single_rt_reg <= move_exc_single_rt_pre_reg;
+      move_exc_double_rt_reg <= move_exc_double_rt_pre_reg;
+      -- Fast packed (.P) encode, precomputed one edge ahead of the reg->mem
+      -- move dispatch that consumes it (the worst path in the whole design).
+      -- move_result == conv_fp_src at that consume site.
+      move_packed_encode_reg <= fp80_to_packed96_fast(conv_fp_src);
+      move_exc_single_inexact_reg <= '0';
+      move_exc_single_unfl_reg <= '0';
+      move_exc_single_ovfl_reg <= '0';
+      move_exc_double_inexact_reg <= '0';
+      move_exc_double_unfl_reg <= '0';
+      move_exc_double_ovfl_reg <= '0';
+      if not fp80_is_nan(conv_fp_src) and not fp80_is_inf(conv_fp_src)
+         and not fp80_is_zero(conv_fp_src) then
+        move_src_abs := conv_fp_src;
+        move_src_abs(FP_WIDTH-1) := '0';
+        -- single (.S): inexact = round trip differs, underflow = biased exp 0,
+        -- overflow = magnitude exceeds the largest finite single. The round trip
+        -- is read from the pre-stage register (set the previous edge from the
+        -- same, stable conv_single_out) instead of recomputing fp80_from_single.
+        if move_exc_single_rt_pre_reg /= conv_fp_src then
+          move_exc_single_inexact_reg <= '1';
+        end if;
+        if conv_single_out(30 downto 23) = x"00" then
+          move_exc_single_unfl_reg <= '1';
+        end if;
+        single_max_abs := fp80_from_single(x"7F7FFFFF");
+        if compare_fp80_ordered(move_src_abs, single_max_abs) > 0 then
+          move_exc_single_ovfl_reg <= '1';
+        end if;
+        -- double (.D): same tests against the double format. Inexact reads the
+        -- pre-stage round-trip register (the -1.506 ns slow-corner path).
+        if move_exc_double_rt_pre_reg /= conv_fp_src then
+          move_exc_double_inexact_reg <= '1';
+        end if;
+        if conv_double_out(62 downto 52) = std_logic_vector(to_unsigned(0, 11)) then
+          move_exc_double_unfl_reg <= '1';
+        end if;
+        double_max_abs := fp80_from_double(x"7FEFFFFFFFFFFFFF");
+        if compare_fp80_ordered(move_src_abs, double_max_abs) > 0 then
+          move_exc_double_ovfl_reg <= '1';
+        end if;
+      end if;
 
       -- Keep cir_response_reg tracking FSM-based primitives when no
       -- conditional dialog result is pending.
@@ -3003,7 +3235,12 @@ begin
                         packed_pending_reg <= '1';
                         move_deferred := '1';
                       else
-                        packed_word := fp80_to_packed96_fast(move_result);
+                        -- Round-3 timing closure: read the pre-staged packed
+                        -- encode register (computed one edge earlier from
+                        -- conv_fp_src, which == move_result here) instead of the
+                        -- inline fp80_to_packed96_fast(move_result) that was the
+                        -- single worst-setup path in the design.
+                        packed_word := move_packed_encode_reg;
                         move_exc_enable := '0';
                       end if;
                       if move_deferred = '0' then
@@ -3017,21 +3254,17 @@ begin
                         when "01" =>
                           single_bits := conv_single_out;
                           move_exc_enable := '1';
-                          move_exc_result := fp80_from_single(single_bits);
-                          if not fp80_is_nan(move_result) and not fp80_is_inf(move_result) and not fp80_is_zero(move_result) then
-                            if move_exc_result /= move_result then
-                              move_exc_force_inexact := '1';
-                            end if;
-                            if single_bits(30 downto 23) = x"00" then
-                              move_exc_force_underflow := '1';
-                            end if;
-                            move_src_abs := move_result;
-                            move_src_abs(FP_WIDTH-1) := '0';
-                            single_max_abs := fp80_from_single(x"7F7FFFFF");
-                            if compare_fp80_ordered(move_src_abs, single_max_abs) > 0 then
-                              move_exc_force_overflow := '1';
-                            end if;
-                          end if;
+                          -- Exception derivation was pre-computed one edge
+                          -- earlier into move_exc_single_*_reg (round-2 timing-
+                          -- closure stage). These are now shallow register reads
+                          -- instead of a second fp80<->single conversion + fp80
+                          -- compare collapsing onto exc_event_*_reg. conv_fp_src
+                          -- (the stage's source) equals move_result here, so the
+                          -- values are identical to the old inline derivation.
+                          move_exc_result := move_exc_single_rt_reg;
+                          move_exc_force_inexact := move_exc_single_inexact_reg;
+                          move_exc_force_underflow := move_exc_single_unfl_reg;
+                          move_exc_force_overflow := move_exc_single_ovfl_reg;
                           result_lo_reg <= single_bits;
                           result_hi_reg <= (others => '0');
                           result_ex_reg <= (others => '0');
@@ -3039,21 +3272,12 @@ begin
                         when "10" =>
                           double_bits := conv_double_out;
                           move_exc_enable := '1';
-                          move_exc_result := fp80_from_double(double_bits);
-                          if not fp80_is_nan(move_result) and not fp80_is_inf(move_result) and not fp80_is_zero(move_result) then
-                            if move_exc_result /= move_result then
-                              move_exc_force_inexact := '1';
-                            end if;
-                            if double_bits(62 downto 52) = std_logic_vector(to_unsigned(0, 11)) then
-                              move_exc_force_underflow := '1';
-                            end if;
-                            move_src_abs := move_result;
-                            move_src_abs(FP_WIDTH-1) := '0';
-                            double_max_abs := fp80_from_double(x"7FEFFFFFFFFFFFFF");
-                            if compare_fp80_ordered(move_src_abs, double_max_abs) > 0 then
-                              move_exc_force_overflow := '1';
-                            end if;
-                          end if;
+                          -- See the .S case: round trip + over/under/inexact were
+                          -- staged into move_exc_double_*_reg one edge earlier.
+                          move_exc_result := move_exc_double_rt_reg;
+                          move_exc_force_inexact := move_exc_double_inexact_reg;
+                          move_exc_force_underflow := move_exc_double_unfl_reg;
+                          move_exc_force_overflow := move_exc_double_ovfl_reg;
                           result_lo_reg <= double_bits(31 downto 0);
                           result_hi_reg <= double_bits(63 downto 32);
                           result_ex_reg <= (others => '0');
@@ -4026,6 +4250,7 @@ begin
       cir_xfer_word_idx <= 0;
       cir_xfer_word_count <= 0;
       cir_launch_alu <= '0';
+      cir_conv_start <= '0';
       cir_flags_consumed <= '0';
       cir_restore_null_req <= '0';
       cir_restore_commit_req <= '0';
@@ -4040,6 +4265,7 @@ begin
       cir_fpctl_commit <= '0';
     elsif rising_edge(clk) then
       cir_launch_alu <= '0';  -- default: clear one-shot pulse
+      cir_conv_start <= '0';  -- default: clear one-shot pulse
       cir_flags_consumed <= '0';
       cir_restore_null_req <= '0';
       cir_restore_commit_req <= '0';
@@ -4095,7 +4321,7 @@ begin
           end if;
 
         when CIR_DECODE =>
-          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          if fpu_lite_g and op_disabled_by_lite(cir_decoded_op, enable_divrem_g) then
             -- B-4 fix: lite variant doesn't implement this op. Return an
             -- F-line exception primary so the CPU can take an emulator
             -- trap (vector 11) and a software FPSP-style handler can
@@ -4144,12 +4370,19 @@ begin
           end if;
 
         when CIR_XFER_SRC_WAIT =>
-          -- First hold state: format conversion path settles (MCP=4, 4-cycle
-          -- separation from last cir_operand_staging write).
+          -- First hold state. cir_operand_staging has been stable since the
+          -- last operand word arrived in CIR_XFER_SRC, so trigger the
+          -- conversion-stage capture now: bus_frame_proc latches the fp80
+          -- format conversion into cir_conv_src_reg on the WAIT->WAIT2 edge,
+          -- one beat before cir_launch_alu copies it into operand_reg. This is
+          -- the pipeline beat that keeps the deep conversion cone off the
+          -- single launch edge (see cir_conv_* signal notes).
+          cir_conv_start <= '1';
           cir_state_reg <= CIR_XFER_SRC_WAIT2;
 
         when CIR_XFER_SRC_WAIT2 =>
           -- Second hold state: launch ALU (or F-line trap for lite-disabled ops).
+          -- cir_conv_src_reg / cir_conv_dst_reg now hold the converted operands.
           if cir_is_fpctl_move = '1' then
             -- FMOVE.L Dn → FPctl: pulse cir_fpctl_commit so bus_frame_proc
             -- writes whichever control regs the mask selects from
@@ -4157,7 +4390,7 @@ begin
             -- here (single-driver rule).
             cir_fpctl_commit <= '1';
             cir_state_reg <= CIR_IDLE;
-          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op) then
+          elsif fpu_lite_g and op_disabled_by_lite(cir_decoded_op, enable_divrem_g) then
             cir_exc_vector <= CIR_VEC_FLINE;
             cir_state_reg <= CIR_EXCEPT_PRE;
           else

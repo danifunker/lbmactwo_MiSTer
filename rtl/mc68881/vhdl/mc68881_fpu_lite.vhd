@@ -1,6 +1,15 @@
 -- Thin wrapper: instantiates mc68881_top with fpu_lite_g => true
 -- for MC68040 hardware subset (11 ALU ops) on MiSTer Cyclone V.
 -- This avoids Quartus mixed-language boolean generic issues.
+--
+-- 2026-06-15: the FULL 68881 (fpu_lite_g=false) does NOT fit -- Fitter needs
+-- 5385 LABs, device has 4191 (~28% over). The trig/transcendental unit alone is
+-- ~17.6k ALUTs (~69% of the overage), so a complete HW 68881 is impossible here.
+-- CONFIG: fpu_lite_g=true + enable_divrem_g=true = a 68040-class subset = lite
+-- PLUS the divrem & sgl_ops units (FDIV/FSQRT/FMOD/FREM/FSCALE/FSGLDIV/FSGLMUL)
+-- WITHOUT trig. Transcendentals + GETEXP/GETMAN still F-line-trap (documented in
+-- docs/FPU_INSTRUCTION_COVERAGE.md). This fixes the Finder FDIV "bad F-Line" bomb
+-- while fitting. enable_trig stays off by construction (fpu_lite_g=true).
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -37,7 +46,8 @@ begin
       -- the full engine to recover slack; the FPU will respond to packed
       -- decimal opcodes with zeros (acceptable for our use case).
       packed_decimal_full_g => false,
-      fpu_lite_g            => true
+      fpu_lite_g            => true,
+      enable_divrem_g       => true
     )
     port map (
       a_in         => a_in,

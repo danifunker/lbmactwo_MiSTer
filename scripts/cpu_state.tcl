@@ -139,6 +139,8 @@ foreach inst $info {
     # Build #73 — F-line opcode tracker (CPU/FPU bug hypothesis)
     if {$nm eq "PFLO"} { set idx(PFLO) $i }
     if {$nm eq "PFLA"} { set idx(PFLA) $i }
+    # 2026-06-13 — dbg_wedge IF-fetch ring (frozen on F-line/illegal vec fetch)
+    if {$nm eq "PRGR"} { set idx(PRGR) $i }
     # 2026-06-10 — runaway-entry jump ring (src/dst pairs; PRNG source[3:0]
     # selects the ring slot) + freeze/classifier flags
     if {$nm eq "PRNG"} { set idx(PRNG) $i }
@@ -1019,6 +1021,95 @@ for {set s 1} {$s <= 6} {incr s} {
             puts "                 RESTORE_FRAME reached => build #15 fix's path IS exercised. Check PFRR/PFRW for word transfers."
         } elseif {$max_state == 18} {
             puts "                 max=RESTORE_FORMAT => FORMAT word never arrived (cir_restore_trigger?) OR fw was unrecognized."
+        }
+    }
+    # Coherency violation latch (dbg_wedge PRGR, 2026-06-13): the residual SDRAM
+    # read-path neighbor-word leak, caught AT the cpu_data latch (replaces the old
+    # IF-ring, which only ever froze on the benign 0x0000C0Cx illegal red herring).
+    # source[3:0]: 0=cpu_rd_addr(wanted) 1=dout_addr(got) 2=cpuAddr@viol
+    #              3={bad word[31:16], count[15:0]} 4={31'b0, frozen}
+    if {[info exists idx(PRGR)] && $s == 1} {
+        write_source_data -instance_index $idx(PRGR) -value 4 -value_in_hex
+        set frozen    [expr {[rd $idx(PRGR)] & 1}]
+        write_source_data -instance_index $idx(PRGR) -value 3 -value_in_hex
+        set wc        [rd $idx(PRGR)]
+        set badword   [expr {($wc >> 16) & 0xFFFF}]
+        set delivered [expr {$wc & 0xFFFF}]
+        write_source_data -instance_index $idx(PRGR) -value 5 -value_in_hex
+        set raw       [expr {[rd $idx(PRGR)] & 0xFFFF}]
+        puts [format "           COHERENCY: raw_leaks=%u  DELIVERED=%u  frozen=%d  bad_word=0x%04X" \
+            $raw $delivered $frozen $badword]
+        if {$raw == 0} {
+            puts "                 0 read-path coherency leaks seen this session. Either none occurred or the"
+            puts "                 probe wasn't exercised on a real boot. (A crash with raw=0 => not this path.)"
+        } else {
+            write_source_data -instance_index $idx(PRGR) -value 0 -value_in_hex
+            set want [expr {[rd $idx(PRGR)] & 0xFFFFFF}]
+            write_source_data -instance_index $idx(PRGR) -value 1 -value_in_hex
+            set got  [expr {[rd $idx(PRGR)] & 0xFFFFFF}]
+            write_source_data -instance_index $idx(PRGR) -value 2 -value_in_hex
+            set pc   [rd $idx(PRGR)]
+            puts [format "                 FIRST leak: CPU read word-addr 0x%06X but slot returned 0x%06X (delta %d words; bit22=%d)" \
+                $want $got [expr {$got - $want}] [expr {(($want ^ $got) >> 22) & 1}]]
+            puts [format "                 latched word=0x%04X   CPU bus addr @ leak=0x%08X" $badword $pc]
+            if {$delivered == 0} {
+                puts "                 ==> FIX WORKING: the leak condition occurred but the address-match gate"
+                puts "                     SUPPRESSED every one — 0 bad words reached the CPU."
+            } else {
+                puts [format "                 ==> FIX HOLE: %u bad word(s) still reached the CPU (timeout fallback?) — investigate." $delivered]
+            }
+        }
+
+        # ---- IF-fetch ring / illegal-F-line FAULT capture (PRGR src 6-12) ----
+        write_source_data -instance_index $idx(PRGR) -value 12 -value_in_hex
+        set fst    [rd $idx(PRGR)]
+        set ifroz  [expr {$fst & 1}]
+        set ihead  [expr {($fst >> 1) & 3}]
+        set ivec   [expr {($fst >> 4) & 0xF}]
+        set ivecnm [expr {$ivec == 11 ? "F-line(11)" : ($ivec == 4 ? "illegal(4)" : "none")}]
+        puts [format "           IF-FAULT: frozen=%d trap=%s head=%d" $ifroz $ivecnm $ihead]
+        if {$ifroz == 0} {
+            puts "                 ring NOT frozen — dumping LIVE ring contents for diagnosis (is it recording?):"
+        }
+        write_source_data -instance_index $idx(PRGR) -value 6  -value_in_hex; set fa0  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 7  -value_in_hex; set fa1  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 8  -value_in_hex; set fa2  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 9  -value_in_hex; set fa3  [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 10 -value_in_hex; set fw01 [rd $idx(PRGR)]
+            write_source_data -instance_index $idx(PRGR) -value 11 -value_in_hex; set fw23 [rd $idx(PRGR)]
+            set fpc(0) $fa0; set fpc(1) $fa1; set fpc(2) $fa2; set fpc(3) $fa3
+            set fwd(0) [expr {($fw01 >> 16) & 0xFFFF}]; set fwd(1) [expr {$fw01 & 0xFFFF}]
+            set fwd(2) [expr {($fw23 >> 16) & 0xFFFF}]; set fwd(3) [expr {$fw23 & 0xFFFF}]
+            for {set k 0} {$k < 4} {incr k} {
+                set slot [expr {($ihead + $k) % 4}]
+                set tag [expr {$k == 3 ? "  <- NEWEST = faulting opcode" : ""}]
+                puts [format "                 fetch-%d  PC=0x%08X  word=0x%04X%s" [expr {3 - $k}] $fpc($slot) $fwd($slot) $tag]
+            }
+            puts "                 Compare NEWEST word to the disk/ROM image: garbage opcode = corruption"
+            puts "                 (write-path suspect); a real F-line/FPU opcode = coprocessor/feature issue."
+        # ---- Free-running fault-vector recorder (PRGR src 13-15) --------------
+        # last-wins: at a Sad Mac the LAST processor-fault vector fetch = the fatal one.
+        write_source_data -instance_index $idx(PRGR) -value 13 -value_in_hex; set lva  [rd $idx(PRGR)]
+        write_source_data -instance_index $idx(PRGR) -value 14 -value_in_hex; set lvpc [rd $idx(PRGR)]
+        write_source_data -instance_index $idx(PRGR) -value 15 -value_in_hex; set lvc  [expr {[rd $idx(PRGR)] & 0xFFFF}]
+        set voff [expr {$lva & 0xFFF}]
+        switch -- $voff {
+            8   { set vnm "BUS-ERROR(2)" }
+            12  { set vnm "ADDRESS-ERROR(3)" }
+            16  { set vnm "ILLEGAL(4)" }
+            20  { set vnm "ZERO-DIVIDE(5)" }
+            24  { set vnm "CHK(6)" }
+            28  { set vnm "TRAPV(7)" }
+            32  { set vnm "PRIVILEGE(8)" }
+            36  { set vnm "TRACE(9)" }
+            44  { set vnm "F-LINE(11)" }
+            default { set vnm "other/none" }
+        }
+        if {$lvc == 0} {
+            puts "           VEC-RECORDER: count=0 -> NO processor-fault vector seen (VBR!=0, or no fault yet)"
+        } else {
+            puts [format "           VEC-RECORDER: last=%s  vec_addr=0x%08X  faulting_PC=0x%08X  count=%u" $vnm $lva $lvpc $lvc]
+            puts "                 ^ FATAL exception type + where it faulted. Look up faulting_PC in the ROM/disk image."
         }
     }
     if {[info exists idx(PCAK)]} {

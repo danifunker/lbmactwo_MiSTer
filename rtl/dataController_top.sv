@@ -52,6 +52,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// (registered in LBMacTwo.sv) — the only slots whose memoryLatch tail
 	// may be captured as CPU read data. See cpu_data comment below.
 	input cpuSlotOwned,
+	input cpu_rd_take,   // COHERENCY FIX (2026-06-13): only latch/forward read data
+	                     // when its source address matched the request (LBMacTwo.sv)
 	input [15:0] memoryDataIn,
 	output [15:0] memoryDataOut,
 	input memoryLatch,
@@ -71,6 +73,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// RTC
 	input [32:0] timestamp,
+
+	// PRAM persistence passthrough (LBMacTwo.sv PRAM FSM <-> rtc pram[])
+	input        pram_load_wr,
+	input  [7:0] pram_load_addr,
+	input  [7:0] pram_load_data,
+	input  [7:0] pram_save_addr,
+	output [7:0] pram_save_data,
+	output       pram_wr_stb,
 
 	// video:
 	output pixelOut,
@@ -93,6 +103,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	input [1:0] insertDisk,
 	input [1:0] diskSides,
+	input [1:0] diskMFM,    // disk is MFM-format (ISM/SWIM path): {ext,int}
+	input [1:0] diskHD,     // disk is 1.44MB HD (vs 720K DD): {ext,int}
 	output [1:0] diskEject,
 	output [1:0] diskMotor,
 	output [1:0] diskAct,
@@ -121,6 +133,24 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi4,
 	output           [15:0] dbg_scsi5,
 	output           [31:0] dbg_scsi_wr,   // target0 multi-block write-stall snapshot
+	output           [31:0] dbg_wr0,       // target0 dbg_wrstall, un-muxed live tap
+	output           [31:0] dbg_regs,      // live 5380 registers + bus lines (v3.2)
+	output           [7:0]  dbg_selt0,     // target0 selection-gate sampler (v3.6)
+	output           [31:0] dbg_wringA,    // v3.8 reg-write ring
+	output           [31:0] dbg_wringB,
+	output           [31:0] dbg_wringC,
+	output           [31:0] dbg_wringD,
+	output           [31:0] dbg_selid,     // v3.9 selection-target detective
+	output           [31:0] dbg_winh0A,    // v3.11 target0 window history
+	output           [31:0] dbg_winh0B,
+	output           [31:0] dbg_iwh,       // v3.12 initiator per-window counters
+	output           [31:0] dbg_cmdr0,     // v3.14 target0 command-opcode ring
+	output           [31:0] dbg_star0,     // v3.14 target0 status ring
+	output           [31:0] dbg_lbar0A,    // v3.15 target0 read LBA ring
+	output           [31:0] dbg_lbar0B,
+	output           [31:0] dbg_xorr0A,    // v3.17 target0 delivered-data XOR ring
+	output           [31:0] dbg_xorr0B,
+	output           [31:0] dbg_selfail0, // v3.16 target0 selection-failure tally
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
@@ -175,7 +205,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	wire _viaIrq, _via2Irq, _sccIrq, sccWReq;
 	wire [15:0] viaDataOut;
 	wire [15:0] via2DataOut;
-	wire [15:0] iwmDataOut;
+	wire [15:0] iwmDataOut;   // SWIM read data (name kept for lineage)
 	wire [7:0] sccDataOut;
 	wire [15:0] scsiDataOut;
 	wire [7:0] ascDataOut;
@@ -205,7 +235,27 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// neighbor word reaching the CPU = the journal 0x51C9/0x0000 disk
 	// corruption and the mid-pseudo-DMA F-line (vec 11) stray trap.
 	reg [15:0] cpu_data;
-	always @(posedge clk32) if (cpuSlotOwned && memoryLatch) cpu_data <= memoryDataIn;
+	always @(posedge clk32) if (cpuSlotOwned && memoryLatch && cpu_rd_take) cpu_data <= memoryDataIn;
+
+	// SCSI read-path fit-stabilization (port of MacLC periph_din_reg, 0c8844b —
+	// the fix behind the LC/LCII "SCSI latch" reliability): the deepest cone in
+	// the whole CPU read mux is the 5380 CSR's BSY bit (scsi.v phase reg →
+	// |target_bsy → CSR → ncr5380 rdata → this mux → tg68_din_r). Left
+	// combinational it fits with ~0.2-0.4 ns slack on a lucky placement and
+	// FAILS on an unlucky one — the CPU then intermittently reads BSY=0 while
+	// the target holds BSY=1, the SCSI Manager aborts, and the bus resets (the
+	// boot-time dice-roll class). Registering it makes the margin
+	// fit-independent. The +1 clk32 of staleness is absorbed on every consumer:
+	// both PIO CSR reads (immediate-DTACK async cycle) and DREQ-gated
+	// pseudo-DMA reads latch tg68_din_r at kernel s_state 6, >= 4 phi ticks
+	// (>= 8 clk32) after AS/select settle, and a status read does not advance
+	// the SCSI protocol, so the registered copy is settled long before capture.
+	// DMA read data is start-of-cycle-latched inside ncr5380 (dma_*_latched /
+	// the dma_settle fix), so its registered copy is likewise stable at capture.
+	// Matching LBMacTwo.sdc multicycle credits the real window on the cone INTO
+	// this register; its fan-out to the CPU stays single-cycle.
+	reg [15:0] scsi_din_reg;
+	always @(posedge clk32) scsi_din_reg <= scsiDataOut;
 
 	// CPU-side data output mux
 	assign cpuDataOut = selectASC ? { ascDataOut, ascDataOut } :
@@ -214,21 +264,40 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 							  selectVIA2 ? via2DataOut :
 							  selectNuBus ? nubusDataIn :
 							  selectSCC ? { sccDataOut, 8'hEF } :
-							  selectSCSI ? scsiDataOut :
-							  (cpuSlotOwned && memoryLatch) ? memoryDataIn : cpu_data;
+							  selectSCSI ? scsi_din_reg :
+							  (cpuSlotOwned && memoryLatch && cpu_rd_take) ? memoryDataIn : cpu_data;
 
 	// Memory-side
 	assign memoryDataOut = cpuDataIn;
 
 	// SCSI
-	// Latched 5380 interrupt → VIA2 CB2 (IFR bit 3); DREQ → VIA2 CA2 (IFR
+	// Latched 5380 interrupt → VIA2 CB2 (IFR bit 3); DRQ → VIA2 CA2 (IFR
 	// bit 0). Mac II wiring per Snow macii/via2.rs. Active-low into the VIA:
 	// the OS programs VIA2 PCR=0 (input, negative edge), so the flag latches
 	// on assertion. The HD SC 4.3 driver's async path sleeps on these flags
 	// between pseudo-DMA chunks — unwired, it polls the IFR forever (the
 	// Welcome wedge at every HPS 512-byte REQ pause).
+	// CA2 takes the RAW bus REQ level (o_drq_lvl, Snow get_drq() parity),
+	// NOT the flow-controlled dreq: Snow's healthy-boot trace shows the
+	// System driver's post-transfer completion wait rides IFR bit 0 through
+	// the DATA→STATUS handoff, where dreq (dma_en-gated + settle-masked)
+	// goes quiet — that starvation is the MacAtrium first-boot livelock.
+	// scsiDREQ still paces DACK-cycle DTACK at the top level (untouched).
 	wire scsiIRQ;
-	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(1)) scsi(
+	wire scsiDRQlvl;
+	// ENABLE_EMPTY_CD(0) — 2026-07-10: the phantom empty-CD target (ID3) is
+	// the happy-mac-reboot storm root cause. Probe-proven on be5c1800 (JTAG
+	// reboot-differential deck): boot-disk transaction completes (ph7), then
+	// the 7.5.5 mount/CD-extension scan selects ID3; scsi_empty_cd completes
+	// only 6/10-byte CDBs (scsi.v cmd_cpl) and has no initiator-abandon exit,
+	// so a group-5 12-byte CD probe (READ CD 0xBE) parks it in CMD_IN holding
+	// BSY+REQ = bus never free (live flags: scsi_req_bus=1 w/ target0 IDLE).
+	// Every SCSIReset clears it; the rescan re-wedges it in ms -> reset storm
+	// (255 saturated), ROM gives up -> reboot loop. MacLC AND MacLCii ship
+	// ENABLE_EMPTY_CD(0) — this core was the only one with it on. If ever
+	// re-enabled: add 12-byte/unknown-group CDB completion + a SEL-drop /
+	// ACK-timeout bailout to IDLE in scsi_empty_cd first.
+	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(0)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
@@ -241,6 +310,7 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dma_second_word(cpuAddrRegLo[0]),
 		.dreq(scsiDREQ),
 		.o_irq(scsiIRQ),
+		.o_drq_lvl(scsiDRQlvl),
 		.wdata(cpuDataIn),
 		.rdata(scsiDataOut),
 
@@ -262,6 +332,22 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_scsi4(dbg_scsi4),
 		.dbg_scsi5(dbg_scsi5),
 		.dbg_scsi_wr(dbg_scsi_wr),
+		.dbg_wr0(dbg_wr0),
+		.dbg_regs(dbg_regs),
+		.dbg_selt0(dbg_selt0),
+		.dbg_wringA(dbg_wringA), .dbg_wringB(dbg_wringB),
+		.dbg_wringC(dbg_wringC), .dbg_wringD(dbg_wringD),
+		.dbg_selid(dbg_selid),
+		.dbg_winh0A(dbg_winh0A),
+		.dbg_winh0B(dbg_winh0B),
+		.dbg_iwh(dbg_iwh),
+		.dbg_cmdr0(dbg_cmdr0),
+		.dbg_star0(dbg_star0),
+		.dbg_lbar0A(dbg_lbar0A),
+		.dbg_lbar0B(dbg_lbar0B),
+		.dbg_xorr0A(dbg_xorr0A),
+		.dbg_xorr0B(dbg_xorr0B),
+		.dbg_selfail0(dbg_selfail0),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2)
 	);
@@ -562,12 +648,23 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 		//-- handshake pins
 		.ca1_i      (via2_ca1),
-		.ca2_i      (~scsiDREQ), // CA2: SCSI DRQ (IFR bit 0), falling edge on assert
-		.ca2_lvl_i  (scsiDREQ),  // level overlay: IFR bit 0 reads 1 while DRQ high
+		// PURE-LEVEL SCSI flags (Snow-exact, 2026-07-11 v2). Snow's IFR bits
+		// 0/3 are re-stamped from the live 5380 lines every tick — they SELF-
+		// CLEAR when the line drops. The 6522 edge latch broke that: once the
+		// first REQ set IFR bit 0, it stayed 1 without an ORA access, so the
+		// driver's per-byte "wait for DRQ" passed while REQ was still low and
+		// the CDB byte it then wrote was swallowed (boot-A f71b27c capture:
+		// 7th dialog opens, CDB never completes, PCMD ring frozen at the map
+		// walk). Tie the edge inputs inactive: no edge events, IFR bit 0/3 =
+		// the lvl overlays alone = live REQ / live 5380 irq_latch. VIA-side
+		// clears become no-ops on never-set latches, matching Snow's
+		// overridden-clear semantics exactly.
+		.ca2_i      (1'b1),        // no edges: IFR bit 0 = pure REQ level
+		.ca2_lvl_i  (scsiDRQlvl),  // = o_drq_lvl = raw bus REQ, any phase
 		.cb2_lvl_i  (scsiIRQ),   // level overlay: IFR bit 3 reads 1 while IRQ latched
 
 		.cb1_i      (asc_irq_n), // CB1: ASC sound IRQ (active-low)
-		.cb2_i      (~scsiIRQ),  // CB2: SCSI IRQ (IFR bit 3), falling edge on assert
+		.cb2_i      (1'b1),      // no edges: IFR bit 3 = pure 5380 irq_latch level
 		.cb2_o      (),
 		.cb2_t      (),
 
@@ -592,7 +689,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.ck         (rtcck),
 		.dat_i      (rtcdat_i),
 		.dat_o      (rtcdat_o),
-		.cko        (rtc_cko)
+		.cko        (rtc_cko),
+
+		.pram_load_wr   (pram_load_wr),
+		.pram_load_addr (pram_load_addr),
+		.pram_load_data (pram_load_data),
+		.pram_save_addr (pram_save_addr),
+		.pram_save_data (pram_save_data),
+		.pram_wr_stb    (pram_wr_stb)
 	);
 
 	wire _ADBint;
@@ -950,12 +1054,17 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 
 	// IWM — clocked at C15M (15.6672 MHz) per MAME spec; module divides by 2
 	// internally to recover the ~7.8336 MHz fclk that times GCR bit cells.
-	iwm i(
+	// IWM-era probe outputs with no SWIM equivalent: hold at 0 so the top-level
+	// probe wiring (dbg_iwm_ack_cnt / dbg_iwm_arm_high) stays connected.
+	assign dbg_iwm_ack_cnt  = 16'd0;
+	assign dbg_iwm_arm_high = 7'd0;
+
+	swim sw(
 		.clk(clk32),
-		.cep(clk16_en_p),
-		.cen(clk16_en_n),
+		.cep(clk8_en_p),
+		.cen(clk8_en_n),
 		._reset(_cpuReset),
-		.selectIWM(selectIWM),
+		.selectSWIM(selectIWM),
 		._cpuRW(_cpuRW),
 		._cpuUDS(_cpuUDS),
 		._cpuLDS(_cpuLDS),
@@ -966,6 +1075,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dataOut(iwmDataOut),
 		.insertDisk(insertDisk),
 		.diskSides(diskSides),
+		.diskMFM(diskMFM),
+		.diskHD(diskHD),
 		.diskEject(diskEject),
 		.diskMotor(diskMotor),
 		.diskAct(diskAct),
@@ -977,15 +1088,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dskReadData(memoryDataIn[7:0]),
 
 		// PFLP / PIWM diagnostic ports
-		.dbg_dsk_ack_cnt    (dbg_iwm_ack_cnt),
-		.dbg_read_data_latch(dbg_iwm_latch),
-		.dbg_arm_delay_high (dbg_iwm_arm_high),
-		.dbg_flp_byte_cnt   (dbg_flp_byte_cnt),
-		.dbg_flp_miss_cnt   (dbg_flp_miss_cnt),
-		.dbg_flp_disk_data  (dbg_flp_disk_data),
-		.dbg_flp_track      (dbg_flp_track),
-		.dbg_flp_side       (dbg_flp_side),
-		.dbg_flp_step_cnt   (dbg_flp_step_cnt)
+		.dbg_iwm_latch(dbg_iwm_latch),
+		.dbg_flp_byte_cnt(dbg_flp_byte_cnt),
+		.dbg_flp_miss_cnt(dbg_flp_miss_cnt),
+		.dbg_flp_disk_data(dbg_flp_disk_data),
+		.dbg_flp_track(dbg_flp_track),
+		.dbg_flp_side(dbg_flp_side),
+		.dbg_flp_step_cnt(dbg_flp_step_cnt)
 	);
 
 	// SCC
@@ -1084,6 +1193,37 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// down or stuck?), [0]=via1_sr_ext_complete pulse (does completion ever
 	// fire?). dbg_min counts the completes and snapshots the timer.
 	assign dbg_adb2 = {via1_shift_timer[16:0], via1_sr_ext_complete};
+
+`ifdef SIMULATION
+	// ADB/VIA1-SR event trace (+adb_debug): every CPU-visible event of the
+	// transceiver dialog, for the System-startup ADBReInit stall. One line
+	// per event; the 0x6DD8 spin means the interesting run is only a few
+	// hundred lines.
+	reg [1:0] adb_st_d;
+	always @(posedge clk32) begin
+		if ($test$plusargs("adb_debug")) begin
+			adb_st_d <= {ADBST1, ADBST0};
+			if (adb_st_d != {ADBST1, ADBST0})
+				$display("[ADB %0t] ST %b -> %b", $time, adb_st_d, {ADBST1, ADBST0});
+			if (via1_acr_wr)
+				$display("[ADB %0t] ACR<=%02x (sr mode %b -> %b)", $time,
+				         cpuDataIn[15:8], via1_acr_shift_mode, cpuDataIn[12:10]);
+			if (via1_sr_wr)
+				$display("[ADB %0t] SRW %02x (mode=%b)", $time, cpuDataIn[15:8], via1_acr_shift_mode);
+			if (via1_sr_rd)
+				$display("[ADB %0t] SRR (mode=%b timer=%0d pend=%b)", $time,
+				         via1_acr_shift_mode, via1_shift_timer, adb_resp_pending);
+			if (via1_sr_ext_complete)
+				$display("[ADB %0t] COMPLETE dir=%b load=%b data=%02x fresh_was=%b timer_was=%0d",
+				         $time, via1_shift_dir, via1_sr_ext_load, via1_sr_ext_data,
+				         via1_kbd_to_mac_fresh, via1_shift_timer);
+			if (adb_din_strobe)
+				$display("[ADB %0t] DIN  %02x (transceiver st=%b)", $time, adb_din, {ADBST1, ADBST0});
+			if (adb_dout_strobe)
+				$display("[ADB %0t] DOUT %02x (transceiver)", $time, adb_dout);
+		end
+	end
+`endif
 
 endmodule
 

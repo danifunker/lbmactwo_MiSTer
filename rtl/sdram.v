@@ -39,10 +39,12 @@ module sdram
 
 	input [15:0]        din,        // data input from chipset/cpu
 	output reg [15:0]   dout,       // data output to chipset/cpu
+	output reg [23:0]   dout_addr,  // DBG: word-address that produced `dout` (coherency probe; pruned when unconnected)
 	input [23:0]        addr,       // 24 bit word address
 	input [1:0]         ds,         // upper/lower data strobe
 	input               oe,         // cpu/chipset requests read
-	input               we          // cpu/chipset requests write
+	input               we,         // cpu/chipset requests write
+	output              dbg_we_latch // DBG: slot latched CMD_WRITE (phantom-write probe)
 );
 
 localparam RASCAS_DELAY   = 3'd2;   // tRCD=20ns -> 3 cycles@128MHz
@@ -82,16 +84,26 @@ end
 // --------------------------- startup/reset ---------------------------
 // ---------------------------------------------------------------------
 
-// wait 1ms (32 8Mhz cycles) after FPGA config is done before going
-// into normal operation. Initialize the ram in the last 16 reset cycles (cycles 15-0)
-reg [4:0] reset;
+// JEDEC SDR-SDRAM init: ~126us of NOPs after the clock starts (the chip wants
+// 100us of stable clock before the first command — the FPGA was just
+// reconfigured, so the SDRAM clock was dead/floating until the PLL locked),
+// then PRECHARGE ALL -> 8x AUTO REFRESH -> LOAD MODE. The previous sequence
+// (31 chipset cycles ~4us, ZERO refreshes; its "wait 1ms" comment was wrong)
+// relied on the chip state the PREVIOUS core left behind; whether the mode
+// register write took was per-load luck — the cold-load flakiness ("core
+// reload corrupts the following load"; clears after loading a different core
+// first). Ported from MacLC 0bbe6bd (HW-validated). Content-preserving
+// (NOPs/refreshes/MRS only). LBMacTwo init = !sys_locked: asserted only at
+// cold config until the PLL locks, so the ladder runs on stable clock and well
+// before the ROM download.
+reg [9:0] reset;
 always @(posedge clk_64) begin
-	if(init)	reset <= 5'h1f;
+	if(init)	reset <= 10'h3ff;
 	else if((t == STATE_LAST) && (reset != 0))
-		reset <= reset - 5'd1;
+		reset <= reset - 10'd1;
 end
 
-initial reset = 5'h1F;
+initial reset = 10'h3FF;
 
 // ---------------------------------------------------------------------
 // ------------------ generate ram control signals ---------------------
@@ -118,19 +130,32 @@ assign sd_we  = sd_cmd[0];
 assign sd_dqm = sd_addr[12:11];
 
 reg oe_latch, we_latch;
+reg [23:0] addr_latch;   // DBG: addr captured at slot t=0, travels with dout to STATE_READ
+// DBG (2026-07-17, phantom-write probe): expose the command-latch state so the
+// top level can verify a CPU-owned write slot actually latched CMD_WRITE. A
+// late-settling `we` at STATE_CMD_START turns the slot into AUTO_REFRESH (the
+// idle-else below) while the top's slot-start handshake still completes DTACK
+// — a silently lost write, invisible to wr_escape_cnt.
+assign dbg_we_latch = we_latch;
 
 always @(posedge clk_64) begin
 	sd_cmd <= CMD_INHIBIT;  // default: idle
 	sd_data <= 16'bZZZZZZZZZZZZZZZZ;
 
 	if(reset != 0) begin
-		// initialization takes place at the end of the reset phase
+		// init ladder, one command slot per chipset cycle (~123ns apart):
+		// 1023..65 = NOP wait (>=100us), 64 = PRECHARGE ALL, 56/52/../28 =
+		// 8x AUTO REFRESH, 2 = LOAD MODE. tRP/tRFC/tMRD are all satisfied by
+		// orders of magnitude at this spacing. (Ported from MacLC 0bbe6bd.)
 		if(t == STATE_CMD_START) begin
 
-			if(reset == 13) begin
+			if(reset == 64) begin
 				sd_cmd <= CMD_PRECHARGE;
 				sd_addr[10] <= 1'b1;      // precharge all banks
 			end
+
+			if(reset >= 28 && reset <= 56 && reset[1:0] == 2'b00)
+				sd_cmd <= CMD_AUTO_REFRESH;
 
 			if(reset == 2) begin
 				sd_cmd <= CMD_LOAD_MODE;
@@ -145,6 +170,7 @@ always @(posedge clk_64) begin
 		// -------------------  cpu/chipset read/write ----------------------
 		if(t == STATE_CMD_START) begin
 			{oe_latch, we_latch} <= {oe, we};
+			addr_latch <= addr;   // DBG: tag this slot's read data with its own address
 			if (we || oe) begin
 				sd_cmd <= CMD_ACTIVE;
 				sd_addr <= { 1'b0, addr[19:8] };
@@ -166,7 +192,10 @@ always @(posedge clk_64) begin
 		end
 
 		// Data ready
-		if (t == STATE_READ && oe_latch) dout <= sd_data;
+		if (t == STATE_READ && oe_latch) begin
+			dout      <= sd_data;
+			dout_addr <= addr_latch;   // DBG: this dout was produced by addr_latch
+		end
 
 	end
 end

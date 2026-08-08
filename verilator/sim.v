@@ -99,6 +99,15 @@ module emu
 	output [31:0] debug_vbr,
 	output  [2:0] debug_cpuIPL,
 
+	// berr-rerun investigation (2026-07-12): format-$B RTE / berr_inhibit
+	output        debug_berr_inhibit,   // TG68 rerun window active
+	output [31:0] debug_berr_data,      // berr_data_buf re-fed during the window
+	output        debug_busev_valid,    // one pulse per completed CPU bus cycle
+	output [31:0] debug_busev_addr,
+	output [15:0] debug_busev_data,     // word the CPU RECEIVED (reads) / drove (writes)
+	output        debug_busev_rw,       // 1=read
+	output  [2:0] debug_busev_fc,
+
 	// Serial terminal interface
 	output        serial_txd,       // SCC Channel A TX output (for sim-side RX)
 	input         serial_rxd,       // SCC Channel A RX input (from sim-side TX)
@@ -293,12 +302,13 @@ module emu
 	assign      _cpuVPA = (cpuFC == 3'b111 && !selectFPU) ? 1'b0 :
 	                      viaAccess ? ~!_cpuAS :
 	                      ~(!_cpuAS && cpuAddr[23:21] == 3'b111);
+	wire sim_ram_dtack = (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
 	// DTACK: FPU uses DSACK; VIA accesses use VPA/VMA synchronous handshake.
 	assign      _cpuDTACK = selectFPU ? (eff_fpu_dsack0_n & eff_fpu_dsack1_n) :
 	                        selectNuBus ? nubusAck :
 	                        selectSCSIDMA ? ~scsiDREQ :
 	                        viaAccess ? 1'b1 :
-	                        (~(!_cpuAS && cpuAddr[23:21] != 3'b111) | (status_turbo & !turbo_dtack_en));
+	                        sim_ram_dtack;
 
 	// Bus error timeout — undecoded addresses trigger bus error after ~8us
 	reg [8:0] berr_counter;
@@ -629,6 +639,41 @@ module emu
 	assign debug_cirrd_data = cirrd_data;
 	assign debug_berr = berr_out;
 
+	// --- berr-rerun investigation (2026-07-12) -------------------------------
+	// One event per completed CPU bus cycle, carrying the word the CPU actually
+	// RECEIVED (cpu_data_in — which is berr_data_buf during a berr_inhibit rerun
+	// window; debug_opcode logs dataControllerDataOut and would hide that).
+	reg        busev_valid_r;
+	reg [31:0] busev_addr_r, busev_addr_l;
+	reg [15:0] busev_data_r, busev_data_l;
+	reg        busev_rw_r, busev_rw_l;
+	reg [2:0]  busev_fc_r, busev_fc_l;
+	reg        busev_as_d = 1'b1;
+	always @(posedge clk_sys) begin
+		busev_valid_r <= 0;
+		busev_as_d <= tg68_as_n;
+		if (!tg68_as_n) begin
+			busev_addr_l <= tg68_a;
+			busev_data_l <= tg68_rw ? cpu_data_in : tg68_dout[15:0];
+			busev_rw_l   <= tg68_rw;
+			busev_fc_l   <= cpuFC;
+		end
+		if (!busev_as_d && tg68_as_n) begin
+			busev_addr_r  <= busev_addr_l;
+			busev_data_r  <= busev_data_l;
+			busev_rw_r    <= busev_rw_l;
+			busev_fc_r    <= busev_fc_l;
+			busev_valid_r <= 1;
+		end
+	end
+	assign debug_busev_valid  = busev_valid_r;
+	assign debug_busev_addr   = busev_addr_r;
+	assign debug_busev_data   = busev_data_r;
+	assign debug_busev_rw     = busev_rw_r;
+	assign debug_busev_fc     = busev_fc_r;
+	assign debug_berr_inhibit = cpu_berr_inhibit;
+	assign debug_berr_data    = cpu_berr_data;
+
 	addrController_top ac0
 	(
 		.clk(clk_sys),
@@ -700,7 +745,7 @@ module emu
 	wire        sim_vram_scan_rd;
 	wire [15:0] sim_vram_scan_data;
 
-	vram_ram #(.AW(16)) sim_vram_inst (   // 2^16 words = 128 KB (matches hardware)
+	vram_ram #(.WORDS(196608)) sim_vram_inst (   // 384 KB (matches hardware)
 		.clk    (clk_sys),
 		// Port A — CPU read/write (card FSM)
 		.addr   (sim_vram_addr),
@@ -750,6 +795,7 @@ module emu
 
 		.overlay_en(1'b0),
 		.monochrome(1'b0),
+		.monitor_512(1'b0),   // sim always models the 640x480 13" monitor
 
 		.ioctl_wr(ioctl_wr),
 		.ioctl_addr(ioctl_addr),
@@ -801,6 +847,18 @@ module emu
 		.memoryDataOut(memoryDataOut),
 		.memoryDataIn(ram_do),
 		.memoryLatch(memoryLatch),
+		// SDRAM-coherency-fix slot handshake (fefc429, 2026-06-13): the
+		// dataController read-delivery gate is now
+		//   cpuSlotOwned && memoryLatch && cpu_rd_take
+		// (was cpuBusControl && memoryLatch). sim.v was never updated when
+		// those two inputs were added, so with -Wno-PINMISSING they floated to
+		// 0 and NO ROM/RAM read data ever reached the CPU — the CPU booted into
+		// zeroed memory and wandered. sim_ram is combinational and always
+		// returns the addressed word (no arbiter, no neighbor-slot hazard), so
+		// reproduce the old gate exactly: own the slot whenever the CPU has bus
+		// control, and always take the read (no coherency mismatch to guard).
+		.cpuSlotOwned(cpuBusControl),
+		.cpu_rd_take(1'b1),
 
 		.ps2_key(ps2_key),
 		.capslock(capslock),
@@ -811,6 +869,14 @@ module emu
 		.serialRTS(serialRTS),
 
 		.timestamp(timestamp),
+
+		// PRAM persistence: no HPS NVRAM image in sim — tie off
+		.pram_load_wr(1'b0),
+		.pram_load_addr(8'd0),
+		.pram_load_data(8'd0),
+		.pram_save_addr(8'd0),
+		.pram_save_data(),
+		.pram_wr_stb(),
 
 		._hblank(_hblank),
 		._vblank(_vblank),
@@ -827,6 +893,8 @@ module emu
 
 		.insertDisk({dsk_ext_ins, dsk_int_ins}),
 		.diskSides({dsk_ext_ds, dsk_int_ds}),
+		.diskMFM({dsk_ext_mfm, dsk_int_mfm}),
+		.diskHD({dsk_ext_hd, dsk_int_hd}),
 		.diskEject(diskEject),
 		.dskReadAddrInt(dskReadAddrInt),
 		.dskReadAckInt(dskReadAckInt),
@@ -857,6 +925,8 @@ module emu
 	// Floppy disk image tracking
 	reg dsk_int_ds, dsk_ext_ds;
 	reg dsk_int_ss, dsk_ext_ss;
+	reg dsk_int_mfm = 0, dsk_ext_mfm = 0;   // SWIM: MFM image mounted
+	reg dsk_int_hd  = 0, dsk_ext_hd  = 0;   // SWIM: 1.44MB image mounted
 	wire dsk_int_ins = dsk_int_ds || dsk_int_ss;
 	wire dsk_ext_ins = dsk_ext_ds || dsk_ext_ss;
 
@@ -864,8 +934,10 @@ module emu
 		reg old_down;
 		old_down <= dio_download;
 		if(old_down && ~dio_download && dio_index == 2) begin
-			dsk_int_ds <= (dio_addr == 409600);
-			dsk_int_ss <= (dio_addr == 204800);
+			dsk_int_ds <= (dio_addr >= 409599 && dio_addr <= 409600);
+			dsk_int_ss <= (dio_addr >= 204799 && dio_addr <= 204800);
+			dsk_int_mfm <= (dio_addr >= 368639 && dio_addr <= 368640) || (dio_addr >= 737279 && dio_addr <= 737280);
+			dsk_int_hd  <= (dio_addr >= 737279 && dio_addr <= 737280);
 		end
 		if(diskEject[0]) begin
 			dsk_int_ds <= 0;
@@ -877,8 +949,10 @@ module emu
 		reg old_down;
 		old_down <= dio_download;
 		if(old_down && ~dio_download && dio_index == 3) begin
-			dsk_ext_ds <= (dio_addr == 409600);
-			dsk_ext_ss <= (dio_addr == 204800);
+			dsk_ext_ds <= (dio_addr >= 409599 && dio_addr <= 409600);
+			dsk_ext_ss <= (dio_addr >= 204799 && dio_addr <= 204800);
+			dsk_ext_mfm <= (dio_addr >= 368639 && dio_addr <= 368640) || (dio_addr >= 737279 && dio_addr <= 737280);
+			dsk_ext_hd  <= (dio_addr >= 737279 && dio_addr <= 737280);
 		end
 		if(diskEject[1]) begin
 			dsk_ext_ds <= 0;
@@ -904,7 +978,7 @@ module emu
 			else if (dio_index == 8'd1)
 				dio_a <= {2'b11, dio_addr[18:0]};    // NuBus ROM is consumed directly
 			else if (dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3)
-				dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
+				dio_a <= {(dio_index[1:0] - 2'd1), dio_addr[19:0]};  // 1M-word floppy windows (1.44MB fits)
 			else
 				dio_a <= {dio_index[6], dio_addr[19:0]};
 			ioctl_wait <= 1;
@@ -927,12 +1001,13 @@ module emu
 	// Combinational version of dio_a for download (avoids register latency)
 	// Mac II ROM (boot0.rom, 256K) starts at 0x40_0000 in address space
 	// ROM is 256K = 128K words, using dio_addr[16:0] (17 bits)
-	// Floppy disk images at word offsets 0x80000 and 0x100000.
-	wire [20:0] dio_a_floppy = {(dio_index[1:0] - 2'd1), dio_addr[18:0]};
-	wire [20:0] dio_a_comb = (dio_index == 8'd0) ? {4'b0000, dio_addr[16:0]} :
-	                         (dio_index == 8'd1) ? {2'b11, dio_addr[18:0]} :
+	// Floppy disk images at word offsets 0x100000 and 0x200000 (1M-word windows:
+	// a 1.44MB image is 737,280 words and overflowed the old 512K-word slots).
+	wire [21:0] dio_a_floppy = {(dio_index[1:0] - 2'd1), dio_addr[19:0]};
+	wire [21:0] dio_a_comb = (dio_index == 8'd0) ? {5'b00000, dio_addr[16:0]} :
+	                         (dio_index == 8'd1) ? {3'b011, dio_addr[18:0]} :
 	                         ((dio_index[1:0] == 2'd2 || dio_index[1:0] == 2'd3) ? dio_a_floppy :
-	                          {dio_index[6], dio_addr[19:0]});
+	                          {1'b0, dio_index[6], dio_addr[19:0]});
 
 	// Address mapping for sim_ram (matches the FPGA SDRAM map, 8MB-capable):
 	//   RAM        : 0x000000 - 0x3FFFFF (A22=0)  — up to 4M words = 8MB
@@ -940,9 +1015,9 @@ module emu
 	//                                               window so it no longer
 	//                                               collides (it used to sit at
 	//                                               A21=0x200000, inside 8MB RAM).
-	wire [24:0] ram_addr = download_cycle ? {2'b00, 1'b1, 1'b0, dio_a_comb[20:0] } :   // ROM/disk download @ 0x400000+
+	wire [24:0] ram_addr = download_cycle ? {2'b00, 1'b1, dio_a_comb[21:0] } :   // ROM/disk download @ 0x400000+
 						   ~_romOE        ? {2'b00, 1'b1, 5'b00000, memoryAddr[17:1]} : // ROM reads @ 0x400000+ (256K ROM)
-						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, 1'b0, memoryAddr[21:1]} : // disk image @ 0x400000+
+						   (dskReadAckInt || dskReadAckExt) ? {2'b00, 1'b1, memoryAddr[22:1]} : // disk image @ 0x400000+
 										  {3'b000, memoryAddr[22:1]};                  // RAM 0x000000-0x3FFFFF (8MB)
 	// Use ioctl_dout directly for download (bypass registered dio_data)
 	wire [15:0] ram_din  = download_cycle ? ioctl_dout            : memoryDataOut;
@@ -951,14 +1026,18 @@ module emu
 	wire        ram_we   = download_cycle ? 1'b1                  : !_ramWE;
 	wire        ram_oe   = download_cycle ? 1'b0                  : (!_ramOE || !_romOE || dskReadAckInt || dskReadAckExt);
 	wire [15:0] ram_do_raw;
-	wire [22:0] ram_next_word_addr = ram_addr[22:0] + 23'd1;
-	wire [15:0] ram_odd_word_do = {ram_do_raw[7:0], ram.mem[ram_next_word_addr][15:8]};
-	wire        ram_odd_full_read = !download_cycle && !(dskReadAckInt || dskReadAckExt) &&
-	                                ram_oe && !ram_we && memoryAddr[0] &&
-	                                !_memoryUDS && !_memoryLDS;
+	// Odd-addressed full-word reads (TG68's misaligned-transfer middle piece:
+	// memoryAddr[0]=1 with BOTH strobes) must return the CONTAINING word raw —
+	// the kernel does its own byte-lane extraction. This is the semantics the
+	// SingleStepTests cpu_fpu bench provides (ram_read16 masks A0) and passes
+	// with. A former "straddle" mux here ({byte@A, byte@A+1}) double-shifted
+	// misaligned reads: a misaligned move.l source read returned {b0,b2,b3,b3}
+	// and every misaligned BlockMove corrupted its destination (the System
+	// resource map's DSAT ids read 0x00FF/0x02FF -> GetResource NIL -> boot-time
+	// SysError(40) -> Sad Mac 0F/0028). Sim-harness bug only: the real top's
+	// SDRAM path is word-addressed and naturally serves the containing word.
 	wire [15:0] ram_do   = download_cycle ? 16'hffff :
 	                       (dskReadAckInt || dskReadAckExt) ? extra_rom_data_demux :
-	                       ram_odd_full_read ? ram_odd_word_do :
 	                       ram_do_raw;
 	wire [15:0] extra_rom_data_demux = memoryAddr[0] ?
 						   {ram_do_raw[7:0],ram_do_raw[7:0]}:{ram_do_raw[15:8],ram_do_raw[15:8]};
@@ -975,6 +1054,41 @@ module emu
 		.dout           ( ram_do_raw  ),
 		.debug_pc       ( last_fetch_pc )
 	);
+
+	// ── Reset-fetch tracer (why does the CPU boot into zeroed RAM?) ──────────
+	// Print the first N CPU bus cycles so the boot overlay + ROM-select decode
+	// and the resulting sim_ram address/data are visible. Enable with
+	// +resetfetch_debug. Fires on the real cpuBusControl grant (not idle AS=0
+	// samples). If overlay/selectROM are right but ram_do reads 0, the ROM
+	// isn't in sim_ram; if selectROM never asserts, the overlay decode input
+	// (memoryOverlayOn / configROMSize) is wrong.
+	integer rf_dbg_cnt = 0;
+	reg rf_bc_d = 1'b0;
+	always @(posedge clk_sys) begin
+		rf_bc_d <= cpuBusControl;
+		if ($test$plusargs("resetfetch_debug") && rf_dbg_cnt < 80 &&
+		    cpuBusControl && !_cpuAS && !dio_download) begin
+			$display("RF[%0d] cpuAddr=%08h memAddr=%06h selROM=%b selRAM=%b ovl=%b _romOE=%b _ramOE=%b ram_addr=%07h ram_do=%04h rw=%b cfgROM=%b cfgRAM=%b",
+				rf_dbg_cnt, cpuAddr, memoryAddr, selectROM, selectRAM, memoryOverlayOn,
+				_romOE, _ramOE, ram_addr, ram_do, _cpuRW, configROMSize, configRAMSize);
+			rf_dbg_cnt <= rf_dbg_cnt + 1;
+		end
+	end
+
+	// Misaligned-write forensics (2026-07-16): per-clock view of a CPU write
+	// cycle at BOTH interfaces (CPU emission vs sim_ram reception) inside the
+	// resource-map copy destination window. Enable with +misalign_debug.
+	// synthesis translate_off
+	always @(posedge clk_sys) begin
+		if ($test$plusargs("misalign_debug") && !tg68_as_n && !tg68_rw &&
+		    tg68_a[23:0] >= 24'h012E00 && tg68_a[23:0] <= 24'h012F60)
+			$display("MISW t=%0t a=%06x u=%b l=%b dout=%04x | mm=%06b odd=%b st=%b%b | dtack=%b",
+			         $time, tg68_a[23:0], _cpuUDS, _cpuLDS, tg68_dout[15:0],
+			         tg68k_inst.tg68k.memmask,
+			         tg68k_inst.tg68k.oddout, tg68k_inst.tg68k.state[1], tg68k_inst.tg68k.state[0],
+			         _cpuDTACK);
+	end
+	// synthesis translate_on
 
 	// RAM debug outputs
 	assign debug_ram_addr = ram_addr;
@@ -1779,6 +1893,34 @@ module emu
 		end
 	end
 `endif
+
+// synthesis translate_off
+// SWIM/ISM trace (2026-08-07): the 1.44MB path stalls at the blinking-? and
+// the module's own debug set was never surfaced here. Print the ISM state on
+// every change so the failing stage is visible: does the ROM enter ISM mode,
+// does drive select assert, do the MFM geometry flags reach the drive, and are
+// MFM bytes actually strobing out of the encoder. Enable with +swimtrace.
+reg [7:0]  sw_mode_d;  reg sw_ism_d, sw_sel_d, sw_mfm_d, sw_hd_d;
+reg [15:0] sw_bcnt_d;  reg [7:0] sw_err_d;
+always @(posedge clk_sys) begin
+	if ($test$plusargs("swimtrace")) begin
+		if (dc0.sw.ism_mode !== sw_ism_d || dc0.sw.ism_mode_reg !== sw_mode_d ||
+		    dc0.sw.ism_devsel_int !== sw_sel_d || dc0.sw.diskMFM[0] !== sw_mfm_d ||
+		    dc0.sw.diskHD[0] !== sw_hd_d || dc0.sw.ism_error !== sw_err_d) begin
+			$display("SWIM t=%0t ism_mode=%b mode_reg=%02x devsel_int=%b devsel_ext=%b mfm=%b hd=%b err=%02x fifo=%0d bytecnt=%0d",
+			         $time, dc0.sw.ism_mode, dc0.sw.ism_mode_reg, dc0.sw.ism_devsel_int,
+			         dc0.sw.ism_devsel_ext, dc0.sw.diskMFM[0], dc0.sw.diskHD[0],
+			         dc0.sw.ism_error, dc0.sw.ism_fifo_pos, dc0.sw.dbg_flp_byte_cnt);
+		end
+		if (dc0.sw.dbg_flp_byte_cnt[9:0] == 10'd0 && dc0.sw.dbg_flp_byte_cnt !== sw_bcnt_d)
+			$display("SWIM-MFM t=%0t bytes=%0d (encoder delivering)", $time, dc0.sw.dbg_flp_byte_cnt);
+		sw_ism_d <= dc0.sw.ism_mode;   sw_mode_d <= dc0.sw.ism_mode_reg;
+		sw_sel_d <= dc0.sw.ism_devsel_int; sw_mfm_d <= dc0.sw.diskMFM[0];
+		sw_hd_d  <= dc0.sw.diskHD[0];  sw_err_d  <= dc0.sw.ism_error;
+		sw_bcnt_d <= dc0.sw.dbg_flp_byte_cnt;
+	end
+end
+// synthesis translate_on
 
 endmodule
 
