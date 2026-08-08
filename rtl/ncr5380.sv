@@ -676,7 +676,13 @@ module ncr5380
 			// pipeline registers of cc81843, which this core does not have). 8KB is
 			// still deep enough that the ring stays continuously ahead of the Mac
 			// mid-command (MacLC itself shipped 8 sectors for a period).
-			scsi #(.ID(i[2:0]), .RING_LOG((i == 0) ? 4 : 1)) target
+			// RING_LOG 4 -> 5 RESTORED (2026-08-08): the resource diet freed the
+			// budget (483/553 post-diet; this costs +20 -> ~503), and the halved
+			// ring had never been hardware-tested — first HW outing of the diet
+			// build boots 6.0.8 clean but no 7.x disk at all, so the boot-disk
+			// cache goes back to the MacLC-matched 32 sectors / 16KB while that
+			// regression is hunted. Owner call (matches MacLC HD0 exactly).
+			scsi #(.ID(i[2:0]), .RING_LOG((i == 0) ? 5 : 1)) target
 			(
 				.clk    ( clk ),
 				.rst    ( scsi_rst ),
