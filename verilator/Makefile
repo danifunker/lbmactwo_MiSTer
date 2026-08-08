@@ -99,6 +99,7 @@ V_SRC = \
 	$(RTL)/floppy_track_encoder.v \
 	$(RTL)/scsi.v \
 	$(RTL)/ncr5380.sv \
+	$(RTL)/cd_audio.sv \
 	$(RTL)/scc.v \
 	$(RTL)/pll/pll_0002.v \
 	$(RTL)/uart/txuart.v \

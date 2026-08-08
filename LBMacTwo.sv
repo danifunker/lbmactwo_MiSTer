@@ -350,7 +350,10 @@ wire [31:0] sd_lba[VDNUM];
 wire  [VDNUM-1:0] sd_rd;
 wire  [VDNUM-1:0] sd_wr;
 wire  [VDNUM-1:0] sd_ack;
-wire            [7:0] sd_buff_addr;
+// Full WIDE-mode width from hps_io ([12:0]): [7:0] serves every 512-byte
+// consumer; [12:8] reach the CD whole-frame burst path (2352 B/txn) once the
+// CD slot is wired (MacLC transplant seam — dormant until then).
+wire           [12:0] sd_buff_addr;
 wire           [15:0] sd_buff_dout;
 wire           [15:0] sd_buff_din[VDNUM];
 wire                  sd_buff_wr;
@@ -1562,7 +1565,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.io_wr(scsi_wr),
 	.io_ack(sd_ack[SCSI_DEVS-1:0]),
 
-	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_addr(sd_buff_addr[7:0]),
+	.sd_buff_addr_hi(sd_buff_addr[12:8]),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(scsi_buff_din),
 	.sd_buff_wr(sd_buff_wr),
@@ -1571,23 +1575,8 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi3(dbg_scsi3),
 	.dbg_scsi4(dbg_scsi4),
 	.dbg_scsi5(dbg_scsi5),
-	.dbg_scsi_wr(dbg_scsi_wr),
-	.dbg_wr0(dbg_wr0),
-	.dbg_regs(dbg_regs),
-	.dbg_selt0(dbg_selt0),
-	.dbg_wringA(dbg_wringA), .dbg_wringB(dbg_wringB),
-	.dbg_wringC(dbg_wringC), .dbg_wringD(dbg_wringD),
-	.dbg_selid(dbg_selid),
-	.dbg_winh0A(dbg_winh0A),
-	.dbg_winh0B(dbg_winh0B),
-	.dbg_iwh(dbg_iwh),
-	.dbg_cmdr0(dbg_cmdr0),
-	.dbg_star0(dbg_star0),
-	.dbg_lbar0A(dbg_lbar0A),
-	.dbg_lbar0B(dbg_lbar0B),
-	.dbg_xorr0A(dbg_xorr0A),
-	.dbg_xorr0B(dbg_xorr0B),
-	.dbg_selfail0(dbg_selfail0),
+	.dbg_wr(dbg_wr),
+	.dbg_wrfb(dbg_wrfb),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
 	.dbg_ring0(dbg_ring0),
@@ -1614,22 +1603,11 @@ wire [15:0] dbg_scsi2;
 wire [15:0] dbg_scsi3;
 wire [15:0] dbg_scsi4;
 wire [15:0] dbg_scsi5;
-wire [31:0] dbg_scsi_wr;   // target0 multi-block write-stall snapshot
-wire [31:0] dbg_wr0;       // target0 dbg_wrstall un-muxed (v3 starve diagnosis)
-wire [31:0] dbg_regs;      // live 5380 registers + bus lines (v3.2)
-wire [7:0]  dbg_selt0;     // target0 selection-gate sampler (v3.6)
-wire [31:0] dbg_wringA, dbg_wringB, dbg_wringC, dbg_wringD;  // v3.8 reg-write ring
-wire [31:0] dbg_selid;     // v3.9 selection-target detective
-wire [31:0] dbg_winh0A;    // v3.11 target0 window history
-wire [31:0] dbg_winh0B;
-wire [31:0] dbg_iwh;       // v3.12 initiator per-window counters
-wire [31:0] dbg_cmdr0;     // v3.14 target0 command-opcode ring
-wire [31:0] dbg_star0;     // v3.14 target0 status ring
-wire [31:0] dbg_lbar0A;    // v3.15 target0 read LBA ring
-wire [31:0] dbg_lbar0B;
-wire [31:0] dbg_xorr0A;    // v3.17 target0 delivered-data XOR ring
-wire [31:0] dbg_xorr0B;
-wire [31:0] dbg_selfail0;  // v3.16 target0 selection-failure tally
+// MacLC-transplant dbg export set (2026-08-08): the pre-transplant v3.x tap
+// wires (scsi_wr/wr0/regs/selt0/wring*/selid/winh*/iwh/cmdr0/star0/lbar0*/
+// xorr0*/selfail0) died with the old scsi.v; MacLC's anchor-law equivalents:
+wire [31:0] dbg_wr;        // write-stall snapshot, data-phase-routed
+wire [31:0] dbg_wrfb;      // write first-beat forensics (anchor feed)
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
 wire [31:0] dbg_ring0;     // read-ring serve/refill, target 0 (anchor-only feed)
@@ -2027,15 +2005,16 @@ sdram_arbiter arbiter (
 //   * fpcs pins the FPU CIR observability cone (fpu_dbg_cir_state) — our
 //     residual-lottery history is FPU-adjacent; keep its layout stable and
 //     the DBG_FPU probe re-attachable without a netlist change.
-(* preserve, noprune *) reg [31:0] anchor_scsi,  anchor_scsi4, anchor_swr,
-                                   anchor_wr0,   anchor_regs;
-(* preserve, noprune *) reg [31:0] anchor_wringA, anchor_wringB,
-                                   anchor_wringC, anchor_wringD;
-(* preserve, noprune *) reg [31:0] anchor_selid, anchor_winhA, anchor_winhB,
-                                   anchor_iwh,   anchor_cmdr,  anchor_star;
-(* preserve, noprune *) reg [31:0] anchor_lbarA, anchor_lbarB,
-                                   anchor_xorrA, anchor_xorrB, anchor_self;
-(* preserve, noprune *) reg [31:0] anchor_ncr2,  anchor_via2;
+// SCSI words re-based 2026-08-08 with the MacLC SCSI transplant: the old
+// v3.x tap set died with the old scsi.v; the pinned words below are exactly
+// MacLC's anchor-law SCSI exports (scsi..5 handshake/status, wr write-stall,
+// wrfb first-beat, ncr/ncr2 pseudo-DMA machine, ring0/1 below). When
+// CDROM_PRESENT goes to 1 in the feature round, ADD anchor words for
+// dbg_cda0-4 + dbg_cdur (MacLC pins them; constants until then, so they are
+// deliberately not anchored while the CD target is compiled out).
+(* preserve, noprune *) reg [31:0] anchor_scsi,  anchor_scsi4, anchor_scsi5;
+(* preserve, noprune *) reg [31:0] anchor_wr,    anchor_wrfb;
+(* preserve, noprune *) reg [31:0] anchor_ncr,   anchor_ncr2,  anchor_via2;
 (* preserve, noprune *) reg [31:0] anchor_adb0,  anchor_adb1,
                                    anchor_adb2,  anchor_adb3;
 (* preserve, noprune *) reg [31:0] anchor_coh0,  anchor_coh1;
@@ -2052,25 +2031,11 @@ sdram_arbiter arbiter (
 (* preserve, noprune *) reg [31:0] anchor_ring0, anchor_ring1;
 always @(posedge clk_sys) begin
 	anchor_scsi   <= {dbg_scsi, dbg_scsi2};
-	anchor_scsi4  <= {dbg_selt0, 8'b0, dbg_scsi4};
-	anchor_swr    <= dbg_scsi_wr;
-	anchor_wr0    <= dbg_wr0;
-	anchor_regs   <= dbg_regs;
-	anchor_wringA <= dbg_wringA;
-	anchor_wringB <= dbg_wringB;
-	anchor_wringC <= dbg_wringC;
-	anchor_wringD <= dbg_wringD;
-	anchor_selid  <= dbg_selid;
-	anchor_winhA  <= dbg_winh0A;
-	anchor_winhB  <= dbg_winh0B;
-	anchor_iwh    <= dbg_iwh;
-	anchor_cmdr   <= dbg_cmdr0;
-	anchor_star   <= dbg_star0;
-	anchor_lbarA  <= dbg_lbar0A;
-	anchor_lbarB  <= dbg_lbar0B;
-	anchor_xorrA  <= dbg_xorr0A;
-	anchor_xorrB  <= dbg_xorr0B;
-	anchor_self   <= dbg_selfail0;
+	anchor_scsi4  <= {dbg_scsi3, dbg_scsi4};
+	anchor_scsi5  <= {16'b0, dbg_scsi5};
+	anchor_wr     <= dbg_wr;
+	anchor_wrfb   <= dbg_wrfb;
+	anchor_ncr    <= dbg_ncr;
 	anchor_ncr2   <= dbg_ncr2;
 	anchor_via2   <= dbg_via2_irq;
 	anchor_adb0   <= dbg_adb;

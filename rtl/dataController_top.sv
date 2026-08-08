@@ -122,13 +122,16 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output  [SCSI_DEVS-1:0] io_wr,
 	input   [SCSI_DEVS-1:0] io_ack,
 	input             [7:0] sd_buff_addr,
+	input             [4:0] sd_buff_addr_hi, // hps_io addr[12:8] (CD whole-frame bursts)
 	input            [15:0] sd_buff_dout,
 	output           [15:0] sd_buff_din[SCSI_DEVS],
 	input                   sd_buff_wr,
 
-	// JTAG debug passthrough: NCR5380 selection/arbitration state
-	// (probe decks deleted 2026-08-08; these now feed ONLY the top-level
-	// marginality anchor — keep them wired, see LBMacTwo.sv anchor block)
+	// JTAG debug passthrough — MacLC-transplant export set (2026-08-08).
+	// Probe decks are deleted; these feed ONLY the top-level marginality
+	// anchor. The pre-transplant v3.x taps (scsi_wr/wr0/regs/selt0/wring*/
+	// selid/winh*/iwh/cmdr0/star0/lbar0*/xorr0*/selfail0) no longer exist in
+	// MacLC's ncr5380/scsi.v; their anchor-law equivalents are wr/wrfb/ring.
 	output           [31:0] dbg_ring0,     // read-ring serve/refill, target 0 (anchor)
 	output           [31:0] dbg_ring1,     // read-ring serve/refill, target 1 (anchor)
 	output           [15:0] dbg_scsi,
@@ -136,25 +139,8 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi3,
 	output           [15:0] dbg_scsi4,
 	output           [15:0] dbg_scsi5,
-	output           [31:0] dbg_scsi_wr,   // target0 multi-block write-stall snapshot
-	output           [31:0] dbg_wr0,       // target0 dbg_wrstall, un-muxed live tap
-	output           [31:0] dbg_regs,      // live 5380 registers + bus lines (v3.2)
-	output           [7:0]  dbg_selt0,     // target0 selection-gate sampler (v3.6)
-	output           [31:0] dbg_wringA,    // v3.8 reg-write ring
-	output           [31:0] dbg_wringB,
-	output           [31:0] dbg_wringC,
-	output           [31:0] dbg_wringD,
-	output           [31:0] dbg_selid,     // v3.9 selection-target detective
-	output           [31:0] dbg_winh0A,    // v3.11 target0 window history
-	output           [31:0] dbg_winh0B,
-	output           [31:0] dbg_iwh,       // v3.12 initiator per-window counters
-	output           [31:0] dbg_cmdr0,     // v3.14 target0 command-opcode ring
-	output           [31:0] dbg_star0,     // v3.14 target0 status ring
-	output           [31:0] dbg_lbar0A,    // v3.15 target0 read LBA ring
-	output           [31:0] dbg_lbar0B,
-	output           [31:0] dbg_xorr0A,    // v3.17 target0 delivered-data XOR ring
-	output           [31:0] dbg_xorr0B,
-	output           [31:0] dbg_selfail0, // v3.16 target0 selection-failure tally
+	output           [31:0] dbg_wr,        // write-stall snapshot, data-phase-routed
+	output           [31:0] dbg_wrfb,      // write first-beat forensics (anchor)
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
@@ -289,19 +275,20 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// scsiDREQ still paces DACK-cycle DTACK at the top level (untouched).
 	wire scsiIRQ;
 	wire scsiDRQlvl;
-	// ENABLE_EMPTY_CD(0) — 2026-07-10: the phantom empty-CD target (ID3) is
-	// the happy-mac-reboot storm root cause. Probe-proven on be5c1800 (JTAG
-	// reboot-differential deck): boot-disk transaction completes (ph7), then
-	// the 7.5.5 mount/CD-extension scan selects ID3; scsi_empty_cd completes
-	// only 6/10-byte CDBs (scsi.v cmd_cpl) and has no initiator-abandon exit,
-	// so a group-5 12-byte CD probe (READ CD 0xBE) parks it in CMD_IN holding
-	// BSY+REQ = bus never free (live flags: scsi_req_bus=1 w/ target0 IDLE).
-	// Every SCSIReset clears it; the rescan re-wedges it in ms -> reset storm
-	// (255 saturated), ROM gives up -> reboot loop. MacLC AND MacLCii ship
-	// ENABLE_EMPTY_CD(0) — this core was the only one with it on. If ever
-	// re-enabled: add 12-byte/unknown-group CDB completion + a SEL-drop /
-	// ACK-timeout bailout to IDLE in scsi_empty_cd first.
-	ncr5380 #(.DEVS(SCSI_DEVS), .ENABLE_EMPTY_CD(0)) scsi(
+	// MacLC SCSI transplant (2026-08-08, owner call): ncr5380.sv + scsi.v are
+	// now the MacLC master pair wholesale (their months of HW-hardened fixes:
+	// port-B prefetch dpram + cc81843 host-face pipeline, write lane-slip fix,
+	// REQ look-ahead stall, 12-byte CDBs, Toolbox + CD command sets). Only
+	// documented seams differ: o_drq_lvl (Mac II VIA2 CA2), CDROM_PRESENT(0)
+	// (CD target compiled out until the feature round frees its ~5.7K ALMs).
+	// The old scsi_empty_cd stub saga (2026-07-10 reset storm, probe-proven on
+	// be5c1800) is closed by construction: MacLC's pair has no empty-CD
+	// instantiation, and the real CD target — when enabled — completes 12-byte
+	// group-5 CDBs.
+	// Toolbox note: target 0 carries TOOLBOX_ENABLE in MacLC's ncr5380; with
+	// tb_mounted tied 0 below it stays dormant (tb_ready never sets) until the
+	// VD_TOOLBOX hps slot is wired in the feature round.
+	ncr5380 #(.DEVS(SCSI_DEVS), .CDROM_PRESENT(0)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
@@ -327,31 +314,48 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.io_ack ( io_ack ),
 
 		.sd_buff_addr(sd_buff_addr),
+		.sd_buff_addr_hi(sd_buff_addr_hi),
 		.sd_buff_dout(sd_buff_dout),
 		.sd_buff_din(sd_buff_din),
 		.sd_buff_wr(sd_buff_wr),
+
+		// Toolbox / CD-changer / CD-ROM hps slots: not wired yet (VDNUM=3).
+		// Inputs tied inactive; outputs open. Feature round wires slots 3/4/5.
+		.tb_mounted(1'b0),
+		.tb_lba(),
+		.tb_rd(),
+		.tb_wr(),
+		.tb_ack(1'b0),
+		.tb_buff_din(),
+		.cdtb_mounted(1'b0),
+		.cdtb_lba(),
+		.cdtb_rd(),
+		.cdtb_wr(),
+		.cdtb_ack(1'b0),
+		.cdtb_buff_din(),
+		.cd_snd_l(),
+		.cd_snd_r(),
+		.cd_enable(1'b0),
+		.cd_img_mounted(1'b0),
+		.cd_io_lba(),
+		.cd_io_rd(),
+		.cd_io_wr(),
+		.cd_io_ack(1'b0),
+		.cd_sd_buff_din(),
+
 		.dbg_scsi(dbg_scsi),
 		.dbg_scsi2(dbg_scsi2),
 		.dbg_scsi3(dbg_scsi3),
 		.dbg_scsi4(dbg_scsi4),
 		.dbg_scsi5(dbg_scsi5),
-		.dbg_scsi_wr(dbg_scsi_wr),
-		.dbg_wr0(dbg_wr0),
-		.dbg_regs(dbg_regs),
-		.dbg_selt0(dbg_selt0),
-		.dbg_wringA(dbg_wringA), .dbg_wringB(dbg_wringB),
-		.dbg_wringC(dbg_wringC), .dbg_wringD(dbg_wringD),
-		.dbg_selid(dbg_selid),
-		.dbg_winh0A(dbg_winh0A),
-		.dbg_winh0B(dbg_winh0B),
-		.dbg_iwh(dbg_iwh),
-		.dbg_cmdr0(dbg_cmdr0),
-		.dbg_star0(dbg_star0),
-		.dbg_lbar0A(dbg_lbar0A),
-		.dbg_lbar0B(dbg_lbar0B),
-		.dbg_xorr0A(dbg_xorr0A),
-		.dbg_xorr0B(dbg_xorr0B),
-		.dbg_selfail0(dbg_selfail0),
+		.dbg_wr(dbg_wr),
+		.dbg_wrfb(dbg_wrfb),
+		.dbg_cda0(),
+		.dbg_cda1(),
+		.dbg_cda2(),
+		.dbg_cda3(),
+		.dbg_cda4(),
+		.dbg_cdur(),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2),
 		.dbg_ring0(dbg_ring0),

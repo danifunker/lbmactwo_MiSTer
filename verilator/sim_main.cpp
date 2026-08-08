@@ -440,7 +440,9 @@ static inline uint8_t scsi_debug_csr() {
 	uint8_t mr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__mr;
 	uint8_t icr = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__icr;
 	uint8_t target_bsy = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy;
-	bool empty_cd_bsy = VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__phase != 0;
+	// scsi_empty_cd is no longer instantiated (MacLC SCSI transplant 2026-08-08;
+	// the real CD target replaces the stub and is compiled out via CDROM_PRESENT=0).
+	bool empty_cd_bsy = false;
 	bool scsi_bsy = (icr & 0x08) || target_bsy || empty_cd_bsy || (mr & 0x01);
 
 	return ((icr & 0x80) ? 0x80 : 0x00) |
@@ -1090,10 +1092,7 @@ static void print_boot_decision_debug(uint32_t pc) {
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__scsi_req ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_bsy,
 		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target_req,
-		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__phase,
-		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd_cnt,
-		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd[0],
-		VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status,
+		0, 0, 0, 0,  // empty_cd gone (MacLC transplant; stub not instantiated)
 		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q6 ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__q7 ? 1 : 0,
 		VERTOPINTERN->emu__DOT__dc0__DOT__sw__DOT__anyDiskEnable ? 1 : 0,
@@ -1375,7 +1374,7 @@ int verilate() {
 					// DREQ asserted but CPU not draining it -> count consecutive
 					// fetches; once it's clearly wedged, dump the PC ring buffer
 					// (the outer loop that abandoned the data transfer) and stop.
-					if (VERTOPINTERN->emu__DOT__scsiDREQ) {
+					if (VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dreq_r) {
 						if (++scsi_stall_dreq_run >= 400000) {
 							fprintf(stderr, "SCSI_STALL_HISTORY trigger frame=%d pc=%08X dreq stuck\n",
 							        video.count_frame, pc);
@@ -2172,7 +2171,7 @@ int verilate() {
 						!VERTOPINTERN->debug_cpuUDS ? 1 : 0,
 						!VERTOPINTERN->debug_cpuLDS ? 1 : 0,
 						!VERTOPINTERN->debug_cpuDTACK ? 1 : 0,
-						VERTOPINTERN->emu__DOT__scsiDREQ ? 1 : 0,
+						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dreq_r ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__dma_en ? 1 : 0,
 						scsi_debug_pmatch() ? 1 : 0,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__phase,
@@ -2232,10 +2231,7 @@ int verilate() {
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__cmd_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_cnt,
 						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__target__BRA__0__KET____DOT__target__DOT__data_complete ? 1 : 0,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__phase,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd_cnt,
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__cmd[0],
-						VERTOPINTERN->emu__DOT__dc0__DOT__scsi__DOT__empty_cd__DOT__status);
+						0, 0, 0, 0);  // empty_cd gone (MacLC transplant)
 					scsi_debug_count++;
 				}
 				scsi_debug_prev_bus_control = bus_active;
