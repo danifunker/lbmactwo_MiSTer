@@ -1588,6 +1588,12 @@ dataController_top #(SCSI_DEVS) dc0
 	.dbg_scsi5(dbg_scsi5),
 	.dbg_wr(dbg_wr),
 	.dbg_wrfb(dbg_wrfb),
+	.dbg_cda0(dbg_cda0),
+	.dbg_cda1(dbg_cda1),
+	.dbg_cda2(dbg_cda2),
+	.dbg_cda3(dbg_cda3),
+	.dbg_cda4(dbg_cda4),
+	.dbg_cdur(dbg_cdur),
 	.dbg_ncr(dbg_ncr),
 	.dbg_ncr2(dbg_ncr2),
 	.dbg_ring0(dbg_ring0),
@@ -1619,6 +1625,8 @@ wire [15:0] dbg_scsi5;
 // xorr0*/selfail0) died with the old scsi.v; MacLC's anchor-law equivalents:
 wire [31:0] dbg_wr;        // write-stall snapshot, data-phase-routed
 wire [31:0] dbg_wrfb;      // write first-beat forensics (anchor feed)
+// CD-target visibility (LIVE with CDROM_PRESENT=1 — anchor-law coverage)
+wire [31:0] dbg_cda0, dbg_cda1, dbg_cda2, dbg_cda3, dbg_cda4, dbg_cdur;
 wire [31:0] dbg_ncr;       // NCR5380 host-side pseudo-DMA stall
 wire [31:0] dbg_ncr2;
 wire [31:0] dbg_ring0;     // read-ring serve/refill, target 0 (anchor-only feed)
@@ -2019,12 +2027,15 @@ sdram_arbiter arbiter (
 // SCSI words re-based 2026-08-08 with the MacLC SCSI transplant: the old
 // v3.x tap set died with the old scsi.v; the pinned words below are exactly
 // MacLC's anchor-law SCSI exports (scsi..5 handshake/status, wr write-stall,
-// wrfb first-beat, ncr/ncr2 pseudo-DMA machine, ring0/1 below). When
-// CDROM_PRESENT goes to 1 in the feature round, ADD anchor words for
-// dbg_cda0-4 + dbg_cdur (MacLC pins them; constants until then, so they are
-// deliberately not anchored while the CD target is compiled out).
+// wrfb first-beat, ncr/ncr2 pseudo-DMA machine, ring0/1 below).
+// cda0-4 + cdur added with CDROM_PRESENT=1 (2026-08-08, same day): the CD
+// target's visibility taps became LIVE nets and MUST be pinned like every
+// other export — the id3fix first fit left them dangling and black-wedged
+// pre-video on a cold load (the STA-met-but-HW-fails class, again).
 (* preserve, noprune *) reg [31:0] anchor_scsi,  anchor_scsi4, anchor_scsi5;
 (* preserve, noprune *) reg [31:0] anchor_wr,    anchor_wrfb;
+(* preserve, noprune *) reg [31:0] anchor_cda0,  anchor_cda1,  anchor_cda2,
+                                   anchor_cda3,  anchor_cda4,  anchor_cdur;
 (* preserve, noprune *) reg [31:0] anchor_ncr,   anchor_ncr2,  anchor_via2;
 (* preserve, noprune *) reg [31:0] anchor_adb0,  anchor_adb1,
                                    anchor_adb2,  anchor_adb3;
@@ -2046,6 +2057,12 @@ always @(posedge clk_sys) begin
 	anchor_scsi5  <= {16'b0, dbg_scsi5};
 	anchor_wr     <= dbg_wr;
 	anchor_wrfb   <= dbg_wrfb;
+	anchor_cda0   <= dbg_cda0;
+	anchor_cda1   <= dbg_cda1;
+	anchor_cda2   <= dbg_cda2;
+	anchor_cda3   <= dbg_cda3;
+	anchor_cda4   <= dbg_cda4;
+	anchor_cdur   <= dbg_cdur;
 	anchor_ncr    <= dbg_ncr;
 	anchor_ncr2   <= dbg_ncr2;
 	anchor_via2   <= dbg_via2_irq;

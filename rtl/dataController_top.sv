@@ -141,6 +141,14 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	output           [15:0] dbg_scsi5,
 	output           [31:0] dbg_wr,        // write-stall snapshot, data-phase-routed
 	output           [31:0] dbg_wrfb,      // write first-beat forensics (anchor)
+	// CD-target visibility words — LIVE nets once CDROM_PRESENT=1 (2026-08-08);
+	// anchor-law: they must reach the top-level anchor, never dangle.
+	output           [31:0] dbg_cda0,
+	output           [31:0] dbg_cda1,
+	output           [31:0] dbg_cda2,
+	output           [31:0] dbg_cda3,
+	output           [31:0] dbg_cda4,
+	output           [31:0] dbg_cdur,
 	output           [31:0] dbg_ncr,       // NCR5380 host-side pseudo-DMA stall
 	output           [31:0] dbg_ncr2,      // NCR5380 write loss-mechanism counters
 	output           [31:0] dbg_via2_irq,  // VIA2 {irq_out, IER, IFR_eff, PCR, ACR} (PVIA)
@@ -359,12 +367,12 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.dbg_scsi5(dbg_scsi5),
 		.dbg_wr(dbg_wr),
 		.dbg_wrfb(dbg_wrfb),
-		.dbg_cda0(),
-		.dbg_cda1(),
-		.dbg_cda2(),
-		.dbg_cda3(),
-		.dbg_cda4(),
-		.dbg_cdur(),
+		.dbg_cda0(dbg_cda0),
+		.dbg_cda1(dbg_cda1),
+		.dbg_cda2(dbg_cda2),
+		.dbg_cda3(dbg_cda3),
+		.dbg_cda4(dbg_cda4),
+		.dbg_cdur(dbg_cdur),
 		.dbg_ncr(dbg_ncr),
 		.dbg_ncr2(dbg_ncr2),
 		.dbg_ring0(dbg_ring0),
