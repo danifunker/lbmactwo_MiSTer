@@ -117,6 +117,16 @@ parameter TB_ADDRW = 8;
 // 1 = read-only CD-ROM: 2048-byte logical blocks served as 4 consecutive
 // 512-byte HPS blocks (lba/tlen <<2), AppleCD INQUIRY/TOC/no-disc sense.
 parameter CDROM = 0;
+// LBMacTwo seam (2026-08-08): CD target WITHOUT the cd_audio engine. The
+// g_no_cd_audio tie-off arm below already provides the correct media-less
+// answers (ast_code 05, toc_ready 0), and with no disc ever mounted the
+// TOC/audio paths are unreachable — so a CDROM=1, CD_AUDIO=0 target is a
+// full-fidelity NO-DISC ANSWERER at ~2.8K ALMs instead of ~5.7K. Why this
+// exists: Snow A/B 2026-08-08 proved the MacLC-lineage 7.x images' CD-era
+// System software retries ID3 selection FOREVER at boot when nothing
+// answers (the "reboot glitch"); an empty drive answering selection with
+// no-disc sense unwedges it. MacLC default = 1 (their behavior unchanged).
+parameter CD_AUDIO = 1;
 
 // Read-prefetch ring depth (number of 512-byte sectors held in the buffer).
 // The read path keeps this many blocks fetched AHEAD of the Mac so the per-block
@@ -1872,7 +1882,7 @@ end
 wire ca_grant = (phase == PHASE_IDLE || (cmd_read && phase == PHASE_DATA_OUT))
                 && !io_rd_d && !io_wr && !io_ack && mounted;
 
-generate if (CDROM != 0) begin : g_cd_audio
+generate if (CDROM != 0 && CD_AUDIO != 0) begin : g_cd_audio
 	cd_audio #(.CLK_HZ(32'd32_500_000)) cd_audio_i (   // clk_sys rate; audio pitch verifies it
 		.clk(clk), .rst(sys_rst), .bus_rst(rst),
 		.mounted(mounted), .img_mounted(img_mounted), .img_blocks(img_blocks),

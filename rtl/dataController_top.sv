@@ -288,7 +288,13 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 	// Toolbox note: target 0 carries TOOLBOX_ENABLE in MacLC's ncr5380; with
 	// tb_mounted tied 0 below it stays dormant (tb_ready never sets) until the
 	// VD_TOOLBOX hps slot is wired in the feature round.
-	ncr5380 #(.DEVS(SCSI_DEVS), .CDROM_PRESENT(0)) scsi(
+	// CDROM_PRESENT(1) + CDROM_AUDIO(0) = the NO-DISC ANSWERER (2026-08-08):
+	// Snow A/B proved the MacLC-lineage 7.x images' CD software retries ID3
+	// selection forever at boot when nothing answers — the "reboot glitch".
+	// The audio-less CD target answers selection with proper no-disc sense
+	// (~2.8K ALMs); no hps slot needed until a real CD mount arrives in the
+	// feature round (cd_img_mounted stays tied 0 below).
+	ncr5380 #(.DEVS(SCSI_DEVS), .CDROM_PRESENT(1), .CDROM_AUDIO(0)) scsi(
 		.clk(clk32),
 		.reset(!_cpuReset),
 		.bus_cs(selectSCSI),
@@ -335,7 +341,10 @@ module dataController_top  #(parameter SCSI_DEVS = 2)(
 		.cdtb_buff_din(),
 		.cd_snd_l(),
 		.cd_snd_r(),
-		.cd_enable(1'b0),
+		// Enabled = the drive answers selection (the whole point of the
+		// no-disc answerer). The OSD "OI" enable/disable switch arrives with
+		// the feature round; hardwired on until then.
+		.cd_enable(1'b1),
 		.cd_img_mounted(1'b0),
 		.cd_io_lba(),
 		.cd_io_rd(),

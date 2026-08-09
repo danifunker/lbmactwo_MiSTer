@@ -173,14 +173,16 @@ module ncr5380
 	// the CD is never the boot device, so latency-hiding matters less.
 	parameter CD_RING_LOG = 3;
 	// LBMacTwo seam (2026-08-08, MacLC-transplant): compile the CD-ROM target
-	// in or out. MacLC default = 1 (present). LBMacTwo passes 0 for now — the
-	// CD target + cd_audio cost ~5.7K ALMs the Mac II build cannot spend until
-	// the feature round frees them (see scratch/optimize_core_plan.md); with 0
-	// every cd_* wire below ties inactive and the whole CD path (including
-	// cd_audio) constant-folds out of the netlist. Flip to 1 + wire the SC4
-	// mount to enable. Keep this the ONLY structural divergence from MacLC's
-	// ncr5380.sv so family syncs stay one-hunk.
+	// in or out. MacLC default = 1 (present). With 0 every cd_* wire below
+	// ties inactive and the whole CD path (including cd_audio) constant-folds
+	// out of the netlist. Keep these the ONLY structural divergences from
+	// MacLC's ncr5380.sv so family syncs stay one-hunk.
 	parameter CDROM_PRESENT = 1;
+	// Companion seam: CD target present but WITHOUT the cd_audio engine
+	// (scsi.v CD_AUDIO param — the no-disc answerer that fixes the ID3
+	// boot-scan wedge at ~2.8K ALMs; see scsi.v's CD_AUDIO comment).
+	// MacLC parity = 1.
+	parameter CDROM_AUDIO = 1;
 
 	reg  [7:0] mr;        /* Mode Register */
 	reg  [7:0] icr;       /* Initiator Command Register */
@@ -727,7 +729,7 @@ module ncr5380
 	// TB_ADDRW(11) = 4 KB tb buffer (8 sectors) so LIST CDS holds the full
 	// 100-entry list in one fetch-all-then-serve pass (§4/§10 of the contract).
 	generate if (CDROM_PRESENT) begin : g_cdrom
-	scsi #(.ID(3'd3), .CDROM(1), .CDCHANGER_ENABLE(1), .TB_ADDRW(11), .RING_LOG(CD_RING_LOG)) cdrom_target
+	scsi #(.ID(3'd3), .CDROM(1), .CD_AUDIO(CDROM_AUDIO), .CDCHANGER_ENABLE(1), .TB_ADDRW(11), .RING_LOG(CD_RING_LOG)) cdrom_target
 	(
 		.clk    ( clk ),
 		.rst    ( scsi_rst ),
