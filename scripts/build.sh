@@ -13,9 +13,24 @@ PROJECT_NAME="${PROJECT_NAME:-LBMacTwo}"
 
 LOG="output_files/auto_compile_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p output_files
-echo "[$(date)] Waiting for any in-progress Quartus to finish..." | tee -a "$LOG"
+# Courtesy wait for another in-progress compile — BOUNDED (2026-08-10).
+# Why bounded: a crashed compile can leave DEFUNCT quartus_map entries that
+# tasklist still reports forever (Windows keeps the entry when a handle
+# outlives the process; Stop-Process/taskkill both answer "no running
+# instance"). The old unbounded loop then waited on ghosts — twice, once for
+# 2.9 hours, silently never compiling. Quartus does its OWN project locking,
+# so proceeding is safe: a genuinely concurrent compile makes quartus_sh exit
+# with a lock error rather than corrupting anything.
+WAIT_MAX_SEC="${BUILD_WAIT_MAX_SEC:-1200}"   # 20 min
+waited=0
+echo "[$(date)] Waiting for any in-progress Quartus to finish (max ${WAIT_MAX_SEC}s)..." | tee -a "$LOG"
 while tasklist 2>/dev/null | grep -qiE "quartus_(map|fit|asm|sta|sh|pgm)\.exe"; do
+    if [ "$waited" -ge "$WAIT_MAX_SEC" ]; then
+        echo "[$(date)] WARNING: quartus_* still listed after ${waited}s — assuming defunct entries, proceeding (Quartus will lock-error if a real compile is live)." | tee -a "$LOG"
+        break
+    fi
     sleep 30
+    waited=$((waited + 30))
 done
 touch output_files/.compile_in_progress
 echo "[$(date)] Starting compile $PROJECT_NAME" | tee -a "$LOG"
