@@ -1394,7 +1394,16 @@ wire [1:0] diskMotor, diskAct;
 // 640x480 (300 KB) with headroom. 512 KB does NOT fit: it alone needs 512 of
 // the device's 553 M10K blocks (the rest of the core uses ~105). Single
 // source of truth for both the card's bound check and the vram_ram instance.
-localparam VRAM_WORDS = 196608;
+// 2026-08-09 (owner call): trimmed 384 KB -> exactly 300 KB = 8 bpp @ 640x480
+// (307,200 B; the 12" 512x384 modes need less). The old 84 KB headroom was
+// never addressable by the driver (rowbytes 640/512) and the card FSM already
+// drops OOB writes (cpu_vram_word < VRAM_WORDS, mdc824 lines ~499/518), so
+// this is purely -84 M10K blocks: 506 -> ~422 (92% -> 76%). The M10K headroom
+// is the point — placement/routing pressure relief chip-wide (the family's
+// "headroom is the real cure" law), which is what the marginal FPU cones need.
+// vram_ram law: after any resize CHECK the fit report — vram_inst must use
+// exactly WORDS/512 M10K blocks (153600/512 = 300), not double.
+localparam VRAM_WORDS = 153600;
 
 nubus_video_mdc824 #(.VRAM_WORDS(VRAM_WORDS)) nubus_card (
 	.clk(clk_sys),
@@ -2078,6 +2087,46 @@ always @(posedge clk_sys) begin
 	anchor_ring0  <= dbg_ring0;
 	anchor_ring1  <= dbg_ring1;
 end
+
+// ── DBG_FPU diagnostic deck (re-added 2026-08-09 for the reboot-glitch hunt) ──
+// Two ISSP probes, gated by the DBG_FPU macro (LBMacTwo.qsf). The anchor
+// keeps fpu_dbg_cir_state loaded in every build, so attaching/detaching this
+// deck does not change the netlist class (see the anchor comment).
+//   FPCS = live FPU CIR state (mc68881_top layout: [31:16] response primitive,
+//          [15:11] cir_state, [10:6] MAX state seen, [2] except-seen,
+//          [1] restore-frame-seen, [0] cir_active). scripts/read_fpu.tcl.
+//   PRST = reboot forensics. THE DISCRIMINATOR for "Happy Mac -> spontaneous
+//          reboot": [31:24] n_reset assertion count since FPGA config
+//          (config+first boot = 1). Symptom reboot WITHOUT the count bumping
+//          => no hardware reset ever fired => the reboot was CPU-INTERNAL
+//          (double bus fault / exception cascade — the FPU-probe window
+//          suspect). Count bumped => hardware reset; [22:16] latched cause at
+//          the LAST assertion, [6:0] live cause now. Cause bit order (both
+//          fields): {!sys_locked, osd_reset_req, buttons[1], RESET,
+//          !clear_done, pram_force_reset, !pram_ready}.
+`ifdef DBG_FPU
+reg [7:0] dbg_rst_evt_cnt = 8'd0;
+reg [6:0] dbg_rst_last_cause = 7'd0;
+reg       dbg_n_reset_d = 1'b1;
+wire [6:0] dbg_rst_live_cause = {~sys_locked, osd_reset_req, buttons[1], RESET,
+                                 ~clear_done, pram_force_reset, ~pram_ready};
+always @(posedge clk_sys) begin
+	dbg_n_reset_d <= n_reset;
+	if (dbg_n_reset_d && !n_reset) begin      // reset assertion edge
+		if (dbg_rst_evt_cnt != 8'hFF) dbg_rst_evt_cnt <= dbg_rst_evt_cnt + 8'd1;
+		dbg_rst_last_cause <= dbg_rst_live_cause;
+	end
+end
+altsource_probe #(
+	.instance_id ("FPCS"), .probe_width (32), .source_width (1),
+	.sld_auto_instance_index ("YES")
+) p_fpcs (.probe(fpu_dbg_cir_state), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(
+	.instance_id ("PRST"), .probe_width (32), .source_width (1),
+	.sld_auto_instance_index ("YES")
+) p_prst (.probe({dbg_rst_evt_cnt, 1'b0, dbg_rst_last_cause, 9'b0, dbg_rst_live_cause}),
+          .source(), .source_clk(clk_sys), .source_ena(1'b1));
+`endif
 
 
 

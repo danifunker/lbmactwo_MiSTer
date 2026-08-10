@@ -76,14 +76,18 @@ set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF
 # Disable SignalTap (removes auto_signaltap_0 critical warning)
 set_global_assignment -name ENABLE_SIGNALTAP OFF
 
-# ALL probe fabric deleted from the core 2026-08-08 (owner call): dbg_wedge,
-# dbg_min, dbg_coldinit, the DBG_FPU FPCS probe and the ncr5380 PWR2/PSEL pair
-# no longer exist in the RTL, so the DBG_WEDGE / DBG_PROBES / DBG_COLDINIT /
-# DBG_FPU macros have no effect and are gone from this file. Every cone the
+# Probe fabric deleted 2026-08-08 (owner call): dbg_wedge, dbg_min,
+# dbg_coldinit and the ncr5380 PWR2/PSEL pair no longer exist in the RTL
+# (DBG_WEDGE / DBG_PROBES / DBG_COLDINIT have no effect). Every cone the
 # instruments consumed is pinned by the always-on marginality anchor in
-# LBMacTwo.sv (MacLC 4dfb463 law — do not remove it). To resurrect an
-# instrument for a hardware hunt, revert the deleting commit; the read
-# scripts in scripts/ are kept in-tree and match the reverted instruments.
+# LBMacTwo.sv (MacLC 4dfb463 law — do not remove it).
+# 2026-08-09: DBG_FPU deck RE-ADDED (fresh block in LBMacTwo.sv, not a revert)
+# for the reboot-glitch hunt: FPCS = live FPU CIR state (read_fpu.tcl),
+# PRST = reboot forensics (reset-event count + cause; count NOT bumping across
+# a symptom reboot = CPU-internal double-fault = the FPU-window suspect).
+# The anchor keeps fpu_dbg_cir_state loaded either way, so this deck attaches
+# without a netlist-class change. Remove the macro for release builds.
+set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
 
 # disable bilinear filtering when downscaling
 #set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"
