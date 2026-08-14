@@ -19,7 +19,9 @@ After a few seconds, the floppy disk icon should appear. Open the on-screen disp
 
 ## Floppy disk support
 
-Internal and external floppy disk drives are both supported. The first and second entries in the OSD correspond to the internal and external floppy disk drives, respectively.
+One (internal) floppy disk drive is supported — "Mount Floppy" in the OSD. (The second/external bay was removed 2026-08-08 to free fit headroom for BlueSCSI Toolbox / CD-ROM.)
+
+The OSD "Aspect ratio: Original" setting requests true **4:3**, matching both monitor modes (640×480 13" and 512×384 12" — both are 4:3 CRTs). Older builds requested 256:171 (a Mac Plus 512×342 leftover), which squished the picture ~12% and made the integer-scaling modes request a wider-than-panel image on 5:4/4:3 panels (e.g. 1280×1024 → blank screen). `scripts/aspect_check.py` is the offline regression gate for this path.
 
 Floppy disk images need to be in raw disk format (a.k.a. DiskDup format) with a .dsk extension. Single-sided 400k disk images must be exactly 409,600 bytes in size. Double-sided 800k disk images must be exactly 819,200 bytes in size.  Disk Copy 4.2 files are not currently supported. They are largely the same as raw disk format, but include an additional 84-byte header. A tool to convert DC42 format to dsk is available [here](https://www.bigmessowires.com/2013/12/16/macintosh-diskcopy-4-2-floppy-image-converter/).
 
