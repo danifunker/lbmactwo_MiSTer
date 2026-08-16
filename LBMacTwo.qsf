@@ -87,7 +87,14 @@ set_global_assignment -name ENABLE_SIGNALTAP OFF
 # a symptom reboot = CPU-internal double-fault = the FPU-window suspect).
 # The anchor keeps fpu_dbg_cir_state loaded either way, so this deck attaches
 # without a netlist-class change. Remove the macro for release builds.
-set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
+# 2026-08-14: OFF — release configuration. The deck's RTL stays in
+# LBMacTwo.sv behind this macro, and the probe-bearing bitstream is preserved
+# as releases/LBMacTwo_Unstable_20260814.rbf for the residual-boot-hang hunt
+# (docs/residual_boot_hang.md), so re-enabling is this one line.
+# NOTE: this makes the netlist probes-OFF — the class the marginality anchor
+# in LBMacTwo.sv exists to protect (never remove or fold those words). Gate
+# any probes-off fit on hardware: boot-rate loop + Finder icon integrity.
+#set_global_assignment -name VERILOG_MACRO "DBG_FPU=1"
 
 # disable bilinear filtering when downscaling
 #set_global_assignment -name VERILOG_MACRO "MISTER_DOWNSCALE_NN=1"
