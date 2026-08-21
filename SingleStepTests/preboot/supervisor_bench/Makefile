@@ -21,6 +21,24 @@ include ../common/make/common.mk
 
 BUILD := build
 
+# ---------- CPU corpus selection ----------
+# The CPU corpus is compiled INTO the payload (bench_main.c includes it),
+# so excluding tests is a build-time choice, not a runtime one. Point
+# CPU_CORPUS at a filtered header to leave tests out of the binary:
+#
+#   make cpu                                        # full 718-test corpus
+#   make cpu_nogroup0                               # minus 68020 group 0 (vec 0-3)
+#   make cpu CPU_CORPUS=../../gen/my_corpus.h       # any filtered header
+#
+# Artifact paths don't change, so build_cpu_hda.sh / build_cpu_dsk.sh
+# pick up whichever corpus was selected (they honour $CPU_CORPUS too).
+CPU_CORPUS   ?= ../../gen/cpu_tests.h
+NOGROUP0_H   := ../../gen/cpu_tests_nogroup0.h
+FILTER_TESTS := ../../gen/filter_cpu_tests_h.py
+
+$(NOGROUP0_H): ../../gen/cpu_tests.h $(FILTER_TESTS)
+	python3 $(FILTER_TESTS) --exclude-group0 -o $@ $<
+
 COMMON_RUNTIME := $(COMMON)/runtime
 COMMON_DISPLAY := $(COMMON)/display
 COMMON_OLD     := $(COMMON)/display/old
@@ -29,7 +47,7 @@ COMMON_BOOT    := $(COMMON)/boot
 
 SIZE := $(PREFIX)size
 
-.PHONY: all clean scsi cpu_scsi cpu fpu cpu_fpu cpu_fpu_baseline cpu_fpu_save_restore minimal probe calibrate strides cpu_scsi_8bpp sizes
+.PHONY: FORCE all clean scsi cpu_scsi cpu cpu_nogroup0 fpu cpu_fpu cpu_fpu_baseline cpu_fpu_save_restore minimal probe calibrate strides cpu_scsi_8bpp sizes
 all: $(BUILD)/boot_stub_floppy.bin $(BUILD)/payload.bin sizes
 scsi:        $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_scsi.bin
 cpu_scsi:    $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_cpu_scsi.bin
@@ -38,6 +56,10 @@ cpu_scsi:    $(BUILD)/boot_stub_scsi.bin $(BUILD)/payload_cpu_scsi.bin
 # disk (.hda) — build_dsk.sh / build_hda.sh place /Payload anywhere and
 # patch the offset, rather than relying on the fixed 0x51600 layout.
 cpu:         $(BUILD)/boot_stub_patch.bin $(BUILD)/payload_cpu_scsi.bin
+# Same bench, group 0 (reset / bus error / address error, vectors 0-3)
+# exception tests filtered out of the compiled corpus.
+cpu_nogroup0: $(NOGROUP0_H)
+	$(MAKE) cpu CPU_CORPUS=$(NOGROUP0_H)
 # FPU correctness bench (gen/fpu_tests.h) and CPU+FPU integration bench —
 # separate artifacts, same patchable boot stub. build_fpu_*.sh /
 # build_cpu_fpu_*.sh assemble their disks. The cpu_fpu full corpus is
@@ -89,8 +111,14 @@ $(BUILD)/payload_entry_scsi.o: payload_entry_scsi.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 $(BUILD)/variant_cpu_scsi.o: variant_cpu_scsi.s | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
-$(BUILD)/bench_main.o: bench_main.c | $(BUILD)
-	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/bench_main.o: bench_main.c $(CPU_CORPUS) $(BUILD)/corpus.stamp | $(BUILD)
+	$(CC) $(CFLAGS) -DCPU_CORPUS_HEADER='"$(CPU_CORPUS)"' -c -o $@ $<
+
+# Records which corpus header the current bench_main.o was built against,
+# so switching CPU_CORPUS forces a rebuild even when both headers are older
+# than the object file.
+$(BUILD)/corpus.stamp: FORCE | $(BUILD)
+	@echo '$(CPU_CORPUS)' | cmp -s - $@ || echo '$(CPU_CORPUS)' > $@
 $(BUILD)/fpu_bench_main.o: fpu_bench_main.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 $(BUILD)/cpu_fpu_bench_main.o: cpu_fpu_bench_main.c | $(BUILD)

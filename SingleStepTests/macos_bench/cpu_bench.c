@@ -27,7 +27,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <Files.h>
-#include "../gen/cpu_tests.h"
+/* CPU corpus header; override with -DCPU_CORPUS_HEADER='"..."' to build
+ * against a filtered corpus (see gen/filter_cpu_tests_h.py). */
+#ifndef CPU_CORPUS_HEADER
+#define CPU_CORPUS_HEADER "../gen/cpu_tests.h"
+#endif
+#include CPU_CORPUS_HEADER
 
 typedef unsigned char  u8;
 typedef unsigned short u16;

@@ -18,7 +18,10 @@ IMG="$OUT"
 [[ -x "$RB" ]] || { echo "rb-cli not found at $RB"; exit 1; }
 command -v jq >/dev/null || { echo "jq required"; exit 1; }
 
-make cpu
+# CPU_CORPUS selects which corpus header is compiled into the payload;
+# e.g. CPU_CORPUS=../../gen/cpu_tests_nogroup0.h for a build without the
+# 68020 group 0 (vec 0-3) exception tests. Defaults to the full corpus.
+make cpu CPU_CORPUS="${CPU_CORPUS:-../../gen/cpu_tests.h}"
 [[ -f "$BOOT" ]]    || { echo "missing $BOOT"; exit 1; }
 [[ -f "$PAYLOAD" ]] || { echo "missing $PAYLOAD"; exit 1; }
 

@@ -160,6 +160,66 @@ Today the corpus contains: 696 non-privileged tests, 22 privileged
 tests, ~10 exception-raising tests, and zero `hw_unsafe`. Adding
 something like RESET or STOP later should set `hw_unsafe = true`.
 
+### Excluding tests from a build
+
+Those flags are *runtime* skips — the tests still ship in the binary.
+To leave tests out of the compiled corpus entirely (the Mac / preboot
+benches `#include` `gen/cpu_tests.h`, so the corpus is baked into the
+payload), filter the header first:
+
+```
+python3 gen/filter_cpu_tests_h.py --exclude-group0 \
+    -o gen/cpu_tests_nogroup0.h gen/cpu_tests.h
+```
+
+`--exclude-group0` drops the 68020 group 0 exception tests — vectors
+0–3: reset SSP/PC, bus error, address error (M68020UM Table 6-1). The
+corpus classifies exceptions only by name (`... (vec N / $XX)`, written
+by `mame_cpu_capture.lua`), so that is what the filter matches on.
+Today exactly one test qualifies:
+
+```
+EXC: JMP (A0) where A0=$1801 (odd, vec 3 / $0C)
+```
+
+Bus error (vec 2) is deliberately deferred — it needs `/BERR` — and
+reset is never generated, so the filter is future-proofed for those
+rather than currently matching them. `--exclude-vec 5,10` and
+`--exclude-name REGEX` cover other cuts.
+
+Then build against the filtered header. The supervisor bench has a
+`CPU_CORPUS` variable (default `../../gen/cpu_tests.h`) and a
+convenience target that filters + builds in one step:
+
+```
+cd preboot/supervisor_bench
+make cpu_nogroup0                              # filter, then make cpu
+make cpu CPU_CORPUS=../../gen/my_corpus.h      # any filtered header
+CPU_CORPUS=../../gen/cpu_tests_nogroup0.h ./build_cpu_hda.sh
+```
+
+Artifact names don't change, so the disk-image scripts work unchanged;
+`build/corpus.stamp` records the selection so switching corpora forces
+`bench_main.o` to rebuild. The Mac OS `CpuBench` app takes the same
+override at configure time:
+
+```
+cmake -DCPU_CORPUS_HEADER=../gen/cpu_tests_nogroup0.h ..
+```
+
+The verilator benches read their corpus at runtime instead, so there
+they need no rebuild — filter the JSONL:
+
+```
+jq -c '(.name | capture("vec (?<v>[0-9]+)") // null) as $m
+       | select($m == null or ($m.v | tonumber) > 3)' \
+   results/cpu/mame_baseline_2026-05-28.json > /tmp/no_group0.json
+```
+
+Whatever you exclude, exclude it from **both** sides before diffing:
+`gen/cpu_diff_corpus.py` pairs rows by position, so filtering only one
+file shifts every line after the cut.
+
 ## Regenerating corpora
 
 ### CPU corpus from MAME

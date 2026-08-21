@@ -7,7 +7,15 @@
 #include "eject.h"
 #include "freestanding.h"
 #include "jsonl_writer.h"
-#include "../../gen/cpu_tests.h"
+/* CPU corpus header. Override at build time to compile a filtered corpus
+ * into the payload, e.g. a variant with the 68020 group 0 (vec 0-3)
+ * exception tests removed:
+ *   make cpu CPU_CORPUS=../../gen/cpu_tests_nogroup0.h
+ * Mirrors the CPU_FPU_CORPUS_HEADER override in cpu_fpu_bench_main.c. */
+#ifndef CPU_CORPUS_HEADER
+#define CPU_CORPUS_HEADER "../../gen/cpu_tests.h"
+#endif
+#include CPU_CORPUS_HEADER
 /* tests_fpu corpus: #include "../../gen/fpu_tests.h" when an FPU variant
  * needs it. (Previously these were exposed via tests_cpu.h /
  * tests_fpu.h symlinks in supervisor_bench/; symlinks were removed
